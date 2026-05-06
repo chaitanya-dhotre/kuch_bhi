@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "704442380980",
+    "project_id": "kuch-bhi-am",
+    "storage_bucket": "kuch-bhi-am.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:704442380980:android:0149c499315c525aec9de1",
+        "android_client_info": {
+          "package_name": "com.chai.kuch_bhi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "704442380980-gm27v8qsprtvfnd0ab0880qarespiltc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chai.kuch_bhi",
+            "certificate_hash": "83d5cd153e6c4194ad9d0c0541bdd7dad6e97b0e"
+          }
+        },
+        {
+          "client_id": "704442380980-34iv6mgvuuc70v9gld5ekvs31jii9tvb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDFgqv0rKYhriEplm1-eyqXrF-KRo2rAO8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "704442380980-34iv6mgvuuc70v9gld5ekvs31jii9tvb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
