@@ -317,18 +317,33 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 }
 
-/// Riverpod provider. Requires pbClient to be initialized first.
+/// Riverpod provider. Waits for PocketBase to be ready.
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
-  final pbClient = ref.watch(pocketbaseClientProvider).valueOrNull;
-  if (pbClient == null) {
-    throw StateError(
-      'PocketBase client not initialized. '
-      'Await pocketbaseClientProvider before using authRepositoryProvider.',
-    );
-  }
-  return AuthRepositoryImpl(
-    pbClient: pbClient,
-    db: ref.read(appDatabaseProvider),
-    storage: ref.read(secureStorageProvider),
+  final pbClientAsync = ref.watch(pocketbaseClientProvider);
+
+  return pbClientAsync.when(
+    data: (pbClient) => AuthRepositoryImpl(
+      pbClient: pbClient,
+      db: ref.read(appDatabaseProvider),
+      storage: ref.read(secureStorageProvider),
+    ),
+    // While loading — return an empty impl that does nothing.
+    // The authProvider handles this loading state gracefully.
+    loading: () => _LoadingAuthRepository(),
+    error: (e, _) => throw StateError('PocketBase failed to init: $e'),
   );
 });
+
+/// Stub repository returned while PocketBase is still initializing.
+/// AuthNotifier.build() awaits the PocketBase future before calling
+/// getCurrentUser(), so this stub is never actually invoked for real ops.
+class _LoadingAuthRepository implements AuthRepository {
+  @override Future<User> signInWithEmailPassword({required String email, required String password}) => Future.error('Not ready');
+  @override Future<User> signInWithGoogle() => Future.error('Not ready');
+  @override Future<User> register({required String email, required String password, required String displayName, required String username}) => Future.error('Not ready');
+  @override Future<User?> getCurrentUser() async => null;
+  @override Future<void> signOut() async {}
+  @override Future<void> deleteAccount() async {}
+  @override Future<void> updateFcmToken(String token) async {}
+  @override Future<void> updatePublicKey(String publicKeyBase64) async {}
+}

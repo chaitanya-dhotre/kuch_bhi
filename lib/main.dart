@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'core/network/pocketbase_client.dart';
+import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
 
@@ -34,5 +36,17 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  runApp(const ProviderScope(child: KuchBhiApp()));
+  // Pre-initialize before runApp so providers never see a null client.
+  final secureStorage = SecureStorageService();
+  final pbClient = await PocketBaseClient.create(secureStorage);
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        secureStorageProvider.overrideWithValue(secureStorage),
+        pocketbaseClientProvider.overrideWith((_) async => pbClient),
+      ],
+      child: const KuchBhiApp(),
+    ),
+  );
 }

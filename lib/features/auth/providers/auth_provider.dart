@@ -4,40 +4,27 @@ import '../../../domain/entities/user.dart';
 import '../../../domain/repositories/auth_repository.dart';
 import '../../../infrastructure/repositories/auth_repository_impl.dart';
 
-/// Represents the current auth state of the app.
-sealed class AuthState {
-  const AuthState();
-}
-
-class AuthLoading extends AuthState {
-  const AuthLoading();
-}
-
-class AuthAuthenticated extends AuthState {
+sealed class AuthState { const AuthState(); }
+class AuthLoading        extends AuthState { const AuthLoading(); }
+class AuthAuthenticated  extends AuthState {
   const AuthAuthenticated(this.user);
   final User user;
 }
-
-class AuthUnauthenticated extends AuthState {
-  const AuthUnauthenticated();
-}
-
-class AuthError extends AuthState {
+class AuthUnauthenticated extends AuthState { const AuthUnauthenticated(); }
+class AuthError           extends AuthState {
   const AuthError(this.message);
   final String message;
 }
 
-/// Central auth state notifier. Controls all navigation decisions.
 class AuthNotifier extends AsyncNotifier<AuthState> {
   AuthRepository get _repo => ref.read(authRepositoryProvider);
 
   @override
   Future<AuthState> build() async {
-    // On first build, check if we have a cached user.
+    // PocketBase is pre-initialized in main() before runApp.
+    // No need to watch/await the client here — just check local cache.
     final user = await _repo.getCurrentUser();
-    if (user != null) {
-      return AuthAuthenticated(user);
-    }
+    if (user != null) return AuthAuthenticated(user);
     return const AuthUnauthenticated();
   }
 
@@ -55,7 +42,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     } on AuthException catch (e) {
       state = AsyncData(AuthError(e.message));
     } catch (e) {
-      state = AsyncData(AuthError('Unexpected error. Please try again.'));
+      state = AsyncData(AuthError('Unexpected error: $e'));
     }
   }
 
@@ -67,7 +54,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     } on AuthException catch (e) {
       state = AsyncData(AuthError(e.message));
     } catch (e) {
-      state = AsyncData(AuthError('Google sign in failed. Please try again.'));
+      state = AsyncData(AuthError('Google sign in failed: $e'));
     }
   }
 
@@ -89,7 +76,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     } on AuthException catch (e) {
       state = AsyncData(AuthError(e.message));
     } catch (e) {
-      state = AsyncData(AuthError('Registration failed. Please try again.'));
+      state = AsyncData(AuthError('Registration failed: $e'));
     }
   }
 
@@ -98,7 +85,6 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     state = const AsyncData(AuthUnauthenticated());
   }
 
-  /// Clear the error state so the UI can try again.
   void clearError() {
     if (state.value is AuthError) {
       state = const AsyncData(AuthUnauthenticated());
