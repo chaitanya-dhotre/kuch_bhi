@@ -16,6 +16,7 @@ class AppSettingsKeys {
   static const String theme = 'theme'; // 'light' | 'dark' | 'amoled'
   static const String appLockEnabled = 'app_lock_enabled';
   static const String currentUserId = 'current_user_id';
+  static const String authToken = 'auth_token';
   static const String notificationsEnabled = 'notifications_enabled';
   static const String defaultMediaQuality = 'default_media_quality';
   static const String lastSyncAt = 'last_sync_at';

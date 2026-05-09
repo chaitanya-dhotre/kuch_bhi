@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
+import '../../features/friend_requests/screens/friend_requests_screen.dart';
+import '../../features/home/screens/home_screen.dart';
+import '../../features/profile/screens/profile_screen.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -23,7 +26,6 @@ class AppRoutes {
   static const String groupInfo       = '/group/:groupId/info';
 }
 
-// Single global key — never recreated.
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -31,17 +33,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     navigatorKey: _rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: false,
-    // Route guard: only blocks unauthenticated access to protected routes.
-    // All success-path navigation is handled imperatively via ref.listen
-    // in the individual screens. This avoids stale-read race conditions.
     redirect: (context, state) {
       final authState = ref.read(authProvider).valueOrNull;
-      final location  = state.matchedLocation;
-
-      final isProtected = location == AppRoutes.home;
-
-      // Block unauthenticated users from protected routes.
-      if (isProtected && authState is! AuthAuthenticated) {
+      final protected = [AppRoutes.home, AppRoutes.profile,
+                         AppRoutes.friendRequests];
+      if (protected.contains(state.matchedLocation) &&
+          authState is! AuthAuthenticated) {
         return AppRoutes.login;
       }
       return null;
@@ -61,7 +58,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.home,
-        builder: (_, __) => const _PlaceholderScreen(title: 'Home 🏠'),
+        builder: (_, __) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.profile,
+        builder: (_, __) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.friendRequests,
+        builder: (_, __) => const FriendRequestsScreen(),
       ),
     ],
   );
@@ -72,10 +77,10 @@ class _SplashScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Navigate as soon as auth state resolves — no redirect needed.
     ref.listen(authProvider, (_, next) {
       if (next.isLoading) return;
       next.whenData((state) {
+        if (!context.mounted) return;
         if (state is AuthAuthenticated) {
           context.go(AppRoutes.home);
         } else {
@@ -84,8 +89,6 @@ class _SplashScreen extends ConsumerWidget {
       });
     });
 
-    // Also handle the case where state is already resolved
-    // (e.g. hot restart with cached session).
     final authState = ref.watch(authProvider);
     authState.whenData((state) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -100,21 +103,6 @@ class _SplashScreen extends ConsumerWidget {
 
     return const Scaffold(
       body: Center(child: CircularProgressIndicator()),
-    );
-  }
-}
-
-class _PlaceholderScreen extends StatelessWidget {
-  const _PlaceholderScreen({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-      ),
     );
   }
 }

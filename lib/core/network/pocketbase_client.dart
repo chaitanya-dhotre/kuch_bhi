@@ -1,89 +1,63 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 
-/// Singleton PocketBase client for the entire app.
-///
-/// Responsibilities:
-/// - Maintains the authenticated PocketBase instance
-/// - Persists and restores auth state across app restarts
-/// - Provides the raw PocketBase client to repositories
-///
-/// Never use this directly in UI. Always go through a Repository.
 class PocketBaseClient {
   PocketBaseClient._(this._pb);
 
   final PocketBase _pb;
 
-  /// The raw PocketBase client. Repositories use this.
   PocketBase get pb => _pb;
-
-  /// Whether the client currently has a valid auth token.
   bool get isAuthenticated => _pb.authStore.isValid;
 
-  /// The current auth token string.
-  String? get token => _pb.authStore.token;
-
-  /// Factory: creates and initializes the client.
-  /// Call once at app startup via the Riverpod provider.
   static Future<PocketBaseClient> create(
     SecureStorageService storage,
   ) async {
     final pb = PocketBase(AppConstants.baseUrl);
 
-    // Attempt to restore previous auth session from secure storage.
-    final storedAuthJson = await storage.getPbAuthStore();
-    if (storedAuthJson != null) {
-      try {
-        final data = jsonDecode(storedAuthJson) as Map<String, dynamic>;
-        final token = data['token'] as String? ?? '';
-        final model = data['model'];
-
-        if (token.isNotEmpty) {
-          pb.authStore.save(token, model);
-        }
-      } catch (_) {
-        // Corrupted store — clear it and start fresh.
-        await storage.deletePbAuthStore();
+    // Restore token from SecureStorage.
+    // Even if this fails, getCurrentUser() will handle the fallback.
+    try {
+      final token = await storage.getAuthToken();
+      if (token != null && token.isNotEmpty) {
+        pb.authStore.save(token, null);
+        debugPrint('[PB] Token restored from SecureStorage. '
+            'isValid: ${pb.authStore.isValid}');
       }
+    } catch (e) {
+      debugPrint('[PB] SecureStorage restore failed: $e');
     }
 
     final client = PocketBaseClient._(pb);
 
-    // Listen for auth changes and persist them.
+    // Keep SecureStorage in sync.
     pb.authStore.onChange.listen((event) async {
-      if (event.token.isEmpty) {
-        await storage.deletePbAuthStore();
-      } else {
-        final json = jsonEncode({
-          'token': event.token,
-          'model': event.model,
-        });
-        await storage.savePbAuthStore(json);
-        if (event.model != null) {
-          final modelMap = event.model as Map<String, dynamic>?;
-          final userId = modelMap?['id'] as String?;
-          if (userId != null) {
-            await storage.saveCurrentUserId(userId);
-          }
+      try {
+        if (event.token.isEmpty) {
+          await storage.deleteAuthToken();
+        } else {
+          await storage.saveAuthToken(event.token);
         }
+      } catch (e) {
+        debugPrint('[PB] Token sync error: $e');
       }
     });
 
     return client;
   }
 
-  /// Clear auth state. Called on logout.
   void clearAuth() => _pb.authStore.clear();
 }
 
-/// Async provider — initialized once at startup.
-/// The app waits on this before rendering anything.
-final pocketbaseClientProvider =
-    FutureProvider<PocketBaseClient>((ref) async {
-  final storage = ref.read(secureStorageProvider);
-  return PocketBaseClient.create(storage);
+// Plain Provider — must be overridden in main() before runApp.
+// Using Provider (not FutureProvider) eliminates the loading state
+// that caused AuthNotifier to run against _LoadingAuthRepository.
+final pocketbaseClientProvider = Provider<PocketBaseClient>((ref) {
+  throw StateError(
+    'pocketbaseClientProvider must be overridden in main(). '
+    'Call overrideWithValue(pbClient) inside ProviderScope.',
+  );
 });

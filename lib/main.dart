@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'core/network/pocketbase_client.dart';
+import 'data/local/database/app_database.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
@@ -26,25 +27,27 @@ Future<void> main() async {
     DeviceOrientation.landscapeRight,
   ]);
 
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      systemNavigationBarColor: Colors.transparent,
-    ),
-  );
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+  ));
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // Pre-initialize before runApp so providers never see a null client.
+  // Initialize all critical services before runApp so providers
+  // are immediately available without any loading state.
   final secureStorage = SecureStorageService();
-  final pbClient = await PocketBaseClient.create(secureStorage);
+  final db            = AppDatabase();
+  final pbClient      = await PocketBaseClient.create(secureStorage);
 
   runApp(
     ProviderScope(
       overrides: [
+        // Plain Provider overrides — no AsyncValue, no loading flash.
         secureStorageProvider.overrideWithValue(secureStorage),
-        pocketbaseClientProvider.overrideWith((_) async => pbClient),
+        appDatabaseProvider.overrideWithValue(db),
+        pocketbaseClientProvider.overrideWithValue(pbClient),
       ],
       child: const KuchBhiApp(),
     ),
