@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../domain/entities/friend_request.dart';
 import '../../../infrastructure/repositories/friend_repository_impl.dart';
+import '../../home/providers/friends_provider.dart';
 import '../providers/friend_request_provider.dart';
 
 class FriendRequestsScreen extends ConsumerWidget {
@@ -135,9 +136,19 @@ class _RequestTile extends ConsumerWidget {
             // Accept.
             IconButton(
               onPressed: () async {
-                await ref
-                    .read(friendRepositoryProvider)
-                    .acceptRequest(request.id);
+                try {
+                  await ref
+                      .read(friendRepositoryProvider)
+                      .acceptRequest(request.id);
+
+                  // Force immediate UI refresh on both sides.
+                  ref.invalidate(incomingRequestsProvider);
+                  ref.invalidate(friendshipsProvider);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to accept: $e')),
+                  );
+                }
               },
               icon: const Icon(Icons.check),
               style: IconButton.styleFrom(

@@ -68,20 +68,46 @@ class FriendRepositoryImpl implements FriendRepository {
   @override
   Future<void> acceptRequest(String requestId) async {
     final currentUserId = await db.settingsDao
-       .getSetting(AppSettingsKeys.currentUserId);    if (currentUserId == null) throw Exception('Not authenticated');
+        .getSetting(AppSettingsKeys.currentUserId);
+    if (currentUserId == null) throw Exception('Not authenticated');
 
-    // Update status on PocketBase.
     final updated = await _pb.collection('friend_requests').update(
       requestId,
       body: {'status': 'accepted'},
       expand: 'from_user,to_user',
     );
 
-    // Create the friendship record.
-    await _pb.collection('friendships').create(body: {
-      'user_a': updated.expand['from_user']?[0].id ?? '',
-      'user_b': currentUserId,
-    });
+    // Read IDs from record fields — stable and always present.
+    // Never use expand for IDs since expand can be absent on some responses.
+    final fromUserId = updated.getStringValue('from_user');
+    final toUserId = updated.getStringValue('to_user');
+
+    if (fromUserId.isEmpty || toUserId.isEmpty) {
+      throw Exception('Invalid friend request: missing from_user/to_user');
+    }
+
+    if (toUserId != currentUserId) {
+      throw Exception('Current user is not the receiver of this request');
+    }
+
+    // Prevent duplicate friendships (same pair accepted twice).
+    final pairFilter =
+        '(user_a="$fromUserId"&&user_b="$toUserId")||'
+        '(user_a="$toUserId"&&user_b="$fromUserId")';
+
+    try {
+      await _pb.collection('friendships').getFirstListItem(pairFilter);
+      // Already exists — skip creation.
+    } on ClientException catch (e) {
+      if (e.statusCode != 404) rethrow;
+
+      // PocketBase createRule for friendships is @request.auth.id = user_a,
+      // and this action is performed by the receiver (current user).
+      await _pb.collection('friendships').create(body: {
+        'user_a': currentUserId,
+        'user_b': fromUserId,
+      });
+    }
 
     // Cache locally.
     final request = _recordToFriendRequest(updated);
