@@ -13,19 +13,13 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
   Future<void> upsertConversation(ConversationsTableCompanion conv) =>
       into(conversationsTable).insertOnConflictUpdate(conv);
 
-  /// Watch all conversations ordered by last message time.
-  /// This drives the home screen list.
   Stream<List<ConversationsTableData>> watchAllConversations() =>
       (select(conversationsTable)
             ..orderBy([
               (t) => OrderingTerm(
-                    expression: t.isPinned,
-                    mode: OrderingMode.desc,
-                  ),
+                  expression: t.isPinned, mode: OrderingMode.desc),
               (t) => OrderingTerm(
-                    expression: t.lastMessageAt,
-                    mode: OrderingMode.desc,
-                  ),
+                  expression: t.lastMessageAt, mode: OrderingMode.desc),
             ]))
           .watch();
 
@@ -46,8 +40,8 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
             ..where((t) => t.id.equals(conversationId)))
           .write(ConversationsTableCompanion(
         lastMessagePreview: Value(preview),
-        lastMessageAt: Value(timestamp),
-        updatedAt: Value(DateTime.now()),
+        lastMessageAt:      Value(timestamp),
+        updatedAt:          Value(DateTime.now()),
       ));
 
   Future<void> setPinned(String id, bool pinned) =>
@@ -55,14 +49,13 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
         ConversationsTableCompanion(isPinned: Value(pinned)),
       );
 
-  // --- Members ---
+  // ── Members ───────────────────────────────────────────────────
 
-  Future<void> upsertMember(ConversationMembersTableCompanion member) =>
-      into(conversationMembersTable).insertOnConflictUpdate(member);
+  Future<void> upsertMember(ConversationMembersTableCompanion m) =>
+      into(conversationMembersTable).insertOnConflictUpdate(m);
 
   Future<List<ConversationMembersTableData>> getMembersForConversation(
-    String conversationId,
-  ) =>
+          String conversationId) =>
       (select(conversationMembersTable)
             ..where((t) => t.conversationId.equals(conversationId)))
           .get();
@@ -76,4 +69,33 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
           .write(ConversationMembersTableCompanion(
         lastReadMessageId: Value(messageLocalId),
       ));
+
+  // ── Find direct conversation ───────────────────────────────────
+
+  /// Returns the conversation ID of the existing direct chat between
+  /// two users, or null if none exists locally.
+  Future<String?> findDirectConversationId(
+    String myId,
+    String otherId,
+  ) async {
+    final mine = await (select(conversationMembersTable)
+          ..where((t) => t.userId.equals(myId)))
+        .get();
+
+    final theirs = await (select(conversationMembersTable)
+          ..where((t) => t.userId.equals(otherId)))
+        .get();
+
+    final myIds    = mine.map((m)   => m.conversationId).toSet();
+    final theirIds = theirs.map((m) => m.conversationId).toSet();
+    final common   = myIds.intersection(theirIds);
+
+    for (final id in common) {
+      final conv = await (select(conversationsTable)
+            ..where((t) => t.id.equals(id) & t.type.equals('direct')))
+          .getSingleOrNull();
+      if (conv != null) return id;
+    }
+    return null;
+  }
 }

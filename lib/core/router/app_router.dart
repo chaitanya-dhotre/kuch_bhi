@@ -2,28 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/entities/conversation.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
+import '../../features/chat/screens/chat_screen.dart';
 import '../../features/friend_requests/screens/friend_requests_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 
 class AppRoutes {
   AppRoutes._();
-  static const String splash          = '/';
-  static const String login           = '/login';
-  static const String register        = '/register';
-  static const String home            = '/home';
-  static const String chat            = '/chat/:conversationId';
-  static const String profile         = '/profile';
-  static const String settings        = '/settings';
-  static const String friendRequests  = '/friend-requests';
-  static const String addFriend       = '/add-friend';
-  static const String mediaViewer     = '/media-viewer';
-  static const String starredMessages = '/starred';
-  static const String groupCreate     = '/group/create';
-  static const String groupInfo       = '/group/:groupId/info';
+  static const String splash         = '/';
+  static const String login          = '/login';
+  static const String register       = '/register';
+  static const String home           = '/home';
+  static const String chat           = '/chat';
+  static const String profile        = '/profile';
+  static const String settings       = '/settings';
+  static const String friendRequests = '/friend-requests';
+  static const String addFriend      = '/add-friend';
 }
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -32,13 +30,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: AppRoutes.splash,
-    debugLogDiagnostics: false,
     redirect: (context, state) {
-      final authState = ref.read(authProvider).valueOrNull;
+      final auth = ref.read(authProvider).valueOrNull;
       final protected = [AppRoutes.home, AppRoutes.profile,
-                         AppRoutes.friendRequests];
-      if (protected.contains(state.matchedLocation) &&
-          authState is! AuthAuthenticated) {
+                         AppRoutes.friendRequests, AppRoutes.chat];
+      if (protected.any((p) => state.matchedLocation.startsWith(p)) &&
+          auth is! AuthAuthenticated) {
         return AppRoutes.login;
       }
       return null;
@@ -67,6 +64,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.friendRequests,
         builder: (_, __) => const FriendRequestsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.chat,
+        builder: (context, state) {
+          final conv = state.extra as Conversation;
+          return ChatScreen(conversation: conv);
+        },
       ),
     ],
   );
@@ -101,8 +105,6 @@ class _SplashScreen extends ConsumerWidget {
       });
     });
 
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }

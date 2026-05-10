@@ -17,3 +17,36 @@ For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
 
+
+
+
+
+sudo tee /etc/systemd/system/kuchbhi-fcm.service << 'EOF'
+[Unit]
+Description=Kuch Bhi FCM Notification Service
+After=network.target pocketbase.service
+Requires=pocketbase.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/kuchbhi
+ExecStart=/usr/bin/python3 /opt/kuchbhi/fcm_service.py
+Restart=always
+RestartSec=5
+
+# PocketBase admin credentials — set yours here
+Environment="PB_ADMIN_EMAIL=chaitanyad301@proton.me"
+Environment="PB_ADMIN_PASSWORD=#Vadapavisgood"
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable kuchbhi-fcm
+sudo systemctl start kuchbhi-fcm
+sudo systemctl status kuchbhi-fcm

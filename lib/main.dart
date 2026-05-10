@@ -33,6 +33,7 @@ Future<void> main() async {
   ));
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await FcmService.init();
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // Initialize all critical services before runApp so providers
@@ -40,6 +41,12 @@ Future<void> main() async {
   final secureStorage = SecureStorageService();
   final db            = AppDatabase();
   final pbClient      = await PocketBaseClient.create(secureStorage);
+
+  // Update FCM token in background after pbClient is ready.
+  FirebaseMessaging.instance.getToken().then((token) async {
+    if (token == null) return;
+    debugPrint('[FCM] Token: $token');
+  });
 
   runApp(
     ProviderScope(

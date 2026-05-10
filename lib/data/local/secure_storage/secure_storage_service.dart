@@ -1,89 +1,49 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Wraps flutter_secure_storage with typed accessors.
-/// All sensitive data — auth tokens, encryption keys — lives here.
-/// On Android, this uses the hardware-backed Android Keystore.
 class SecureStorageService {
   SecureStorageService() : _storage = const FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
-    ),
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
   final FlutterSecureStorage _storage;
 
-  // ── Key constants ──────────────────────────────────────────────
-  static const _keyAuthToken    = 'auth_token';
-  static const _keyCurrentUserId = 'current_user_id';
-  static const _keyPrivateKey   = 'private_key';
-  static const _keyPbAuthStore  = 'pb_auth_store';
+  static const _keyAuthToken       = 'auth_token';
+  static const _keyCurrentUserId   = 'current_user_id';
+  static const _keyPrivateKey      = 'private_key';
+  static const _keyLocalPublicKey  = 'local_public_key';
+  static const _keyPbAuthStore     = 'pb_auth_store';
+  static const _prefixContactKey   = 'contact_key_';
 
-  /// Prefix for per-contact derived encryption keys.
-  static const _prefixContactKey = 'contact_key_';
+  // ── Auth ──────────────────────────────────────────────────────
+  Future<void>    saveAuthToken(String t)   => _storage.write(key: _keyAuthToken, value: t);
+  Future<String?> getAuthToken()            => _storage.read(key: _keyAuthToken);
+  Future<void>    deleteAuthToken()         => _storage.delete(key: _keyAuthToken);
 
-  // ── Auth token ─────────────────────────────────────────────────
+  Future<void>    saveCurrentUserId(String id) => _storage.write(key: _keyCurrentUserId, value: id);
+  Future<String?> getCurrentUserId()           => _storage.read(key: _keyCurrentUserId);
 
-  Future<void> saveAuthToken(String token) =>
-      _storage.write(key: _keyAuthToken, value: token);
+  Future<void>    savePbAuthStore(String json) => _storage.write(key: _keyPbAuthStore, value: json);
+  Future<String?> getPbAuthStore()             => _storage.read(key: _keyPbAuthStore);
+  Future<void>    deletePbAuthStore()          => _storage.delete(key: _keyPbAuthStore);
 
-  Future<String?> getAuthToken() =>
-      _storage.read(key: _keyAuthToken);
+  // ── Encryption keys ───────────────────────────────────────────
+  Future<void>    savePrivateKey(String b64) => _storage.write(key: _keyPrivateKey, value: b64);
+  Future<String?> getPrivateKey()            => _storage.read(key: _keyPrivateKey);
 
-  Future<void> deleteAuthToken() =>
-      _storage.delete(key: _keyAuthToken);
+  Future<void>    saveLocalPublicKey(String b64) => _storage.write(key: _keyLocalPublicKey, value: b64);
+  Future<String?> getLocalPublicKey()            => _storage.read(key: _keyLocalPublicKey);
 
-  // ── Current user ───────────────────────────────────────────────
+  Future<void> saveContactEncryptionKey(String contactOrConvId, String keyB64) =>
+      _storage.write(key: '$_prefixContactKey$contactOrConvId', value: keyB64);
 
-  Future<void> saveCurrentUserId(String userId) =>
-      _storage.write(key: _keyCurrentUserId, value: userId);
+  Future<String?> getContactEncryptionKey(String contactOrConvId) =>
+      _storage.read(key: '$_prefixContactKey$contactOrConvId');
 
-  Future<String?> getCurrentUserId() =>
-      _storage.read(key: _keyCurrentUserId);
-
-  // ── PocketBase auth store (full JSON) ──────────────────────────
-  // PocketBase SDK needs to persist its full auth model to survive
-  // app restarts. We store it as a JSON string here.
-
-  Future<void> savePbAuthStore(String json) =>
-      _storage.write(key: _keyPbAuthStore, value: json);
-
-  Future<String?> getPbAuthStore() =>
-      _storage.read(key: _keyPbAuthStore);
-
-  Future<void> deletePbAuthStore() =>
-      _storage.delete(key: _keyPbAuthStore);
-
-  // ── Encryption keys ────────────────────────────────────────────
-
-  /// Store this user's X25519 private key (base64 encoded).
-  Future<void> savePrivateKey(String privateKeyBase64) =>
-      _storage.write(key: _keyPrivateKey, value: privateKeyBase64);
-
-  Future<String?> getPrivateKey() =>
-      _storage.read(key: _keyPrivateKey);
-
-  /// Store the derived AES encryption key for a specific contact.
-  /// Key is derived from X25519 ECDH + HKDF and cached here.
-  Future<void> saveContactEncryptionKey(
-    String contactUserId,
-    String keyBase64,
-  ) =>
-      _storage.write(
-        key: '$_prefixContactKey$contactUserId',
-        value: keyBase64,
-      );
-
-  Future<String?> getContactEncryptionKey(String contactUserId) =>
-      _storage.read(key: '$_prefixContactKey$contactUserId');
-
-  // ── Full wipe ──────────────────────────────────────────────────
-
-  /// Called on logout or account deletion.
-  /// Removes all app secrets from the keystore.
+  // ── Full wipe ─────────────────────────────────────────────────
   Future<void> clearAll() => _storage.deleteAll();
 }
 
-final secureStorageProvider = Provider<SecureStorageService>((ref) {
-  return SecureStorageService();
-});
+final secureStorageProvider = Provider<SecureStorageService>(
+  (_) => SecureStorageService(),
+);

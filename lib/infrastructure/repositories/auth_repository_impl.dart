@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:pocketbase/pocketbase.dart';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import '../../core/network/pocketbase_client.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
@@ -12,6 +14,7 @@ import '../../data/local/database/tables/users_table.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
+import '../../services/encryption_service.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({
@@ -127,57 +130,53 @@ class AuthRepositoryImpl implements AuthRepository {
   /// 4. If refresh fails due to invalid token → sign out, return null.
   @override
   Future<User?> getCurrentUser() async {
-    debugPrint('[Auth] getCurrentUser called. '
-        'isAuthenticated: ${pbClient.isAuthenticated}');
+    debugPrint('[Auth] getCurrentUser. isAuthenticated: ${pbClient.isAuthenticated}');
 
     if (!pbClient.isAuthenticated) {
-      // Try to restore token from Drift (SecureStorage may have failed).
       final driftToken = await db.settingsDao
           .getSetting(AppSettingsKeys.authToken);
       if (driftToken != null && driftToken.isNotEmpty) {
         _pb.authStore.save(driftToken, null);
-        debugPrint('[Auth] Token restored from Drift. '
-            'isValid: ${pbClient.isAuthenticated}');
       }
       if (!pbClient.isAuthenticated) {
-        debugPrint('[Auth] No valid token found anywhere. '
-            'User must sign in.');
         return null;
       }
     }
 
-    // Validate token with server and get fresh user data.
+    final userId = await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
+    if (userId == null || userId.isEmpty) return null;
+
+    // Return cached user immediately and refresh in the background.
+    final cached = await db.usersDao.getUserById(userId);
+    if (cached != null) {
+      _backgroundRefresh();
+      return _tableDataToUser(cached);
+    }
+
+    // No local cache at all — validate with the server once.
     try {
       final authData = await _pb.collection('users').authRefresh();
       final user = _recordToUser(authData.record!);
       await _saveSession(user);
-      debugPrint('[Auth] Session refreshed from server. '
-          'User: ${user.displayName}');
       return user;
     } on ClientException catch (e) {
-      if (e.statusCode == 401 || e.statusCode == 403) {
-        // Token is expired or revoked — force re-login.
-        debugPrint('[Auth] Token invalid (${e.statusCode}). '
-            'Clearing session.');
-        await signOut();
-        return null;
-      }
-      // Network error — fall back to local cache.
-      debugPrint('[Auth] Server unreachable (${e.statusCode}). '
-          'Using cached user.');
+      debugPrint('[Auth] No cache and refresh failed (${e.statusCode}): $e');
     } catch (e) {
-      // Any other error — fall back to local cache.
-      debugPrint('[Auth] authRefresh error: $e. Using cached user.');
+      debugPrint('[Auth] No cache and refresh failed: $e');
     }
 
-    // Offline fallback: use cached user from Drift.
-    final userId = await db.settingsDao
-        .getSetting(AppSettingsKeys.currentUserId);
-    if (userId == null || userId.isEmpty) return null;
-    final cached = await db.usersDao.getUserById(userId);
-    if (cached == null) return null;
-    debugPrint('[Auth] Using cached user: ${cached.displayName}');
-    return _tableDataToUser(cached);
+    return null;
+  }
+
+  void _backgroundRefresh() {
+    _pb.collection('users').authRefresh().then((authData) async {
+      if (authData.record == null) return;
+      final user = _recordToUser(authData.record!);
+      await _saveSession(user);
+      debugPrint('[Auth] Background refresh done: ${user.displayName}');
+    }).catchError((e) {
+      debugPrint('[Auth] Background refresh failed: $e');
+    });
   }
 
   // ── Sign out ───────────────────────────────────────────────────
@@ -249,6 +248,21 @@ class AuthRepositoryImpl implements AuthRepository {
 
     await _cacheUserLocally(user);
     debugPrint('[Auth] Session saved. userId: ${user.id}');
+
+    // Register FCM token with server.
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) {
+        await _pb.collection('users').update(user.id, body: {
+          'fcm_token': fcmToken,
+        });
+      }
+    } catch (e) {
+      debugPrint('[FCM] Token update failed: $e');
+    }
+
+    // Generate encryption key pair if this is a new device.
+    await _initEncryptionKeys(user.id);
   }
 
   // ── Helpers ────────────────────────────────────────────────────
@@ -267,6 +281,21 @@ class AuthRepositoryImpl implements AuthRepository {
       createdAt:   user.createdAt,
       updatedAt:   DateTime.now(),
     ));
+  }
+
+  Future<void> _initEncryptionKeys(String userId) async {
+    try {
+      final enc = EncryptionService(storage);
+      final pubKeyB64 = await enc.getPublicKeyBase64();
+
+      // Only upload if server doesn't have it yet.
+      final record = await _pb.collection('users').getOne(userId);
+      if (record.getStringValue('public_key').isEmpty) {
+        await updatePublicKey(pubKeyB64);
+      }
+    } catch (e) {
+      debugPrint('[Keys] initEncryptionKeys: $e');
+    }
   }
 
   User _recordToUser(RecordModel record) {
