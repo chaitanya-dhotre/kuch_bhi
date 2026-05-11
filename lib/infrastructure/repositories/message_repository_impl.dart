@@ -13,12 +13,12 @@ import '../../data/local/database/tables/conversations_table.dart';
 import '../../data/local/database/tables/conversation_members_table.dart';
 import '../../data/local/database/tables/messages_table.dart';
 import '../../data/local/database/tables/users_table.dart';
-import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
 import '../../services/encryption_service.dart';
+import '../../data/local/secure_storage/secure_storage_service.dart';
 
 class MessageRepositoryImpl implements MessageRepository {
   MessageRepositoryImpl({
@@ -26,7 +26,10 @@ class MessageRepositoryImpl implements MessageRepository {
     required this.db,
     required this.storage,
     required this.encryption,
-  });
+  }) {
+    _initGlobalSubscriptions();
+    _initConnectivityRetry();
+  }
 
   final PocketBaseClient     pbClient;
   final AppDatabase          db;
@@ -36,34 +39,304 @@ class MessageRepositoryImpl implements MessageRepository {
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
 
-  // ── Get or create direct conversation ─────────────────────────
+  // ── Global subscriptions (set up once for all conversations) ──
+
+  void _initGlobalSubscriptions() {
+    // Messages subscription — handles incoming messages from all conversations
+    _pb.collection('messages').subscribe('*', (event) async {
+      if (event.record == null) return;
+      final r = event.record!;
+      final myId = await _myId();
+
+      // Skip our own sent messages — already handled optimistically in sendMessage
+      if (r.getStringValue('sender_id') == myId) return;
+
+      final convId = r.getStringValue('conversation_id');
+      try {
+        final key = await _getConvKey(convId, myId);
+        await _cacheMsg(r, myId, key);
+        await _markDelivered(r.id, convId, myId);
+        // Drift stream auto-emits — no manual push needed
+      } catch (e) {
+        debugPrint('[Msg] incoming error: $e');
+      }
+    });
+
+    // Receipts subscription — updates tick status
+    _pb.collection('message_receipts').subscribe('*', (event) async {
+      if (event.record == null) return;
+      final r   = event.record!;
+      final myId = await _myId();
+      final msgServerId = r.getStringValue('message_id');
+
+      try {
+        final local = await db.messagesDao.getMessageByServerId(msgServerId);
+        if (local == null) return;
+
+        // Only update status for messages I sent
+        if (local.senderId != myId) return;
+
+        await _updateMsgReceiptStatus(local.localId, msgServerId);
+        // Drift auto-emits after the status update above
+      } catch (e) {
+        debugPrint('[Receipt] update error: $e');
+      }
+    });
+  }
+
+  void _initConnectivityRetry() {
+    Connectivity().onConnectivityChanged.listen((results) {
+      if (results.any((r) => r != ConnectivityResult.none)) {
+        debugPrint('[Msg] Connectivity restored. Retrying pending messages.');
+        retryPendingMessages();
+      }
+    });
+  }
+
+  // ── Watch conversations (Drift reactive) ──────────────────────
+
+  @override
+  Stream<List<Conversation>> watchConversations() {
+    _syncConversationsBackground(); // Fire-and-forget
+
+    return db.conversationsDao
+        .watchAllConversations()
+        .asyncMap((rows) => _convRowsToEntities(rows));
+  }
+
+  Future<void> _syncConversationsBackground() async {
+    try {
+      final myId = await _myId();
+      await _syncConversations(myId);
+    } catch (e) {
+      debugPrint('[Conv] background sync: $e');
+    }
+  }
+
+  // ── Watch messages (Drift reactive) ──────────────────────────
+
+  /// Returns Drift's own reactive stream.
+  /// Auto-emits on every table write — including optimistic inserts.
+  /// No manual StreamController needed.
+  @override
+  Stream<List<Message>> watchMessages(String conversationId) {
+    // Start background fetch (saves to Drift → auto-emits via stream below)
+    _fetchAndCacheMessages(conversationId);
+
+    return db.messagesDao
+        .watchMessages(conversationId)
+        .asyncMap((rows) => _rowsToMessages(rows));
+  }
+
+  Future<List<Message>> _rowsToMessages(
+      List<MessagesTableData> rows) async {
+    final myId = await _myId();
+    return rows.map((r) => _rowToMessage(r, myId)).toList();
+  }
+
+  // ── Send message ──────────────────────────────────────────────
+
+  @override
+  Future<void> sendMessage({
+    required String conversationId,
+    required String plaintext,
+    String? replyToLocalId,
+    String? replyPreview,
+  }) async {
+    final myId    = await _myId();
+    final localId = _uuid.v4();
+    final now     = DateTime.now();
+
+    // ── Step 1: Optimistic insert to Drift ────────────────────
+    // Drift stream auto-emits IMMEDIATELY — message appears NOW.
+    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId:        localId,
+      conversationId: conversationId,
+      senderId:       myId,
+      type:           'text',
+      encryptedBody:  '__pending__',
+      iv:             '',
+      decryptedBody:  Value(plaintext),
+      replyToId:      Value(replyToLocalId),
+      replyPreview:   Value(replyPreview),
+      status:         Value('pending'),
+      createdAt:      now,
+      updatedAt:      now,
+    ));
+
+    // ── Step 2: Upload in background (does NOT block UI) ──────
+    _uploadMessage(
+      localId:        localId,
+      conversationId: conversationId,
+      myId:           myId,
+      plaintext:      plaintext,
+      replyToLocalId: replyToLocalId,
+      createdAt:      now,
+    );
+  }
+
+  Future<void> _uploadMessage({
+    required String localId,
+    required String conversationId,
+    required String myId,
+    required String plaintext,
+    String? replyToLocalId,
+    required DateTime createdAt,
+  }) async {
+    // Encrypt
+    EncryptResult encrypted;
+    try {
+      final key = await _getConvKey(conversationId, myId);
+      encrypted  = await encryption.encryptMessage(plaintext, key);
+    } catch (e) {
+      debugPrint('[Enc] Encrypt error: $e');
+      await db.messagesDao.updateMessageStatus(localId, 'failed');
+      return;
+    }
+
+    // Upload
+    try {
+      final record = await _pb.collection('messages').create(body: {
+        'conversation_id':        conversationId,
+        'sender_id':              myId,
+        'type':                   'text',
+        'encrypted_body':         encrypted.ciphertext,
+        'iv':                     encrypted.iv,
+        'reply_to_id':            replyToLocalId ?? '',
+        'is_deleted_for_everyone': false,
+      });
+
+      // Update Drift with server ID + 'sent' status → auto-emits
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:        localId,
+        serverId:       Value(record.id),
+        conversationId: conversationId,
+        senderId:       myId,
+        type:           'text',
+        encryptedBody:  encrypted.ciphertext,
+        iv:             encrypted.iv,
+        decryptedBody:  Value(plaintext),
+        replyToId:      Value(replyToLocalId),
+        status:         Value('sent'),
+        createdAt:      createdAt,
+        updatedAt:      DateTime.now(),
+      ));
+
+      await db.conversationsDao.updateLastMessage(
+        conversationId,
+        plaintext.length > 50 ? '${plaintext.substring(0, 50)}…' : plaintext,
+        DateTime.now(),
+      );
+
+      await _createReceipts(record.id, conversationId, myId);
+    } catch (e) {
+      debugPrint('[Msg] upload failed (offline?): $e');
+      await db.messagesDao.updateMessageStatus(localId, 'failed');
+      // Message stays visible in UI as 'failed' — user can retry
+    }
+  }
+
+  // ── Retry pending messages ────────────────────────────────────
+
+  @override
+  Future<void> retryPendingMessages() async {
+    final pending = await db.messagesDao.getPendingMessages();
+    if (pending.isEmpty) return;
+
+    debugPrint('[Msg] Retrying ${pending.length} pending messages.');
+
+    for (final msg in pending) {
+      if (msg.decryptedBody == null) continue;
+      await retryMessage(msg.localId);
+    }
+  }
+
+  @override
+  Future<void> retryMessage(String localId) async {
+    final msg = await db.messagesDao.getMessageByLocalId(localId);
+    if (msg == null || msg.decryptedBody == null) return;
+
+    // Reset to pending -> Drift stream auto-emits -> retry button disappears
+    await db.messagesDao.updateMessageStatus(localId, 'pending');
+
+    // Re-upload with the SAME localId - no new entry created
+    await _uploadMessage(
+      localId:        localId,
+      conversationId: msg.conversationId,
+      myId:           await _myId(),
+      plaintext:      msg.decryptedBody!,
+      createdAt:      msg.createdAt,
+    );
+  }
+
+  // ── Mark read ─────────────────────────────────────────────────
+
+  @override
+  Future<void> markConversationRead(String conversationId) async {
+    try {
+      final myId = await _myId();
+      final res  = await _pb.collection('message_receipts').getList(
+        filter: 'conversation_id="$conversationId"'
+            '&&recipient_id="$myId"&&read_at=""',
+      );
+      for (final r in res.items) {
+        await _pb.collection('message_receipts').update(r.id, body: {
+          'read_at': DateTime.now().toIso8601String(),
+        });
+      }
+    } catch (e) {
+      debugPrint('[Receipt] markRead: $e');
+    }
+  }
+
+  // ── Load more (pagination) ────────────────────────────────────
+
+  @override
+  Future<void> loadMoreMessages(String conversationId, int offset) async {
+    try {
+      final myId = await _myId();
+      final res  = await _pb.collection('messages').getList(
+        filter:  'conversation_id="$conversationId"&&is_deleted_for_everyone=false',
+        sort:    '-created',
+        page:    (offset ~/ 40) + 1,
+        perPage: 40,
+      );
+      final key = await _getConvKey(conversationId, myId);
+      for (final r in res.items) {
+        await _cacheMsg(r, myId, key);
+      }
+      // Drift auto-emits after the inserts above
+    } catch (e) {
+      debugPrint('[Msg] loadMore: $e');
+    }
+  }
+
+  // ── Get or create conversation ────────────────────────────────
 
   @override
   Future<Conversation> getOrCreateDirectConversation(
-    String otherUserId,
-  ) async {
-    final myId = await db.settingsDao
-        .getSetting(AppSettingsKeys.currentUserId) ?? '';
+      String otherUserId) async {
+    final myId = await _myId();
 
     final existingId = await db.conversationsDao
         .findDirectConversationId(myId, otherUserId);
 
     if (existingId != null) {
       final conv = await db.conversationsDao.getConversationById(existingId);
-      if (conv != null) return _convDataToEntity(conv, myId, await _getOtherUser(existingId, myId));
+      if (conv != null) {
+        final other = await _getOtherUser(existingId, myId);
+        return _convDataToEntity(conv, other);
+      }
     }
 
     return _createDirectConversation(myId, otherUserId);
   }
 
   Future<Conversation> _createDirectConversation(
-    String myId,
-    String otherUserId,
-  ) async {
+      String myId, String otherUserId) async {
     final conv = await _pb.collection('conversations').create(body: {
       'type': 'direct', 'created_by': myId,
     });
-
     final myMember = await _pb.collection('conversation_members').create(body: {
       'conversation_id': conv.id, 'user_id': myId, 'role': 'admin',
     });
@@ -98,263 +371,6 @@ class MessageRepositoryImpl implements MessageRepository {
     );
   }
 
-  // ── Watch conversations ────────────────────────────────────────
-
-  @override
-  Stream<List<Conversation>> watchConversations() {
-    final ctrl = StreamController<List<Conversation>>.broadcast();
-    _emitConversations(ctrl);
-    _pb.collection('messages').subscribe('*',    (_) => _emitConversations(ctrl));
-    _pb.collection('conversations').subscribe('*', (_) => _emitConversations(ctrl));
-    return ctrl.stream;
-  }
-
-  Future<void> _emitConversations(
-    StreamController<List<Conversation>> ctrl,
-  ) async {
-    if (ctrl.isClosed) return;
-    try {
-      final myId = await db.settingsDao
-          .getSetting(AppSettingsKeys.currentUserId) ?? '';
-      await _syncConversations(myId);
-      final rows  = await db.conversationsDao.watchAllConversations().first;
-      final convs = <Conversation>[];
-      for (final r in rows) {
-        final other = await _getOtherUser(r.id, myId);
-        convs.add(_convDataToEntity(r, myId, other));
-      }
-      if (!ctrl.isClosed) ctrl.add(convs);
-    } catch (e) { debugPrint('[Msg] emitConversations: $e'); }
-  }
-
-  Future<void> _syncConversations(String myId) async {
-    try {
-      final res = await _pb.collection('conversation_members').getList(
-        filter: 'user_id="$myId"', expand: 'conversation_id', sort: '-created',
-      );
-      for (final m in res.items) {
-        final conv = m.expand['conversation_id']?.firstOrNull;
-        if (conv == null) continue;
-        await db.conversationsDao.upsertConversation(
-          ConversationsTableCompanion.insert(
-            id: conv.id, type: conv.getStringValue('type'),
-            name: Value(conv.getStringValue('name').isEmpty ? null : conv.getStringValue('name')),
-            createdById: conv.getStringValue('created_by'),
-            lastMessagePreview: Value(conv.getStringValue('last_message_preview').isEmpty
-                ? null : conv.getStringValue('last_message_preview')),
-            lastMessageAt: Value(conv.getStringValue('last_message_at').isEmpty
-                ? null : DateTime.tryParse(conv.getStringValue('last_message_at'))),
-            createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
-            updatedAt: DateTime.now(),
-          ),
-        );
-        await db.conversationsDao.upsertMember(
-          ConversationMembersTableCompanion.insert(
-            id: m.id, conversationId: conv.id, userId: myId,
-            joinedAt: DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
-          ),
-        );
-        // Cache other members.
-        final otherMembers = await _pb.collection('conversation_members').getList(
-          filter: 'conversation_id="${conv.id}"&&user_id!="$myId"',
-          expand: 'user_id',
-        );
-        for (final om in otherMembers.items) {
-          final u = om.expand['user_id']?.firstOrNull;
-          if (u != null) await _cacheUserRecord(u);
-          await db.conversationsDao.upsertMember(
-            ConversationMembersTableCompanion.insert(
-              id: om.id, conversationId: conv.id,
-              userId: om.getStringValue('user_id'),
-              joinedAt: DateTime.tryParse(om.getStringValue('joined_at')) ?? DateTime.now(),
-            ),
-          );
-        }
-      }
-    } catch (e) { debugPrint('[Msg] syncConversations: $e'); }
-  }
-
-  // ── Watch messages ─────────────────────────────────────────────
-
-  @override
-  Stream<List<Message>> watchMessages(String conversationId) {
-    final ctrl = StreamController<List<Message>>.broadcast();
-    _emitMessages(conversationId, ctrl);
-    _pb.collection('messages').subscribe(
-      '*', (e) => _handleIncoming(e, conversationId, ctrl),
-      filter: 'conversation_id="$conversationId"',
-    );
-    // Watch receipts to update tick status.
-    _pb.collection('message_receipts').subscribe(
-      '*', (_) => _emitMessages(conversationId, ctrl),
-      filter: 'conversation_id="$conversationId"',
-    );
-    final connectSub = Connectivity().onConnectivityChanged.listen((results) {
-      if (results.any((r) => r != ConnectivityResult.none)) {
-        unawaited(retryPendingMessages());
-        unawaited(_emitMessages(conversationId, ctrl));
-      }
-    });
-
-    ctrl.onCancel = () async {
-      await connectSub.cancel();
-      _pb.collection('messages').unsubscribe();
-      _pb.collection('message_receipts').unsubscribe();
-    };
-
-    return ctrl.stream;
-  }
-
-  Future<void> _emitMessages(
-    String conversationId,
-    StreamController<List<Message>> ctrl,
-  ) async {
-    if (ctrl.isClosed) return;
-    final myId = await db.settingsDao
-        .getSetting(AppSettingsKeys.currentUserId) ?? '';
-
-    // Emit local Drift data immediately so the UI has something to render.
-    try {
-      final localRows = await db.messagesDao.watchMessages(conversationId).first;
-      final localMsgs = <Message>[];
-      for (final r in localRows) {
-        localMsgs.add(await _applyReceiptStatus(_rowToMessage(r, myId), myId));
-      }
-      if (!ctrl.isClosed) ctrl.add(localMsgs);
-    } catch (e) { debugPrint('[Msg] emitMessages: $e'); }
-
-    // Then sync from the server in the background and refresh the stream.
-    try {
-      await _fetchMessages(conversationId, myId);
-      final updatedRows = await db.messagesDao.watchMessages(conversationId).first;
-      final updatedMsgs = <Message>[];
-      for (final r in updatedRows) {
-        updatedMsgs.add(await _applyReceiptStatus(_rowToMessage(r, myId), myId));
-      }
-      if (!ctrl.isClosed) ctrl.add(updatedMsgs);
-    } catch (e) {
-      debugPrint('[Msg] server sync error: $e');
-    }
-  }
-
-  Future<void> _fetchMessages(String convId, String myId) async {
-    try {
-      final res = await _pb.collection('messages').getList(
-        filter: 'conversation_id="$convId"&&is_deleted_for_everyone=false',
-        sort: '-created', perPage: 40,
-      );
-      final key = await _getConvKey(convId, myId);
-      for (final r in res.items) await _cacheMsg(r, myId, key);
-    } catch (e) { debugPrint('[Msg] fetchMessages: $e'); }
-  }
-
-  Future<void> _handleIncoming(
-    RecordSubscriptionEvent event,
-    String conversationId,
-    StreamController<List<Message>> ctrl,
-  ) async {
-    if (event.record == null) return;
-    final r = event.record!;
-    if (r.getStringValue('conversation_id') != conversationId) return;
-    final myId = await db.settingsDao
-        .getSetting(AppSettingsKeys.currentUserId) ?? '';
-
-    // Skip our own optimistic sends to avoid duplicate inserts.
-    if (r.getStringValue('sender_id') == myId) return;
-
-    try {
-      final key = await _getConvKey(conversationId, myId);
-      await _cacheMsg(r, myId, key);
-      await _markDelivered(r.id, conversationId, myId);
-      await _emitMessages(conversationId, ctrl);
-    } catch (e) { debugPrint('[Msg] handleIncoming: $e'); }
-  }
-
-  // ── Send message ───────────────────────────────────────────────
-
-  @override
-  Future<void> sendMessage({
-    required String conversationId,
-    required String plaintext,
-    String? replyToLocalId,
-    String? replyPreview,
-  }) async {
-    final myId    = await db.settingsDao
-        .getSetting(AppSettingsKeys.currentUserId) ?? '';
-    final localId = _uuid.v4();
-
-    // Optimistic insert.
-    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-      localId: localId, conversationId: conversationId,
-      senderId: myId, type: 'text',
-      encryptedBody: '__pending__', iv: '',
-      decryptedBody: Value(plaintext),
-      replyToId: Value(replyToLocalId), replyPreview: Value(replyPreview),
-      status: Value('pending'),
-      createdAt: DateTime.now(), updatedAt: DateTime.now(),
-    ));
-
-    // Encrypt.
-    EncryptResult encrypted;
-    try {
-      final key = await _getConvKey(conversationId, myId);
-      encrypted  = await encryption.encryptMessage(plaintext, key);
-    } catch (e) {
-      await db.messagesDao.updateMessageStatus(localId, 'failed');
-      return;
-    }
-
-    // Upload.
-    try {
-      final record = await _pb.collection('messages').create(body: {
-        'conversation_id': conversationId,
-        'sender_id':       myId,
-        'type':            'text',
-        'encrypted_body':  encrypted.ciphertext,
-        'iv':              encrypted.iv,
-        'reply_to_id':     replyToLocalId ?? '',
-        'is_deleted_for_everyone': false,
-      });
-
-      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-        localId: localId, serverId: Value(record.id),
-        conversationId: conversationId, senderId: myId, type: 'text',
-        encryptedBody: encrypted.ciphertext, iv: encrypted.iv,
-        decryptedBody: Value(plaintext), status: Value('sent'),
-        createdAt: DateTime.now(), updatedAt: DateTime.now(),
-      ));
-
-      await db.conversationsDao.updateLastMessage(
-        conversationId,
-        plaintext.length > 50 ? '${plaintext.substring(0, 50)}…' : plaintext,
-        DateTime.now(),
-      );
-
-      await _createReceipts(record.id, conversationId, myId);
-    } catch (e) {
-      debugPrint('[Msg] upload error: $e');
-      await db.messagesDao.updateMessageStatus(localId, 'failed');
-    }
-  }
-
-  // ── Mark read ──────────────────────────────────────────────────
-
-  @override
-  Future<void> markConversationRead(String conversationId) async {
-    try {
-      final myId = await db.settingsDao
-          .getSetting(AppSettingsKeys.currentUserId) ?? '';
-      final res = await _pb.collection('message_receipts').getList(
-        filter: 'conversation_id="$conversationId"&&recipient_id="$myId"&&read_at=""',
-      );
-      for (final r in res.items) {
-        await _pb.collection('message_receipts').update(r.id, body: {
-          'read_at': DateTime.now().toIso8601String(),
-        });
-      }
-    } catch (e) { debugPrint('[Receipt] markRead: $e'); }
-  }
-
   @override
   Future<void> deleteMessage(String localId, {bool forEveryone = false}) async {
     if (forEveryone) {
@@ -383,33 +399,135 @@ class MessageRepositoryImpl implements MessageRepository {
     ));
   }
 
-  @override
-  Future<void> retryPendingMessages() async {
-    final pending = await db.messagesDao.getPendingMessages();
-    for (final msg in pending) {
-      if (msg.decryptedBody == null) continue;
-      await sendMessage(
-        conversationId: msg.conversationId,
-        plaintext: msg.decryptedBody!,
+  // ── Private helpers ───────────────────────────────────────────
+
+  Future<String> _myId() async =>
+      await db.settingsDao.getSetting(AppSettingsKeys.currentUserId) ?? '';
+
+  Future<void> _fetchAndCacheMessages(String conversationId) async {
+    try {
+      final myId = await _myId();
+      final res  = await _pb.collection('messages').getList(
+        filter:  'conversation_id="$conversationId"&&is_deleted_for_everyone=false',
+        sort:    '-created',
+        perPage: 40,
       );
+      final key = await _getConvKey(conversationId, myId);
+      for (final r in res.items) {
+        await _cacheMsg(r, myId, key);
+      }
+    } catch (e) {
+      debugPrint('[Msg] fetch error (offline?): $e');
     }
   }
 
-  @override
-  Future<void> loadMoreMessages(String conversationId, int offset) async {
-    try {
-      final myId = await db.settingsDao
-          .getSetting(AppSettingsKeys.currentUserId) ?? '';
-      final res = await _pb.collection('messages').getList(
-        filter: 'conversation_id="$conversationId"',
-        sort: '-created', page: (offset ~/ 40) + 1, perPage: 40,
-      );
-      final key = await _getConvKey(conversationId, myId);
-      for (final r in res.items) await _cacheMsg(r, myId, key);
-    } catch (e) { debugPrint('[Msg] loadMore: $e'); }
+  Future<void> _cacheMsg(RecordModel r, String myId, List<int> key) async {
+    final encBody = r.getStringValue('encrypted_body');
+    final iv      = r.getStringValue('iv');
+    String? decrypted;
+    if (encBody.isNotEmpty && iv.isNotEmpty && encBody != '__pending__') {
+      decrypted = await encryption.decryptMessage(encBody, iv, key);
+    }
+    final existing = await db.messagesDao.getMessageByServerId(r.id);
+    // Don't overwrite a 'read' status with 'delivered'
+    final existingStatus = existing?.status ?? '';
+    final status = r.getStringValue('sender_id') == myId
+        ? (existingStatus.isEmpty ? 'sent' : existingStatus)
+        : 'delivered';
+
+    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId:               existing?.localId ?? _uuid.v4(),
+      serverId:              Value(r.id),
+      conversationId:        r.getStringValue('conversation_id'),
+      senderId:              r.getStringValue('sender_id'),
+      type:                  r.getStringValue('type'),
+      encryptedBody:         encBody,
+      iv:                    iv,
+      decryptedBody:         Value(decrypted),
+      replyToId:             Value(r.getStringValue('reply_to_id').isEmpty
+          ? null : r.getStringValue('reply_to_id')),
+      isDeletedForEveryone:  Value(r.getBoolValue('is_deleted_for_everyone')),
+      status:                Value(status),
+      createdAt:             DateTime.tryParse(r.created) ?? DateTime.now(),
+      updatedAt:             DateTime.now(),
+    ));
   }
 
-  // ── Private helpers ────────────────────────────────────────────
+  Future<void> _updateMsgReceiptStatus(
+      String localId, String serverId) async {
+    try {
+      final res = await _pb.collection('message_receipts').getList(
+        filter: 'message_id="$serverId"',
+      );
+      if (res.items.isEmpty) return;
+
+      final allRead      = res.items.every(
+          (r) => r.getStringValue('read_at').isNotEmpty);
+      final allDelivered = res.items.every(
+          (r) => r.getStringValue('delivered_at').isNotEmpty);
+
+      final status = allRead
+          ? 'read'
+          : allDelivered
+              ? 'delivered'
+              : 'sent';
+
+      await db.messagesDao.updateMessageStatus(localId, status);
+    } catch (e) {
+      debugPrint('[Receipt] statusUpdate: $e');
+    }
+  }
+
+  Future<void> _markDelivered(
+      String serverId, String convId, String myId) async {
+    try {
+      final res = await _pb.collection('message_receipts').getList(
+        filter: 'message_id="$serverId"&&recipient_id="$myId"',
+        perPage: 1,
+      );
+      if (res.items.isEmpty) {
+        await _pb.collection('message_receipts').create(body: {
+          'message_id':     serverId,
+          'conversation_id': convId,
+          'recipient_id':   myId,
+          'delivered_at':   DateTime.now().toIso8601String(),
+        });
+      } else if (res.items.first.getStringValue('delivered_at').isEmpty) {
+        await _pb.collection('message_receipts').update(
+          res.items.first.id,
+          body: {'delivered_at': DateTime.now().toIso8601String()},
+        );
+      }
+    } catch (e) {
+      debugPrint('[Receipt] markDelivered: $e');
+    }
+  }
+
+  Future<void> _createReceipts(
+      String serverId, String convId, String myId) async {
+    try {
+      final members = await db.conversationsDao
+          .getMembersForConversation(convId);
+      for (final m in members) {
+        if (m.userId == myId) continue;
+        try {
+          final existing = await _pb.collection('message_receipts').getList(
+            filter: 'message_id="$serverId"&&recipient_id="${m.userId}"',
+            perPage: 1,
+          );
+          if (existing.items.isEmpty) {
+            await _pb.collection('message_receipts').create(body: {
+              'message_id':     serverId,
+              'conversation_id': convId,
+              'recipient_id':   m.userId,
+            });
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('[Receipt] create: $e');
+    }
+  }
 
   Future<List<int>> _getConvKey(String convId, String myId) async {
     final members = await db.conversationsDao.getMembersForConversation(convId);
@@ -428,111 +546,71 @@ class MessageRepositoryImpl implements MessageRepository {
         u = await db.usersDao.getUserById(otherUserId);
       } catch (_) {}
     }
-
     if (u?.publicKey == null) return List.filled(32, 0);
     return encryption.getOrDeriveConversationKey(convId, u!.publicKey!);
   }
 
-  Future<void> _cacheMsg(
-    RecordModel r,
-    String myId,
-    List<int> key,
-  ) async {
-    final encBody = r.getStringValue('encrypted_body');
-    final iv      = r.getStringValue('iv');
-    String? decrypted;
-    if (encBody.isNotEmpty && iv.isNotEmpty && encBody != '__pending__') {
-      decrypted = await encryption.decryptMessage(encBody, iv, key);
-    }
-    final existing = await db.messagesDao.getMessageByServerId(r.id);
-    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-      localId: existing?.localId ?? _uuid.v4(),
-      serverId: Value(r.id),
-      conversationId: r.getStringValue('conversation_id'),
-      senderId: r.getStringValue('sender_id'),
-      type: r.getStringValue('type'),
-      encryptedBody: encBody, iv: iv,
-      decryptedBody: Value(decrypted),
-      replyToId: Value(r.getStringValue('reply_to_id').isEmpty
-          ? null : r.getStringValue('reply_to_id')),
-      isDeletedForEveryone: Value(r.getBoolValue('is_deleted_for_everyone')),
-      status: Value(r.getStringValue('sender_id') == myId ? 'sent' : 'delivered'),
-      createdAt: DateTime.tryParse(r.created) ?? DateTime.now(),
-      updatedAt: DateTime.now(),
-    ));
-  }
-
-  Future<Message> _applyReceiptStatus(Message msg, String myId) async {
-    if (msg.senderId != myId) return msg;
-    if (msg.serverId == null) return msg;
+  Future<void> _syncConversations(String myId) async {
     try {
-      final res = await _pb.collection('message_receipts').getList(
-        filter: 'message_id="${msg.serverId}"',
+      final res = await _pb.collection('conversation_members').getList(
+        filter: 'user_id="$myId"', expand: 'conversation_id', sort: '-created',
       );
-      bool allRead      = res.items.isNotEmpty;
-      bool allDelivered = res.items.isNotEmpty;
-      for (final r in res.items) {
-        if (r.getStringValue('read_at').isEmpty)      allRead      = false;
-        if (r.getStringValue('delivered_at').isEmpty) allDelivered = false;
-      }
-      final status = allRead ? 'read' : allDelivered ? 'delivered' : 'sent';
-      await db.messagesDao.updateMessageStatus(msg.localId, status);
-      return Message(
-        localId: msg.localId, serverId: msg.serverId,
-        conversationId: msg.conversationId, senderId: msg.senderId,
-        type: msg.type, decryptedBody: msg.decryptedBody,
-        replyToId: msg.replyToId, status: status,
-        createdAt: msg.createdAt,
-      );
-    } catch (_) { return msg; }
-  }
-
-  Future<void> _markDelivered(
-    String serverId, String conversationId, String myId,
-  ) async {
-    try {
-      final res = await _pb.collection('message_receipts').getList(
-        filter: 'message_id="$serverId"&&recipient_id="$myId"',
-      );
-      if (res.items.isEmpty) {
-        await _pb.collection('message_receipts').create(body: {
-          'message_id': serverId, 'conversation_id': conversationId,
-          'recipient_id': myId, 'delivered_at': DateTime.now().toIso8601String(),
-        });
-      } else if (res.items.first.getStringValue('delivered_at').isEmpty) {
-        await _pb.collection('message_receipts').update(
-          res.items.first.id,
-          body: {'delivered_at': DateTime.now().toIso8601String()},
+      for (final m in res.items) {
+        final conv = m.expand['conversation_id']?.firstOrNull;
+        if (conv == null) continue;
+        await db.conversationsDao.upsertConversation(
+          ConversationsTableCompanion.insert(
+            id:          conv.id,
+            type:        conv.getStringValue('type'),
+            name:        Value(conv.getStringValue('name').isEmpty
+                ? null : conv.getStringValue('name')),
+            createdById: conv.getStringValue('created_by'),
+            lastMessagePreview: Value(
+                conv.getStringValue('last_message_preview').isEmpty
+                    ? null : conv.getStringValue('last_message_preview')),
+            lastMessageAt: Value(
+                conv.getStringValue('last_message_at').isEmpty
+                    ? null : DateTime.tryParse(conv.getStringValue('last_message_at'))),
+            createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
         );
-      }
-    } catch (e) { debugPrint('[Receipt] delivered: $e'); }
-  }
-
-  Future<void> _createReceipts(
-    String serverId, String conversationId, String myId,
-  ) async {
-    try {
-      final members = await db.conversationsDao
-          .getMembersForConversation(conversationId);
-      for (final m in members) {
-        if (m.userId == myId) continue;
-        try {
-          final existing = await _pb.collection('message_receipts').getList(
-            filter: 'message_id="$serverId"&&recipient_id="${m.userId}"',
-            perPage: 1,
+        await db.conversationsDao.upsertMember(
+          ConversationMembersTableCompanion.insert(
+            id: m.id, conversationId: conv.id, userId: myId,
+            joinedAt: DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
+          ),
+        );
+        final others = await _pb.collection('conversation_members').getList(
+          filter: 'conversation_id="${conv.id}"&&user_id!="$myId"',
+          expand: 'user_id',
+        );
+        for (final om in others.items) {
+          final u = om.expand['user_id']?.firstOrNull;
+          if (u != null) await _cacheUserRecord(u);
+          await db.conversationsDao.upsertMember(
+            ConversationMembersTableCompanion.insert(
+              id: om.id, conversationId: conv.id,
+              userId: om.getStringValue('user_id'),
+              joinedAt: DateTime.tryParse(om.getStringValue('joined_at')) ?? DateTime.now(),
+            ),
           );
-          if (existing.items.isNotEmpty) continue;
-
-          await _pb.collection('message_receipts').create(body: {
-            'message_id': serverId,
-            'conversation_id': conversationId,
-            'recipient_id': m.userId,
-          });
-        } catch (e) {
-          debugPrint('[Receipt] create for ${m.userId}: $e');
         }
       }
-    } catch (e) { debugPrint('[Receipt] create: $e'); }
+    } catch (e) {
+      debugPrint('[Conv] sync: $e');
+    }
+  }
+
+  Future<List<Conversation>> _convRowsToEntities(
+      List<ConversationsTableData> rows) async {
+    final myId = await _myId();
+    final convs = <Conversation>[];
+    for (final r in rows) {
+      final other = await _getOtherUser(r.id, myId);
+      convs.add(_convDataToEntity(r, other));
+    }
+    return convs;
   }
 
   Future<User?> _getOtherUser(String convId, String myId) async {
@@ -547,10 +625,7 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Conversation _convDataToEntity(
-    ConversationsTableData r,
-    String myId,
-    User? otherUser,
-  ) =>
+      ConversationsTableData r, User? otherUser) =>
       Conversation(
         id: r.id, type: r.type, name: r.name, iconUrl: r.iconUrl,
         lastMessagePreview: r.lastMessagePreview,
@@ -558,7 +633,7 @@ class MessageRepositoryImpl implements MessageRepository {
         isPinned: r.isPinned, otherUser: otherUser,
       );
 
-  Message _rowToMessage(dynamic r, String myId) => Message(
+  Message _rowToMessage(MessagesTableData r, String myId) => Message(
     localId: r.localId, serverId: r.serverId,
     conversationId: r.conversationId, senderId: r.senderId,
     type: r.type, decryptedBody: r.decryptedBody,

@@ -6,8 +6,8 @@ import '../../../infrastructure/repositories/message_repository_impl.dart';
 class ConversationsNotifier extends AsyncNotifier<List<Conversation>> {
   @override
   Future<List<Conversation>> build() async {
+    // Drift reactive stream — auto-updates on any table change.
     final stream = ref.watch(messageRepositoryProvider).watchConversations();
-    ref.onDispose(() {});
     await for (final list in stream) {
       state = AsyncData(list);
     }
@@ -15,12 +15,8 @@ class ConversationsNotifier extends AsyncNotifier<List<Conversation>> {
   }
 
   Future<void> refresh() async {
-    state = const AsyncLoading();
-    final list = await ref
-        .read(messageRepositoryProvider)
-        .watchConversations()
-        .first;
-    state = AsyncData(list);
+    // Just invalidate — build() will restart the stream.
+    ref.invalidateSelf();
   }
 }
 

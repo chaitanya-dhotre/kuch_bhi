@@ -648,6 +648,8 @@ amoledSurface: Color(0xFF0D0D0D)
 | `fcm_token` | Text | Optional (updated on each app launch) |
 | `last_seen` | DateTime | Optional |
 | `is_online` | Bool | Default: false |
+| `typing_in` | Text | Optional |
+| `current_chat` | Text | Optional |
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 

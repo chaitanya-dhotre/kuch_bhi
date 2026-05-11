@@ -31,6 +31,10 @@ abstract class MessageRepository {
   /// Retry all pending (failed) messages.
   Future<void> retryPendingMessages();
 
+  /// Retry a specific failed message using its existing localId.
+  /// Does NOT create a new message entry.
+  Future<void> retryMessage(String localId);
+
   /// Fetch older messages (pagination).
   Future<void> loadMoreMessages(String conversationId, int offset);
 }

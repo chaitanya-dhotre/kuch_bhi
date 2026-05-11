@@ -6,10 +6,12 @@ class MessageInput extends StatefulWidget {
   const MessageInput({
     super.key,
     required this.onSend,
+    this.onTyping,
     this.isLoading = false,
   });
 
   final void Function(String text) onSend;
+  final VoidCallback? onTyping;
   final bool isLoading;
 
   @override
@@ -23,9 +25,10 @@ class _MessageInputState extends State<MessageInput> {
   @override
   void initState() {
     super.initState();
-    _controller.addListener(
-      () => setState(() => _hasText = _controller.text.trim().isNotEmpty),
-    );
+    _controller.addListener(() {
+      setState(() => _hasText = _controller.text.trim().isNotEmpty);
+      if (_controller.text.isNotEmpty) widget.onTyping?.call();
+    });
   }
 
   @override
