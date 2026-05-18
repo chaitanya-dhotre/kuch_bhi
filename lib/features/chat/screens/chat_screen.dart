@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
@@ -14,6 +15,7 @@ import '../widgets/message_bubble.dart';
 import '../widgets/message_input.dart';
 import '../widgets/pinned_message_banner.dart';
 import '../../media/screens/media_docs_screen.dart';
+import '../../groups/screens/group_settings_screen.dart';
 
 // ── Sealed list item ──────────────────────────────────────────────────────
 
@@ -290,6 +292,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final messages = messagesAsync.asData?.value ?? [];
     final items    = _buildItems(messages);
 
+    // ── Group-specific: canSendMessages ───────────────────────
+    bool canSend = true;
+    if (conv.isGroup && conv.onlyAdminsCanMessage) {
+      final myRole = ref.watch(_myRoleProvider((
+        convId: _cid,
+        userId: myId,
+      ))).asData?.value;
+      canSend = myRole == 'admin';
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -361,6 +373,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               child:   MessageBubble(
                                 message:    msg,
                                 isMine:     isMine,
+                                isGroup:    conv.isGroup,
                                 senderName: conv.otherUser?.displayName
                                     ?? 'Unknown',
                                 onReply: () => ref
@@ -386,10 +399,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
             if (!_searchActive)
               MessageInput(
-                conversationId: _cid,
-                isLoading:      false,
-                onTyping:       () => _pres.onTyping(_cid),
-                onSend:         (text) {
+                conversationId:   _cid,
+                isLoading:        false,
+                canSendMessages:  canSend,
+                onTyping:         () => _pres.onTyping(_cid),
+                onSend:           (text) {
                   final reply = ref.read(replyProvider);
                   String? replyPreview;
                   if (reply != null) {
@@ -423,8 +437,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     BuildContext context,
     Conversation conv,
     OtherUserPresence? presence,
-  ) =>
-      AppBar(
+  ) {
+    // Group member count subtitle
+    final memberCount = conv.memberCount
+        ?? ref.watch(_memberCountProvider(_cid)).asData?.value
+        ?? 0;
+
+    return AppBar(
         titleSpacing: 0,
         leading: BackButton(onPressed: () =>
             _pres.leaveChat(_cid).then((_) {
@@ -454,7 +473,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w600),
                     overflow: TextOverflow.ellipsis),
-                if (presence != null)
+                if (conv.isGroup)
+                  Text(
+                    '$memberCount member${memberCount == 1 ? '' : 's'}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.5),
+                    ),
+                  )
+                else if (presence != null)
                   Text(
                     presence.statusLabel,
                     style: TextStyle(
@@ -483,6 +511,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     onJump:         _scrollToMessage,
                   ),
                 ));
+              } else if (v == 'group_info') {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => GroupSettingsScreen(conversation: conv),
+                ));
               } else if (v == 'disappearing') {
                 _disappearingDialog(context);
               } else if (v == 'media_docs') {
@@ -491,14 +523,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 ));
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'starred',      child: Text('Starred Messages')),
-              PopupMenuItem(value: 'disappearing', child: Text('Disappearing Messages')),
-              PopupMenuItem(value: 'media_docs',   child: Text('Media & Docs')),
+            itemBuilder: (_) => [
+              if (!conv.isGroup)
+                const PopupMenuItem(value: 'starred',      child: Text('Starred Messages'))
+              else
+                const PopupMenuItem(value: 'group_info',   child: Text('Group Info')),
+              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing Messages')),
+              const PopupMenuItem(value: 'media_docs',   child: Text('Media & Docs')),
             ],
           ),
         ],
       );
+  }
 
   AppBar _searchBar(BuildContext context, List<Message> messages) =>
       AppBar(
@@ -843,4 +879,23 @@ final _presenceProvider = StreamProvider.autoDispose
     .family<OtherUserPresence, ({String userId, String convId})>(
         (ref, args) {
   return ref.read(presenceServiceProvider).watchPresence(args.userId, args.convId);
+});
+
+// ── Group member count provider ───────────────────────────────────────────
+
+final _memberCountProvider =
+    FutureProvider.autoDispose.family<int, String>((ref, convId) async {
+  final db      = ref.read(appDatabaseProvider);
+  final members = await db.conversationsDao.getMembersForConversation(convId);
+  return members.length;
+});
+
+// ── My role in a conversation ─────────────────────────────────────────────
+
+final _myRoleProvider = FutureProvider.autoDispose
+    .family<String?, ({String convId, String userId})>((ref, args) async {
+  final db      = ref.read(appDatabaseProvider);
+  final members = await db.conversationsDao.getMembersForConversation(args.convId);
+  final mine    = members.where((m) => m.userId == args.userId).firstOrNull;
+  return mine?.role;
 });

@@ -3,6 +3,7 @@ import 'dart:io';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../entities/conversation.dart';
 import '../entities/message.dart';
+import '../entities/user.dart';
 
 abstract class MessageRepository {
   /// Get or create a direct conversation with another user.
@@ -81,4 +82,30 @@ abstract class MessageRepository {
 
   /// Fetch older messages (pagination).
   Future<void> loadMoreMessages(String conversationId, int offset);
+
+  // ── Group admin ────────────────────────────────────────────────
+
+  /// Returns true if the current user is an admin in [conversationId].
+  Future<bool> isCurrentUserAdmin(String conversationId);
+
+  /// Returns all members of a group conversation as User entities.
+  Future<List<User>> getGroupMembers(String conversationId);
+
+  /// Add a user to a group (caller must be admin).
+  Future<void> addMemberToGroup(String conversationId, String userId);
+
+  /// Remove a member from a group (caller must be admin). Rotates group key.
+  Future<void> removeMemberFromGroup(String conversationId, String userId);
+
+  /// Promote a member to admin.
+  Future<void> promoteMemberToAdmin(String conversationId, String userId);
+
+  /// Demote an admin to member.
+  Future<void> demoteAdminToMember(String conversationId, String userId);
+
+  /// Toggle the only-admins-can-message setting (caller must be admin).
+  Future<void> setOnlyAdminsCanMessage(String conversationId, bool value);
+
+  /// Leave the group. Promotes another member first if caller is sole admin.
+  Future<void> leaveGroup(String conversationId);
 }

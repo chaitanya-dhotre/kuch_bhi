@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
+import '../../../domain/entities/user.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/media_upload_service.dart';
 
@@ -151,4 +152,13 @@ class ReactionGroup {
 final currentUserIdProvider = FutureProvider<String>((ref) async {
   final db = ref.read(appDatabaseProvider);
   return await db.settingsDao.getSetting('current_user_id') ?? '';
+});
+
+// ── Group members ─────────────────────────────────────────────────────────
+
+final groupMembersProvider = FutureProvider.autoDispose
+    .family<List<User>, String>((ref, conversationId) {
+  return ref
+      .read(messageRepositoryProvider)
+      .getGroupMembers(conversationId);
 });

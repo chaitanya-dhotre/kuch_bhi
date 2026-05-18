@@ -11,6 +11,8 @@ class Conversation {
     this.isPinned = false,
     this.unreadCount = 0,
     this.otherUser,
+    this.onlyAdminsCanMessage = false,
+    this.memberCount,
   });
 
   final String    id;
@@ -22,11 +24,15 @@ class Conversation {
   final bool      isPinned;
   final int       unreadCount;
   final User?     otherUser; // populated for direct chats
+  final bool      onlyAdminsCanMessage;
+  final int?      memberCount;
 
-  String  get displayName => type == 'direct'
-      ? (otherUser?.displayName ?? 'Unknown')
-      : (name ?? 'Group Chat');
+  bool    get isGroup     => type == 'group';
 
-  String? get avatarUrl   => otherUser?.avatarUrl;
+  String  get displayName => isGroup
+      ? (name ?? 'Group Chat')
+      : (otherUser?.displayName ?? 'Unknown');
+
+  String? get avatarUrl   => isGroup ? iconUrl : otherUser?.avatarUrl;
   bool    get isOnline    => otherUser?.isOnline ?? false;
 }

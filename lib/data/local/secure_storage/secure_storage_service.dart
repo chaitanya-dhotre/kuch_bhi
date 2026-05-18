@@ -40,6 +40,11 @@ class SecureStorageService {
   Future<String?> getContactEncryptionKey(String contactOrConvId) =>
       _storage.read(key: '$_prefixContactKey$contactOrConvId');
 
+  // ── Generic passthrough ───────────────────────────────────────
+  Future<void>    write({required String key, required String value}) =>
+      _storage.write(key: key, value: value);
+  Future<String?> read({required String key}) => _storage.read(key: key);
+
   // ── Full wipe ─────────────────────────────────────────────────
   Future<void> clearAll() => _storage.deleteAll();
 }

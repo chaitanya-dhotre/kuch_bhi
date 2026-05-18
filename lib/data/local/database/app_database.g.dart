@@ -805,6 +805,20 @@ class $ConversationsTableTable extends ConversationsTable
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _onlyAdminsCanMessageMeta =
+      const VerificationMeta('onlyAdminsCanMessage');
+  @override
+  late final GeneratedColumn<bool> onlyAdminsCanMessage = GeneratedColumn<bool>(
+    'only_admins_can_message',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("only_admins_can_message" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _isPinnedMeta = const VerificationMeta(
     'isPinned',
   );
@@ -874,6 +888,7 @@ class $ConversationsTableTable extends ConversationsTable
     lastMessagePreview,
     lastMessageAt,
     disappearingDuration,
+    onlyAdminsCanMessage,
     isPinned,
     muteUntil,
     wallpaperPath,
@@ -955,6 +970,15 @@ class $ConversationsTableTable extends ConversationsTable
         ),
       );
     }
+    if (data.containsKey('only_admins_can_message')) {
+      context.handle(
+        _onlyAdminsCanMessageMeta,
+        onlyAdminsCanMessage.isAcceptableOrUnknown(
+          data['only_admins_can_message']!,
+          _onlyAdminsCanMessageMeta,
+        ),
+      );
+    }
     if (data.containsKey('is_pinned')) {
       context.handle(
         _isPinnedMeta,
@@ -1033,6 +1057,10 @@ class $ConversationsTableTable extends ConversationsTable
         DriftSqlType.int,
         data['${effectivePrefix}disappearing_duration'],
       )!,
+      onlyAdminsCanMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}only_admins_can_message'],
+      )!,
       isPinned: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_pinned'],
@@ -1072,6 +1100,7 @@ class ConversationsTableData extends DataClass
   final String? lastMessagePreview;
   final DateTime? lastMessageAt;
   final int disappearingDuration;
+  final bool onlyAdminsCanMessage;
   final bool isPinned;
   final DateTime? muteUntil;
   final String? wallpaperPath;
@@ -1086,6 +1115,7 @@ class ConversationsTableData extends DataClass
     this.lastMessagePreview,
     this.lastMessageAt,
     required this.disappearingDuration,
+    required this.onlyAdminsCanMessage,
     required this.isPinned,
     this.muteUntil,
     this.wallpaperPath,
@@ -1111,6 +1141,7 @@ class ConversationsTableData extends DataClass
       map['last_message_at'] = Variable<DateTime>(lastMessageAt);
     }
     map['disappearing_duration'] = Variable<int>(disappearingDuration);
+    map['only_admins_can_message'] = Variable<bool>(onlyAdminsCanMessage);
     map['is_pinned'] = Variable<bool>(isPinned);
     if (!nullToAbsent || muteUntil != null) {
       map['mute_until'] = Variable<DateTime>(muteUntil);
@@ -1139,6 +1170,7 @@ class ConversationsTableData extends DataClass
           ? const Value.absent()
           : Value(lastMessageAt),
       disappearingDuration: Value(disappearingDuration),
+      onlyAdminsCanMessage: Value(onlyAdminsCanMessage),
       isPinned: Value(isPinned),
       muteUntil: muteUntil == null && nullToAbsent
           ? const Value.absent()
@@ -1169,6 +1201,9 @@ class ConversationsTableData extends DataClass
       disappearingDuration: serializer.fromJson<int>(
         json['disappearingDuration'],
       ),
+      onlyAdminsCanMessage: serializer.fromJson<bool>(
+        json['onlyAdminsCanMessage'],
+      ),
       isPinned: serializer.fromJson<bool>(json['isPinned']),
       muteUntil: serializer.fromJson<DateTime?>(json['muteUntil']),
       wallpaperPath: serializer.fromJson<String?>(json['wallpaperPath']),
@@ -1188,6 +1223,7 @@ class ConversationsTableData extends DataClass
       'lastMessagePreview': serializer.toJson<String?>(lastMessagePreview),
       'lastMessageAt': serializer.toJson<DateTime?>(lastMessageAt),
       'disappearingDuration': serializer.toJson<int>(disappearingDuration),
+      'onlyAdminsCanMessage': serializer.toJson<bool>(onlyAdminsCanMessage),
       'isPinned': serializer.toJson<bool>(isPinned),
       'muteUntil': serializer.toJson<DateTime?>(muteUntil),
       'wallpaperPath': serializer.toJson<String?>(wallpaperPath),
@@ -1205,6 +1241,7 @@ class ConversationsTableData extends DataClass
     Value<String?> lastMessagePreview = const Value.absent(),
     Value<DateTime?> lastMessageAt = const Value.absent(),
     int? disappearingDuration,
+    bool? onlyAdminsCanMessage,
     bool? isPinned,
     Value<DateTime?> muteUntil = const Value.absent(),
     Value<String?> wallpaperPath = const Value.absent(),
@@ -1223,6 +1260,7 @@ class ConversationsTableData extends DataClass
         ? lastMessageAt.value
         : this.lastMessageAt,
     disappearingDuration: disappearingDuration ?? this.disappearingDuration,
+    onlyAdminsCanMessage: onlyAdminsCanMessage ?? this.onlyAdminsCanMessage,
     isPinned: isPinned ?? this.isPinned,
     muteUntil: muteUntil.present ? muteUntil.value : this.muteUntil,
     wallpaperPath: wallpaperPath.present
@@ -1249,6 +1287,9 @@ class ConversationsTableData extends DataClass
       disappearingDuration: data.disappearingDuration.present
           ? data.disappearingDuration.value
           : this.disappearingDuration,
+      onlyAdminsCanMessage: data.onlyAdminsCanMessage.present
+          ? data.onlyAdminsCanMessage.value
+          : this.onlyAdminsCanMessage,
       isPinned: data.isPinned.present ? data.isPinned.value : this.isPinned,
       muteUntil: data.muteUntil.present ? data.muteUntil.value : this.muteUntil,
       wallpaperPath: data.wallpaperPath.present
@@ -1270,6 +1311,7 @@ class ConversationsTableData extends DataClass
           ..write('lastMessagePreview: $lastMessagePreview, ')
           ..write('lastMessageAt: $lastMessageAt, ')
           ..write('disappearingDuration: $disappearingDuration, ')
+          ..write('onlyAdminsCanMessage: $onlyAdminsCanMessage, ')
           ..write('isPinned: $isPinned, ')
           ..write('muteUntil: $muteUntil, ')
           ..write('wallpaperPath: $wallpaperPath, ')
@@ -1289,6 +1331,7 @@ class ConversationsTableData extends DataClass
     lastMessagePreview,
     lastMessageAt,
     disappearingDuration,
+    onlyAdminsCanMessage,
     isPinned,
     muteUntil,
     wallpaperPath,
@@ -1307,6 +1350,7 @@ class ConversationsTableData extends DataClass
           other.lastMessagePreview == this.lastMessagePreview &&
           other.lastMessageAt == this.lastMessageAt &&
           other.disappearingDuration == this.disappearingDuration &&
+          other.onlyAdminsCanMessage == this.onlyAdminsCanMessage &&
           other.isPinned == this.isPinned &&
           other.muteUntil == this.muteUntil &&
           other.wallpaperPath == this.wallpaperPath &&
@@ -1324,6 +1368,7 @@ class ConversationsTableCompanion
   final Value<String?> lastMessagePreview;
   final Value<DateTime?> lastMessageAt;
   final Value<int> disappearingDuration;
+  final Value<bool> onlyAdminsCanMessage;
   final Value<bool> isPinned;
   final Value<DateTime?> muteUntil;
   final Value<String?> wallpaperPath;
@@ -1339,6 +1384,7 @@ class ConversationsTableCompanion
     this.lastMessagePreview = const Value.absent(),
     this.lastMessageAt = const Value.absent(),
     this.disappearingDuration = const Value.absent(),
+    this.onlyAdminsCanMessage = const Value.absent(),
     this.isPinned = const Value.absent(),
     this.muteUntil = const Value.absent(),
     this.wallpaperPath = const Value.absent(),
@@ -1355,6 +1401,7 @@ class ConversationsTableCompanion
     this.lastMessagePreview = const Value.absent(),
     this.lastMessageAt = const Value.absent(),
     this.disappearingDuration = const Value.absent(),
+    this.onlyAdminsCanMessage = const Value.absent(),
     this.isPinned = const Value.absent(),
     this.muteUntil = const Value.absent(),
     this.wallpaperPath = const Value.absent(),
@@ -1375,6 +1422,7 @@ class ConversationsTableCompanion
     Expression<String>? lastMessagePreview,
     Expression<DateTime>? lastMessageAt,
     Expression<int>? disappearingDuration,
+    Expression<bool>? onlyAdminsCanMessage,
     Expression<bool>? isPinned,
     Expression<DateTime>? muteUntil,
     Expression<String>? wallpaperPath,
@@ -1393,6 +1441,8 @@ class ConversationsTableCompanion
       if (lastMessageAt != null) 'last_message_at': lastMessageAt,
       if (disappearingDuration != null)
         'disappearing_duration': disappearingDuration,
+      if (onlyAdminsCanMessage != null)
+        'only_admins_can_message': onlyAdminsCanMessage,
       if (isPinned != null) 'is_pinned': isPinned,
       if (muteUntil != null) 'mute_until': muteUntil,
       if (wallpaperPath != null) 'wallpaper_path': wallpaperPath,
@@ -1411,6 +1461,7 @@ class ConversationsTableCompanion
     Value<String?>? lastMessagePreview,
     Value<DateTime?>? lastMessageAt,
     Value<int>? disappearingDuration,
+    Value<bool>? onlyAdminsCanMessage,
     Value<bool>? isPinned,
     Value<DateTime?>? muteUntil,
     Value<String?>? wallpaperPath,
@@ -1427,6 +1478,7 @@ class ConversationsTableCompanion
       lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       disappearingDuration: disappearingDuration ?? this.disappearingDuration,
+      onlyAdminsCanMessage: onlyAdminsCanMessage ?? this.onlyAdminsCanMessage,
       isPinned: isPinned ?? this.isPinned,
       muteUntil: muteUntil ?? this.muteUntil,
       wallpaperPath: wallpaperPath ?? this.wallpaperPath,
@@ -1463,6 +1515,11 @@ class ConversationsTableCompanion
     if (disappearingDuration.present) {
       map['disappearing_duration'] = Variable<int>(disappearingDuration.value);
     }
+    if (onlyAdminsCanMessage.present) {
+      map['only_admins_can_message'] = Variable<bool>(
+        onlyAdminsCanMessage.value,
+      );
+    }
     if (isPinned.present) {
       map['is_pinned'] = Variable<bool>(isPinned.value);
     }
@@ -1495,6 +1552,7 @@ class ConversationsTableCompanion
           ..write('lastMessagePreview: $lastMessagePreview, ')
           ..write('lastMessageAt: $lastMessageAt, ')
           ..write('disappearingDuration: $disappearingDuration, ')
+          ..write('onlyAdminsCanMessage: $onlyAdminsCanMessage, ')
           ..write('isPinned: $isPinned, ')
           ..write('muteUntil: $muteUntil, ')
           ..write('wallpaperPath: $wallpaperPath, ')
@@ -6378,6 +6436,7 @@ typedef $$ConversationsTableTableCreateCompanionBuilder =
       Value<String?> lastMessagePreview,
       Value<DateTime?> lastMessageAt,
       Value<int> disappearingDuration,
+      Value<bool> onlyAdminsCanMessage,
       Value<bool> isPinned,
       Value<DateTime?> muteUntil,
       Value<String?> wallpaperPath,
@@ -6395,6 +6454,7 @@ typedef $$ConversationsTableTableUpdateCompanionBuilder =
       Value<String?> lastMessagePreview,
       Value<DateTime?> lastMessageAt,
       Value<int> disappearingDuration,
+      Value<bool> onlyAdminsCanMessage,
       Value<bool> isPinned,
       Value<DateTime?> muteUntil,
       Value<String?> wallpaperPath,
@@ -6449,6 +6509,11 @@ class $$ConversationsTableTableFilterComposer
 
   ColumnFilters<int> get disappearingDuration => $composableBuilder(
     column: $table.disappearingDuration,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get onlyAdminsCanMessage => $composableBuilder(
+    column: $table.onlyAdminsCanMessage,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6527,6 +6592,11 @@ class $$ConversationsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get onlyAdminsCanMessage => $composableBuilder(
+    column: $table.onlyAdminsCanMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isPinned => $composableBuilder(
     column: $table.isPinned,
     builder: (column) => ColumnOrderings(column),
@@ -6591,6 +6661,11 @@ class $$ConversationsTableTableAnnotationComposer
 
   GeneratedColumn<int> get disappearingDuration => $composableBuilder(
     column: $table.disappearingDuration,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get onlyAdminsCanMessage => $composableBuilder(
+    column: $table.onlyAdminsCanMessage,
     builder: (column) => column,
   );
 
@@ -6660,6 +6735,7 @@ class $$ConversationsTableTableTableManager
                 Value<String?> lastMessagePreview = const Value.absent(),
                 Value<DateTime?> lastMessageAt = const Value.absent(),
                 Value<int> disappearingDuration = const Value.absent(),
+                Value<bool> onlyAdminsCanMessage = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
                 Value<DateTime?> muteUntil = const Value.absent(),
                 Value<String?> wallpaperPath = const Value.absent(),
@@ -6675,6 +6751,7 @@ class $$ConversationsTableTableTableManager
                 lastMessagePreview: lastMessagePreview,
                 lastMessageAt: lastMessageAt,
                 disappearingDuration: disappearingDuration,
+                onlyAdminsCanMessage: onlyAdminsCanMessage,
                 isPinned: isPinned,
                 muteUntil: muteUntil,
                 wallpaperPath: wallpaperPath,
@@ -6692,6 +6769,7 @@ class $$ConversationsTableTableTableManager
                 Value<String?> lastMessagePreview = const Value.absent(),
                 Value<DateTime?> lastMessageAt = const Value.absent(),
                 Value<int> disappearingDuration = const Value.absent(),
+                Value<bool> onlyAdminsCanMessage = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
                 Value<DateTime?> muteUntil = const Value.absent(),
                 Value<String?> wallpaperPath = const Value.absent(),
@@ -6707,6 +6785,7 @@ class $$ConversationsTableTableTableManager
                 lastMessagePreview: lastMessagePreview,
                 lastMessageAt: lastMessageAt,
                 disappearingDuration: disappearingDuration,
+                onlyAdminsCanMessage: onlyAdminsCanMessage,
                 isPinned: isPinned,
                 muteUntil: muteUntil,
                 wallpaperPath: wallpaperPath,

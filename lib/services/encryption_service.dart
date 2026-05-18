@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pocketbase/pocketbase.dart';
 
+import '../core/network/pocketbase_client.dart';
 import '../data/local/secure_storage/secure_storage_service.dart';
 
 class EncryptResult {
@@ -12,8 +15,11 @@ class EncryptResult {
 }
 
 class EncryptionService {
-  EncryptionService(this._storage);
+  EncryptionService(this._storage, this._pbClient);
   final SecureStorageService _storage;
+  final PocketBaseClient     _pbClient;
+
+  PocketBase get _pb => _pbClient.pb;
 
   static final _x25519 = X25519();
   static final _aesGcm = AesGcm.with256bits();
@@ -136,8 +142,95 @@ class EncryptionService {
       return null;
     }
   }
+  // ── Group key ─────────────────────────────────────────────────
+
+  /// Returns 32 cryptographically random bytes for use as a group AES key.
+  List<int> generateGroupKey() {
+    final rng = Random.secure();
+    return List<int>.generate(32, (_) => rng.nextInt(256));
+  }
+
+  /// Encrypts [groupKey] for a specific member using X25519 ECDH shared secret.
+  /// Returns 'ivBase64:ciphertextBase64'.
+  Future<String> encryptGroupKeyForMember(
+    List<int> groupKey,
+    String memberPublicKeyBase64,
+    String conversationId,
+  ) async {
+    final sharedKey = await getOrDeriveConversationKey(
+      '${conversationId}_groupkey',
+      memberPublicKeyBase64,
+    );
+    final secretKey = await _aesGcm.newSecretKeyFromBytes(sharedKey);
+    final nonce     = _aesGcm.newNonce();
+    final secretBox = await _aesGcm.encrypt(
+      groupKey,
+      secretKey: secretKey,
+      nonce:     nonce,
+    );
+    final combined = [...secretBox.cipherText, ...secretBox.mac.bytes];
+    return '${base64.encode(nonce)}:${base64.encode(combined)}';
+  }
+
+  /// Decrypts an encrypted group key string ('ivBase64:ciphertextBase64').
+  /// [adminPublicKeyBase64] is the public key of the user who encrypted it.
+  Future<List<int>> decryptGroupKey(
+    String encryptedKey,
+    String adminPublicKeyBase64,
+    String conversationId,
+  ) async {
+    final parts     = encryptedKey.split(':');
+    final nonce     = base64.decode(parts[0]);
+    final allBytes  = base64.decode(parts[1]);
+    final cipherTxt = allBytes.sublist(0, allBytes.length - 16);
+    final mac       = Mac(allBytes.sublist(allBytes.length - 16));
+
+    final sharedKey = await getOrDeriveConversationKey(
+      '${conversationId}_groupkey',
+      adminPublicKeyBase64,
+    );
+    final secretKey = await _aesGcm.newSecretKeyFromBytes(sharedKey);
+    final clear     = await _aesGcm.decrypt(
+      SecretBox(cipherTxt, nonce: nonce, mac: mac),
+      secretKey: secretKey,
+    );
+    return clear;
+  }
+
+  /// Returns the AES group key for [conversationId].
+  /// Checks secure storage cache first; fetches and decrypts from PocketBase
+  /// if not cached.
+  Future<List<int>> getOrFetchGroupKey(
+    String conversationId,
+    String myId,
+  ) async {
+    final cacheKey = 'group_key_$conversationId';
+    final cached   = await _storage.read(key: cacheKey);
+    if (cached != null) return base64.decode(cached);
+
+    final record = await _pb.collection('group_keys').getFirstListItem(
+      'conversation_id="$conversationId"&&user_id="$myId"',
+      expand: 'encrypted_by_user_id',
+    );
+
+    final encryptedKey    = record.getStringValue('encrypted_key');
+    final encryptedByUser = record.expand['encrypted_by_user_id']?.firstOrNull;
+    final adminPublicKey  = encryptedByUser?.getStringValue('public_key') ?? '';
+
+    if (adminPublicKey.isEmpty) {
+      debugPrint('[Enc] getOrFetchGroupKey: admin public key is empty');
+      return List.filled(32, 0);
+    }
+
+    final groupKey = await decryptGroupKey(encryptedKey, adminPublicKey, conversationId);
+    await _storage.write(key: cacheKey, value: base64.encode(groupKey));
+    return groupKey;
+  }
 }
 
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
-  return EncryptionService(ref.read(secureStorageProvider));
+  return EncryptionService(
+    ref.read(secureStorageProvider),
+    ref.read(pocketbaseClientProvider),
+  );
 });

@@ -11,6 +11,7 @@ import 'data/local/database/tables/app_settings_table.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
+import 'core/utils/fcm_debug_helper.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -43,14 +44,8 @@ Future<void> main() async {
   final db            = AppDatabase();
   final pbClient      = await PocketBaseClient.create(secureStorage);
 
-  // Force FCM token registration on every app start
-  FirebaseMessaging.instance.getToken().then((token) async {
-    if (token == null) return;
-    debugPrint('[FCM] Device token: $token');
-    // Will be picked up by auth_repository._saveSession on next auth refresh
-    final db = AppDatabase();
-    await db.settingsDao.setSetting('pending_fcm_token', token);
-  });
+  // FCM token registration is handled by auth_repository_impl and fcm_service.
+  await FcmDebugHelper.printFcmDebugInfo();
 
   runApp(
     ProviderScope(

@@ -726,6 +726,7 @@ Note: When a friend request is accepted, create one `friendships` record. user\_
 | `name` | Text | Optional (groups only), max 50 |
 | `icon` | File | Optional (groups only) |
 | `created_by` | Relation → users | Required |
+| `only_admins_can_message` | Boolean | Optional (groups only) default: false|
 | `last_message_preview` | Text | Optional, max 200 (plain text preview) |
 | `last_message_at` | DateTime | Optional |
 | `disappearing_duration` | Number | 0 \= off, or seconds (86400/604800/2592000) |
@@ -972,7 +973,37 @@ deleteRule: @request.auth.id \= sender\_id
 
 ---
 
-### 7.13 PocketBase Hooks / Scheduled Jobs
+
+### 7.13 Collection: `group_keys`
+
+| Field | Type | Options |
+| :---- | :---- | :---- |
+| `id` | Auto (PB) | PK |
+| `conversation_id` | Relation → conversations | Required, cascade delete |
+| `user_id` | Relation → users | Required, cascade delete |
+| `encrypted_key` | Text | Required  format: ivBase64:ciphertextBase64 |
+| `encrypted_by_user_id` | Relation → users | Required (the admin who created it) |
+| `key_version` | Number | Required, default: 1 |
+| `created` | Auto (PB) |  |
+| `updated` | Auto (PB) |  |
+
+
+
+**Rules:**
+
+listRule:   @request.auth.id = user_id.id
+
+viewRule:   @request.auth.id = user_id.id
+
+createRule: @request.auth.id != ""
+
+updateRule: @request.auth.id != ""
+
+deleteRule: null
+
+---
+
+### 7.14 PocketBase Hooks / Scheduled Jobs
 
 These need to be implemented as PocketBase hooks (JS hooks file) or an external cron script:
 

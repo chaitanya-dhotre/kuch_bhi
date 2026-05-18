@@ -10,6 +10,7 @@ class ConversationsTable extends Table {
   TextColumn get lastMessagePreview => text().nullable()();
   DateTimeColumn get lastMessageAt => dateTime().nullable()();
   IntColumn get disappearingDuration => integer().withDefault(const Constant(0))();
+  BoolColumn get onlyAdminsCanMessage => boolean().withDefault(const Constant(false))();
   // Local-only fields (never synced to server)
   BoolColumn get isPinned => boolean().withDefault(const Constant(false))();
   DateTimeColumn get muteUntil => dateTime().nullable()();

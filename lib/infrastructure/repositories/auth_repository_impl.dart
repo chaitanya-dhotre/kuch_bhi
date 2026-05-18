@@ -258,24 +258,19 @@ class AuthRepositoryImpl implements AuthRepository {
 
     // Register FCM token with server.
     try {
-      // Check for pending token first (from app startup)
-      var fcmToken = await db.settingsDao.getSetting('pending_fcm_token');
-      
-      // If no pending token, fetch fresh one
-      if (fcmToken == null || fcmToken.isEmpty) {
-        fcmToken = await FirebaseMessaging.instance.getToken();
-      }
-      
+      final fcmToken = await FirebaseMessaging.instance.getToken();
       if (fcmToken != null && fcmToken.isNotEmpty) {
-        await _pb.collection('users').update(user.id, body: {
-          'fcm_token': fcmToken,
-        });
-        debugPrint('[FCM] Token registered for user ${user.id}');
-        // Clear pending token after successful registration
-        await db.settingsDao.setSetting('pending_fcm_token', '');
+        final lastToken = await db.settingsDao.getSetting('last_fcm_token');
+        if (fcmToken != lastToken) {
+          await _pb.collection('users').update(user.id, body: {
+            'fcm_token': fcmToken,
+          });
+          await db.settingsDao.setSetting('last_fcm_token', fcmToken);
+          debugPrint('[FCM] Token registered for user ${user.id}');
+        }
       }
     } catch (e) {
-      debugPrint('[FCM] Token update failed: $e');
+      debugPrint('[FCM] Token registration failed: $e');
     }
 
     // Generate encryption key pair if this is a new device.
@@ -302,7 +297,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   Future<void> _initEncryptionKeys(String userId) async {
     try {
-      final enc = EncryptionService(storage);
+      final enc = EncryptionService(storage, pbClient);
       final pubKeyB64 = await enc.getPublicKeyBase64();
 
       // Only upload if server doesn't have it yet.

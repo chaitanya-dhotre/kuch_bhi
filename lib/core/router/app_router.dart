@@ -11,6 +11,8 @@ import '../../features/friend_requests/screens/friend_requests_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/media/screens/media_docs_screen.dart';
 import '../../features/media/screens/media_viewer_screen.dart';
+import '../../features/groups/screens/create_group_screen.dart';
+import '../../features/groups/screens/group_settings_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 
 class AppRoutes {
@@ -27,6 +29,8 @@ class AppRoutes {
   static const String starredMessages = '/starred/:conversationId';
   static const String mediaViewer     = '/media-viewer';
   static const String mediaDocs       = '/media-docs/:conversationId';
+  static const String createGroup     = '/create-group';
+  static const String groupSettings   = '/group-settings';
 }
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -39,6 +43,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authProvider).valueOrNull;
       final protected = [AppRoutes.home, AppRoutes.profile,
                          AppRoutes.friendRequests, AppRoutes.chat,
+                         AppRoutes.createGroup, AppRoutes.groupSettings,
                          '/starred'];
       if (protected.any((p) => state.matchedLocation.startsWith(p)) &&
           auth is! AuthAuthenticated) {
@@ -97,6 +102,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final convId = state.pathParameters['conversationId']!;
           return MediaDocsScreen(conversationId: convId);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.createGroup,
+        builder: (_, __) => const CreateGroupScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.groupSettings,
+        builder: (context, state) {
+          final conv = state.extra as Conversation;
+          return GroupSettingsScreen(conversation: conv);
         },
       ),
     ],

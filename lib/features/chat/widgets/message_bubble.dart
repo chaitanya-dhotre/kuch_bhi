@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/emoji_utils.dart';
+import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
 import 'link_preview_card.dart';
@@ -16,12 +17,28 @@ import 'reply_quote.dart';
 import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
 
+// 8 deterministic sender name colors
+const List<Color> _kSenderColors = [
+  Color(0xFF1E88E5), // blue
+  Color(0xFF43A047), // green
+  Color(0xFFE53935), // red
+  Color(0xFF8E24AA), // purple
+  Color(0xFFE67E22), // orange
+  Color(0xFF00ACC1), // cyan
+  Color(0xFF6D4C41), // brown
+  Color(0xFFD81B60), // pink
+];
+
+Color _colorForSender(String senderId) =>
+    _kSenderColors[senderId.hashCode.abs() % _kSenderColors.length];
+
 class MessageBubble extends ConsumerWidget {
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMine,
     this.senderName = 'Unknown',
+    this.isGroup    = false,
     this.onReply,
     this.onReplyTap,
   });
@@ -29,6 +46,7 @@ class MessageBubble extends ConsumerWidget {
   final Message      message;
   final bool         isMine;
   final String       senderName;
+  final bool         isGroup;
   final VoidCallback? onReply;
   final VoidCallback? onReplyTap;
 
@@ -39,18 +57,38 @@ class MessageBubble extends ConsumerWidget {
     final isDark    = Theme.of(context).brightness == Brightness.dark;
     final url       = extractFirstUrl(body);
 
+    // Fetch sender display name from Drift for group messages
+    final senderDisplayName = (isGroup && !isMine)
+        ? ref.watch(_senderNameProvider(message.senderId)).asData?.value
+              ?? senderName
+        : senderName;
+
     final bubble = GestureDetector(
       onLongPress: () => showMessageMenu(
         context:    context,
         ref:        ref,
         message:    message,
         isMine:     isMine,
-        senderName: senderName,
+        senderName: senderDisplayName,
       ),
       child: Column(
         crossAxisAlignment:
             isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
+          // ── Group sender name ────────────────────────────────
+          if (isGroup && !isMine)
+            Padding(
+              padding: const EdgeInsets.only(left: 14, bottom: 1, top: 4),
+              child: Text(
+                senderDisplayName,
+                style: TextStyle(
+                  fontSize:   11.5,
+                  fontWeight: FontWeight.w600,
+                  color:      _colorForSender(message.senderId),
+                ),
+              ),
+            ),
+
           // ── Reply quote ──────────────────────────────────────
           if (message.replyPreview != null)
             GestureDetector(
@@ -330,6 +368,15 @@ class _TextBubble extends StatelessWidget {
     );
   }
 }
+
+// ── Sender name provider (group chats) ───────────────────────────────────
+
+final _senderNameProvider =
+    FutureProvider.autoDispose.family<String, String>((ref, userId) async {
+  final db   = ref.read(appDatabaseProvider);
+  final user = await db.usersDao.getUserById(userId);
+  return user?.displayName ?? 'Unknown';
+});
 
 // ── Tick indicator ────────────────────────────────────────────────────────
 

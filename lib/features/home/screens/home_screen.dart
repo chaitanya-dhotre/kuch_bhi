@@ -159,12 +159,28 @@ class HomeScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddFriend(context, ref),
-        icon:  const Icon(Icons.person_add_outlined),
-        label: const Text('Add Friend'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.small(
+            heroTag:         'fab_new_group',
+            onPressed:       () => context.push(AppRoutes.createGroup),
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            tooltip:         'New Group',
+            child:           const Icon(Icons.group_add_outlined),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag:         'fab_add_friend',
+            onPressed:       () => _showAddFriend(context, ref),
+            icon:            const Icon(Icons.person_add_outlined),
+            label:           const Text('Add Friend'),
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+          ),
+        ],
       ),
     );
   }
@@ -237,20 +253,7 @@ class _ConversationTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppColors.primaryLight,
-        backgroundImage: conv.avatarUrl != null
-            ? CachedNetworkImageProvider(conv.avatarUrl!)
-            : null,
-        child: conv.avatarUrl == null
-            ? Text(
-                conv.displayName.substring(0, 1).toUpperCase(),
-                style: const TextStyle(
-                  color: AppColors.primary, fontWeight: FontWeight.w700,
-                ),
-              )
-            : null,
-      ),
+      leading: _ConvAvatar(conv: conv),
       title: Row(
         children: [
           Expanded(
@@ -298,6 +301,62 @@ class _ConversationTile extends ConsumerWidget {
     if (diff.inDays == 1) return 'Yesterday';
     if (diff.inDays < 7)  return DateFormat('EEE').format(dt.toLocal());
     return DateFormat('dd/MM').format(dt.toLocal());
+  }
+}
+
+class _ConvAvatar extends StatelessWidget {
+  const _ConvAvatar({required this.conv});
+  final Conversation conv;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!conv.isGroup) {
+      return CircleAvatar(
+        backgroundColor: AppColors.primaryLight,
+        backgroundImage: conv.avatarUrl != null
+            ? CachedNetworkImageProvider(conv.avatarUrl!)
+            : null,
+        child: conv.avatarUrl == null
+            ? Text(
+                conv.displayName.substring(0, 1).toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.primary, fontWeight: FontWeight.w700,
+                ),
+              )
+            : null,
+      );
+    }
+
+    // Group avatar
+    return Stack(
+      children: [
+        CircleAvatar(
+          backgroundColor: AppColors.primaryLight,
+          backgroundImage: conv.iconUrl != null
+              ? CachedNetworkImageProvider(conv.iconUrl!)
+              : null,
+          child: conv.iconUrl == null
+              ? Text(
+                  (conv.name ?? 'G').substring(0, 1).toUpperCase(),
+                  style: const TextStyle(
+                    color: AppColors.primary, fontWeight: FontWeight.w700,
+                  ),
+                )
+              : null,
+        ),
+        Positioned(
+          bottom: 0, right: 0,
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.group, size: 11, color: AppColors.primary),
+          ),
+        ),
+      ],
+    );
   }
 }
 

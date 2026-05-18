@@ -27,12 +27,14 @@ class MessageInput extends ConsumerStatefulWidget {
     required this.conversationId,
     this.onTyping,
     this.isLoading = false,
+    this.canSendMessages = true,
   });
 
   final void Function(String) onSend;
   final String                conversationId;
   final VoidCallback?         onTyping;
   final bool                  isLoading;
+  final bool                  canSendMessages;
 
   @override
   ConsumerState<MessageInput> createState() => _MessageInputState();
@@ -454,6 +456,29 @@ class _MessageInputState extends ConsumerState<MessageInput>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final reply  = ref.watch(replyProvider);
+
+    if (!widget.canSendMessages) {
+      return Container(
+        color:   isDark ? const Color(0xFF1A1A2E) : Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: Text(
+              'Only admins can send messages',
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.45),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Container(
       color: isDark ? const Color(0xFF1A1A2E) : Colors.white,

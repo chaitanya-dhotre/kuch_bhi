@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart' show OrderingMode, OrderingTerm, Value;
@@ -61,8 +62,16 @@ class MessageRepositoryImpl implements MessageRepository {
       // Skip our own sent messages — already handled optimistically in sendMessage
       if (r.getStringValue('sender_id') == myId) return;
 
-      final convId = r.getStringValue('conversation_id');
+      final convId  = r.getStringValue('conversation_id');
+      final senderId = r.getStringValue('sender_id');
       try {
+        // Ensure sender is cached in Drift (important for group messages)
+        if (await db.usersDao.getUserById(senderId) == null) {
+          try {
+            final u = await _pb.collection('users').getOne(senderId);
+            await _cacheUserRecord(u);
+          } catch (_) {}
+        }
         final key = await _getConvKey(convId, myId);
         await _cacheMsg(r, myId, key);
         await _markDelivered(r.id, convId, myId);
@@ -807,6 +816,310 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  // ── Group admin ───────────────────────────────────────────────
+
+  @override
+  Future<bool> isCurrentUserAdmin(String conversationId) async {
+    final myId  = await _myId();
+    final member = await db.conversationsDao
+        .getMemberByUserAndConv(myId, conversationId);
+    return member?.role == 'admin';
+  }
+
+  @override
+  Future<List<User>> getGroupMembers(String conversationId) async {
+    final members = await db.conversationsDao
+        .getMembersForConversation(conversationId);
+    final users = <User>[];
+    for (final m in members) {
+      var u = await db.usersDao.getUserById(m.userId);
+      if (u == null) {
+        try {
+          final r = await _pb.collection('users').getOne(m.userId);
+          await _cacheUserRecord(r);
+          u = await db.usersDao.getUserById(m.userId);
+        } catch (_) {}
+      }
+      if (u != null) users.add(_tableUserToEntity(u));
+    }
+    return users;
+  }
+
+  @override
+  Future<void> addMemberToGroup(
+      String conversationId, String userId) async {
+    final myId = await _myId();
+    if (!await isCurrentUserAdmin(conversationId)) {
+      throw StateError('Only admins can add members');
+    }
+
+    // a) Create conversation_members record in PocketBase
+    final memberRecord = await _pb.collection('conversation_members').create(
+      body: {
+        'conversation_id': conversationId,
+        'user_id':         userId,
+        'role':            'member',
+        'joined_at':       DateTime.now().toUtc().toIso8601String(),
+      },
+    );
+
+    // b) Get current group key + key_version
+    final groupKey = await encryption.getOrFetchGroupKey(conversationId, myId);
+    int currentVersion = 1;
+    try {
+      final myKeyRecord = await _pb.collection('group_keys').getFirstListItem(
+        'conversation_id="$conversationId"&&user_id="$myId"',
+      );
+      currentVersion = myKeyRecord.getIntValue('key_version');
+    } catch (_) {}
+
+    // c) Get new member's public key
+    var newUser = await db.usersDao.getUserById(userId);
+    if (newUser == null || newUser.publicKey == null) {
+      try {
+        final r = await _pb.collection('users').getOne(userId);
+        await _cacheUserRecord(r);
+        newUser = await db.usersDao.getUserById(userId);
+      } catch (_) {}
+    }
+    if (newUser?.publicKey == null) {
+      throw StateError('Cannot fetch public key for new member');
+    }
+
+    // d) Encrypt group key for new member
+    final encryptedKey = await encryption.encryptGroupKeyForMember(
+      groupKey, newUser!.publicKey!, conversationId,
+    );
+
+    // e) Create group_keys record
+    await _pb.collection('group_keys').create(body: {
+      'conversation_id':      conversationId,
+      'user_id':              userId,
+      'encrypted_key':        encryptedKey,
+      'encrypted_by_user_id': myId,
+      'key_version':          currentVersion,
+    });
+
+    // f) Update Drift
+    await db.conversationsDao.upsertMember(
+      ConversationMembersTableCompanion.insert(
+        id:             memberRecord.id,
+        conversationId: conversationId,
+        userId:         userId,
+        role:           const Value('member'),
+        joinedAt:       DateTime.now(),
+      ),
+    );
+  }
+
+  @override
+  Future<void> removeMemberFromGroup(
+      String conversationId, String userId) async {
+    if (!await isCurrentUserAdmin(conversationId)) {
+      throw StateError('Only admins can remove members');
+    }
+
+    // a) Find and delete conversation_members record in PocketBase
+    try {
+      final res = await _pb.collection('conversation_members').getFirstListItem(
+        'conversation_id="$conversationId"&&user_id="$userId"',
+      );
+      await _pb.collection('conversation_members').delete(res.id);
+    } catch (_) {}
+
+    // b) Delete their group_keys record
+    try {
+      final kRes = await _pb.collection('group_keys').getFirstListItem(
+        'conversation_id="$conversationId"&&user_id="$userId"',
+      );
+      await _pb.collection('group_keys').delete(kRes.id);
+    } catch (_) {}
+
+    // c) Rotate the group key — forward secrecy
+    await _rotateGroupKey(conversationId);
+
+    // d) Update Drift: delete member row
+    final localMember = await db.conversationsDao
+        .getMemberByUserAndConv(userId, conversationId);
+    if (localMember != null) {
+      await (db.delete(db.conversationMembersTable)
+            ..where((t) => t.id.equals(localMember.id)))
+          .go();
+    }
+  }
+
+  Future<void> _rotateGroupKey(String conversationId) async {
+    final myId = await _myId();
+
+    // a) Generate new group key
+    final newKey = encryption.generateGroupKey();
+
+    // b) Determine new key version
+    int newVersion = 1;
+    try {
+      final existing = await _pb.collection('group_keys').getList(
+        filter:  'conversation_id="$conversationId"',
+        perPage: 1,
+        sort:    '-key_version',
+      );
+      if (existing.items.isNotEmpty) {
+        newVersion = existing.items.first.getIntValue('key_version') + 1;
+      }
+    } catch (_) {}
+
+    // c) Get all remaining members
+    final members = await db.conversationsDao
+        .getMembersForConversation(conversationId);
+
+    // d+e) Encrypt and create new group_keys record for each member
+    for (final m in members) {
+      var u = await db.usersDao.getUserById(m.userId);
+      if (u == null || u.publicKey == null) {
+        try {
+          final r = await _pb.collection('users').getOne(m.userId);
+          await _cacheUserRecord(r);
+          u = await db.usersDao.getUserById(m.userId);
+        } catch (_) {}
+      }
+      if (u?.publicKey == null) continue;
+
+      final encryptedKey = await encryption.encryptGroupKeyForMember(
+        newKey, u!.publicKey!, conversationId,
+      );
+      try {
+        await _pb.collection('group_keys').create(body: {
+          'conversation_id':      conversationId,
+          'user_id':              m.userId,
+          'encrypted_key':        encryptedKey,
+          'encrypted_by_user_id': myId,
+          'key_version':          newVersion,
+        });
+      } catch (e) {
+        debugPrint('[GroupKey] Failed to create key for ${m.userId}: $e');
+      }
+    }
+
+    // f) Delete ALL old group_keys for this conversation (version < newVersion)
+    try {
+      final old = await _pb.collection('group_keys').getList(
+        filter:  'conversation_id="$conversationId"&&key_version<$newVersion',
+        perPage: 200,
+      );
+      for (final r in old.items) {
+        try { await _pb.collection('group_keys').delete(r.id); } catch (_) {}
+      }
+    } catch (_) {}
+
+    // g) Update local cache with new key, clear derived shared key cache
+    await storage.write(
+      key:   'group_key_$conversationId',
+      value: base64.encode(newKey),
+    );
+    // Clear the per-member derived key cache so re-encryption uses new material
+    await storage.write(
+      key:   'contact_key_${conversationId}_groupkey',
+      value: '',
+    );
+  }
+
+  @override
+  Future<void> promoteMemberToAdmin(
+      String conversationId, String userId) async {
+    await _updateMemberRole(conversationId, userId, 'admin');
+  }
+
+  @override
+  Future<void> demoteAdminToMember(
+      String conversationId, String userId) async {
+    await _updateMemberRole(conversationId, userId, 'member');
+  }
+
+  Future<void> _updateMemberRole(
+      String conversationId, String userId, String role) async {
+    // Find PocketBase record
+    final res = await _pb.collection('conversation_members').getFirstListItem(
+      'conversation_id="$conversationId"&&user_id="$userId"',
+    );
+    await _pb.collection('conversation_members').update(res.id, body: {'role': role});
+
+    // Update Drift
+    final local = await db.conversationsDao
+        .getMemberByUserAndConv(userId, conversationId);
+    if (local != null) {
+      await db.conversationsDao.upsertMember(
+        ConversationMembersTableCompanion.insert(
+          id:             local.id,
+          conversationId: conversationId,
+          userId:         userId,
+          role:           Value(role),
+          joinedAt:       local.joinedAt,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> setOnlyAdminsCanMessage(
+      String conversationId, bool value) async {
+    if (!await isCurrentUserAdmin(conversationId)) {
+      throw StateError('Only admins can change this setting');
+    }
+    await _pb.collection('conversations').update(
+      conversationId,
+      body: {'only_admins_can_message': value},
+    );
+    // Update Drift
+    await db.conversationsDao.upsertConversation(
+      ConversationsTableCompanion(
+        id:                   Value(conversationId),
+        onlyAdminsCanMessage: Value(value),
+        updatedAt:            Value(DateTime.now()),
+      ),
+    );
+  }
+
+  @override
+  Future<void> leaveGroup(String conversationId) async {
+    final myId = await _myId();
+
+    // a) Check if I'm the sole admin — if so, promote earliest-joining other member
+    final allMembers = await db.conversationsDao
+        .getMembersForConversation(conversationId);
+    final admins  = allMembers.where((m) => m.role == 'admin').toList();
+    final others  = allMembers
+        .where((m) => m.userId != myId)
+        .toList()
+      ..sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
+
+    if (admins.length == 1 && admins.first.userId == myId && others.isNotEmpty) {
+      try {
+        await _updateMemberRole(conversationId, others.first.userId, 'admin');
+      } catch (_) {}
+    }
+
+    // b) Delete my conversation_members record from PocketBase
+    try {
+      final res = await _pb.collection('conversation_members').getFirstListItem(
+        'conversation_id="$conversationId"&&user_id="$myId"',
+      );
+      await _pb.collection('conversation_members').delete(res.id);
+    } catch (_) {}
+
+    // c) Delete my group_keys record
+    try {
+      final kRes = await _pb.collection('group_keys').getFirstListItem(
+        'conversation_id="$conversationId"&&user_id="$myId"',
+      );
+      await _pb.collection('group_keys').delete(kRes.id);
+    } catch (_) {}
+
+    // d) Remove from local Drift
+    await db.conversationsDao.deleteConversation(conversationId);
+
+    // e) Clear cached group key
+    await storage.write(key: 'group_key_$conversationId', value: '');
+  }
+
   // ── Private helpers ───────────────────────────────────────────
 
   Future<String> _myId() async =>
@@ -975,6 +1288,11 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Future<List<int>> _getConvKey(String convId, String myId) async {
+    final conv = await db.conversationsDao.getConversationById(convId);
+    if (conv?.type == 'group') {
+      return encryption.getOrFetchGroupKey(convId, myId);
+    }
+
     final members = await db.conversationsDao.getMembersForConversation(convId);
     final otherUserId = members
         .where((m) => m.userId != myId)
@@ -1003,13 +1321,19 @@ class MessageRepositoryImpl implements MessageRepository {
       for (final m in res.items) {
         final conv = m.expand['conversation_id']?.firstOrNull;
         if (conv == null) continue;
+        final iconField = conv.getStringValue('icon');
+        final iconUrl   = iconField.isEmpty
+            ? null
+            : '${_pb.baseUrl}/api/files/conversations/${conv.id}/$iconField';
         await db.conversationsDao.upsertConversation(
           ConversationsTableCompanion.insert(
             id:          conv.id,
             type:        conv.getStringValue('type'),
             name:        Value(conv.getStringValue('name').isEmpty
                 ? null : conv.getStringValue('name')),
+            iconUrl:     Value(iconUrl),
             createdById: conv.getStringValue('created_by'),
+            onlyAdminsCanMessage: Value(conv.getBoolValue('only_admins_can_message')),
             lastMessagePreview: Value(
                 conv.getStringValue('last_message_preview').isEmpty
                     ? null : conv.getStringValue('last_message_preview')),
@@ -1023,6 +1347,7 @@ class MessageRepositoryImpl implements MessageRepository {
         await db.conversationsDao.upsertMember(
           ConversationMembersTableCompanion.insert(
             id: m.id, conversationId: conv.id, userId: myId,
+            role: Value(m.getStringValue('role').isEmpty ? 'member' : m.getStringValue('role')),
             joinedAt: DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
           ),
         );
@@ -1037,6 +1362,7 @@ class MessageRepositoryImpl implements MessageRepository {
             ConversationMembersTableCompanion.insert(
               id: om.id, conversationId: conv.id,
               userId: om.getStringValue('user_id'),
+              role: Value(om.getStringValue('role').isEmpty ? 'member' : om.getStringValue('role')),
               joinedAt: DateTime.tryParse(om.getStringValue('joined_at')) ?? DateTime.now(),
             ),
           );
@@ -1079,7 +1405,10 @@ class MessageRepositoryImpl implements MessageRepository {
     convs.addAll(directByOtherUser.entries.map(
       (entry) => _convDataToEntity(entry.value, directOtherUsers[entry.key]),
     ));
-    convs.addAll(groupRows.map((r) => _convDataToEntity(r, null)));
+    for (final r in groupRows) {
+      final members = await db.conversationsDao.getMembersForConversation(r.id);
+      convs.add(_convDataToEntity(r, null, memberCount: members.length));
+    }
     return convs;
   }
 
@@ -1095,12 +1424,14 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Conversation _convDataToEntity(
-      ConversationsTableData r, User? otherUser) =>
+      ConversationsTableData r, User? otherUser, {int? memberCount}) =>
       Conversation(
         id: r.id, type: r.type, name: r.name, iconUrl: r.iconUrl,
         lastMessagePreview: r.lastMessagePreview,
         lastMessageAt: r.lastMessageAt,
         isPinned: r.isPinned, otherUser: otherUser,
+        onlyAdminsCanMessage: r.onlyAdminsCanMessage,
+        memberCount: memberCount,
       );
 
   Message _rowToMessage(MessagesTableData r, String myId) => Message(

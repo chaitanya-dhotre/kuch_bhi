@@ -44,6 +44,52 @@ class FcmService {
 
     // Foreground messages: show notification + mark delivered.
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+
+    // Token refresh listener
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      debugPrint('[FCM] Token refreshed: $newToken');
+      try {
+        final db = AppDatabase();
+        final userId = await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
+        if (userId != null && userId.isNotEmpty) {
+          final storage = SecureStorageService();
+          String? token = await storage.getAuthToken();
+          token ??= await db.settingsDao.getSetting(AppSettingsKeys.authToken);
+          if (token != null && token.isNotEmpty) {
+            final pb = PocketBase(AppConstants.baseUrl);
+            pb.authStore.save(token, null);
+            await pb.collection('users').update(userId, body: {'fcm_token': newToken});
+            await db.settingsDao.setSetting('last_fcm_token', newToken);
+          }
+        }
+        await db.close();
+      } catch (e) {
+        debugPrint('[FCM] Token refresh update failed: $e');
+      }
+    });
+
+    // Immediately try to register token if logged in
+    try {
+      final db = AppDatabase();
+      final userId = await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
+      if (userId != null && userId.isNotEmpty) {
+        final fcmToken = await FirebaseMessaging.instance.getToken();
+        if (fcmToken != null && fcmToken.isNotEmpty) {
+          final storage = SecureStorageService();
+          String? token = await storage.getAuthToken();
+          token ??= await db.settingsDao.getSetting(AppSettingsKeys.authToken);
+          if (token != null && token.isNotEmpty) {
+            final pb = PocketBase(AppConstants.baseUrl);
+            pb.authStore.save(token, null);
+            await pb.collection('users').update(userId, body: {'fcm_token': fcmToken});
+            await db.settingsDao.setSetting('last_fcm_token', fcmToken);
+          }
+        }
+      }
+      await db.close();
+    } catch (e) {
+      debugPrint('[FCM] init registration failed: $e');
+    }
   }
 
   // ── Foreground handler ─────────────────────────────────────────
@@ -57,6 +103,7 @@ class FcmService {
     if (messageId == null || conversationId == null) return;
 
     await _markDelivered(messageId, conversationId);
+    await _showNotification(data);
   }
 
   // ── Background handler (called from main.dart) ─────────────────

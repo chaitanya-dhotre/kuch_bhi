@@ -72,6 +72,28 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
 
   // ── Find direct conversation ───────────────────────────────────
 
+  Future<ConversationMembersTableData?> getMemberByUserAndConv(
+    String userId,
+    String conversationId,
+  ) =>
+      (select(conversationMembersTable)
+            ..where((t) =>
+                t.userId.equals(userId) &
+                t.conversationId.equals(conversationId)))
+          .getSingleOrNull();
+
+  Future<void> deleteMembersByConversation(String conversationId) =>
+      (delete(conversationMembersTable)
+            ..where((t) => t.conversationId.equals(conversationId)))
+          .go();
+
+  Future<void> deleteConversation(String conversationId) async {
+    await deleteMembersByConversation(conversationId);
+    await (delete(conversationsTable)
+          ..where((t) => t.id.equals(conversationId)))
+        .go();
+  }
+
   /// Returns the conversation ID of the existing direct chat between
   /// two users, or null if none exists locally.
   Future<String?> findDirectConversationId(
