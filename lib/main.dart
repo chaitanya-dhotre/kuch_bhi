@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/network/pocketbase_client.dart';
 import 'data/local/database/app_database.dart';
+import 'data/local/database/tables/app_settings_table.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
@@ -42,10 +43,13 @@ Future<void> main() async {
   final db            = AppDatabase();
   final pbClient      = await PocketBaseClient.create(secureStorage);
 
-  // Update FCM token in background after pbClient is ready.
+  // Force FCM token registration on every app start
   FirebaseMessaging.instance.getToken().then((token) async {
     if (token == null) return;
-    debugPrint('[FCM] Token: $token');
+    debugPrint('[FCM] Device token: $token');
+    // Will be picked up by auth_repository._saveSession on next auth refresh
+    final db = AppDatabase();
+    await db.settingsDao.setSetting('pending_fcm_token', token);
   });
 
   runApp(

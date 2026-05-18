@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show OrderingMode, OrderingTerm, Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
@@ -17,7 +18,9 @@ import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
+import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../../services/encryption_service.dart';
+import '../../services/media_upload_service.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 
 class MessageRepositoryImpl implements MessageRepository {
@@ -26,6 +29,7 @@ class MessageRepositoryImpl implements MessageRepository {
     required this.db,
     required this.storage,
     required this.encryption,
+    required this.mediaUploadService,
   }) {
     _initGlobalSubscriptions();
     _initConnectivityRetry();
@@ -35,9 +39,15 @@ class MessageRepositoryImpl implements MessageRepository {
   final AppDatabase          db;
   final SecureStorageService storage;
   final EncryptionService    encryption;
+  final MediaUploadService   mediaUploadService;
 
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
+
+  final _reactionsCtrl = StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get reactionsChanges => _reactionsCtrl.stream;
 
   // ── Global subscriptions (set up once for all conversations) ──
 
@@ -62,24 +72,55 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     });
 
+    // Conversation subscriptions — keep home screen in sync when a chat is
+    // created or membership changes on the other device.
+    _pb.collection('conversations').subscribe('*', (_) {
+      _syncConversationsBackground();
+    });
+    _pb.collection('conversation_members').subscribe('*', (_) {
+      _syncConversationsBackground();
+    });
+
     // Receipts subscription — updates tick status
     _pb.collection('message_receipts').subscribe('*', (event) async {
       if (event.record == null) return;
       final r   = event.record!;
       final myId = await _myId();
       final msgServerId = r.getStringValue('message_id');
+      final recipientId = r.getStringValue('recipient_id');
+      final deliveredAt = r.getStringValue('delivered_at');
+      final readAt = r.getStringValue('read_at');
+
+      debugPrint('[Receipt] Subscription update - msg: $msgServerId, recipient: $recipientId, delivered: ${deliveredAt.isNotEmpty}, read: ${readAt.isNotEmpty}');
 
       try {
         final local = await db.messagesDao.getMessageByServerId(msgServerId);
-        if (local == null) return;
+        if (local == null) {
+          debugPrint('[Receipt] Local message not found for server ID: $msgServerId');
+          return;
+        }
 
         // Only update status for messages I sent
-        if (local.senderId != myId) return;
+        if (local.senderId != myId) {
+          debugPrint('[Receipt] Ignoring receipt update for message sent by someone else');
+          return;
+        }
 
+        debugPrint('[Receipt] Updating status for local message: ${local.localId}');
         await _updateMsgReceiptStatus(local.localId, msgServerId);
         // Drift auto-emits after the status update above
       } catch (e) {
-        debugPrint('[Receipt] update error: $e');
+        debugPrint('[Receipt] ERROR in subscription update: $e');
+      }
+    });
+
+    // Reactions subscription — fires on both devices when any reaction changes
+    _pb.collection('reactions').subscribe('*', (event) async {
+      if (event.record == null) return;
+      final msgServerId = event.record!.getStringValue('message_id');
+      if (msgServerId.isNotEmpty) {
+        debugPrint('[Reaction] Change detected for message: $msgServerId');
+        _reactionsCtrl.add(msgServerId);
       }
     });
   }
@@ -147,6 +188,8 @@ class MessageRepositoryImpl implements MessageRepository {
     final localId = _uuid.v4();
     final now     = DateTime.now();
 
+    debugPrint('[Msg] Sending message - localId: $localId, convId: $conversationId');
+
     // ── Step 1: Optimistic insert to Drift ────────────────────
     // Drift stream auto-emits IMMEDIATELY — message appears NOW.
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -163,6 +206,7 @@ class MessageRepositoryImpl implements MessageRepository {
       createdAt:      now,
       updatedAt:      now,
     ));
+    debugPrint('[Msg] Message added to local DB with status: pending');
 
     // ── Step 2: Upload in background (does NOT block UI) ──────
     _uploadMessage(
@@ -171,42 +215,54 @@ class MessageRepositoryImpl implements MessageRepository {
       myId:           myId,
       plaintext:      plaintext,
       replyToLocalId: replyToLocalId,
+      replyPreview:   replyPreview,
       createdAt:      now,
     );
   }
 
   Future<void> _uploadMessage({
-    required String localId,
-    required String conversationId,
-    required String myId,
-    required String plaintext,
-    String? replyToLocalId,
+    required String   localId,
+    required String   conversationId,
+    required String   myId,
+    required String   plaintext,
+    String?           replyToLocalId,
+    String?           replyPreview,
     required DateTime createdAt,
   }) async {
-    // Encrypt
+    debugPrint('[Msg] Starting upload for localId: $localId');
+    
     EncryptResult encrypted;
     try {
       final key = await _getConvKey(conversationId, myId);
       encrypted  = await encryption.encryptMessage(plaintext, key);
+      debugPrint('[Msg] Message encrypted successfully');
     } catch (e) {
-      debugPrint('[Enc] Encrypt error: $e');
+      debugPrint('[Msg] Encryption failed: $e');
       await db.messagesDao.updateMessageStatus(localId, 'failed');
       return;
     }
 
-    // Upload
     try {
+      // Resolve localId → serverId for reply reference
+      String? replyServerId;
+      if (replyToLocalId != null) {
+      final replyMsg = await db.messagesDao.getMessageByLocalId(replyToLocalId);
+      replyServerId  = replyMsg?.serverId;
+      }
+
+      debugPrint('[Msg] Creating message record on server');
       final record = await _pb.collection('messages').create(body: {
         'conversation_id':        conversationId,
         'sender_id':              myId,
         'type':                   'text',
         'encrypted_body':         encrypted.ciphertext,
         'iv':                     encrypted.iv,
-        'reply_to_id':            replyToLocalId ?? '',
+        'reply_to_id':            replyServerId ?? '',   // Server ID, not local
+        'reply_preview':          replyPreview ?? '',    // Store plain text preview
         'is_deleted_for_everyone': false,
       });
+      debugPrint('[Msg] Message created on server with serverId: ${record.id}');
 
-      // Update Drift with server ID + 'sent' status → auto-emits
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
         serverId:       Value(record.id),
@@ -216,11 +272,13 @@ class MessageRepositoryImpl implements MessageRepository {
         encryptedBody:  encrypted.ciphertext,
         iv:             encrypted.iv,
         decryptedBody:  Value(plaintext),
-        replyToId:      Value(replyToLocalId),
+        replyToId:      Value(replyServerId),
+        replyPreview:   Value(replyPreview),
         status:         Value('sent'),
         createdAt:      createdAt,
         updatedAt:      DateTime.now(),
       ));
+      debugPrint('[Msg] Local message updated with status: sent');
 
       await db.conversationsDao.updateLastMessage(
         conversationId,
@@ -228,11 +286,190 @@ class MessageRepositoryImpl implements MessageRepository {
         DateTime.now(),
       );
 
+      debugPrint('[Msg] Creating receipts for serverId: ${record.id}');
       await _createReceipts(record.id, conversationId, myId);
     } catch (e) {
-      debugPrint('[Msg] upload failed (offline?): $e');
+      debugPrint('[Msg] ERROR upload failed: $e');
       await db.messagesDao.updateMessageStatus(localId, 'failed');
-      // Message stays visible in UI as 'failed' — user can retry
+    }
+  }
+  // ── Send media message ───────────────────────────────────────
+
+  @override
+  Future<void> sendMediaMessage({
+    required String conversationId,
+    required String mediaType,
+    required File mediaFile,
+    File? thumbnailFile,
+    String? quality,
+    int? durationSeconds,
+    String? durationText,
+    int? videoWidth,
+    int? videoHeight,
+  }) async {
+    final myId    = await _myId();
+    final localId = _uuid.v4();
+    final now     = DateTime.now();
+
+    debugPrint('[Msg] Sending media message - type: $mediaType, file: ${mediaFile.path}');
+
+    // Step 1: Optimistic insert WITHOUT mediaId (we don't have it yet)
+    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId:        localId,
+      conversationId: conversationId,
+      senderId:       myId,
+      type:           mediaType,
+      encryptedBody:  '',
+      iv:             '',
+      decryptedBody:  Value(durationText),
+      status:         Value('pending'),
+      createdAt:      now,
+      updatedAt:      now,
+    ));
+
+    // Step 2: Upload in background
+    unawaited(_uploadMediaMessage(
+      localId:        localId,
+      conversationId: conversationId,
+      myId:           myId,
+      mediaType:      mediaType,
+      mediaFile:      mediaFile,
+      thumbnailFile:  thumbnailFile,
+      quality:        quality,
+      durationSeconds: durationSeconds ?? 0,
+      durationText:   durationText,
+      createdAt:      now,
+      videoWidth:     videoWidth,
+      videoHeight:    videoHeight,
+    ));
+  }
+
+  Future<void> _uploadMediaMessage({
+    required String   localId,
+    required String   conversationId,
+    required String   myId,
+    required String   mediaType,
+    required File     mediaFile,
+    File?             thumbnailFile,
+    String?           quality,
+    required int      durationSeconds,
+    String?           durationText,
+    required DateTime createdAt,
+    int?              videoWidth,
+    int?              videoHeight,
+  }) async {
+    try {
+      // Step A: Get conversation key and encrypt a dummy value (schema requires it)
+      EncryptResult encrypted;
+      try {
+        final key = await _getConvKey(conversationId, myId);
+        encrypted = await encryption.encryptMessage(durationText ?? '', key);
+      } catch (e) {
+        debugPrint('[Msg] Media encryption failed: $e');
+        await db.messagesDao.updateMessageStatus(localId, 'failed');
+        return;
+      }
+
+      // Step B: Create message on PocketBase first (no media_id yet)
+      // 'document' is not a valid server enum value — map it to 'file'.
+      final serverType = mediaType == 'document' ? 'file' : mediaType;
+      final record = await _pb.collection('messages').create(body: {
+        'conversation_id':         conversationId,
+        'sender_id':               myId,
+        'type':                    serverType,
+        'encrypted_body':          encrypted.ciphertext,
+        'iv':                      encrypted.iv,
+        'reply_to_id':             '',
+        'reply_preview':           '',
+        'is_deleted_for_everyone': false,
+        'media_id':                '',
+      });
+
+      final messageServerId = record.id;
+      debugPrint('[Msg] Media message created on server: $messageServerId');
+
+      // Step C: Upload media WITH the message_id now available
+      late final String mediaId;
+      if (mediaType == 'image') {
+        if (thumbnailFile == null) {
+          throw Exception('Thumbnail required for image upload');
+        }
+        mediaId = await mediaUploadService.uploadImage(
+          mediaFile,
+          thumbnailFile,
+          conversationId,
+          quality ?? 'normal',
+          messageServerId,
+        );
+      } else if (mediaType == 'video') {
+        if (thumbnailFile == null) {
+          throw Exception('Thumbnail required for video upload');
+        }
+        mediaId = await mediaUploadService.uploadVideo(
+          mediaFile,
+          thumbnailFile,
+          conversationId,
+          quality ?? 'normal',
+          durationSeconds,
+          messageServerId,
+          videoWidth:  videoWidth,
+          videoHeight: videoHeight,
+        );
+      } else if (mediaType == 'document') {
+        mediaId = await mediaUploadService.uploadDocument(
+          mediaFile,
+          conversationId,
+          messageServerId,
+        );
+      } else {
+        mediaId = await mediaUploadService.uploadVoice(
+          mediaFile,
+          conversationId,
+          durationSeconds,
+          messageServerId,
+        );
+      }
+      debugPrint('[Msg] Media uploaded, mediaId: $mediaId');
+
+      // Step D: Update local record with serverId and mediaId
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:        localId,
+        serverId:       Value(messageServerId),
+        conversationId: conversationId,
+        senderId:       myId,
+        type:           mediaType,
+        encryptedBody:  encrypted.ciphertext,
+        iv:             encrypted.iv,
+        decryptedBody:  Value(durationText),
+        mediaId:        Value(mediaId),
+        status:         Value('sent'),
+        createdAt:      createdAt,
+        updatedAt:      DateTime.now(),
+      ));
+
+      final preview = switch (mediaType) {
+        'voice'    => '🎤 Voice message${durationText != null ? ' ($durationText)' : ''}',
+        'image'    => '📷 Photo',
+        'video'    => '🎬 Video',
+        'document' => '📎 Document',
+        _          => '📎 File',
+      };
+      await db.conversationsDao.updateLastMessage(
+        conversationId,
+        preview,
+        DateTime.now(),
+      );
+
+      await _createReceipts(messageServerId, conversationId, myId);
+    } catch (e) {
+      debugPrint('[Msg] ERROR media upload: $e');
+      await db.messagesDao.updateMessageStatus(localId, 'failed');
+    } finally {
+      try { await mediaFile.delete(); } catch (_) {}
+      if (thumbnailFile != null) {
+        try { await thumbnailFile.delete(); } catch (_) {}
+      }
+      debugPrint('[Msg] Temp media files deleted');
     }
   }
 
@@ -329,61 +566,68 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     }
 
-    return _createDirectConversation(myId, otherUserId);
-  }
+    await _syncConversations(myId);
 
-  Future<Conversation> _createDirectConversation(
-      String myId, String otherUserId) async {
-    final conv = await _pb.collection('conversations').create(body: {
-      'type': 'direct', 'created_by': myId,
-    });
-    final myMember = await _pb.collection('conversation_members').create(body: {
-      'conversation_id': conv.id, 'user_id': myId, 'role': 'admin',
-    });
-    await _pb.collection('conversation_members').create(body: {
-      'conversation_id': conv.id, 'user_id': otherUserId, 'role': 'member',
-    });
+    final syncedId = await db.conversationsDao
+        .findDirectConversationId(myId, otherUserId);
+    if (syncedId != null) {
+      final conv = await db.conversationsDao.getConversationById(syncedId);
+      if (conv != null) {
+        final other = await _getOtherUser(syncedId, myId);
+        return _convDataToEntity(conv, other);
+      }
+    }
 
-    await db.conversationsDao.upsertConversation(
-      ConversationsTableCompanion.insert(
-        id: conv.id, type: 'direct', createdById: myId,
-        createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
-    );
-    await db.conversationsDao.upsertMember(
-      ConversationMembersTableCompanion.insert(
-        id: myMember.id, conversationId: conv.id,
-        userId: myId, joinedAt: DateTime.now(),
-      ),
-    );
-    await db.conversationsDao.upsertMember(
-      ConversationMembersTableCompanion.insert(
-        id: _uuid.v4(), conversationId: conv.id,
-        userId: otherUserId, joinedAt: DateTime.now(),
-      ),
-    );
-
-    final otherUser = await db.usersDao.getUserById(otherUserId);
-    return Conversation(
-      id: conv.id, type: 'direct',
-      otherUser: otherUser != null ? _tableUserToEntity(otherUser) : null,
-    );
+    throw StateError('Direct conversation not found yet.');
   }
 
   @override
   Future<void> deleteMessage(String localId, {bool forEveryone = false}) async {
+    final msg = await db.messagesDao.getMessageByLocalId(localId);
+    if (msg == null) return;
+
     if (forEveryone) {
-      final msg = await db.messagesDao.getMessageByLocalId(localId);
-      if (msg?.serverId != null) {
+      if (msg.serverId != null) {
         try {
-          await _pb.collection('messages').update(msg!.serverId!, body: {
-            'is_deleted_for_everyone': true,
-          });
-        } catch (_) {}
+          await _pb.collection('messages').update(
+            msg.serverId!,
+            body: {'is_deleted_for_everyone': true},
+          );
+        } catch (e) {
+          debugPrint('[Msg] deleteForEveryone: $e');
+        }
       }
+
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:              msg.localId,
+        serverId:             Value(msg.serverId),
+        conversationId:       msg.conversationId,
+        senderId:             msg.senderId,
+        type:                 msg.type,
+        encryptedBody:        msg.encryptedBody,
+        iv:                   msg.iv,
+        decryptedBody:        Value(msg.decryptedBody),
+        isDeletedForEveryone: Value(true),
+        status:               Value(msg.status),
+        createdAt:            msg.createdAt,
+        updatedAt:            DateTime.now(),
+      ));
+    } else {
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:        msg.localId,
+        serverId:       Value(msg.serverId),
+        conversationId: msg.conversationId,
+        senderId:       msg.senderId,
+        type:           msg.type,
+        encryptedBody:  msg.encryptedBody,
+        iv:             msg.iv,
+        decryptedBody:  Value(msg.decryptedBody),
+        isDeletedForMe: Value(true),
+        status:         Value(msg.status),
+        createdAt:      msg.createdAt,
+        updatedAt:      DateTime.now(),
+      ));
     }
-    await db.messagesDao.updateMessageStatus(localId, 'failed');
   }
 
   @override
@@ -397,6 +641,170 @@ class MessageRepositoryImpl implements MessageRepository {
       isStarred: Value(!msg.isStarred), status: Value(msg.status),
       createdAt: msg.createdAt, updatedAt: DateTime.now(),
     ));
+  }
+
+  @override
+  Future<void> togglePin(String localId, String conversationId, bool pin) async {
+    final msg = await db.messagesDao.getMessageByLocalId(localId);
+    if (msg == null) return;
+
+    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId:        msg.localId,
+      conversationId: msg.conversationId,
+      senderId:       msg.senderId,
+      type:           msg.type,
+      encryptedBody:   msg.encryptedBody,
+      iv:             msg.iv,
+      isPinned:       Value(pin),
+      decryptedBody:  Value(msg.decryptedBody),
+      status:         Value(msg.status),
+      createdAt:      msg.createdAt,
+      updatedAt:      DateTime.now(),
+    ));
+
+    if (msg.serverId != null) {
+      try {
+        await _pb.collection('messages').update(
+          msg.serverId!,
+          body: {'is_pinned': pin},
+        );
+      } catch (e) {
+        debugPrint('[Msg] togglePin server: $e');
+      }
+    }
+  }
+
+  @override
+  Future<void> addReaction(String messageServerId, String emoji) async {
+    final myId = await _myId();
+
+    try {
+      final message = await db.messagesDao.getMessageByServerId(messageServerId);
+      final conversationId = message?.conversationId;
+      if (conversationId == null || conversationId.isEmpty) return;
+
+      final existing = await _pb.collection('reactions').getList(
+        filter: 'message_id="$messageServerId"&&user_id="$myId"&&emoji="$emoji"',
+        perPage: 1,
+      );
+      if (existing.items.isNotEmpty) {
+        await _pb.collection('reactions').delete(existing.items.first.id);
+      } else {
+        await _pb.collection('reactions').create(body: {
+          'message_id': messageServerId,
+          'conversation_id': conversationId,
+          'user_id': myId,
+          'emoji': emoji,
+        });
+      }
+    } catch (e) {
+      debugPrint('[Reaction] add: $e');
+    }
+  }
+
+  @override
+  Future<void> removeReaction(String reactionId) async {
+    try {
+      await _pb.collection('reactions').delete(reactionId);
+    } catch (e) {
+      debugPrint('[Reaction] remove: $e');
+    }
+  }
+
+  @override
+  Future<List<ReactionGroup>> getReactions(String messageServerId) async {
+    try {
+      final myId = await _myId();
+      final res = await _pb.collection('reactions').getList(
+        filter: 'message_id="$messageServerId"',
+        perPage: 50,
+      );
+
+      final Map<String, List<RecordModel>> grouped = {};
+      for (final r in res.items) {
+        final emoji = r.getStringValue('emoji');
+        grouped.putIfAbsent(emoji, () => []).add(r);
+      }
+
+      return grouped.entries.map((entry) {
+        RecordModel? mine;
+        for (final reaction in entry.value) {
+          if (reaction.getStringValue('user_id') == myId) {
+            mine = reaction;
+            break;
+          }
+        }
+
+        return ReactionGroup(
+          emoji: entry.key,
+          count: entry.value.length,
+          isMine: mine != null,
+          reactionId: mine?.id,
+        );
+      }).toList();
+    } catch (e) {
+      debugPrint('[Reaction] get: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<List<Message>> getStarredMessages(String conversationId) async {
+    final rows = await db.messagesDao.getStarredMessages(conversationId);
+    final myId = await _myId();
+    return rows.map((r) => _rowToMessage(r, myId)).toList();
+  }
+
+  @override
+  Future<List<Message>> getPinnedMessages(String conversationId) async {
+    final rows = await db.messagesDao.getPinnedMessages(conversationId);
+    final myId = await _myId();
+    return rows.map((r) => _rowToMessage(r, myId)).toList();
+  }
+
+  @override
+  Future<List<Message>> searchMessages(String conversationId, String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return [];
+
+    final rows = await (db.select(db.messagesTable)
+          ..where((t) => t.conversationId.equals(conversationId))
+          ..where((t) => t.isDeletedForMe.equals(false))
+          ..where((t) => t.isDeletedForEveryone.equals(false))
+          ..orderBy([
+            (t) => OrderingTerm(
+                  expression: t.createdAt,
+                  mode: OrderingMode.desc,
+                )
+          ]))
+        .get();
+
+    final myId = await _myId();
+    final needle = trimmed.toLowerCase();
+    return rows
+        .where((row) => (row.decryptedBody ?? '').toLowerCase().contains(needle))
+        .map((r) => _rowToMessage(r, myId))
+        .toList();
+  }
+
+  @override
+  Future<void> setDisappearingDuration(
+      String conversationId, int seconds) async {
+    try {
+      await _pb.collection('conversations').update(
+        conversationId,
+        body: {'disappearing_duration': seconds},
+      );
+      await db.conversationsDao.upsertConversation(
+        ConversationsTableCompanion(
+          id: Value(conversationId),
+          disappearingDuration: Value(seconds),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[Conv] setDisappearing: $e');
+    }
   }
 
   // ── Private helpers ───────────────────────────────────────────
@@ -435,18 +843,25 @@ class MessageRepositoryImpl implements MessageRepository {
         ? (existingStatus.isEmpty ? 'sent' : existingStatus)
         : 'delivered';
 
+    final rawMediaId = r.getStringValue('media_id');
+    // 'file' is the server enum used for documents; normalise to 'document' locally.
+    final rawType = r.getStringValue('type');
+    final localType = rawType == 'file' ? 'document' : rawType;
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
       localId:               existing?.localId ?? _uuid.v4(),
       serverId:              Value(r.id),
       conversationId:        r.getStringValue('conversation_id'),
       senderId:              r.getStringValue('sender_id'),
-      type:                  r.getStringValue('type'),
+      type:                  localType,
       encryptedBody:         encBody,
       iv:                    iv,
       decryptedBody:         Value(decrypted),
       replyToId:             Value(r.getStringValue('reply_to_id').isEmpty
           ? null : r.getStringValue('reply_to_id')),
+      replyPreview:          Value(r.getStringValue('reply_preview').isEmpty
+        ? null : r.getStringValue('reply_preview')),
       isDeletedForEveryone:  Value(r.getBoolValue('is_deleted_for_everyone')),
+      mediaId:               Value(rawMediaId.isEmpty ? null : rawMediaId),
       status:                Value(status),
       createdAt:             DateTime.tryParse(r.created) ?? DateTime.now(),
       updatedAt:             DateTime.now(),
@@ -459,7 +874,24 @@ class MessageRepositoryImpl implements MessageRepository {
       final res = await _pb.collection('message_receipts').getList(
         filter: 'message_id="$serverId"',
       );
-      if (res.items.isEmpty) return;
+      if (res.items.isEmpty) {
+        debugPrint('[Receipt] No receipts found for message: $serverId');
+        return;
+      }
+
+      final readCount = res.items
+          .where((r) => r.getStringValue('read_at').isNotEmpty)
+          .length;
+      final deliveredCount = res.items
+          .where((r) => r.getStringValue('delivered_at').isNotEmpty)
+          .length;
+      final totalRecipients = res.items.length;
+
+      debugPrint(
+        '[Receipt] Status update for $serverId - '
+        'delivered: $deliveredCount/$totalRecipients, '
+        'read: $readCount/$totalRecipients',
+      );
 
       final allRead      = res.items.every(
           (r) => r.getStringValue('read_at').isNotEmpty);
@@ -472,9 +904,10 @@ class MessageRepositoryImpl implements MessageRepository {
               ? 'delivered'
               : 'sent';
 
+      debugPrint('[Receipt] Updating local message status to: $status');
       await db.messagesDao.updateMessageStatus(localId, status);
     } catch (e) {
-      debugPrint('[Receipt] statusUpdate: $e');
+      debugPrint('[Receipt] ERROR in statusUpdate: $e');
     }
   }
 
@@ -485,17 +918,18 @@ class MessageRepositoryImpl implements MessageRepository {
         filter: 'message_id="$serverId"&&recipient_id="$myId"',
         perPage: 1,
       );
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
       if (res.items.isEmpty) {
         await _pb.collection('message_receipts').create(body: {
           'message_id':     serverId,
           'conversation_id': convId,
           'recipient_id':   myId,
-          'delivered_at':   DateTime.now().toIso8601String(),
+          'delivered_at':   nowUtc,
         });
       } else if (res.items.first.getStringValue('delivered_at').isEmpty) {
         await _pb.collection('message_receipts').update(
           res.items.first.id,
-          body: {'delivered_at': DateTime.now().toIso8601String()},
+          body: {'delivered_at': nowUtc},
         );
       }
     } catch (e) {
@@ -508,24 +942,35 @@ class MessageRepositoryImpl implements MessageRepository {
     try {
       final members = await db.conversationsDao
           .getMembersForConversation(convId);
+      debugPrint('[Receipt] Creating receipts for message $serverId to ${members.length} members');
+      
       for (final m in members) {
-        if (m.userId == myId) continue;
+        if (m.userId == myId) {
+          debugPrint('[Receipt] Skipping self receipt for $serverId');
+          continue;
+        }
         try {
           final existing = await _pb.collection('message_receipts').getList(
             filter: 'message_id="$serverId"&&recipient_id="${m.userId}"',
             perPage: 1,
           );
           if (existing.items.isEmpty) {
+            debugPrint('[Receipt] Creating new receipt for recipient: ${m.userId}');
             await _pb.collection('message_receipts').create(body: {
               'message_id':     serverId,
               'conversation_id': convId,
               'recipient_id':   m.userId,
             });
+            debugPrint('[Receipt] Receipt created for recipient: ${m.userId}');
+          } else {
+            debugPrint('[Receipt] Receipt already exists for recipient: ${m.userId}');
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('[Receipt] ERROR creating receipt for ${m.userId}: $e');
+        }
       }
     } catch (e) {
-      debugPrint('[Receipt] create: $e');
+      debugPrint('[Receipt] ERROR in create: $e');
     }
   }
 
@@ -605,11 +1050,36 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<List<Conversation>> _convRowsToEntities(
       List<ConversationsTableData> rows) async {
     final myId = await _myId();
-    final convs = <Conversation>[];
+    final directByOtherUser = <String, ConversationsTableData>{};
+    final directOtherUsers = <String, User?>{};
+    final groupRows = <ConversationsTableData>[];
+
     for (final r in rows) {
       final other = await _getOtherUser(r.id, myId);
-      convs.add(_convDataToEntity(r, other));
+      if (r.type != 'direct' || other == null) {
+        groupRows.add(r);
+        continue;
+      }
+
+      directOtherUsers.putIfAbsent(other.id, () => other);
+      final existing = directByOtherUser[other.id];
+      if (existing == null) {
+        directByOtherUser[other.id] = r;
+        continue;
+      }
+
+      final existingScore = existing.lastMessageAt ?? existing.createdAt;
+      final candidateScore = r.lastMessageAt ?? r.createdAt;
+      if (candidateScore.isAfter(existingScore)) {
+        directByOtherUser[other.id] = r;
+      }
     }
+
+    final convs = <Conversation>[];
+    convs.addAll(directByOtherUser.entries.map(
+      (entry) => _convDataToEntity(entry.value, directOtherUsers[entry.key]),
+    ));
+    convs.addAll(groupRows.map((r) => _convDataToEntity(r, null)));
     return convs;
   }
 
@@ -638,10 +1108,12 @@ class MessageRepositoryImpl implements MessageRepository {
     conversationId: r.conversationId, senderId: r.senderId,
     type: r.type, decryptedBody: r.decryptedBody,
     replyToId: r.replyToId,
+    replyPreview: r.replyPreview,
     isDeletedForEveryone: r.isDeletedForEveryone,
     isDeletedForMe: r.isDeletedForMe,
     isPinned: r.isPinned, isStarred: r.isStarred,
     status: r.status, createdAt: r.createdAt,
+    mediaId: r.mediaId,
   );
 
   User _tableUserToEntity(dynamic u) => User(
@@ -672,9 +1144,11 @@ class MessageRepositoryImpl implements MessageRepository {
 
 final messageRepositoryProvider = Provider<MessageRepository>((ref) {
   return MessageRepositoryImpl(
-    pbClient:   ref.watch(pocketbaseClientProvider),
-    db:         ref.read(appDatabaseProvider),
-    storage:    ref.read(secureStorageProvider),
-    encryption: ref.read(encryptionServiceProvider),
+    pbClient:           ref.watch(pocketbaseClientProvider),
+    db:                 ref.read(appDatabaseProvider),
+    storage:            ref.read(secureStorageProvider),
+    encryption:         ref.read(encryptionServiceProvider),
+    mediaUploadService: ref.read(mediaUploadServiceProvider),
   );
 });
+// REPLACE the existing deleteMessage with this:

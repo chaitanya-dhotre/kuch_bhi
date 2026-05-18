@@ -37,6 +37,9 @@ class MessagesTable extends Table {
 
   DateTimeColumn get expiresAt => dateTime().nullable()();
 
+  /// PocketBase `message_media` record ID — set for voice/image/video/document messages.
+  TextColumn get mediaId => text().nullable()();
+
   /// 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   TextColumn get status => text().withDefault(const Constant('pending'))();
 

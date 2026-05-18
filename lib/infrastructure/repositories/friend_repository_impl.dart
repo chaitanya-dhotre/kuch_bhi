@@ -1,13 +1,17 @@
 import 'package:drift/drift.dart' show Value;
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/friend_requests_table.dart';
 import '../../data/local/database/tables/friendships_table.dart';
+import '../../data/local/database/tables/conversations_table.dart';
+import '../../data/local/database/tables/conversation_members_table.dart';
 import '../../data/local/database/tables/users_table.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../domain/entities/friend_request.dart';
@@ -27,6 +31,7 @@ class FriendRepositoryImpl implements FriendRepository {
   final SecureStorageService storage;
 
   PocketBase get _pb => pbClient.pb;
+  static const _uuid = Uuid();
 
   // ── Find user ──────────────────────────────────────────────────
 
@@ -117,6 +122,12 @@ class FriendRepositoryImpl implements FriendRepository {
         ? request.toUser
         : request.fromUser;
     await _cacheUserLocally(otherUser);
+
+    final conversation = await _findOrCreateDirectConversation(
+      currentUserId,
+      fromUserId,
+    );
+    await _cacheConversationLocally(conversation, currentUserId, fromUserId);
   }
 
   @override
@@ -394,6 +405,163 @@ class FriendRepositoryImpl implements FriendRepository {
         createdAt:  req.createdAt,
       ),
     );
+  }
+
+  Future<RecordModel> _findOrCreateDirectConversation(
+      String currentUserId, String otherUserId) async {
+    final existing = await _findDirectConversationOnServer(
+      currentUserId,
+      otherUserId,
+    );
+    if (existing != null) return existing;
+
+    final conv = await _pb.collection('conversations').create(body: {
+      'type': 'direct',
+      'created_by': currentUserId,
+    });
+    await _pb.collection('conversation_members').create(body: {
+      'conversation_id': conv.id,
+      'user_id': currentUserId,
+      'role': 'admin',
+    });
+    await _pb.collection('conversation_members').create(body: {
+      'conversation_id': conv.id,
+      'user_id': otherUserId,
+      'role': 'member',
+    });
+    return conv;
+  }
+
+  Future<RecordModel?> _findDirectConversationOnServer(
+      String userA,
+      String userB,
+  ) async {
+    try {
+      final aMembers = await _pb.collection('conversation_members').getList(
+        filter: 'user_id="$userA"',
+        expand: 'conversation_id',
+        perPage: 200,
+      );
+      final bMembers = await _pb.collection('conversation_members').getList(
+        filter: 'user_id="$userB"',
+        expand: 'conversation_id',
+        perPage: 200,
+      );
+
+      final bConversationIds = bMembers.items
+          .map((r) => r.getStringValue('conversation_id'))
+          .toSet();
+
+      RecordModel? bestConversation;
+      DateTime? bestLastMessageAt;
+      DateTime? bestCreatedAt;
+
+      for (final member in aMembers.items) {
+        final conversationId = member.getStringValue('conversation_id');
+        if (!bConversationIds.contains(conversationId)) continue;
+        final conv = member.expand['conversation_id']?.firstOrNull ??
+            await _pb.collection('conversations').getOne(conversationId);
+
+        final candidateLastMessageAt = DateTime.tryParse(
+          conv.getStringValue('last_message_at'),
+        );
+        final candidateCreatedAt = DateTime.tryParse(conv.created)
+            ?? DateTime.now();
+
+        final shouldReplace = bestConversation == null ||
+            (candidateLastMessageAt != null &&
+                (bestLastMessageAt == null ||
+                    candidateLastMessageAt.isAfter(bestLastMessageAt))) ||
+            (candidateLastMessageAt == bestLastMessageAt &&
+                candidateCreatedAt.isAfter(bestCreatedAt ??
+                    DateTime.fromMillisecondsSinceEpoch(0)));
+
+        if (shouldReplace) {
+          bestConversation = conv;
+          bestLastMessageAt = candidateLastMessageAt;
+          bestCreatedAt = candidateCreatedAt;
+        }
+      }
+
+      if (bestConversation != null) return bestConversation;
+    } catch (e) {
+      debugPrint('[Conv] find direct conversation: $e');
+    }
+    return null;
+  }
+
+  Future<void> _cacheConversationLocally(
+      RecordModel conv,
+      String currentUserId,
+      String otherUserId,
+  ) async {
+    await db.conversationsDao.upsertConversation(
+      ConversationsTableCompanion.insert(
+        id: conv.id,
+        type: conv.getStringValue('type').isEmpty
+            ? 'direct'
+            : conv.getStringValue('type'),
+        createdById: conv.getStringValue('created_by').isEmpty
+            ? currentUserId
+            : conv.getStringValue('created_by'),
+        createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+
+    final members = await _pb.collection('conversation_members').getList(
+      filter: 'conversation_id="${conv.id}"',
+      expand: 'user_id',
+      perPage: 200,
+    );
+
+    for (final member in members.items) {
+      await db.conversationsDao.upsertMember(
+        ConversationMembersTableCompanion.insert(
+          id: member.id,
+          conversationId: conv.id,
+          userId: member.getStringValue('user_id'),
+          role: Value(member.getStringValue('role').isEmpty
+              ? 'member'
+              : member.getStringValue('role')),
+          joinedAt: DateTime.tryParse(member.getStringValue('joined_at'))
+              ?? DateTime.now(),
+        ),
+      );
+
+      final expandedUser = member.expand['user_id']?.firstOrNull;
+      if (expandedUser != null) {
+        await _cacheUserLocally(_recordToUser(expandedUser));
+      }
+    }
+
+    final selfMemberExists = members.items.any(
+      (member) => member.getStringValue('user_id') == currentUserId,
+    );
+    final otherMemberExists = members.items.any(
+      (member) => member.getStringValue('user_id') == otherUserId,
+    );
+
+    if (!selfMemberExists) {
+      await db.conversationsDao.upsertMember(
+        ConversationMembersTableCompanion.insert(
+          id: _uuid.v4(),
+          conversationId: conv.id,
+          userId: currentUserId,
+          joinedAt: DateTime.now(),
+        ),
+      );
+    }
+    if (!otherMemberExists) {
+      await db.conversationsDao.upsertMember(
+        ConversationMembersTableCompanion.insert(
+          id: _uuid.v4(),
+          conversationId: conv.id,
+          userId: otherUserId,
+          joinedAt: DateTime.now(),
+        ),
+      );
+    }
   }
 }
 

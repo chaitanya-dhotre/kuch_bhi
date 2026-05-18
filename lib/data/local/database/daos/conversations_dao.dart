@@ -90,12 +90,32 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
     final theirIds = theirs.map((m) => m.conversationId).toSet();
     final common   = myIds.intersection(theirIds);
 
+    String? bestId;
+    DateTime? bestLastMessageAt;
+    DateTime? bestCreatedAt;
+
     for (final id in common) {
       final conv = await (select(conversationsTable)
             ..where((t) => t.id.equals(id) & t.type.equals('direct')))
           .getSingleOrNull();
-      if (conv != null) return id;
+      if (conv == null) continue;
+
+      final candidateLastMessageAt = conv.lastMessageAt;
+      final candidateCreatedAt = conv.createdAt;
+
+      final shouldReplace = bestId == null ||
+          (candidateLastMessageAt != null &&
+              (bestLastMessageAt == null ||
+                  candidateLastMessageAt.isAfter(bestLastMessageAt))) ||
+          (candidateLastMessageAt == bestLastMessageAt &&
+              candidateCreatedAt.isAfter(bestCreatedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+      if (shouldReplace) {
+        bestId = id;
+        bestLastMessageAt = candidateLastMessageAt;
+        bestCreatedAt = candidateCreatedAt;
+      }
     }
-    return null;
+    return bestId;
   }
 }

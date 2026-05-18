@@ -14,6 +14,7 @@ class Message {
     this.isStarred = false,
     required this.status,
     required this.createdAt,
+    this.mediaId,
   });
 
   final String  localId;
@@ -30,6 +31,7 @@ class Message {
   final bool    isStarred;
   final String  status; // pending | sent | delivered | read | failed
   final DateTime createdAt;
+  final String? mediaId;
 
   bool get isPending   => status == 'pending';
   bool get isSent      => status == 'sent';

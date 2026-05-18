@@ -816,6 +816,7 @@ deleteRule: null
 | `conversation_id` | Relation → conversations | Required (for media viewer queries) |
 | `file` | File | Required, max 100MB |
 | `media_type` | Select | image / video / voice / document |
+| `media_id` | Text |  |
 | `file_name` | Text | Required |
 | `file_size` | Number | Bytes |
 | `duration_seconds` | Number | Optional (video/voice) |
@@ -1349,6 +1350,7 @@ final authData \= await pb.collection('users').authWithOAuth2(
 - [ ] Starred messages page  
 - [ ] Pinned messages banner  
 - [ ] Disappearing messages setting
+- [ ] No text box when only emojis are sent.
 
 ---
 

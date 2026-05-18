@@ -85,7 +85,9 @@ class HomeScreen extends ConsumerWidget {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => ref.read(conversationsProvider.notifier).refresh(),
+        onRefresh: () async {
+          ref.invalidate(conversationsProvider);
+        },
         child: convsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error:   (e, _) => Center(child: Text('Error: $e')),
@@ -172,11 +174,21 @@ class HomeScreen extends ConsumerWidget {
     WidgetRef ref,
     String otherUserId,
   ) async {
-    final conv = await ref
-        .read(messageRepositoryProvider)
-        .getOrCreateDirectConversation(otherUserId);
-    if (context.mounted) {
-      context.push(AppRoutes.chat, extra: conv);
+    try {
+      final conv = await ref
+          .read(messageRepositoryProvider)
+          .getOrCreateDirectConversation(otherUserId);
+      if (context.mounted) {
+        context.push(AppRoutes.chat, extra: conv);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Chat is not ready yet. Try again in a moment.'),
+          ),
+        );
+      }
     }
   }
 

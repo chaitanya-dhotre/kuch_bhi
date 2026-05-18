@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:async';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +27,8 @@ class AuthRepositoryImpl implements AuthRepository {
   final PocketBaseClient pbClient;
   final AppDatabase db;
   final SecureStorageService storage;
+
+  StreamSubscription<String>? _fcmTokenSubscription;
 
   PocketBase get _pb => pbClient.pb;
 
@@ -183,6 +186,8 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> signOut() async {
+    await _fcmTokenSubscription?.cancel();
+    _fcmTokenSubscription = null;
     pbClient.clearAuth();
     await storage.deleteAuthToken();
     await db.settingsDao.setSetting(AppSettingsKeys.authToken,     '');
@@ -249,13 +254,25 @@ class AuthRepositoryImpl implements AuthRepository {
     await _cacheUserLocally(user);
     debugPrint('[Auth] Session saved. userId: ${user.id}');
 
+    _ensureFcmTokenListener();
+
     // Register FCM token with server.
     try {
-      final fcmToken = await FirebaseMessaging.instance.getToken();
-      if (fcmToken != null) {
+      // Check for pending token first (from app startup)
+      var fcmToken = await db.settingsDao.getSetting('pending_fcm_token');
+      
+      // If no pending token, fetch fresh one
+      if (fcmToken == null || fcmToken.isEmpty) {
+        fcmToken = await FirebaseMessaging.instance.getToken();
+      }
+      
+      if (fcmToken != null && fcmToken.isNotEmpty) {
         await _pb.collection('users').update(user.id, body: {
           'fcm_token': fcmToken,
         });
+        debugPrint('[FCM] Token registered for user ${user.id}');
+        // Clear pending token after successful registration
+        await db.settingsDao.setSetting('pending_fcm_token', '');
       }
     } catch (e) {
       debugPrint('[FCM] Token update failed: $e');
@@ -296,6 +313,16 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (e) {
       debugPrint('[Keys] initEncryptionKeys: $e');
     }
+  }
+
+  void _ensureFcmTokenListener() {
+    if (_fcmTokenSubscription != null) return;
+    _fcmTokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen(
+      (token) {
+        updateFcmToken(token);
+      },
+      onError: (e) => debugPrint('[FCM] Token refresh listener error: $e'),
+    );
   }
 
   User _recordToUser(RecordModel record) {

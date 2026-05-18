@@ -50,14 +50,15 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
         onUpgrade: (m, from, to) async {
-          // Migration logic goes here in future versions.
-          // Never drop tables — use ALTER TABLE ADD COLUMN.
+          if (from < 2) {
+            await m.addColumn(messagesTable, messagesTable.mediaId);
+          }
         },
       );
 }

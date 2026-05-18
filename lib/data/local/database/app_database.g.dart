@@ -2125,6 +2125,17 @@ class $MessagesTableTable extends MessagesTable
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _mediaIdMeta = const VerificationMeta(
+    'mediaId',
+  );
+  @override
+  late final GeneratedColumn<String> mediaId = GeneratedColumn<String>(
+    'media_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
@@ -2174,6 +2185,7 @@ class $MessagesTableTable extends MessagesTable
     isPinned,
     isStarred,
     expiresAt,
+    mediaId,
     status,
     createdAt,
     updatedAt,
@@ -2307,6 +2319,12 @@ class $MessagesTableTable extends MessagesTable
         expiresAt.isAcceptableOrUnknown(data['expires_at']!, _expiresAtMeta),
       );
     }
+    if (data.containsKey('media_id')) {
+      context.handle(
+        _mediaIdMeta,
+        mediaId.isAcceptableOrUnknown(data['media_id']!, _mediaIdMeta),
+      );
+    }
     if (data.containsKey('status')) {
       context.handle(
         _statusMeta,
@@ -2398,6 +2416,10 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.dateTime,
         data['${effectivePrefix}expires_at'],
       ),
+      mediaId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}media_id'],
+      ),
       status: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}status'],
@@ -2449,6 +2471,9 @@ class MessagesTableData extends DataClass
   final bool isStarred;
   final DateTime? expiresAt;
 
+  /// PocketBase `message_media` record ID — set for voice/image/video/document messages.
+  final String? mediaId;
+
   /// 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   final String status;
   final DateTime createdAt;
@@ -2469,6 +2494,7 @@ class MessagesTableData extends DataClass
     required this.isPinned,
     required this.isStarred,
     this.expiresAt,
+    this.mediaId,
     required this.status,
     required this.createdAt,
     required this.updatedAt,
@@ -2500,6 +2526,9 @@ class MessagesTableData extends DataClass
     map['is_starred'] = Variable<bool>(isStarred);
     if (!nullToAbsent || expiresAt != null) {
       map['expires_at'] = Variable<DateTime>(expiresAt);
+    }
+    if (!nullToAbsent || mediaId != null) {
+      map['media_id'] = Variable<String>(mediaId);
     }
     map['status'] = Variable<String>(status);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -2534,6 +2563,9 @@ class MessagesTableData extends DataClass
       expiresAt: expiresAt == null && nullToAbsent
           ? const Value.absent()
           : Value(expiresAt),
+      mediaId: mediaId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(mediaId),
       status: Value(status),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -2563,6 +2595,7 @@ class MessagesTableData extends DataClass
       isPinned: serializer.fromJson<bool>(json['isPinned']),
       isStarred: serializer.fromJson<bool>(json['isStarred']),
       expiresAt: serializer.fromJson<DateTime?>(json['expiresAt']),
+      mediaId: serializer.fromJson<String?>(json['mediaId']),
       status: serializer.fromJson<String>(json['status']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -2587,6 +2620,7 @@ class MessagesTableData extends DataClass
       'isPinned': serializer.toJson<bool>(isPinned),
       'isStarred': serializer.toJson<bool>(isStarred),
       'expiresAt': serializer.toJson<DateTime?>(expiresAt),
+      'mediaId': serializer.toJson<String?>(mediaId),
       'status': serializer.toJson<String>(status),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -2609,6 +2643,7 @@ class MessagesTableData extends DataClass
     bool? isPinned,
     bool? isStarred,
     Value<DateTime?> expiresAt = const Value.absent(),
+    Value<String?> mediaId = const Value.absent(),
     String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -2630,6 +2665,7 @@ class MessagesTableData extends DataClass
     isPinned: isPinned ?? this.isPinned,
     isStarred: isStarred ?? this.isStarred,
     expiresAt: expiresAt.present ? expiresAt.value : this.expiresAt,
+    mediaId: mediaId.present ? mediaId.value : this.mediaId,
     status: status ?? this.status,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -2663,6 +2699,7 @@ class MessagesTableData extends DataClass
       isPinned: data.isPinned.present ? data.isPinned.value : this.isPinned,
       isStarred: data.isStarred.present ? data.isStarred.value : this.isStarred,
       expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
+      mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
       status: data.status.present ? data.status.value : this.status,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -2687,6 +2724,7 @@ class MessagesTableData extends DataClass
           ..write('isPinned: $isPinned, ')
           ..write('isStarred: $isStarred, ')
           ..write('expiresAt: $expiresAt, ')
+          ..write('mediaId: $mediaId, ')
           ..write('status: $status, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -2711,6 +2749,7 @@ class MessagesTableData extends DataClass
     isPinned,
     isStarred,
     expiresAt,
+    mediaId,
     status,
     createdAt,
     updatedAt,
@@ -2734,6 +2773,7 @@ class MessagesTableData extends DataClass
           other.isPinned == this.isPinned &&
           other.isStarred == this.isStarred &&
           other.expiresAt == this.expiresAt &&
+          other.mediaId == this.mediaId &&
           other.status == this.status &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -2755,6 +2795,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
   final Value<bool> isPinned;
   final Value<bool> isStarred;
   final Value<DateTime?> expiresAt;
+  final Value<String?> mediaId;
   final Value<String> status;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -2775,6 +2816,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.isPinned = const Value.absent(),
     this.isStarred = const Value.absent(),
     this.expiresAt = const Value.absent(),
+    this.mediaId = const Value.absent(),
     this.status = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -2796,6 +2838,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.isPinned = const Value.absent(),
     this.isStarred = const Value.absent(),
     this.expiresAt = const Value.absent(),
+    this.mediaId = const Value.absent(),
     this.status = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
@@ -2824,6 +2867,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Expression<bool>? isPinned,
     Expression<bool>? isStarred,
     Expression<DateTime>? expiresAt,
+    Expression<String>? mediaId,
     Expression<String>? status,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -2846,6 +2890,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       if (isPinned != null) 'is_pinned': isPinned,
       if (isStarred != null) 'is_starred': isStarred,
       if (expiresAt != null) 'expires_at': expiresAt,
+      if (mediaId != null) 'media_id': mediaId,
       if (status != null) 'status': status,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -2869,6 +2914,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Value<bool>? isPinned,
     Value<bool>? isStarred,
     Value<DateTime?>? expiresAt,
+    Value<String?>? mediaId,
     Value<String>? status,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
@@ -2890,6 +2936,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       isPinned: isPinned ?? this.isPinned,
       isStarred: isStarred ?? this.isStarred,
       expiresAt: expiresAt ?? this.expiresAt,
+      mediaId: mediaId ?? this.mediaId,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -2947,6 +2994,9 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     if (expiresAt.present) {
       map['expires_at'] = Variable<DateTime>(expiresAt.value);
     }
+    if (mediaId.present) {
+      map['media_id'] = Variable<String>(mediaId.value);
+    }
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
@@ -2980,6 +3030,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
           ..write('isPinned: $isPinned, ')
           ..write('isStarred: $isStarred, ')
           ..write('expiresAt: $expiresAt, ')
+          ..write('mediaId: $mediaId, ')
           ..write('status: $status, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -6951,6 +7002,7 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       Value<bool> isPinned,
       Value<bool> isStarred,
       Value<DateTime?> expiresAt,
+      Value<String?> mediaId,
       Value<String> status,
       required DateTime createdAt,
       required DateTime updatedAt,
@@ -6973,6 +7025,7 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<bool> isPinned,
       Value<bool> isStarred,
       Value<DateTime?> expiresAt,
+      Value<String?> mediaId,
       Value<String> status,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -7060,6 +7113,11 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<DateTime> get expiresAt => $composableBuilder(
     column: $table.expiresAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mediaId => $composableBuilder(
+    column: $table.mediaId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7163,6 +7221,11 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get mediaId => $composableBuilder(
+    column: $table.mediaId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnOrderings(column),
@@ -7245,6 +7308,9 @@ class $$MessagesTableTableAnnotationComposer
   GeneratedColumn<DateTime> get expiresAt =>
       $composableBuilder(column: $table.expiresAt, builder: (column) => column);
 
+  GeneratedColumn<String> get mediaId =>
+      $composableBuilder(column: $table.mediaId, builder: (column) => column);
+
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
@@ -7305,6 +7371,7 @@ class $$MessagesTableTableTableManager
                 Value<bool> isPinned = const Value.absent(),
                 Value<bool> isStarred = const Value.absent(),
                 Value<DateTime?> expiresAt = const Value.absent(),
+                Value<String?> mediaId = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -7325,6 +7392,7 @@ class $$MessagesTableTableTableManager
                 isPinned: isPinned,
                 isStarred: isStarred,
                 expiresAt: expiresAt,
+                mediaId: mediaId,
                 status: status,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -7347,6 +7415,7 @@ class $$MessagesTableTableTableManager
                 Value<bool> isPinned = const Value.absent(),
                 Value<bool> isStarred = const Value.absent(),
                 Value<DateTime?> expiresAt = const Value.absent(),
+                Value<String?> mediaId = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
@@ -7367,6 +7436,7 @@ class $$MessagesTableTableTableManager
                 isPinned: isPinned,
                 isStarred: isStarred,
                 expiresAt: expiresAt,
+                mediaId: mediaId,
                 status: status,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
