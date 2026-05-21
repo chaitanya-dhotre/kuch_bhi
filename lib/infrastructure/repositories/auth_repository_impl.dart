@@ -152,6 +152,18 @@ class AuthRepositoryImpl implements AuthRepository {
     // Return cached user immediately and refresh in the background.
     final cached = await db.usersDao.getUserById(userId);
     if (cached != null) {
+      // Ensure current_user_id is written to Drift NOW so that _myId() in the
+      // message repository resolves immediately without waiting for _backgroundRefresh.
+      await db.settingsDao.setSetting(AppSettingsKeys.currentUserId, userId);
+
+      // Detect reinstall: Drift token survived but SecureStorage (private key) was wiped.
+      // In this case we must synchronously generate and upload the new key pair BEFORE
+      // returning, so the messaging layer derives the correct conversation keys from the start.
+      final existingPriv = await storage.getPrivateKey();
+      if (existingPriv == null) {
+        debugPrint('[Auth] Reinstall detected on restart — re-initialising encryption keys synchronously.');
+        await _initEncryptionKeys(userId);
+      }
       _backgroundRefresh();
       return _tableDataToUser(cached);
     }
@@ -238,9 +250,12 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> _saveSession(User user) async {
     final token = _pb.authStore.token;
 
-    // Save token to SecureStorage (primary).
+    // Save token + userId to SecureStorage (primary).
+    // Writing userId here lets _myId() resolve immediately via SecureStorage
+    // fallback before the Drift write below has a chance to complete.
     try {
       await storage.saveAuthToken(token);
+      await storage.saveCurrentUserId(user.id);
     } catch (e) {
       debugPrint('[Auth] SecureStorage save failed: $e');
     }
@@ -298,12 +313,32 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> _initEncryptionKeys(String userId) async {
     try {
       final enc = EncryptionService(storage, pbClient);
-      final pubKeyB64 = await enc.getPublicKeyBase64();
 
-      // Only upload if server doesn't have it yet.
-      final record = await _pb.collection('users').getOne(userId);
-      if (record.getStringValue('public_key').isEmpty) {
+      // Check if secure storage already had a key pair before this session.
+      // If both keys exist in storage, the key pair was NOT freshly generated.
+      final existingPriv = await storage.getPrivateKey();
+      final existingPub  = await storage.getLocalPublicKey();
+      final hadExistingKeys = existingPriv != null && existingPub != null;
+
+      if (!hadExistingKeys) {
+        // Private key is missing locally. Check if there is a PocketBase backup before generating a new key!
+        final hasBackup = await enc.hasPocketBaseBackup(userId);
+        if (hasBackup) {
+          debugPrint('[Keys] Reinstall with server backup detected — skipping key generation to allow restore.');
+          return;
+        }
+
+        // Fresh install / new registration / reinstall without backup — generate a new key pair
+        final pubKeyB64 = await enc.getPublicKeyBase64();
+        debugPrint('[Keys] New device/reinstall detected — uploading fresh public key.');
         await updatePublicKey(pubKeyB64);
+      } else {
+        // Keys already existed in secure storage. Only upload if server is missing it.
+        final record = await _pb.collection('users').getOne(userId);
+        if (record.getStringValue('public_key').isEmpty) {
+          final pubKeyB64 = await enc.getPublicKeyBase64();
+          await updatePublicKey(pubKeyB64);
+        }
       }
     } catch (e) {
       debugPrint('[Keys] initEncryptionKeys: $e');

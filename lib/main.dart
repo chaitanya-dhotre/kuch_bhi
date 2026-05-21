@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/network/pocketbase_client.dart';
 import 'data/local/database/app_database.dart';
-import 'data/local/database/tables/app_settings_table.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';

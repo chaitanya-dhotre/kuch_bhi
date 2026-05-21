@@ -61,6 +61,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   // Cached items list so scroll helpers can access it
   List<_ChatItem> _items = [];
 
+  ProviderSubscription<AsyncValue<List<Message>>>? _markReadSub;
+
   PresenceService get _pres => ref.read(presenceServiceProvider);
   String          get _cid  => widget.conversation.id;
 
@@ -69,11 +71,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scrollCtrl.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _enter());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _enter();
+      if (!mounted) return;
+      _markReadSub = ref.listenManual(
+        messagesProvider(_cid),
+        (_, next) {
+          if (!mounted) return;
+          if (next.hasValue && next.value!.isNotEmpty) {
+            ref.read(messageRepositoryProvider).markConversationRead(_cid);
+          }
+        },
+      );
+    });
   }
 
   @override
   void dispose() {
+    _markReadSub?.close();
     WidgetsBinding.instance.removeObserver(this);
     _scrollCtrl.dispose();
     _searchCtrl.dispose();
@@ -281,12 +296,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               (userId: otherUserId, convId: _cid)))
               .asData?.value
         : null;
-
-    ref.listen(messagesProvider(_cid), (_, next) {
-      if (next.hasValue && next.value!.isNotEmpty) {
-        ref.read(messageRepositoryProvider).markConversationRead(_cid);
-      }
-    });
 
     final myId    = ref.watch(currentUserIdProvider).asData?.value ?? '';
     final messages = messagesAsync.asData?.value ?? [];

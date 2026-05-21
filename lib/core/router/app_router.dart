@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../domain/entities/conversation.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/auth/providers/encryption_sync_provider.dart';
+import '../../features/auth/screens/backup_pin_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
@@ -14,6 +16,7 @@ import '../../features/media/screens/media_viewer_screen.dart';
 import '../../features/groups/screens/create_group_screen.dart';
 import '../../features/groups/screens/group_settings_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
+import '../../services/encryption_service.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -31,23 +34,66 @@ class AppRoutes {
   static const String mediaDocs       = '/media-docs/:conversationId';
   static const String createGroup     = '/create-group';
   static const String groupSettings   = '/group-settings';
+  static const String backupPinSetup   = '/backup-pin/setup';
+  static const String backupPinRestore = '/backup-pin/restore';
+  static const String backupPinChange  = '/backup-pin/change';
 }
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
+class RouterRefreshNotifier extends ChangeNotifier {
+  RouterRefreshNotifier(Ref ref) {
+    ref.listen(authProvider, (_, __) => notifyListeners());
+    ref.listen(encryptionSyncProvider, (_, __) => notifyListeners());
+  }
+}
+
+final routerRefreshNotifierProvider = Provider<RouterRefreshNotifier>((ref) {
+  return RouterRefreshNotifier(ref);
+});
+
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final refreshNotifier = ref.read(routerRefreshNotifierProvider);
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: AppRoutes.splash,
+    refreshListenable: refreshNotifier,
     redirect: (context, state) {
       final auth = ref.read(authProvider).valueOrNull;
-      final protected = [AppRoutes.home, AppRoutes.profile,
-                         AppRoutes.friendRequests, AppRoutes.chat,
-                         AppRoutes.createGroup, AppRoutes.groupSettings,
-                         '/starred'];
+      final protected = [
+        AppRoutes.home, AppRoutes.profile,
+        AppRoutes.friendRequests, AppRoutes.chat,
+        AppRoutes.createGroup, AppRoutes.groupSettings,
+        '/starred'
+      ];
       if (protected.any((p) => state.matchedLocation.startsWith(p)) &&
           auth is! AuthAuthenticated) {
         return AppRoutes.login;
+      }
+
+      if (auth is AuthAuthenticated) {
+        final syncStatusAsync = ref.read(encryptionSyncProvider);
+        if (syncStatusAsync.isLoading) {
+          return null; // Stay on current screen/splash while checking status
+        }
+
+        final syncStatus = syncStatusAsync.valueOrNull;
+        if (syncStatus == EncryptionSyncStatus.needsRestore) {
+          if (state.matchedLocation != AppRoutes.backupPinRestore) {
+            return AppRoutes.backupPinRestore;
+          }
+        } else if (syncStatus == EncryptionSyncStatus.needsSetup) {
+          if (state.matchedLocation != AppRoutes.backupPinSetup) {
+            return AppRoutes.backupPinSetup;
+          }
+        } else if (syncStatus == EncryptionSyncStatus.keyOk) {
+          final loc = state.matchedLocation;
+          if (loc == AppRoutes.splash ||
+              loc == AppRoutes.backupPinSetup ||
+              loc == AppRoutes.backupPinRestore) {
+            return AppRoutes.home;
+          }
+        }
       }
       return null;
     },
@@ -114,6 +160,29 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final conv = state.extra as Conversation;
           return GroupSettingsScreen(conversation: conv);
         },
+      ),
+      GoRoute(
+        path: AppRoutes.backupPinSetup,
+        builder: (context, state) {
+          return FutureBuilder<bool>(
+            future: ref.read(encryptionServiceProvider).hasLocalPrivateKey(),
+            builder: (context, snapshot) {
+              final hasLocal = snapshot.data ?? true;
+              return BackupPinScreen(
+                mode: BackupPinMode.setup,
+                isOptionalSetup: !hasLocal,
+              );
+            },
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.backupPinRestore,
+        builder: (_, __) => const BackupPinScreen(mode: BackupPinMode.restore),
+      ),
+      GoRoute(
+        path: AppRoutes.backupPinChange,
+        builder: (_, __) => const BackupPinScreen(mode: BackupPinMode.change),
       ),
     ],
   );

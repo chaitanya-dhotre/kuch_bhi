@@ -11,10 +11,6 @@ import 'package:uuid/uuid.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
-import '../../data/local/database/tables/conversations_table.dart';
-import '../../data/local/database/tables/conversation_members_table.dart';
-import '../../data/local/database/tables/messages_table.dart';
-import '../../data/local/database/tables/users_table.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
@@ -53,6 +49,8 @@ class MessageRepositoryImpl implements MessageRepository {
   // ── Global subscriptions (set up once for all conversations) ──
 
   void _initGlobalSubscriptions() {
+    // Note: Messages that arrive while offline during reinstall are automatically
+    // handled by PocketBase subscription + SSE subscription + _cacheMsg flow when connection settles.
     // Messages subscription — handles incoming messages from all conversations
     _pb.collection('messages').subscribe('*', (event) async {
       if (event.record == null) return;
@@ -175,7 +173,10 @@ class MessageRepositoryImpl implements MessageRepository {
 
     return db.messagesDao
         .watchMessages(conversationId)
-        .asyncMap((rows) => _rowsToMessages(rows));
+        .asyncMap((rows) async {
+          debugPrint('[Msg] watchMessages EMIT — convId: $conversationId, rowCount: ${rows.length}');
+          return _rowsToMessages(rows);
+        });
   }
 
   Future<List<Message>> _rowsToMessages(
@@ -201,6 +202,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
     // ── Step 1: Optimistic insert to Drift ────────────────────
     // Drift stream auto-emits IMMEDIATELY — message appears NOW.
+    debugPrint('[Msg] OPTIMISTIC INSERT — localId: $localId, convId: $conversationId, senderId: $myId');
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
       localId:        localId,
       conversationId: conversationId,
@@ -215,7 +217,7 @@ class MessageRepositoryImpl implements MessageRepository {
       createdAt:      now,
       updatedAt:      now,
     ));
-    debugPrint('[Msg] Message added to local DB with status: pending');
+    debugPrint('[Msg] OPTIMISTIC INSERT DONE — myId: $myId, convId: $conversationId');
 
     // ── Step 2: Upload in background (does NOT block UI) ──────
     _uploadMessage(
@@ -486,6 +488,11 @@ class MessageRepositoryImpl implements MessageRepository {
 
   @override
   Future<void> retryPendingMessages() async {
+    // Note: Pending/failed messages (status='pending'/'failed' with no serverId)
+    // that were in Drift are permanently lost after reinstall.
+    // We clean up stale pending messages that are older than 24 hours.
+    await db.messagesDao.deleteStuckPendingMessages();
+
     final pending = await db.messagesDao.getPendingMessages();
     if (pending.isEmpty) return;
 
@@ -493,6 +500,13 @@ class MessageRepositoryImpl implements MessageRepository {
 
     for (final msg in pending) {
       if (msg.decryptedBody == null) continue;
+      // Skip ghost messages created when myId() returned '' — their senderId
+      // is empty and they can never be uploaded correctly. Mark as failed.
+      if (msg.senderId.isEmpty) {
+        debugPrint('[Msg] Purging ghost pending message ${msg.localId} (empty senderId).');
+        await db.messagesDao.updateMessageStatus(msg.localId, 'failed');
+        continue;
+      }
       await retryMessage(msg.localId);
     }
   }
@@ -636,6 +650,21 @@ class MessageRepositoryImpl implements MessageRepository {
         createdAt:      msg.createdAt,
         updatedAt:      DateTime.now(),
       ));
+
+      if (msg.serverId != null) {
+        final myId = await _myId();
+        unawaited(() async {
+          try {
+            await _pb.collection('deleted_messages_for_me').create(body: {
+              'user_id':         myId,
+              'message_id':      msg.serverId,
+              'conversation_id': msg.conversationId,
+            });
+          } catch (e) {
+            debugPrint('[Delete] PB sync failed (offline?): $e');
+          }
+        }());
+      }
     }
   }
 
@@ -643,13 +672,49 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> toggleStar(String localId) async {
     final msg = await db.messagesDao.getMessageByLocalId(localId);
     if (msg == null) return;
+
+    final nextStarred = !msg.isStarred;
+
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-      localId: msg.localId, conversationId: msg.conversationId,
-      senderId: msg.senderId, type: msg.type,
-      encryptedBody: msg.encryptedBody, iv: msg.iv,
-      isStarred: Value(!msg.isStarred), status: Value(msg.status),
-      createdAt: msg.createdAt, updatedAt: DateTime.now(),
+      localId:        msg.localId,
+      conversationId: msg.conversationId,
+      senderId:       msg.senderId,
+      type:           msg.type,
+      encryptedBody:  msg.encryptedBody,
+      iv:             msg.iv,
+      decryptedBody:  Value(msg.decryptedBody),
+      isStarred:      Value(nextStarred),
+      status:         Value(msg.status),
+      createdAt:      msg.createdAt,
+      updatedAt:      DateTime.now(),
     ));
+
+    if (msg.serverId != null) {
+      final myId = await _myId();
+      unawaited(() async {
+        try {
+          if (nextStarred) {
+            await _pb.collection('starred_messages').create(body: {
+              'user_id':         myId,
+              'message_id':      msg.serverId,
+              'conversation_id': msg.conversationId,
+              'message_preview': msg.decryptedBody ?? '',
+              'sender_id':       msg.senderId,
+            });
+          } else {
+            final res = await _pb.collection('starred_messages').getList(
+              filter: 'user_id="$myId"&&message_id="${msg.serverId}"',
+              perPage: 1,
+            );
+            if (res.items.isNotEmpty) {
+              await _pb.collection('starred_messages').delete(res.items.first.id);
+            }
+          }
+        } catch (e) {
+          debugPrint('[Star] PB sync failed (offline?): $e');
+        }
+      }());
+    }
   }
 
   @override
@@ -759,9 +824,31 @@ class MessageRepositoryImpl implements MessageRepository {
 
   @override
   Future<List<Message>> getStarredMessages(String conversationId) async {
-    final rows = await db.messagesDao.getStarredMessages(conversationId);
-    final myId = await _myId();
-    return rows.map((r) => _rowToMessage(r, myId)).toList();
+    try {
+      final myId = await _myId();
+      final res = await _pb.collection('starred_messages').getList(
+        filter: 'user_id="$myId"&&conversation_id="$conversationId"',
+        sort: '-starred_at',
+        perPage: 200,
+      );
+
+      return res.items.map((record) {
+        return Message(
+          localId:        record.id,
+          serverId:       record.getStringValue('message_id'),
+          conversationId: record.getStringValue('conversation_id'),
+          senderId:       record.getStringValue('sender_id'),
+          type:           'text',
+          decryptedBody:  record.getStringValue('message_preview'),
+          status:         'read',
+          createdAt:      DateTime.tryParse(record.created) ?? DateTime.now(),
+          isStarred:      true,
+        );
+      }).toList();
+    } catch (e) {
+      debugPrint('[Star] getStarredMessages: $e');
+      return [];
+    }
   }
 
   @override
@@ -1122,27 +1209,131 @@ class MessageRepositoryImpl implements MessageRepository {
 
   // ── Private helpers ───────────────────────────────────────────
 
-  Future<String> _myId() async =>
-      await db.settingsDao.getSetting(AppSettingsKeys.currentUserId) ?? '';
+  Future<String> _myId() async {
+    // Poll until the session is saved to Drift (avoids race with _saveSession
+    // on first launch / after reinstall where sendMessage may be called before
+    // the auth flow has finished writing current_user_id).
+    for (var i = 0; i < 50; i++) {
+      final id = await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
+      if (id != null && id.isNotEmpty) return id;
+      // Also check SecureStorage — _saveSession writes there first.
+      final secureId = await storage.getCurrentUserId();
+      if (secureId != null && secureId.isNotEmpty) return secureId;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    return '';
+  }
 
   Future<void> _fetchAndCacheMessages(String conversationId) async {
     try {
       final myId = await _myId();
+      debugPrint('[Msg] _fetchAndCacheMessages — myId: $myId, convId: $conversationId');
       final res  = await _pb.collection('messages').getList(
         filter:  'conversation_id="$conversationId"&&is_deleted_for_everyone=false',
         sort:    '-created',
         perPage: 40,
       );
+      debugPrint('[Msg] _fetchAndCacheMessages — fetched ${res.items.length} messages from server');
+      
+      // Note: Group key recovery works seamlessly after private key restore.
+      // The old encrypted group keys in PocketBase are decrypted using the user's restored X25519 key
+      // on first access, and local FlutterSecureStorage group key cache is cleared on reinstall.
       final key = await _getConvKey(conversationId, myId);
+      debugPrint('[Msg] _fetchAndCacheMessages — key isZero: ${key.every((b) => b == 0)}');
       for (final r in res.items) {
         await _cacheMsg(r, myId, key);
       }
+
+      await _syncDeletedForMe(conversationId);
+      await _syncStarredMessages(conversationId);
     } catch (e) {
       debugPrint('[Msg] fetch error (offline?): $e');
     }
   }
 
+  Future<void> _syncDeletedForMe(String conversationId) async {
+    final myId = await _myId();
+    try {
+      final res = await _pb.collection('deleted_messages_for_me').getList(
+        filter: 'user_id="$myId"&&conversation_id="$conversationId"',
+        perPage: 500,
+      );
+      final deletedIds = res.items
+          .map((r) => r.getStringValue('message_id'))
+          .toSet();
+      if (deletedIds.isEmpty) return;
+
+      final rows = await db.messagesDao.watchMessages(conversationId).first;
+      for (final row in rows) {
+        if (row.serverId != null && deletedIds.contains(row.serverId)) {
+          await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+            localId:              row.localId,
+            serverId:             Value(row.serverId),
+            conversationId:       row.conversationId,
+            senderId:             row.senderId,
+            type:                 row.type,
+            encryptedBody:        row.encryptedBody,
+            iv:                   row.iv,
+            decryptedBody:        Value(row.decryptedBody),
+            isDeletedForMe:       Value(true),
+            isDeletedForEveryone: Value(row.isDeletedForEveryone),
+            isStarred:            Value(row.isStarred),
+            isPinned:             Value(row.isPinned),
+            mediaId:              Value(row.mediaId),
+            status:               Value(row.status),
+            createdAt:            row.createdAt,
+            updatedAt:            DateTime.now(),
+          ));
+        }
+      }
+    } catch (e) {
+      debugPrint('[Delete] syncDeletedForMe: $e');
+    }
+  }
+
+  Future<void> _syncStarredMessages(String conversationId) async {
+    final myId = await _myId();
+    try {
+      final res = await _pb.collection('starred_messages').getList(
+        filter: 'user_id="$myId"&&conversation_id="$conversationId"',
+        perPage: 500,
+      );
+      final starredIds = res.items
+          .map((r) => r.getStringValue('message_id'))
+          .toSet();
+      if (starredIds.isEmpty) return;
+
+      final rows = await db.messagesDao.watchMessages(conversationId).first;
+      for (final row in rows) {
+        if (row.serverId != null && starredIds.contains(row.serverId)) {
+          await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+            localId:              row.localId,
+            serverId:             Value(row.serverId),
+            conversationId:       row.conversationId,
+            senderId:             row.senderId,
+            type:                 row.type,
+            encryptedBody:        row.encryptedBody,
+            iv:                   row.iv,
+            decryptedBody:        Value(row.decryptedBody),
+            isDeletedForMe:       Value(row.isDeletedForMe),
+            isDeletedForEveryone: Value(row.isDeletedForEveryone),
+            isStarred:            Value(true),
+            isPinned:             Value(row.isPinned),
+            mediaId:              Value(row.mediaId),
+            status:               Value(row.status),
+            createdAt:            row.createdAt,
+            updatedAt:            DateTime.now(),
+          ));
+        }
+      }
+    } catch (e) {
+      debugPrint('[Star] syncStarredMessages: $e');
+    }
+  }
+
   Future<void> _cacheMsg(RecordModel r, String myId, List<int> key) async {
+    // Note: isDeletedForEveryone is already synchronized automatically on fresh install
+    // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
     final encBody = r.getStringValue('encrypted_body');
     final iv      = r.getStringValue('iv');
     String? decrypted;
@@ -1299,16 +1490,25 @@ class MessageRepositoryImpl implements MessageRepository {
         .map((m) => m.userId)
         .firstOrNull;
 
-    if (otherUserId == null) return List.filled(32, 0);
+    if (otherUserId == null || otherUserId.isEmpty) return List.filled(32, 0);
 
     var u = await db.usersDao.getUserById(otherUserId);
-    if (u == null || u.publicKey == null) {
-      try {
-        final r = await _pb.collection('users').getOne(otherUserId);
-        await _cacheUserRecord(r);
-        u = await db.usersDao.getUserById(otherUserId);
-      } catch (_) {}
-    }
+    final cachedPublicKey = u?.publicKey;
+
+    // Always fetch the latest public key from the server to detect key rotation
+    // (e.g. the other user reinstalled the app and got a new key pair).
+    try {
+      final r = await _pb.collection('users').getOne(otherUserId);
+      final serverPublicKey = r.getStringValue('public_key');
+      if (serverPublicKey.isNotEmpty && serverPublicKey != cachedPublicKey) {
+        debugPrint('[Keys] Public key rotation detected for user $otherUserId — clearing derived key cache.');
+        await storage.saveContactEncryptionKey(convId, ''); // Invalidate derived key
+        await storage.clearAllContactKeys();               // Clear all stale derived keys
+      }
+      await _cacheUserRecord(r);
+      u = await db.usersDao.getUserById(otherUserId);
+    } catch (_) {}
+
     if (u?.publicKey == null) return List.filled(32, 0);
     return encryption.getOrDeriveConversationKey(convId, u!.publicKey!);
   }

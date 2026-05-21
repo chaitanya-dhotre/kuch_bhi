@@ -57,12 +57,24 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       );
 
   /// Get pending messages for retry.
-  Future<List<MessagesTableData>> getPendingMessages() =>
-      (select(messagesTable)
+  Future<List<MessagesTableData>> getPendingMessages() async {
+    await deleteStuckPendingMessages();
+    return (select(messagesTable)
+          ..where((t) =>
+              t.status.equals('pending') | t.status.equals('failed'))
+          ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
+        .get();
+  }
+
+  Future<void> deleteStuckPendingMessages() =>
+      (delete(messagesTable)
             ..where((t) =>
-                t.status.equals('pending') | t.status.equals('failed'))
-            ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
-          .get();
+                (t.status.equals('pending') | t.status.equals('failed')) &
+                t.serverId.isNull() &
+                t.createdAt.isSmallerThanValue(
+                  DateTime.now().subtract(const Duration(hours: 24)),
+                )))
+          .go();
 
   Future<List<MessagesTableData>> getStarredMessages(String conversationId) =>
       (select(messagesTable)

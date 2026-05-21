@@ -8,6 +8,8 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../features/auth/providers/encryption_sync_provider.dart';
+import '../../../data/local/database/app_database.dart';
 import '../../../features/friend_requests/providers/friend_request_provider.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../providers/conversations_provider.dart';
@@ -24,6 +26,7 @@ class HomeScreen extends ConsumerWidget {
     final pendingCount = ref.watch(pendingRequestCountProvider);
     final convsAsync   = ref.watch(conversationsProvider);
     final friendsAsync = ref.watch(friendshipsProvider);
+    final showBanner   = ref.watch(showBackupBannerProvider).valueOrNull ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -84,80 +87,121 @@ class HomeScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(conversationsProvider);
-        },
-        child: convsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error:   (e, _) => Center(child: Text('Error: $e')),
-          data: (convs) {
-            final friends = friendsAsync.asData?.value ?? [];
-            // Friends who don't have an active conversation yet.
-            final convUserIds = convs
-                .where((c) => c.type == 'direct' && c.otherUser != null)
-                .map((c) => c.otherUser!.id)
-                .toSet();
-            final newFriends = friends
-                .where((f) => !convUserIds.contains(f.friend.id))
-                .toList();
-
-            if (convs.isEmpty && newFriends.isEmpty) {
-              return _EmptyState(
-                onAddFriend: () => _showAddFriend(context, ref),
-              );
-            }
-
-            return ListView(
-              children: [
-                // Conversations section.
-                if (convs.isNotEmpty) ...[
-                  _SectionHeader(title: 'Chats'),
-                  ...convs.map((c) => _ConversationTile(conv: c)),
-                ],
-
-                // Friends with no conversation yet.
-                if (newFriends.isNotEmpty) ...[
-                  _SectionHeader(title: 'Friends'),
-                  ...newFriends.map((f) => ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: AppColors.primaryLight,
-                      backgroundImage: f.friend.avatarUrl != null
-                          ? CachedNetworkImageProvider(f.friend.avatarUrl!)
-                          : null,
-                      child: f.friend.avatarUrl == null
-                          ? Text(
-                              f.displayName.substring(0, 1).toUpperCase(),
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            )
-                          : null,
-                    ),
-                    title: Text(
-                      f.displayName,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      f.friend.isOnline ? 'Online' : 'Tap to start chatting',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: f.friend.isOnline
-                            ? AppColors.success
-                            : Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.5),
+      body: Column(
+        children: [
+          if (showBanner)
+            Container(
+              color: Colors.amber.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => context.push(AppRoutes.backupPinSetup),
+                      child: const Text(
+                        'Backup your encryption key to restore messages after reinstall. Tap to set up.',
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                    onTap: () => _openChat(context, ref, f.friend.id),
-                  )),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.black54, size: 20),
+                    onPressed: () async {
+                      final db = ref.read(appDatabaseProvider);
+                      await db.settingsDao.setSetting(
+                        'backup_reminder_dismissed_at',
+                        DateTime.now().toIso8601String(),
+                      );
+                      ref.invalidate(showBackupBannerProvider);
+                    },
+                  ),
                 ],
-              ],
-            );
-          },
-        ),
+              ),
+            ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () async {
+                ref.invalidate(conversationsProvider);
+              },
+              child: convsAsync.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error:   (e, _) => Center(child: Text('Error: $e')),
+                data: (convs) {
+                  final friends = friendsAsync.asData?.value ?? [];
+                  // Friends who don't have an active conversation yet.
+                  final convUserIds = convs
+                      .where((c) => c.type == 'direct' && c.otherUser != null)
+                      .map((c) => c.otherUser!.id)
+                      .toSet();
+                  final newFriends = friends
+                      .where((f) => !convUserIds.contains(f.friend.id))
+                      .toList();
+
+                  if (convs.isEmpty && newFriends.isEmpty) {
+                    return _EmptyState(
+                      onAddFriend: () => _showAddFriend(context, ref),
+                    );
+                  }
+
+                  return ListView(
+                    children: [
+                      // Conversations section.
+                      if (convs.isNotEmpty) ...[
+                        _SectionHeader(title: 'Chats'),
+                        ...convs.map((c) => _ConversationTile(conv: c)),
+                      ],
+
+                      // Friends with no conversation yet.
+                      if (newFriends.isNotEmpty) ...[
+                        _SectionHeader(title: 'Friends'),
+                        ...newFriends.map((f) => ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: AppColors.primaryLight,
+                            backgroundImage: f.friend.avatarUrl != null
+                                ? CachedNetworkImageProvider(f.friend.avatarUrl!)
+                                : null,
+                            child: f.friend.avatarUrl == null
+                                ? Text(
+                                    f.displayName.substring(0, 1).toUpperCase(),
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          title: Text(
+                            f.displayName,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            f.friend.isOnline ? 'Online' : 'Tap to start chatting',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: f.friend.isOnline
+                                  ? AppColors.success
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.5),
+                            ),
+                          ),
+                          onTap: () => _openChat(context, ref, f.friend.id),
+                        )),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,

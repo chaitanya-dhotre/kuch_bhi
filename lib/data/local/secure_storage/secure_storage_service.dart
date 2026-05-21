@@ -44,6 +44,32 @@ class SecureStorageService {
   Future<void>    write({required String key, required String value}) =>
       _storage.write(key: key, value: value);
   Future<String?> read({required String key}) => _storage.read(key: key);
+  Future<Map<String, String>> readAll() => _storage.readAll();
+  Future<void> delete({required String key}) => _storage.delete(key: key);
+
+  // ── Derived key cache invalidation ───────────────────────────
+  /// Clears all cached derived conversation keys (contact_key_* entries).
+  /// Call when the remote peer's public key has changed (e.g. they reinstalled).
+  Future<void> clearAllContactKeys() async {
+    final all = await _storage.readAll();
+    for (final key in all.keys) {
+      if (key.startsWith(_prefixContactKey)) {
+        await _storage.delete(key: key);
+      }
+    }
+  }
+
+  /// Clears all cached derived conversation keys (contact_key_, conv_key_, and group_key_ prefixes).
+  Future<void> clearAllConversationKeys() async {
+    final all = await _storage.readAll();
+    for (final key in all.keys) {
+      if (key.startsWith(_prefixContactKey) || 
+          key.startsWith('conv_key_') ||
+          key.startsWith('group_key_')) {
+        await _storage.delete(key: key);
+      }
+    }
+  }
 
   // ── Full wipe ─────────────────────────────────────────────────
   Future<void> clearAll() => _storage.deleteAll();

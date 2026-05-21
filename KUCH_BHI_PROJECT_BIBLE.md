@@ -650,6 +650,8 @@ amoledSurface: Color(0xFF0D0D0D)
 | `is_online` | Bool | Default: false |
 | `typing_in` | Text | Optional |
 | `current_chat` | Text | Optional |
+| `private_key_encrypted` | Text | Nullable|
+| `private_key_salt` | Text | Nullable|
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
@@ -1003,7 +1005,60 @@ deleteRule: null
 
 ---
 
-### 7.14 PocketBase Hooks / Scheduled Jobs
+
+### 7.14 Collection: `deleted_messages_for_me`
+
+| Field | Type | Options |
+| :---- | :---- | :---- |
+| `id` | Auto (PB) | PK |
+| `user_id` | Relation → users | Required, cascade delete |
+| `message_id` | Text | Required - server message id |
+| `conversation_id` | Text | Required |
+| `created` | Auto (PB) |  |
+| `updated` | Auto (PB) |  |
+
+**Rules:**
+
+listRule:   @request.auth.id = user_id.id
+
+viewRule:   @request.auth.id = user_id.id
+
+createRule: @request.auth.id != ""
+
+updateRule: null
+
+deleteRule: @request.auth.id = user_id.id
+
+
+### 7.15 Collection: `starred_messages`
+
+| Field | Type | Options |
+| :---- | :---- | :---- |
+| `id` | Auto (PB) | PK |
+| `user_id` | Relation → users | Required, cascade delete |
+| `message_id` | Text | Required - server message id |
+| `conversation_id` | Text | Required |
+| `message_preview` | Text | Plaintext preview — so starred screen doesn't need to re-decrypt |
+| `sender_id` | Text | For "sent by You vs Contact" label |
+| `starred_at` | DateTime | Auto:@now |
+| `created` | Auto (PB) |  |
+| `updated` | Auto (PB) |  |
+
+**Rules:**
+
+listRule:   @request.auth.id = user_id.id
+
+viewRule:   @request.auth.id = user_id.id
+
+createRule: @request.auth.id != ""
+
+updateRule: null
+
+deleteRule: @request.auth.id = user_id.id
+
+
+
+### 7.16 PocketBase Hooks / Scheduled Jobs
 
 These need to be implemented as PocketBase hooks (JS hooks file) or an external cron script:
 
