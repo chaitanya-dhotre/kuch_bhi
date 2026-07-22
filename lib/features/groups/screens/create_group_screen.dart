@@ -21,6 +21,7 @@ import '../../../data/local/secure_storage/secure_storage_service.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/friendship.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../features/chat/screens/chat_screen.dart';
 import '../../../features/home/providers/friends_provider.dart';
 import '../../../services/encryption_service.dart';
 
@@ -135,22 +136,53 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         memberRecords.add(rec);
       }
 
+      // Save memberships locally in Drift
+      await db.conversationsDao.upsertMember(
+        ConversationMembersTableCompanion.insert(
+          id:             myMemberRecord.id,
+          conversationId: convId,
+          userId:         myId,
+          role:           const Value('admin'),
+          joinedAt:       DateTime.now(),
+        ),
+      );
+
+      for (final rec in memberRecords) {
+        await db.conversationsDao.upsertMember(
+          ConversationMembersTableCompanion.insert(
+            id:             rec.id,
+            conversationId: convId,
+            userId:         rec.getStringValue('user_id'),
+            role:           const Value('member'),
+            joinedAt:       DateTime.now(),
+          ),
+        );
+      }
+
       // ── d) Generate and distribute group key ──────────────────
       final groupKey  = encryption.generateGroupKey();
       final allMemberIds = [myId, ...selectedFriends.map((f) => f.friend.id)];
 
       for (final memberId in allMemberIds) {
-        // Try local Drift cache first, fallback to PocketBase fetch
-        var userRow = await db.usersDao.getUserById(memberId);
-        String? publicKey = userRow?.publicKey;
-
-        if (publicKey == null || publicKey.isEmpty) {
-          try {
-            final r = await pb.collection('users').getOne(memberId);
-            publicKey = r.getStringValue('public_key');
-          } catch (e) {
-            debugPrint('[Group] Could not fetch public key for $memberId: $e');
+        String? publicKey;
+        try {
+          final r = await pb.collection('users').getOne(memberId);
+          publicKey = r.getStringValue('public_key');
+          if (publicKey.isNotEmpty) {
+            await db.usersDao.upsertUser(UsersTableCompanion.insert(
+              id:          r.id,
+              displayName: r.getStringValue('display_name'),
+              username:    r.getStringValue('username'),
+              email:       Value(r.getStringValue('email')),
+              avatarUrl:   Value(r.getStringValue('avatar').isEmpty ? null : '${pb.baseUrl}/api/files/users/${r.id}/${r.getStringValue('avatar')}'),
+              friendCode:  r.getStringValue('friend_code'),
+              publicKey:   Value(publicKey),
+              createdAt:   DateTime.tryParse(r.created) ?? DateTime.now(),
+              updatedAt:   DateTime.now(),
+            ));
           }
+        } catch (e) {
+          debugPrint('[Group] Could not fetch public key for $memberId: $e');
         }
 
         if (publicKey == null || publicKey.isEmpty) continue;
@@ -221,17 +253,20 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         );
       }
 
-      // ── g) Navigate to ChatScreen ─────────────────────────────
-      final groupConversation = Conversation(
-        id:      convId,
-        type:    'group',
-        name:    groupName,
-        iconUrl: iconUrl,
+      // ── f) Build Conversation entity and navigate to ChatScreen ─────────────────────────────
+      final groupConv = Conversation(
+        id:        convId,
+        type:      'group',
+        name:      groupName,
+        iconUrl:   iconUrl,
+        otherUser: null,
       );
 
-      if (mounted) {
-        context.go(AppRoutes.home);
-        context.push(AppRoutes.chat, extra: groupConversation);
+      if (context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => ChatScreen(conversation: groupConv)),
+          (route) => route.isFirst,
+        );
       }
     } catch (e) {
       setState(() => _error = 'Failed to create group: $e');

@@ -35,9 +35,10 @@ ExecStart=/usr/bin/python3 /opt/kuchbhi/fcm_service.py
 Restart=always
 RestartSec=5
 
-# PocketBase admin credentials — set yours here
-Environment="PB_ADMIN_EMAIL=chaitanyad301@proton.me"
-Environment="PB_ADMIN_PASSWORD=#Vadapavisgood"
+# PocketBase admin credentials — set via a secrets file, NEVER commit real values.
+# Store them in /etc/kuchbhi.env (chmod 600, git-ignored) and load with EnvironmentFile.
+Environment="PB_ADMIN_EMAIL=your-admin@example.com"
+Environment="PB_ADMIN_PASSWORD=CHANGE_ME_USE_SECRETS_FILE"
 
 StandardOutput=journal
 StandardError=journal

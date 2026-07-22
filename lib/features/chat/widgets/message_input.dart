@@ -12,6 +12,7 @@ import 'package:record/record.dart';
 import 'package:video_compress/video_compress.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
 import 'reply_quote.dart';
@@ -28,6 +29,7 @@ class MessageInput extends ConsumerStatefulWidget {
     this.onTyping,
     this.isLoading = false,
     this.canSendMessages = true,
+    this.restrictionMessage,
   });
 
   final void Function(String) onSend;
@@ -35,6 +37,7 @@ class MessageInput extends ConsumerStatefulWidget {
   final VoidCallback?         onTyping;
   final bool                  isLoading;
   final bool                  canSendMessages;
+  final String?               restrictionMessage;
 
   @override
   ConsumerState<MessageInput> createState() => _MessageInputState();
@@ -142,7 +145,12 @@ class _MessageInputState extends ConsumerState<MessageInput>
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedSec++);
+      if (!mounted) return;
+      setState(() => _elapsedSec++);
+      // Auto-stop at 5 minutes (spec §6.5).
+      if (_elapsedSec >= AppConstants.maxVoiceMessageSeconds) {
+        _stopRecording();
+      }
     });
   }
 
@@ -457,25 +465,16 @@ class _MessageInputState extends ConsumerState<MessageInput>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final reply  = ref.watch(replyProvider);
 
-    if (!widget.canSendMessages) {
+    final restriction = widget.restrictionMessage ??
+        (!widget.canSendMessages ? 'Only admins can send messages' : null);
+
+    if (restriction != null) {
       return Container(
-        color:   isDark ? const Color(0xFF1A1A2E) : Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        child: SafeArea(
-          top: false,
-          child: Center(
-            child: Text(
-              'Only admins can send messages',
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.45),
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ),
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          restriction,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.grey, fontSize: 13),
         ),
       );
     }

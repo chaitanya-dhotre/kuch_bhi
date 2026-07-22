@@ -4,9 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/emoji_utils.dart';
-import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/message.dart';
-import '../providers/chat_provider.dart';
 import 'link_preview_card.dart';
 import 'document_message_bubble.dart';
 import 'image_message_bubble.dart';
@@ -17,16 +15,16 @@ import 'reply_quote.dart';
 import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
 
-// 8 deterministic sender name colors
+// 8 deterministic sender name colors per Task 6
 const List<Color> _kSenderColors = [
-  Color(0xFF1E88E5), // blue
-  Color(0xFF43A047), // green
-  Color(0xFFE53935), // red
-  Color(0xFF8E24AA), // purple
-  Color(0xFFE67E22), // orange
-  Color(0xFF00ACC1), // cyan
-  Color(0xFF6D4C41), // brown
-  Color(0xFFD81B60), // pink
+  Colors.red,
+  Colors.pink,
+  Colors.purple,
+  Colors.indigo,
+  Colors.teal,
+  Colors.green,
+  Colors.orange,
+  Colors.brown,
 ];
 
 Color _colorForSender(String senderId) =>
@@ -57,19 +55,13 @@ class MessageBubble extends ConsumerWidget {
     final isDark    = Theme.of(context).brightness == Brightness.dark;
     final url       = extractFirstUrl(body);
 
-    // Fetch sender display name from Drift for group messages
-    final senderDisplayName = (isGroup && !isMine)
-        ? ref.watch(_senderNameProvider(message.senderId)).asData?.value
-              ?? senderName
-        : senderName;
-
     final bubble = GestureDetector(
       onLongPress: () => showMessageMenu(
         context:    context,
         ref:        ref,
         message:    message,
         isMine:     isMine,
-        senderName: senderDisplayName,
+        senderName: senderName,
       ),
       child: Column(
         crossAxisAlignment:
@@ -80,9 +72,9 @@ class MessageBubble extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(left: 14, bottom: 1, top: 4),
               child: Text(
-                senderDisplayName,
+                senderName,
                 style: TextStyle(
-                  fontSize:   11.5,
+                  fontSize:   11,
                   fontWeight: FontWeight.w600,
                   color:      _colorForSender(message.senderId),
                 ),
@@ -106,6 +98,11 @@ class MessageBubble extends ConsumerWidget {
                   // If other user sent this message, they replied to me → show 'You'.
                   senderName: isMine ? senderName : 'You',
                   isMine:     isMine,
+                  // Let the quote resolve the original message type from
+                  // Drift via its server id; the emoji-prefix heuristic is
+                  // only the fallback when the row isn't found locally.
+                  replyToId:      message.replyToId,
+                  conversationId: message.conversationId,
                   messageType: message.replyPreview!.startsWith('🎤')
                       ? 'voice'
                       : message.replyPreview!.startsWith('📷')
@@ -128,6 +125,7 @@ class MessageBubble extends ConsumerWidget {
                   bottom: 2,
                 ),
                 child: VoiceMessageBubble(
+                  conversationId: message.conversationId,
                   serverId:     message.serverId!,
                   isMine:       isMine,
                   durationText: message.decryptedBody,
@@ -148,6 +146,7 @@ class MessageBubble extends ConsumerWidget {
                   bottom: 2,
                 ),
                 child: ImageMessageBubble(
+                  conversationId: message.conversationId,
                   serverId:  message.serverId!,
                   isMine:    isMine,
                   isDark:    isDark,
@@ -168,6 +167,7 @@ class MessageBubble extends ConsumerWidget {
                   bottom: 2,
                 ),
                 child: VideoMessageBubble(
+                  conversationId: message.conversationId,
                   serverId:  message.serverId!,
                   isMine:    isMine,
                   isDark:    isDark,
@@ -181,6 +181,7 @@ class MessageBubble extends ConsumerWidget {
               alignment:
                   isMine ? Alignment.centerRight : Alignment.centerLeft,
               child: DocumentMessageBubble(
+                conversationId: message.conversationId,
                 serverId:  message.serverId!,
                 isMine:    isMine,
                 isDark:    isDark,
@@ -368,15 +369,6 @@ class _TextBubble extends StatelessWidget {
     );
   }
 }
-
-// ── Sender name provider (group chats) ───────────────────────────────────
-
-final _senderNameProvider =
-    FutureProvider.autoDispose.family<String, String>((ref, userId) async {
-  final db   = ref.read(appDatabaseProvider);
-  final user = await db.usersDao.getUserById(userId);
-  return user?.displayName ?? 'Unknown';
-});
 
 // ── Tick indicator ────────────────────────────────────────────────────────
 

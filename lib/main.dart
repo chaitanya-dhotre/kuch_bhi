@@ -34,14 +34,15 @@ Future<void> main() async {
   ));
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await FcmService.init();
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // Initialize all critical services before runApp so providers
   // are immediately available without any loading state.
   final secureStorage = SecureStorageService();
   final db            = AppDatabase();
   final pbClient      = await PocketBaseClient.create(secureStorage);
+
+  await FcmService.init(db, secureStorage);
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // FCM token registration is handled by auth_repository_impl and fcm_service.
   await FcmDebugHelper.printFcmDebugInfo();

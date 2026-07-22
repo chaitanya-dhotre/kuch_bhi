@@ -39,7 +39,7 @@ class HomeScreen extends ConsumerWidget {
             alignment: Alignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.group_add_outlined),
+                icon: const Icon(Icons.person_add_alt_1_outlined),
                 onPressed: () => context.push(AppRoutes.friendRequests),
               ),
               if (pendingCount > 0)
@@ -66,7 +66,7 @@ class HomeScreen extends ConsumerWidget {
           GestureDetector(
             onTap: () => context.push(AppRoutes.profile),
             child: Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(left: 8, right: 16),
               child: CircleAvatar(
                 radius: 18,
                 backgroundColor: AppColors.primaryLight,
@@ -132,7 +132,13 @@ class HomeScreen extends ConsumerWidget {
               child: convsAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error:   (e, _) => Center(child: Text('Error: $e')),
-                data: (convs) {
+                data: (allConvs) {
+                  // Hide direct conversations whose other member hasn't
+                  // synced yet — the friend still shows in the Friends
+                  // section below, so this avoids a duplicate "Unknown" row.
+                  final convs = allConvs
+                      .where((c) => !(c.type == 'direct' && c.otherUser == null))
+                      .toList();
                   final friends = friendsAsync.asData?.value ?? [];
                   // Friends who don't have an active conversation yet.
                   final convUserIds = convs
@@ -203,28 +209,59 @@ class HomeScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.small(
-            heroTag:         'fab_new_group',
-            onPressed:       () => context.push(AppRoutes.createGroup),
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            tooltip:         'New Group',
-            child:           const Icon(Icons.group_add_outlined),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag:         'fab_add_friend',
-            onPressed:       () => _showAddFriend(context, ref),
-            icon:            const Icon(Icons.person_add_outlined),
-            label:           const Text('Add Friend'),
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        heroTag:         'fab_main',
+        onPressed:       () => _showNewChatSheet(context, ref),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        tooltip:         'New chat',
+        child:           const Icon(Icons.add_comment_outlined),
+      ),
+    );
+  }
+
+  void _showNewChatSheet(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle.
+            Container(
+              width: 36, height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(sheetContext)
+                    .colorScheme
+                    .outline
+                    .withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_add_outlined),
+              title:   const Text('Add Friend'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _showAddFriend(context, ref);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.group_add_outlined),
+              title:   const Text('New Group'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                context.push(AppRoutes.createGroup);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -381,7 +418,7 @@ class _ConvAvatar extends StatelessWidget {
               : null,
           child: conv.iconUrl == null
               ? Text(
-                  (conv.name ?? 'G').substring(0, 1).toUpperCase(),
+                  conv.displayName.substring(0, 1).toUpperCase(),
                   style: const TextStyle(
                     color: AppColors.primary, fontWeight: FontWeight.w700,
                   ),
@@ -396,7 +433,7 @@ class _ConvAvatar extends StatelessWidget {
               color: Theme.of(context).scaffoldBackgroundColor,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.group, size: 11, color: AppColors.primary),
+            child: const Icon(Icons.group, size: 12, color: AppColors.primary),
           ),
         ),
       ],

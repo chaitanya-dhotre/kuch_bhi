@@ -13,6 +13,7 @@ class User {
     this.isOnline = false,
     this.lastSeen,
     required this.createdAt,
+    this.groupRole,
   });
 
   final String id;
@@ -26,6 +27,7 @@ class User {
   final bool isOnline;
   final DateTime? lastSeen;
   final DateTime createdAt;
+  final String? groupRole;
 
   User copyWith({
     String? displayName,
@@ -35,6 +37,7 @@ class User {
     String? publicKey,
     bool? isOnline,
     DateTime? lastSeen,
+    String? groupRole,
   }) {
     return User(
       id: id,
@@ -48,10 +51,11 @@ class User {
       isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
       createdAt: createdAt,
+      groupRole: groupRole ?? this.groupRole,
     );
   }
 
   @override
   String toString() => 'User(id: $id, displayName: $displayName, '
-      'friendCode: $friendCode)';
+      'friendCode: $friendCode, groupRole: $groupRole)';
 }

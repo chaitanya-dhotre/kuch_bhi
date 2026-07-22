@@ -4,49 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:open_file/open_file.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
-
-// ── Provider (cached, non-autoDispose) ───────────────────────────────────────
-
-final _docUrlProvider =
-    FutureProvider.family<Map<String, String>?, String>((ref, serverId) async {
-  final pb = ref.read(pocketbaseClientProvider).pb;
-  try {
-    final record = await pb.collection('message_media').getFirstListItem(
-      'message_id="$serverId"',
-    );
-    final fileData = record.data['file'];
-    String? fileName;
-    if (fileData is String) {
-      fileName = fileData;
-    } else if (fileData is List && fileData.isNotEmpty) {
-      fileName = fileData.first.toString();
-    }
-    if (fileName == null || fileName.isEmpty) return null;
-
-    final url = '${pb.baseUrl}/api/files/message_media/${record.id}/$fileName';
-    final displayName = record.data['file_name']?.toString() ?? fileName;
-    final fileSize    = record.data['file_size'];
-    final sizeStr = _formatSize(fileSize);
-
-    final expiresRaw = record.data['expires_at']?.toString() ?? '';
-    return {
-      'url':        url,
-      'fileName':   displayName,
-      'size':       sizeStr,
-      'expires_at': expiresRaw,
-    };
-  } catch (e) {
-    debugPrint('[DocBubble] fetch error: $e');
-    return null;
-  }
-});
 
 String _formatSize(dynamic raw) {
   final bytes = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
@@ -74,6 +36,7 @@ IconData _docIcon(String fileName) {
 class DocumentMessageBubble extends ConsumerStatefulWidget {
   const DocumentMessageBubble({
     super.key,
+    required this.conversationId,
     required this.serverId,
     required this.isMine,
     required this.isDark,
@@ -81,6 +44,7 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
     this.createdAt,
   });
 
+  final String    conversationId;
   final String    serverId;
   final bool      isMine;
   final bool      isDark;
@@ -96,21 +60,15 @@ class _DocumentMessageBubbleState
     extends ConsumerState<DocumentMessageBubble> {
   bool _isDownloading = false;
 
-  Future<void> _open(String url, String fileName) async {
+  Future<void> _open() async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
     try {
-      final token   = ref.read(pocketbaseClientProvider).pb.authStore.token;
-      final cacheDir = await getTemporaryDirectory();
-      final file     = File('${cacheDir.path}/$fileName');
-      if (!file.existsSync()) {
-        final request = await HttpClient().getUrl(Uri.parse(url));
-        request.headers.set('Authorization', 'Bearer $token');
-        final response = await request.close();
-        final bytes    = await response.expand((b) => b).toList();
-        await file.writeAsBytes(bytes);
-      }
-      await OpenFile.open(file.path);
+      // Media is E2E-encrypted: fetch + decrypt to a local file, then open it.
+      final media = await ref.read(mediaFileProvider(
+          MediaRef(widget.conversationId, widget.serverId)).future);
+      if (media == null) throw Exception('File unavailable');
+      await OpenFile.open(media.file.path);
     } catch (e) {
       debugPrint('[DocBubble] open error: $e');
       if (mounted) {
@@ -125,7 +83,8 @@ class _DocumentMessageBubbleState
 
   @override
   Widget build(BuildContext context) {
-    final urlsAsync = ref.watch(_docUrlProvider(widget.serverId));
+    final mediaAsync = ref.watch(mediaFileProvider(
+        MediaRef(widget.conversationId, widget.serverId)));
     final bg        = widget.isMine
         ? AppColors.sentBubble
         : widget.isDark
@@ -153,18 +112,16 @@ class _DocumentMessageBubbleState
             ),
           ],
         ),
-        child: urlsAsync.when(
+        child: mediaAsync.when(
           loading: () => _shimmer(),
           error:   (_, __) => _errorTile(),
-          data: (data) {
-            if (data == null) return _errorTile();
-            final url        = data['url']!;
-            final fileName   = data['fileName']!;
-            final size       = data['size'] ?? '';
-            final expiresRaw = data['expires_at'] ?? '';
-            final expiresAt  = expiresRaw.isNotEmpty
-                ? DateTime.tryParse(expiresRaw)?.toLocal()
-                : null;
+          data: (media) {
+            if (media == null) return _errorTile();
+            final fileName   = media.fileName ?? 'file';
+            final size       = _formatSize(media.file.existsSync()
+                ? media.file.lengthSync()
+                : 0);
+            final expiresAt  = media.expiresAt;
 
             if (isExpired(expiresAt)) {
               return Padding(
@@ -188,7 +145,7 @@ class _DocumentMessageBubbleState
 
             return InkWell(
               borderRadius: BorderRadius.circular(18),
-              onTap: () => _open(url, fileName),
+              onTap: _open,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,

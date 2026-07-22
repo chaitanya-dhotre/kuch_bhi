@@ -11,23 +11,34 @@ import '../../../services/media_upload_service.dart';
 
 final activeConversationProvider = StateProvider<Conversation?>((ref) => null);
 
-// ── Media URL cache ──────────────────────────────────────────────────────
-// Non-autoDispose: once loaded the result lives for the app session so that
-// scrolling past a bubble never triggers a second network request.
+// ── Decrypted media cache ─────────────────────────────────────────────────
+// Media is E2E-encrypted on the server, so bubbles download + decrypt to a
+// local cleartext file. Cached for the session so scrolling never re-decrypts.
 
-final imageUrlsProvider =
-    FutureProvider.family<Map<String, String>?, String>((ref, serverId) {
-  return ref.read(mediaUploadServiceProvider).getImageUrls(serverId);
-});
+/// Identifies a media file to fetch: its conversation (for the key) + the
+/// message server id + whether we want the thumbnail variant.
+class MediaRef {
+  const MediaRef(this.conversationId, this.serverId, {this.thumb = false});
+  final String conversationId;
+  final String serverId;
+  final bool thumb;
 
-final videoUrlsProvider =
-    FutureProvider.family<Map<String, String>?, String>((ref, serverId) {
-  return ref.read(mediaUploadServiceProvider).getVideoUrls(serverId);
-});
+  @override
+  bool operator ==(Object other) =>
+      other is MediaRef &&
+      other.conversationId == conversationId &&
+      other.serverId == serverId &&
+      other.thumb == thumb;
 
-final voiceExpiryProvider =
-    FutureProvider.family<DateTime?, String>((ref, serverId) {
-  return ref.read(mediaUploadServiceProvider).getVoiceExpiry(serverId);
+  @override
+  int get hashCode => Object.hash(conversationId, serverId, thumb);
+}
+
+/// Downloads + decrypts the full media file (image/video/voice/document).
+final mediaFileProvider =
+    FutureProvider.family<LocalMediaFile?, MediaRef>((ref, r) {
+  return ref.read(messageRepositoryProvider).getDecryptedMedia(
+        r.conversationId, r.serverId, thumb: r.thumb);
 });
 
 // ── Messages (reactive Drift stream) ─────────────────────────────────────
@@ -112,8 +123,8 @@ final searchQueryProvider   = StateProvider<String>((ref) => '');
 // ── Pinned messages ───────────────────────────────────────────────────────
 
 final pinnedMessagesProvider =
-    FutureProvider.autoDispose.family<List<Message>, String>((ref, convId) {
-  return ref.read(messageRepositoryProvider).getPinnedMessages(convId);
+    StreamProvider.autoDispose.family<List<Message>, String>((ref, convId) {
+  return ref.read(messageRepositoryProvider).watchPinnedMessages(convId);
 });
 
 // ── Reactions per message ─────────────────────────────────────────────────
@@ -156,9 +167,18 @@ final currentUserIdProvider = FutureProvider<String>((ref) async {
 
 // ── Group members ─────────────────────────────────────────────────────────
 
-final groupMembersProvider = FutureProvider.autoDispose
+final groupMembersProvider = StreamProvider.autoDispose
     .family<List<User>, String>((ref, conversationId) {
   return ref
-      .read(messageRepositoryProvider)
-      .getGroupMembers(conversationId);
+      .watch(messageRepositoryProvider)
+      .watchGroupMembers(conversationId);
+});
+
+// ── Conversation stream ────────────────────────────────────────────────────
+
+final conversationStreamProvider = StreamProvider.autoDispose
+    .family<Conversation?, String>((ref, conversationId) {
+  return ref
+      .watch(messageRepositoryProvider)
+      .watchConversation(conversationId);
 });

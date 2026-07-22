@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'core/constants/app_colors.dart';
 import 'core/router/app_router.dart';
+import 'features/settings/providers/theme_provider.dart';
+import 'infrastructure/repositories/message_repository_impl.dart';
 import 'services/presence_service.dart';
 
 class KuchBhiApp extends ConsumerStatefulWidget {
@@ -43,6 +44,9 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
         // The active ChatScreen (if any) will call enterChat() itself
         // via its own WidgetsBindingObserver.
         presence.goOnline();
+        // Android suspends the SSE socket while backgrounded and events in
+        // that window are silently lost. Reconnect + backfill everything.
+        ref.read(messageRepositoryProvider).resyncOnResume();
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
         // App backgrounded or about to be killed.
@@ -58,12 +62,27 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
+    final themeMode = ref.watch(themeModeProvider).valueOrNull ??
+        AppThemeMode.system;
+
+    // AMOLED is a dark variant selected via darkTheme + forced dark mode.
+    final darkTheme = themeMode == AppThemeMode.amoled
+        ? AppColors.amoledTheme()
+        : AppColors.darkTheme();
+
+    final flutterThemeMode = switch (themeMode) {
+      AppThemeMode.system => ThemeMode.system,
+      AppThemeMode.light  => ThemeMode.light,
+      AppThemeMode.dark   => ThemeMode.dark,
+      AppThemeMode.amoled => ThemeMode.dark,
+    };
+
     return MaterialApp.router(
       title:                     'Kuch Bhi',
       debugShowCheckedModeBanner: false,
       theme:       AppColors.lightTheme(),
-      darkTheme:   AppColors.darkTheme(),
-      themeMode:   ThemeMode.system,
+      darkTheme:   darkTheme,
+      themeMode:   flutterThemeMode,
       routerConfig: router,
     );
   }

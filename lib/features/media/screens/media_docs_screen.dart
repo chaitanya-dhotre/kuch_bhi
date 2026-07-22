@@ -1,18 +1,15 @@
-import 'dart:io';
-
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:open_file/open_file.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/pocketbase_client.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../chat/providers/chat_provider.dart';
 import '../../media/screens/media_viewer_screen.dart';
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -69,24 +66,6 @@ class MediaDocsScreen extends ConsumerWidget {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-String _fileUrl(PocketBase pb, RecordModel r, String field) {
-  final data = r.data[field];
-  String? name;
-  if (data is String && data.isNotEmpty) {
-    name = data;
-  } else if (data is List && data.isNotEmpty) {
-    name = data.first.toString();
-  }
-  if (name == null || name.isEmpty) return '';
-  return '${pb.baseUrl}/api/files/message_media/${r.id}/$name';
-}
-
-String _thumbUrl(PocketBase pb, RecordModel r) =>
-    _fileUrl(pb, r, 'thumbnail');
-
-String _fullUrl(PocketBase pb, RecordModel r) =>
-    _fileUrl(pb, r, 'file');
-
 DateTime? _expiresAt(RecordModel r) {
   final raw = r.data['expires_at']?.toString() ?? '';
   return raw.isNotEmpty ? DateTime.tryParse(raw)?.toLocal() : null;
@@ -142,6 +121,123 @@ Widget _emptyState(String label, IconData icon) => Center(
       ),
     );
 
+// ── Grid tile (photos + videos) ────────────────────────────────────────────────
+
+/// A single grid tile that watches its own thumbnail via [mediaFileProvider]
+/// (decrypted local file), and fetches the full file on tap before opening the
+/// viewer.
+class _MediaGridTile extends ConsumerWidget {
+  const _MediaGridTile({
+    required this.conversationId,
+    required this.serverId,
+    required this.heroTag,
+    required this.mediaType,
+    required this.senderName,
+    required this.created,
+    this.durationLabel,
+  });
+
+  final String   conversationId;
+  final String   serverId;
+  final String   heroTag;
+  final String   mediaType; // 'image' | 'video'
+  final String   senderName;
+  final DateTime created;
+  final String?  durationLabel;
+
+  Widget _placeholder() => Shimmer.fromColors(
+        baseColor:      Colors.grey.shade300,
+        highlightColor: Colors.grey.shade100,
+        child: Container(color: Colors.grey.shade300),
+      );
+
+  Widget _broken() => Container(
+        color: mediaType == 'video' ? Colors.grey.shade800 : Colors.grey.shade200,
+        child: Icon(
+          mediaType == 'video' ? Icons.videocam : Icons.broken_image,
+          color: mediaType == 'video' ? Colors.white38 : Colors.grey,
+          size:  mediaType == 'video' ? 32 : 24,
+        ),
+      );
+
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    final media = await ref.read(
+      mediaFileProvider(MediaRef(conversationId, serverId)).future,
+    );
+    if (media != null && context.mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MediaViewerScreen(
+            args: MediaViewerArgs(
+              localPath:  media.file.path,
+              mediaType:  mediaType,
+              senderName: senderName,
+              timestamp:  created,
+              heroTag:    heroTag,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final thumbAsync = ref.watch(
+      mediaFileProvider(MediaRef(conversationId, serverId, thumb: true)),
+    );
+
+    final thumbWidget = thumbAsync.when(
+      loading: () => _placeholder(),
+      error:   (_, __) => _broken(),
+      data: (media) => media == null
+          ? _broken()
+          : Image.file(
+              media.file,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _broken(),
+            ),
+    );
+
+    return GestureDetector(
+      onTap: () => _open(context, ref),
+      child: mediaType == 'video'
+          ? Stack(
+              fit: StackFit.expand,
+              children: [
+                thumbWidget,
+                Center(
+                  child: Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
+                  ),
+                ),
+                if (durationLabel != null && durationLabel != '0:00')
+                  Positioned(
+                    left: 4, bottom: 4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        durationLabel!,
+                        style: const TextStyle(color: Colors.white, fontSize: 9),
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          : Hero(tag: heroTag, child: thumbWidget),
+    );
+  }
+}
+
 // ── Photos tab ────────────────────────────────────────────────────────────────
 
 class _PhotosTab extends ConsumerWidget {
@@ -153,8 +249,6 @@ class _PhotosTab extends ConsumerWidget {
     final async = ref.watch(_mediaPageProvider(
       (conversationId: conversationId, mediaType: 'image'),
     ));
-    final pb    = ref.read(pocketbaseClientProvider).pb;
-    final token = pb.authStore.token;
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -189,45 +283,15 @@ class _PhotosTab extends ConsumerWidget {
           itemCount: visible.length,
           itemBuilder: (context, i) {
             final r        = visible[i];
-            final thumb    = _thumbUrl(pb, r);
-            final full     = _fullUrl(pb, r);
+            final serverId = r.getStringValue('message_id');
             final created  = DateTime.tryParse(r.data['created']?.toString() ?? '') ?? DateTime.now();
-            return GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => MediaViewerScreen(
-                    args: MediaViewerArgs(
-                      mediaUrl:   full.isNotEmpty ? full : thumb,
-                      mediaType:  'image',
-                      authToken:  token,
-                      senderName: 'Photo',
-                      timestamp:  created,
-                      heroTag:    'media_docs_${r.id}',
-                    ),
-                  ),
-                ),
-              ),
-              child: Hero(
-                tag: 'media_docs_${r.id}',
-                child: thumb.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: thumb,
-                        fit:      BoxFit.cover,
-                        placeholder: (_, __) => Shimmer.fromColors(
-                          baseColor:      Colors.grey.shade300,
-                          highlightColor: Colors.grey.shade100,
-                          child: Container(color: Colors.grey.shade300),
-                        ),
-                        errorWidget: (_, __, ___) => Container(
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.broken_image, color: Colors.grey),
-                        ),
-                      )
-                    : Container(
-                        color: Colors.grey.shade200,
-                        child: const Icon(Icons.broken_image, color: Colors.grey),
-                      ),
-              ),
+            return _MediaGridTile(
+              conversationId: conversationId,
+              serverId:       serverId,
+              heroTag:        'media_docs_${r.id}',
+              mediaType:      'image',
+              senderName:     'Photo',
+              created:        created,
             );
           },
         ),
@@ -250,8 +314,6 @@ class _VideosTab extends ConsumerWidget {
     final async = ref.watch(_mediaPageProvider(
       (conversationId: conversationId, mediaType: 'video'),
     ));
-    final pb    = ref.read(pocketbaseClientProvider).pb;
-    final token = pb.authStore.token;
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -285,76 +347,19 @@ class _VideosTab extends ConsumerWidget {
           ),
           itemCount: visible.length,
           itemBuilder: (context, i) {
-            final r       = visible[i];
-            final thumb   = _thumbUrl(pb, r);
-            final full    = _fullUrl(pb, r);
-            final dur     = _formatDuration(r.data['duration_seconds']);
-            final created = DateTime.tryParse(r.data['created']?.toString() ?? '') ?? DateTime.now();
+            final r        = visible[i];
+            final serverId = r.getStringValue('message_id');
+            final dur      = _formatDuration(r.data['duration_seconds']);
+            final created  = DateTime.tryParse(r.data['created']?.toString() ?? '') ?? DateTime.now();
 
-            return GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => MediaViewerScreen(
-                    args: MediaViewerArgs(
-                      mediaUrl:   full,
-                      mediaType:  'video',
-                      authToken:  token,
-                      senderName: 'Video',
-                      timestamp:  created,
-                    ),
-                  ),
-                ),
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  thumb.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: thumb,
-                          fit:      BoxFit.cover,
-                          placeholder: (_, __) => Shimmer.fromColors(
-                            baseColor:      Colors.grey.shade300,
-                            highlightColor: Colors.grey.shade100,
-                            child: Container(color: Colors.grey.shade300),
-                          ),
-                          errorWidget: (_, __, ___) => Container(
-                            color: Colors.grey.shade800,
-                            child: const Icon(Icons.videocam, color: Colors.white38, size: 32),
-                          ),
-                        )
-                      : Container(
-                          color: Colors.grey.shade800,
-                          child: const Icon(Icons.videocam, color: Colors.white38, size: 32),
-                        ),
-                  // Play icon overlay
-                  Center(
-                    child: Container(
-                      width: 32, height: 32,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
-                    ),
-                  ),
-                  // Duration badge
-                  if (dur != '0:00')
-                    Positioned(
-                      left: 4, bottom: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          dur,
-                          style: const TextStyle(color: Colors.white, fontSize: 9),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+            return _MediaGridTile(
+              conversationId: conversationId,
+              serverId:       serverId,
+              heroTag:        'media_docs_${r.id}',
+              mediaType:      'video',
+              senderName:     'Video',
+              created:        created,
+              durationLabel:  dur,
             );
           },
         ),
@@ -377,8 +382,6 @@ class _VoiceTab extends ConsumerWidget {
     final async = ref.watch(_mediaPageProvider(
       (conversationId: conversationId, mediaType: 'voice'),
     ));
-    final pb    = ref.read(pocketbaseClientProvider).pb;
-    final token = pb.authStore.token;
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -407,10 +410,10 @@ class _VoiceTab extends ConsumerWidget {
           itemCount:    visible.length,
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder:  (context, i) {
-            final r   = visible[i];
-            final dur = _formatDuration(r.data['duration_seconds']);
-            final date = _formatDate(r.data['created']?.toString() ?? '');
-            final url  = _fullUrl(pb, r);
+            final r        = visible[i];
+            final serverId = r.getStringValue('message_id');
+            final dur      = _formatDuration(r.data['duration_seconds']);
+            final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppColors.primary.withValues(alpha: 0.12),
@@ -419,7 +422,7 @@ class _VoiceTab extends ConsumerWidget {
               title: Text('Voice message · $dur'),
               subtitle: Text(date),
               trailing: const Icon(Icons.play_circle_outline, color: AppColors.primary),
-              onTap: () => _playInSheet(context, url, token, dur),
+              onTap: () => _playInSheet(context, conversationId, serverId, dur),
             );
           },
         ),
@@ -432,13 +435,17 @@ class _VoiceTab extends ConsumerWidget {
 
   void _playInSheet(
     BuildContext context,
-    String url,
-    String token,
+    String conversationId,
+    String serverId,
     String duration,
   ) {
     showModalBottomSheet(
       context:     context,
-      builder:     (_) => _VoicePlaySheet(url: url, token: token, duration: duration),
+      builder:     (_) => _VoicePlaySheet(
+        conversationId: conversationId,
+        serverId:       serverId,
+        duration:       duration,
+      ),
       isScrollControlled: false,
     );
   }
@@ -446,22 +453,22 @@ class _VoiceTab extends ConsumerWidget {
 
 // ── Voice playback bottom sheet ───────────────────────────────────────────────
 
-class _VoicePlaySheet extends StatefulWidget {
+class _VoicePlaySheet extends ConsumerStatefulWidget {
   const _VoicePlaySheet({
-    required this.url,
-    required this.token,
+    required this.conversationId,
+    required this.serverId,
     required this.duration,
   });
 
-  final String url;
-  final String token;
+  final String conversationId;
+  final String serverId;
   final String duration;
 
   @override
-  State<_VoicePlaySheet> createState() => _VoicePlaySheetState();
+  ConsumerState<_VoicePlaySheet> createState() => _VoicePlaySheetState();
 }
 
-class _VoicePlaySheetState extends State<_VoicePlaySheet> {
+class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
   final _player  = AudioPlayer();
   bool  _loading = true;
   bool  _playing = false;
@@ -491,12 +498,12 @@ class _VoicePlaySheetState extends State<_VoicePlaySheet> {
 
   Future<void> _init() async {
     try {
-      await _player.setAudioSource(
-        AudioSource.uri(
-          Uri.parse(widget.url),
-          headers: {'Authorization': 'Bearer ${widget.token}'},
-        ),
-      );
+      // Download + decrypt the voice note to a local file, then play it.
+      final media = await ref.read(mediaFileProvider(
+          MediaRef(widget.conversationId, widget.serverId)).future);
+      if (media == null) throw Exception('No media found');
+
+      await _player.setFilePath(media.file.path);
       await _player.play();
     } catch (e) {
       debugPrint('[VoiceSheet] Error: $e');
@@ -581,8 +588,6 @@ class _DocsTab extends ConsumerWidget {
     final async = ref.watch(_mediaPageProvider(
       (conversationId: conversationId, mediaType: 'document'),
     ));
-    final pb    = ref.read(pocketbaseClientProvider).pb;
-    final token = pb.authStore.token;
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -612,10 +617,10 @@ class _DocsTab extends ConsumerWidget {
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder:  (context, i) {
             final r        = visible[i];
+            final serverId = r.getStringValue('message_id');
             final fileName = r.data['file_name']?.toString() ?? 'Document';
             final size     = _formatSize(r.data['file_size']);
             final date     = _formatDate(r.data['created']?.toString() ?? '');
-            final url      = _fullUrl(pb, r);
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppColors.primary.withValues(alpha: 0.12),
@@ -624,7 +629,7 @@ class _DocsTab extends ConsumerWidget {
               title:    Text(fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('$size · $date'),
               trailing: const Icon(Icons.download_outlined, color: AppColors.primary),
-              onTap:    () => _openDoc(context, url, token, fileName),
+              onTap:    () => _openDoc(context, ref, serverId),
             );
           },
         ),
@@ -637,22 +642,16 @@ class _DocsTab extends ConsumerWidget {
 
   Future<void> _openDoc(
     BuildContext context,
-    String url,
-    String token,
-    String fileName,
+    WidgetRef ref,
+    String serverId,
   ) async {
-    if (url.isEmpty) return;
     try {
-      final cacheDir = await getTemporaryDirectory();
-      final file     = File('${cacheDir.path}/$fileName');
-      if (!file.existsSync()) {
-        final request = await HttpClient().getUrl(Uri.parse(url));
-        request.headers.set('Authorization', 'Bearer $token');
-        final response = await request.close();
-        final bytes    = await response.expand((b) => b).toList();
-        await file.writeAsBytes(bytes);
-      }
-      await OpenFile.open(file.path);
+      // Download + decrypt the document to a local file, then open it.
+      final media = await ref.read(mediaFileProvider(
+          MediaRef(conversationId, serverId)).future);
+      if (media == null) throw Exception('No media found');
+
+      await OpenFile.open(media.file.path);
     } catch (e) {
       debugPrint('[DocsTab] Open failed: $e');
       if (context.mounted) {

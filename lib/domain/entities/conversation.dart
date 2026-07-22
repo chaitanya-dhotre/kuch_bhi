@@ -12,7 +12,7 @@ class Conversation {
     this.unreadCount = 0,
     this.otherUser,
     this.onlyAdminsCanMessage = false,
-    this.memberCount,
+    this.memberCount = 0,
   });
 
   final String    id;
@@ -25,14 +25,42 @@ class Conversation {
   final int       unreadCount;
   final User?     otherUser; // populated for direct chats
   final bool      onlyAdminsCanMessage;
-  final int?      memberCount;
+  final int       memberCount;
 
   bool    get isGroup     => type == 'group';
 
   String  get displayName => isGroup
-      ? (name ?? 'Group Chat')
+      ? (name ?? 'Group')
       : (otherUser?.displayName ?? 'Unknown');
 
   String? get avatarUrl   => isGroup ? iconUrl : otherUser?.avatarUrl;
   bool    get isOnline    => otherUser?.isOnline ?? false;
+
+  Conversation copyWith({
+    String? id,
+    String? type,
+    String? name,
+    String? iconUrl,
+    String? lastMessagePreview,
+    DateTime? lastMessageAt,
+    bool? isPinned,
+    int? unreadCount,
+    User? otherUser,
+    bool? onlyAdminsCanMessage,
+    int? memberCount,
+  }) {
+    return Conversation(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      name: name ?? this.name,
+      iconUrl: iconUrl ?? this.iconUrl,
+      lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      isPinned: isPinned ?? this.isPinned,
+      unreadCount: unreadCount ?? this.unreadCount,
+      otherUser: otherUser ?? this.otherUser,
+      onlyAdminsCanMessage: onlyAdminsCanMessage ?? this.onlyAdminsCanMessage,
+      memberCount: memberCount ?? this.memberCount,
+    );
+  }
 }

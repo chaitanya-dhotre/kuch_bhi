@@ -16,17 +16,17 @@ import '../../../core/constants/app_colors.dart';
 
 class MediaViewerArgs {
   const MediaViewerArgs({
-    required this.mediaUrl,
+    required this.localPath,
     required this.mediaType,
-    required this.authToken,
     required this.senderName,
     required this.timestamp,
     this.heroTag,
   });
 
-  final String  mediaUrl;
+  /// Path to the already-decrypted local file (media is E2E-encrypted, so we
+  /// never load it directly from a server URL).
+  final String  localPath;
   final String  mediaType;   // 'image' | 'video'
-  final String  authToken;
   final String  senderName;
   final DateTime timestamp;
   final String? heroTag;
@@ -90,11 +90,7 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
   // ── video initialisation ─────────────────────────────────────────────────
 
   Future<void> _initVideoPlayer() async {
-    final headers = {'Authorization': 'Bearer ${widget.args.authToken}'};
-    _videoCtrl = VideoPlayerController.networkUrl(
-      Uri.parse(widget.args.mediaUrl),
-      httpHeaders: headers,
-    );
+    _videoCtrl = VideoPlayerController.file(File(widget.args.localPath));
     await _videoCtrl!.initialize();
     if (!mounted) return;
 
@@ -128,29 +124,12 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
 
   // ── actions ──────────────────────────────────────────────────────────────
 
-  Map<String, String> get _authHeaders =>
-      {'Authorization': 'Bearer ${widget.args.authToken}'};
-
-  Future<Uint8List> _fetchBytes() async {
-    final request = await HttpClient().getUrl(Uri.parse(widget.args.mediaUrl));
-    _authHeaders.forEach((k, v) => request.headers.set(k, v));
-    final response = await request.close();
-    final chunks   = await response.expand((b) => b).toList();
-    return Uint8List.fromList(chunks);
-  }
-
   Future<void> _share() async {
     if (_isSharing) return;
     setState(() => _isSharing = true);
     try {
-      final bytes  = await _fetchBytes();
-      final tmpDir = await getTemporaryDirectory();
-      final ext    = widget.args.mediaType == 'video' ? 'mp4' : 'jpg';
-      final ts     = DateTime.now().millisecondsSinceEpoch;
-      final file   = File('${tmpDir.path}/kb_share_$ts.$ext');
-      await file.writeAsBytes(bytes);
       await Share.shareXFiles(
-        [XFile(file.path)],
+        [XFile(widget.args.localPath)],
         subject: 'Shared from Kuch Bhi',
       );
     } catch (e) {
@@ -169,17 +148,11 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
     try {
-      final bytes = await _fetchBytes();
+      final file = File(widget.args.localPath);
       if (widget.args.mediaType == 'video') {
-        final tmpDir  = await getTemporaryDirectory();
-        final ts      = DateTime.now().millisecondsSinceEpoch;
-        final outPath = '${tmpDir.path}/kb_video_$ts.mp4';
-        final file    = File(outPath);
-        await file.writeAsBytes(bytes);
         await Gal.putVideo(file.path);
-        await file.delete();
       } else {
-        await Gal.putImageBytes(bytes);
+        await Gal.putImageBytes(await file.readAsBytes());
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -267,10 +240,7 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
 
   Widget _buildImage() {
     final imageWidget = PhotoView(
-      imageProvider: NetworkImage(
-        widget.args.mediaUrl,
-        headers: _authHeaders,
-      ),
+      imageProvider: FileImage(File(widget.args.localPath)),
       minScale:            PhotoViewComputedScale.contained,
       maxScale:            PhotoViewComputedScale.covered * 4,
       backgroundDecoration: const BoxDecoration(color: Colors.black),

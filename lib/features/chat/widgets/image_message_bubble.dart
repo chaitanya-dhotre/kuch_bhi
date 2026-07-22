@@ -1,11 +1,10 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
@@ -14,6 +13,7 @@ import '../../../features/media/widgets/expiry_badge.dart';
 class ImageMessageBubble extends ConsumerStatefulWidget {
   const ImageMessageBubble({
     super.key,
+    required this.conversationId,
     required this.serverId,
     required this.isMine,
     required this.isDark,
@@ -21,6 +21,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
     this.createdAt,
   });
 
+  final String   conversationId;
   final String   serverId;
   final bool     isMine;
   final bool     isDark;
@@ -33,40 +34,16 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
 }
 
 class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
-  // Only aspect-ratio lives here; URL data comes from the cached provider.
   double _aspectRatio = 4 / 3;
-  String? _resolvedThumbUrl; // tracks which URL we've already resolved dims for
 
-  /// Reads the thumbnail's natural pixel dimensions via the image stream.
-  /// Called once per unique URL after the provider delivers a value.
-  void _resolveAspectRatio(String url) {
-    if (_resolvedThumbUrl == url) return; // already resolved
-    _resolvedThumbUrl = url;
-    final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
-    late ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (ImageInfo info, bool _) {
-        if (!mounted) return;
-        final w = info.image.width;
-        final h = info.image.height;
-        if (w > 0 && h > 0) setState(() => _aspectRatio = w / h);
-        stream.removeListener(listener);
-      },
-      onError: (_, __) => stream.removeListener(listener),
-    );
-    stream.addListener(listener);
-  }
-
-  void _openFullScreen(String fullUrl) {
-    final token = ref.read(pocketbaseClientProvider).pb.authStore.token;
+  void _openFullScreen(File fullFile) {
     final heroTag = 'media_${widget.serverId}';
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MediaViewerScreen(
           args: MediaViewerArgs(
-            mediaUrl:   fullUrl,
+            localPath:  fullFile.path,
             mediaType:  'image',
-            authToken:  token,
             senderName: widget.isMine ? 'You' : 'Photo',
             timestamp:  widget.createdAt ?? DateTime.now(),
             heroTag:    heroTag,
@@ -79,9 +56,10 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
   @override
   Widget build(BuildContext context) {
     final isDark    = widget.isDark;
-    final urlsAsync = ref.watch(imageUrlsProvider(widget.serverId));
+    final thumbAsync = ref.watch(mediaFileProvider(
+        MediaRef(widget.conversationId, widget.serverId, thumb: true)));
 
-    return urlsAsync.when(
+    return thumbAsync.when(
       loading: () => _BubbleWrapper(
         isMine: widget.isMine,
         isDark: isDark,
@@ -98,8 +76,8 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
           child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
         ),
       ),
-      data: (urls) {
-        if (urls == null || !urls.containsKey('thumb')) {
+      data: (media) {
+        if (media == null) {
           return _BubbleWrapper(
             isMine: widget.isMine,
             isDark: isDark,
@@ -111,10 +89,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
         }
 
         // ── Expiry check ───────────────────────────────────────
-        final expiresRaw = urls['expires_at'] ?? '';
-        final expiresAt  = expiresRaw.isNotEmpty
-            ? DateTime.tryParse(expiresRaw)?.toLocal()
-            : null;
+        final expiresAt = media.expiresAt;
         if (isExpired(expiresAt)) {
           return _BubbleWrapper(
             isMine: widget.isMine,
@@ -126,17 +101,21 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
           );
         }
 
-        final thumbUrl = urls['thumb']!;
-        // Kick off dimension resolution (no-op if already done for this URL)
-        WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _resolveAspectRatio(thumbUrl));
-
-        final fullUrl = urls['full'];
-        if (fullUrl == null) return const SizedBox.shrink();
+        if (media.width != null &&
+            media.height != null &&
+            media.width! > 0 &&
+            media.height! > 0) {
+          _aspectRatio = media.width! / media.height!;
+        }
 
         // ── actual bubble ──────────────────────────────────────
         return GestureDetector(
-          onTap: () => _openFullScreen(fullUrl),
+          onTap: () async {
+            // Fetch the full-res file on tap, then open the viewer.
+            final full = await ref.read(mediaFileProvider(
+                MediaRef(widget.conversationId, widget.serverId)).future);
+            if (full != null && mounted) _openFullScreen(full.file);
+          },
           child: _BubbleWrapper(
             isMine: widget.isMine,
             isDark: isDark,
@@ -150,15 +129,10 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                       aspectRatio: _aspectRatio,
                       child: Hero(
                         tag: 'media_${widget.serverId}',
-                        child: CachedNetworkImage(
-                          imageUrl: thumbUrl,
+                        child: Image.file(
+                          media.file,
                           fit: BoxFit.cover,
-                          placeholder: (_, __) => Shimmer.fromColors(
-                            baseColor: Colors.grey.shade300,
-                            highlightColor: Colors.grey.shade100,
-                            child: Container(color: Colors.grey.shade300),
-                          ),
-                          errorWidget: (_, __, ___) => const Center(
+                          errorBuilder: (_, __, ___) => const Center(
                             child: Icon(Icons.broken_image, color: Colors.grey),
                           ),
                         ),

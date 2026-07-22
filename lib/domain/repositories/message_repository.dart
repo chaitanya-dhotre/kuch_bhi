@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
+import '../../services/media_upload_service.dart' show LocalMediaFile;
 import '../entities/conversation.dart';
 import '../entities/message.dart';
 import '../entities/user.dart';
@@ -67,11 +68,32 @@ abstract class MessageRepository {
   /// Get pinned messages for a conversation.
   Future<List<Message>> getPinnedMessages(String conversationId);
 
+  /// Watch pinned messages reactively (live updates without reopening).
+  Stream<List<Message>> watchPinnedMessages(String conversationId);
+
+  /// Downloads + decrypts a media file for a message. [thumb] returns the
+  /// thumbnail variant. Returns the local cleartext file + metadata.
+  Future<LocalMediaFile?> getDecryptedMedia(
+    String conversationId,
+    String messageServerId, {
+    bool thumb,
+  });
+
+  /// After a reinstall + key restore, re-downloads and decrypts the full
+  /// message history for every conversation the user belongs to. Safe to call
+  /// multiple times (idempotent via serverId dedup).
+  Future<void> syncAllHistory();
+
   /// Search decrypted messages within a conversation.
   Future<List<Message>> searchMessages(String conversationId, String query);
 
   /// Update the disappearing-message duration for a conversation.
   Future<void> setDisappearingDuration(String conversationId, int seconds);
+
+  /// Full resync after the app returns to the foreground: reconnects the
+  /// realtime subscriptions (Android suspends the SSE socket in background)
+  /// and refetches recent messages + receipts so nothing stays stale.
+  Future<void> resyncOnResume();
 
   /// Retry all pending (failed) messages.
   Future<void> retryPendingMessages();
@@ -82,6 +104,9 @@ abstract class MessageRepository {
 
   /// Fetch older messages (pagination).
   Future<void> loadMoreMessages(String conversationId, int offset);
+
+  /// Fetch and cache a single message by its server ID.
+  Future<void> fetchAndCacheSingleMessage(String messageId, String conversationId);
 
   // ── Group admin ────────────────────────────────────────────────
 
@@ -108,4 +133,14 @@ abstract class MessageRepository {
 
   /// Leave the group. Promotes another member first if caller is sole admin.
   Future<void> leaveGroup(String conversationId);
+
+  /// Update group info (name and/or icon). Caller must be admin.
+  Future<void> updateGroupInfo(String conversationId,
+      {String? name, File? iconFile});
+
+  /// Watch a single conversation reactively.
+  Stream<Conversation?> watchConversation(String conversationId);
+
+  /// Watch group members reactively.
+  Stream<List<User>> watchGroupMembers(String conversationId);
 }

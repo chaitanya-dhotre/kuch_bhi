@@ -1,11 +1,11 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
@@ -14,6 +14,7 @@ import '../../../features/media/widgets/expiry_badge.dart';
 class VideoMessageBubble extends ConsumerStatefulWidget {
   const VideoMessageBubble({
     super.key,
+    required this.conversationId,
     required this.serverId,
     required this.isMine,
     required this.isDark,
@@ -21,6 +22,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
     this.createdAt,
   });
 
+  final String   conversationId;
   final String   serverId;
   final bool     isMine;
   final bool     isDark;
@@ -32,27 +34,8 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
 }
 
 class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
-  // Only aspect-ratio lives here; URL/duration data comes from the cached provider.
-  double  _aspectRatio      = 16 / 9;
-  String? _resolvedThumbUrl;
-
-  void _resolveThumbAspectRatio(String url) {
-    if (_resolvedThumbUrl == url) return;
-    _resolvedThumbUrl = url;
-    final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
-    late ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (ImageInfo info, bool _) {
-        if (!mounted) return;
-        final w = info.image.width;
-        final h = info.image.height;
-        if (w > 0 && h > 0) setState(() => _aspectRatio = w / h);
-        stream.removeListener(listener);
-      },
-      onError: (_, __) => stream.removeListener(listener),
-    );
-    stream.addListener(listener);
-  }
+  double _aspectRatio = 16 / 9;
+  bool   _opening = false;
 
   String _durationText(int secs) {
     final m = secs ~/ 60;
@@ -67,9 +50,10 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
         ? BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 6, offset: const Offset(0, 2))
         : BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2));
 
-    final urlsAsync = ref.watch(videoUrlsProvider(widget.serverId));
+    final thumbAsync = ref.watch(mediaFileProvider(
+        MediaRef(widget.conversationId, widget.serverId, thumb: true)));
 
-    Widget content = urlsAsync.when(
+    Widget content = thumbAsync.when(
       loading: () => Shimmer.fromColors(
         baseColor: Colors.grey.shade300,
         highlightColor: Colors.grey.shade100,
@@ -79,64 +63,58 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
         color: Colors.grey.shade800,
         child: const Center(child: Icon(Icons.videocam_off, color: Colors.white54, size: 48)),
       ),
-      data: (urls) {
-        final thumbUrl    = urls?['thumb'];
-        final videoUrl    = urls?['full'];
-        final durationSec = int.tryParse(urls?['duration'] ?? '0') ?? 0;
-        final expiresRaw  = urls?['expires_at'] ?? '';
-        final expiresAt   = expiresRaw.isNotEmpty
-            ? DateTime.tryParse(expiresRaw)?.toLocal()
-            : null;
+      data: (media) {
+        final durationSec = media?.durationSeconds ?? 0;
+        final expiresAt   = media?.expiresAt;
 
         // ── Expired state ──────────────────────────────────────
         if (isExpired(expiresAt)) {
           return const ExpiredMediaPlaceholder();
         }
 
-        if (thumbUrl != null && thumbUrl.isNotEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback(
-              (_) => _resolveThumbAspectRatio(thumbUrl));
-        }
-
-        if (thumbUrl == null) {
+        if (media == null) {
           return Container(
             color: Colors.grey.shade800,
             child: const Center(child: Icon(Icons.videocam_off, color: Colors.white54, size: 48)),
           );
         }
 
+        if (media.width != null &&
+            media.height != null &&
+            media.width! > 0 &&
+            media.height! > 0) {
+          _aspectRatio = media.width! / media.height!;
+        }
+
         return GestureDetector(
-          onTap: videoUrl != null
-              ? () {
-                  final token =
-                      ref.read(pocketbaseClientProvider).pb.authStore.token;
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => MediaViewerScreen(
-                        args: MediaViewerArgs(
-                          mediaUrl:   videoUrl,
-                          mediaType:  'video',
-                          authToken:  token,
-                          senderName: widget.isMine ? 'You' : 'Video',
-                          timestamp:  widget.createdAt ?? DateTime.now(),
-                        ),
-                      ),
-                    ),
-                  );
-                }
-              : null,
+          onTap: () async {
+            if (_opening) return;
+            _opening = true;
+            // Fetch + decrypt the full video, then open the viewer.
+            final full = await ref.read(mediaFileProvider(
+                MediaRef(widget.conversationId, widget.serverId)).future);
+            _opening = false;
+            if (full == null || !mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MediaViewerScreen(
+                  args: MediaViewerArgs(
+                    localPath:  full.file.path,
+                    mediaType:  'video',
+                    senderName: widget.isMine ? 'You' : 'Video',
+                    timestamp:  widget.createdAt ?? DateTime.now(),
+                  ),
+                ),
+              ),
+            );
+          },
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CachedNetworkImage(
-                imageUrl: thumbUrl,
+              Image.file(
+                media.file,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => Shimmer.fromColors(
-                  baseColor: Colors.grey.shade300,
-                  highlightColor: Colors.grey.shade100,
-                  child: Container(color: Colors.grey),
-                ),
-                errorWidget: (_, __, ___) => Container(
+                errorBuilder: (_, __, ___) => Container(
                   color: Colors.grey.shade800,
                   child: const Center(child: Icon(Icons.broken_image, color: Colors.white54)),
                 ),

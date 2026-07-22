@@ -46,15 +46,41 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  Future<void> signInWithGoogle() async {
-    state = const AsyncData(AuthLoading());
+  /// Fetches email + display name from a Google account for prefilling the
+  /// registration form. Does NOT authenticate — the caller navigates to the
+  /// register screen with the returned prefill data.
+  /// Returns null if the user cancelled the Google sign-in flow.
+  Future<GooglePrefill?> getGooglePrefill() async {
     try {
-      final user = await _repo.signInWithGoogle();
-      state = AsyncData(AuthAuthenticated(user));
+      return await _repo.getGooglePrefill();
     } on AuthException catch (e) {
       state = AsyncData(AuthError(e.message));
+      return null;
     } catch (e) {
       state = AsyncData(AuthError('Google sign in failed: $e'));
+      return null;
+    }
+  }
+
+  /// Full Google OAuth. On success sets AuthAuthenticated. Returns the result
+  /// so the caller can send brand-new accounts through onboarding.
+  Future<GoogleAuthResult?> signInWithGoogle() async {
+    state = const AsyncData(AuthLoading());
+    try {
+      final result = await _repo.signInWithGoogle();
+      if (result == null) {
+        // Cancelled — restore unauthenticated state.
+        state = const AsyncData(AuthUnauthenticated());
+        return null;
+      }
+      state = AsyncData(AuthAuthenticated(result.user));
+      return result;
+    } on AuthException catch (e) {
+      state = AsyncData(AuthError(e.message));
+      return null;
+    } catch (e) {
+      state = AsyncData(AuthError('Google sign in failed: $e'));
+      return null;
     }
   }
 

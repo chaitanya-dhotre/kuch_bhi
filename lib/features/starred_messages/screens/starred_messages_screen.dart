@@ -1,4 +1,5 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
-import '../../../services/media_upload_service.dart';
+import '../../chat/providers/chat_provider.dart';
 
 final _starredProvider = FutureProvider.autoDispose
     .family<List<Message>, String>((ref, conversationId) {
@@ -89,7 +90,7 @@ class _StarredCard extends ConsumerStatefulWidget {
 }
 
 class _StarredCardState extends ConsumerState<_StarredCard> {
-  String? _thumbUrl;
+  File? _thumbFile;
   bool _loadingImage = true;
 
   @override
@@ -101,12 +102,14 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
   }
 
   Future<void> _loadImage() async {
-    final urls = await ref
-        .read(mediaUploadServiceProvider)
-        .getImageUrls(widget.message.serverId!);
+    final media = await ref.read(messageRepositoryProvider).getDecryptedMedia(
+          widget.message.conversationId,
+          widget.message.serverId!,
+          thumb: true,
+        );
     if (mounted) {
       setState(() {
-        _thumbUrl = urls?['thumb'];
+        _thumbFile = media?.file;
         _loadingImage = false;
       });
     }
@@ -114,6 +117,9 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
 
   @override
   Widget build(BuildContext context) {
+    final myId   = ref.watch(currentUserIdProvider).asData?.value ?? '';
+    final isMine = widget.message.senderId == myId;
+
     return GestureDetector(
       onTap: widget.onJump,
       child: Container(
@@ -137,6 +143,15 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
               const Icon(Icons.star, color: AppColors.warning, size: 14),
               const SizedBox(width: 6),
               Text(
+                isMine ? 'You' : 'Contact',
+                style: const TextStyle(
+                  fontSize:   12,
+                  fontWeight: FontWeight.w600,
+                  color:      AppColors.primary,
+                ),
+              ),
+              const Spacer(),
+              Text(
                 DateFormat('MMM d, HH:mm')
                     .format(widget.message.createdAt.toLocal()),
                 style: TextStyle(
@@ -150,16 +165,74 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
             ],
           ),
           const SizedBox(height: 8),
-          if (widget.message.type == 'image' && widget.message.serverId != null)
-            _buildImageContent()
-          else
+          _buildContent(context),
+          if (widget.onJump != null) ...[
+            const SizedBox(height: 8),
             Text(
-              widget.message.decryptedBody ?? '🔒 Encrypted',
-              style: const TextStyle(fontSize: 15),
+              'Tap to jump to message',
+              style: TextStyle(
+                fontSize: 11,
+                color:    Theme.of(context).colorScheme.onSurface
+                    .withValues(alpha: 0.35),
+              ),
             ),
+          ],
         ],
       ),
     ),
+    );
+  }
+
+  /// Media-aware card content — never blank, even for video/voice/document.
+  Widget _buildContent(BuildContext context) {
+    final msg  = widget.message;
+    final body = msg.decryptedBody ?? '';
+
+    switch (msg.type) {
+      case 'image':
+        if (msg.serverId != null) return _buildImageContent();
+        return _mediaRow(context, Icons.camera_alt_outlined, 'Photo');
+      case 'video':
+        return _mediaRow(context, Icons.videocam_outlined, 'Video');
+      case 'voice':
+        final dur = body.replaceFirst('🎤', '').trim();
+        return _mediaRow(
+          context,
+          Icons.mic_none,
+          dur.isNotEmpty && dur != 'Voice message'
+              ? 'Voice message · $dur'
+              : 'Voice message',
+        );
+      case 'document':
+        return _mediaRow(
+          context,
+          Icons.description_outlined,
+          body.isNotEmpty ? body : 'Document',
+        );
+      default:
+        return Text(
+          msg.decryptedBody ?? '🔒 Encrypted',
+          style: const TextStyle(fontSize: 15),
+        );
+    }
+  }
+
+  Widget _mediaRow(BuildContext context, IconData icon, String label) {
+    final color =
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 15, color: color),
+          ),
+        ),
+      ],
     );
   }
 
@@ -170,7 +243,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    if (_thumbUrl == null) {
+    if (_thumbFile == null) {
       return const SizedBox(
         height: 120,
         child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
@@ -178,16 +251,12 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: CachedNetworkImage(
-        imageUrl: _thumbUrl!,
+      child: Image.file(
+        _thumbFile!,
         height: 200,
         width: double.infinity,
         fit: BoxFit.cover,
-        placeholder: (_, __) => Container(
-          height: 200,
-          color: Colors.grey.shade300,
-        ),
-        errorWidget: (_, __, ___) => const SizedBox(
+        errorBuilder: (_, __, ___) => const SizedBox(
           height: 120,
           child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
         ),

@@ -147,13 +147,15 @@ class FriendRepositoryImpl implements FriendRepository {
     .getSetting(AppSettingsKeys.currentUserId);
     if (currentUserId == null) return [];
 
-    final result = await _pb.collection('friend_requests').getList(
+    // getFullList — plain getList caps at 30 and silently drops the rest.
+    final items = await _pb.collection('friend_requests').getFullList(
       filter: 'to_user="$currentUserId"&&status="pending"',
       expand: 'from_user,to_user',
       sort:   '-created',
+      batch:  200,
     );
 
-    final requests = result.items.map(_recordToFriendRequest).toList();
+    final requests = items.map(_recordToFriendRequest).toList();
 
     // Cache locally.
     for (final req in requests) {
@@ -197,15 +199,17 @@ class FriendRepositoryImpl implements FriendRepository {
         .getSetting(AppSettingsKeys.currentUserId);
     if (currentUserId == null) return [];
 
-    final result = await _pb.collection('friendships').getList(
+    // getFullList — plain getList caps at 30 and silently drops friends.
+    final items = await _pb.collection('friendships').getFullList(
       filter: 'user_a="$currentUserId"||user_b="$currentUserId"',
       expand: 'user_a,user_b',
       sort:   '-created',
+      batch:  200,
     );
 
     final friendships = <Friendship>[];
 
-    for (final record in result.items) {
+    for (final record in items) {
       final friendship = await _recordToFriendship(record, currentUserId);
       if (friendship != null) friendships.add(friendship);
     }
@@ -271,13 +275,12 @@ class FriendRepositoryImpl implements FriendRepository {
         .getSetting(AppSettingsKeys.currentUserId);
     if (currentUserId == null) return [];
 
-    final result = await _pb.collection('blocked_users').getList(
+    final items = await _pb.collection('blocked_users').getFullList(
       filter: 'blocker_id="$currentUserId"',
+      batch: 200,
     );
 
-    return result.items
-        .map((r) => r.getStringValue('blocked_id'))
-        .toList();
+    return items.map((r) => r.getStringValue('blocked_id')).toList();
   }
 
   // ── Private helpers ────────────────────────────────────────────

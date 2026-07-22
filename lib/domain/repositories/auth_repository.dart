@@ -12,10 +12,18 @@ abstract class AuthRepository {
     required String password,
   });
 
-  /// Sign in with Google.
-  /// Uses google_sign_in package + PocketBase token exchange.
+  /// Fetch email + display name from a Google account for prefilling
+  /// registration. Does NOT authenticate — the user still completes normal
+  /// email+password registration.
+  /// Returns null if the user cancels the Google sign-in flow.
   /// Throws [AuthException] on failure.
-  Future<User> signInWithGoogle();
+  Future<GooglePrefill?> getGooglePrefill();
+
+  /// Full Google OAuth: authenticates against PocketBase (creating the
+  /// account when it doesn't exist yet). Returns null when cancelled.
+  /// [GoogleAuthResult.isNew] tells the UI whether to run onboarding.
+  /// Throws [AuthException] on failure.
+  Future<GoogleAuthResult?> signInWithGoogle();
 
   /// Register a new account.
   /// Auto-generates a unique friend code.
@@ -45,6 +53,21 @@ abstract class AuthRepository {
   /// Update the user's public encryption key on the server.
   /// Called once after key generation on first login.
   Future<void> updatePublicKey(String publicKeyBase64);
+}
+
+/// Lightweight data carried from a Google account into the registration form.
+class GooglePrefill {
+  const GooglePrefill({required this.email, this.displayName});
+  final String email;
+  final String? displayName;
+}
+
+/// Result of a full Google OAuth sign-in.
+class GoogleAuthResult {
+  const GoogleAuthResult({required this.user, required this.isNew});
+  final User user;
+  /// True when PocketBase just created this account (first Google login).
+  final bool isNew;
 }
 
 /// Typed exception for auth failures.

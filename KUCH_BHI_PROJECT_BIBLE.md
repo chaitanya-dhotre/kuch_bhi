@@ -1,9 +1,9 @@
 # 📱 Kuch Bhi — Project Bible
 
-**Version:** 1.0  
-**App ID:** `com.chai.kuch-bhi`  
+**Version:** 1.1  
+**App ID:** `com.chai.kuch_bhi`  
 **Backend:** [https://kuch-bhi.duckdns.org](https://kuch-bhi.duckdns.org)  
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-07-21
 
 ---
 
@@ -251,7 +251,9 @@ User types → taps send
 
       → On failure: keep PENDING, retry with exponential backoff
 
-  → PocketBase triggers FCM to recipient
+  → An external Python service (running on the Oracle VM) subscribes to the
+    PocketBase `messages` collection and sends a **data-only** FCM v1 push to the
+    recipient. (See §9. PocketBase itself does not send FCM.)
 
     → Recipient FCM handler fires (even if app is killed)
 
@@ -650,6 +652,7 @@ amoledSurface: Color(0xFF0D0D0D)
 | `is_online` | Bool | Default: false |
 | `typing_in` | Text | Optional |
 | `current_chat` | Text | Optional |
+| `public_key` | Text | Optional |
 | `private_key_encrypted` | Text | Nullable|
 | `private_key_salt` | Text | Nullable|
 | `created` | Auto (PB) |  |
@@ -1093,9 +1096,14 @@ On first message to a new contact:
 
   → Perform X25519 ECDH → shared\_secret
 
-  → Derive encryption\_key via HKDF(shared\_secret, "kuchbhi-v1")
+  → Derive encryption\_key via HKDF-SHA256(shared\_secret, salt = utf8(conversationId), info = "kuchbhi-v1")
 
   → Cache derived key in flutter\_secure\_storage keyed by contact's user ID
+
+  → NOTE: the HKDF salt is the conversation ID (binds the key to the
+    conversation). Both peers MUST use the same conversation ID or their derived
+    keys diverge. Never encrypt with a fallback/zero key — if the peer's public
+    key cannot be fetched, the send must fail and be queued for retry.
 
 Encrypting a message:
 
@@ -1104,6 +1112,14 @@ Encrypting a message:
   → AES-256-GCM encrypt(plaintext, encryption\_key, iv) → ciphertext
 
   → Store: base64(ciphertext) as encrypted\_body, base64(iv) as iv
+
+**Media encryption (photos / videos / voice / documents):** media bytes MUST be
+encrypted client-side with the same conversation/group key (AES-256-GCM) before
+upload, and decrypted on download into an app-private cache — the server never
+sees plaintext media. `reply_preview` MUST also be encrypted (it contains message
+content). All crypto (ECDH, HKDF, AES, PBKDF2) MUST run in a background isolate
+via `Isolate.run` / `compute` — running it on the UI thread was the cause of jank
+in the previous version.
 
 Decrypting a message:
 
@@ -1119,25 +1135,13 @@ For groups:
 
   → Store encrypted group keys in a group\_keys collection (add this)
 
-### Add to Schema: `group_keys` collection
+### Group keys → see §7.13
 
-| Field | Type |
-| :---- | :---- |
-| `group_id` | Text (conversation ID) |
-| `member_id` | Relation → users |
-| `encrypted_key` | Text (base64) — group key encrypted with member's public key |
-
-**Rules:**
-
-listRule:   @request.auth.id \= member\_id
-
-viewRule:   @request.auth.id \= member\_id
-
-createRule: @request.auth.id \!= ""
-
-updateRule: null
-
-deleteRule: null
+The group key is stored in the **`group_keys`** collection defined canonically in
+§7.13 (`conversation_id`, `user_id`, `encrypted_key` in `ivBase64:ciphertextBase64`
+format, `encrypted_by_user_id`, `key_version`). An earlier draft of this section
+listed a divergent `group_id / member_id / encrypted_key` shape — that shape is
+**obsolete**; the implementation follows §7.13. Do not recreate the old fields.
 
 ### Performance Note
 
@@ -1510,7 +1514,7 @@ final authData \= await pb.collection('users').authWithOAuth2(
 ### General Rules
 
 1. Read this entire document before writing any code.  
-2. Do not install any package not listed in Section 2 without explicit developer approval.  
+2. Do not install any package not listed in Section 2 without explicit developer approval. (Section 2's list is the source of truth; if `pubspec.yaml` and Section 2 disagree, reconcile them — the app legitimately also uses `chewie`, `open_file`, `gal`, `file_picker`, `permission_handler`, `local_auth`, and `mime`.)  
 3. Do not modify the PocketBase schema after Phase 0 without a migration plan.  
 4. Never put business logic in a Widget class.  
 5. Never run crypto, compression, or heavy I/O on the main isolate.  

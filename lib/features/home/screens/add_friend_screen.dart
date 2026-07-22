@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -295,33 +298,88 @@ class _CodeSearchTab extends ConsumerWidget {
   }
 }
 
-class _QrScanTab extends StatelessWidget {
+class _QrScanTab extends StatefulWidget {
   const _QrScanTab({required this.isActive, required this.onCodeFound});
   final bool isActive;
   final ValueChanged<String> onCodeFound;
 
   @override
-  Widget build(BuildContext context) {
-    if (!isActive) {
-      return const Center(child: Icon(Icons.qr_code_scanner, size: 80));
+  State<_QrScanTab> createState() => _QrScanTabState();
+}
+
+class _QrScanTabState extends State<_QrScanTab> {
+  bool _pickingFromGallery = false;
+
+  void _parseCode(String raw) {
+    String code = raw;
+    if (raw.startsWith('kuchbhi://add/')) {
+      code = raw.replaceFirst('kuchbhi://add/', '');
     }
+    if (code.length == 6) widget.onCodeFound(code.toUpperCase());
+  }
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-      child: MobileScanner(
-        onDetect: (capture) {
-          final barcode = capture.barcodes.firstOrNull;
-          if (barcode == null) return;
-          final raw = barcode.rawValue ?? '';
+  Future<void> _pickFromGallery() async {
+    if (_pickingFromGallery) return;
+    setState(() => _pickingFromGallery = true);
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (picked == null) return;
+      final result = await MobileScannerController().analyzeImage(picked.path);
+      if (result == null || result.barcodes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No QR code found in image')),
+          );
+        }
+        return;
+      }
+      final raw = result.barcodes.first.rawValue ?? '';
+      if (raw.isNotEmpty) _parseCode(raw);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not read QR: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingFromGallery = false);
+    }
+  }
 
-          // Parse kuchbhi://add/XXXXXX or raw 6-char code.
-          String code = raw;
-          if (raw.startsWith('kuchbhi://add/')) {
-            code = raw.replaceFirst('kuchbhi://add/', '');
-          }
-          if (code.length == 6) onCodeFound(code.toUpperCase());
-        },
-      ),
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        if (!widget.isActive)
+          const Center(child: Icon(Icons.qr_code_scanner, size: 80))
+        else
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+            child: MobileScanner(
+              onDetect: (capture) {
+                final barcode = capture.barcodes.firstOrNull;
+                if (barcode == null) return;
+                _parseCode(barcode.rawValue ?? '');
+              },
+            ),
+          ),
+        // Gallery pick button — bottom right
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton.small(
+            heroTag: 'qr_gallery',
+            onPressed: _pickingFromGallery ? null : _pickFromGallery,
+            tooltip: 'Pick QR from gallery',
+            child: _pickingFromGallery
+                ? const SizedBox(
+                    width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.photo_library_outlined),
+          ),
+        ),
+      ],
     );
   }
 }

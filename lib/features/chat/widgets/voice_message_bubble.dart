@@ -5,12 +5,12 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
-import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
 
 class VoiceMessageBubble extends ConsumerStatefulWidget {
   const VoiceMessageBubble({
     super.key,
+    required this.conversationId,
     required this.serverId,
     required this.isMine,
     this.durationText,
@@ -18,6 +18,7 @@ class VoiceMessageBubble extends ConsumerStatefulWidget {
     this.createdAt,
   });
 
+  final String   conversationId;
   final String   serverId;
   final bool     isMine;
   final String?  durationText;
@@ -34,7 +35,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
 
   bool    _isLoading   = false;
   bool    _hasError    = false;
-  String? _cachedUrl;
+  String? _cachedPath;
 
   Duration _position  = Duration.zero;
   Duration _total     = Duration.zero;
@@ -74,7 +75,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
   }
 
   Future<void> _loadAndPlay() async {
-    if (_cachedUrl != null) {
+    if (_cachedPath != null) {
       if (_isPlaying) {
         await _player.pause();
       } else {
@@ -86,14 +87,13 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
     setState(() { _isLoading = true; _hasError = false; });
 
     try {
-      final url = await ref
-          .read(mediaUploadServiceProvider)
-          .getVoiceUrl(widget.serverId);
+      // Download + decrypt the voice note to a local file, then play it.
+      final media = await ref.read(mediaFileProvider(
+          MediaRef(widget.conversationId, widget.serverId)).future);
+      if (media == null) throw Exception('No media found');
 
-      if (url == null) throw Exception('No media URL found');
-
-      _cachedUrl = url;
-      await _player.setUrl(url);
+      _cachedPath = media.file.path;
+      await _player.setFilePath(_cachedPath!);
       await _player.setSpeed(_speed);
       await _player.play();
     } catch (e) {
@@ -136,8 +136,9 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         ? _fmtDur(_total - _position)
         : widget.durationText ?? '0:00';
 
-    final expiryAsync = ref.watch(voiceExpiryProvider(widget.serverId));
-    final expiresAt   = expiryAsync.valueOrNull;
+    final mediaAsync  = ref.watch(mediaFileProvider(
+        MediaRef(widget.conversationId, widget.serverId)));
+    final expiresAt   = mediaAsync.valueOrNull?.expiresAt;
     final expired     = isExpired(expiresAt);
     final badgeText   = expiryBadgeText(expiresAt);
 

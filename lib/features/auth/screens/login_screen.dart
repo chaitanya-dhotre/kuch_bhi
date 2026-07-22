@@ -51,6 +51,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
   }
 
+  /// Google button: pull the account's email + name, then complete a normal
+  /// registration in the register screen (email locked). Existing accounts
+  /// are told to sign in with their password instead.
+  Future<void> _continueWithGoogle(BuildContext context) async {
+    // Full OAuth: signs in existing accounts directly, or creates + signs in
+    // a new one. The router's redirect then routes based on encryption state:
+    //   new account  → backup-PIN setup (onboarding) → home
+    //   existing acct→ key restore (if needed) → home
+    // No manual navigation needed here — authProvider drives the redirect.
+    await ref.read(authProvider.notifier).signInWithGoogle();
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
@@ -152,7 +164,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   const SizedBox(height: 28),
 
-                  // ── Sign in button ────────────────────────────
                   FilledButton(
                     onPressed: isLoading ? null : _submit,
                     style: FilledButton.styleFrom(
@@ -177,6 +188,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () =>
+                          context.push(AppRoutes.forgotPassword),
+                      child: const Text('Forgot password?'),
+                    ),
                   ),
 
                   const SizedBox(height: 20),
@@ -203,11 +222,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   // ── Google sign in ────────────────────────────
                   GoogleSignInButton(
-                    onPressed: isLoading
-                        ? null
-                        : () => ref
-                            .read(authProvider.notifier)
-                            .signInWithGoogle(),
+                    onPressed:
+                        isLoading ? null : () => _continueWithGoogle(context),
                   ),
 
                   const SizedBox(height: 36),

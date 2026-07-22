@@ -8,7 +8,16 @@ import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({
+    super.key,
+    this.prefilledEmail,
+    this.prefilledDisplayName,
+  });
+
+  /// Set when arriving from the Google button: email is locked, the rest of
+  /// the profile (username/password) is completed here.
+  final String? prefilledEmail;
+  final String? prefilledDisplayName;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -21,6 +30,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _emailController       = TextEditingController();
   final _passwordController    = TextEditingController();
   final _confirmController     = TextEditingController();
+
+  bool get _isGooglePrefill => widget.prefilledEmail != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.prefilledEmail != null) {
+      _emailController.text = widget.prefilledEmail!;
+    }
+    if (widget.prefilledDisplayName != null) {
+      _displayNameController.text = widget.prefilledDisplayName!;
+    }
+  }
 
   final _displayNameFocus = FocusNode();
   final _usernameFocus    = FocusNode();
@@ -156,6 +178,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     controller: _emailController,
                     focusNode: _emailFocus,
                     label: 'Email',
+                    readOnly: _isGooglePrefill,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     onEditingComplete: () =>

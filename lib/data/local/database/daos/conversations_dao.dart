@@ -57,7 +57,9 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
   Future<List<ConversationMembersTableData>> getMembersForConversation(
           String conversationId) =>
       (select(conversationMembersTable)
-            ..where((t) => t.conversationId.equals(conversationId)))
+            ..where((t) =>
+                t.conversationId.equals(conversationId) &
+                t.role.equals('left').not()))
           .get();
 
   Future<void> updateLastReadMessage(
@@ -140,4 +142,13 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
     }
     return bestId;
   }
+
+  Future<List<ConversationMembersTableData>> getMembershipsOfUser(String userId) =>
+      (select(conversationMembersTable)..where((t) => t.userId.equals(userId))).get();
+
+  Stream<List<ConversationMembersTableData>> watchMembersForConversation(
+      String conversationId) =>
+      (select(conversationMembersTable)
+        ..where((t) => t.conversationId.equals(conversationId)))
+          .watch();
 }

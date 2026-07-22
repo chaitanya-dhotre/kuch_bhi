@@ -9,6 +9,7 @@ class AuthTextField extends StatelessWidget {
     this.focusNode,
     this.keyboardType,
     this.textInputAction,
+    this.readOnly = false,
     this.obscureText = false,
     this.suffixIcon,
     this.helperText,
@@ -21,6 +22,7 @@ class AuthTextField extends StatelessWidget {
   final FocusNode? focusNode;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
+  final bool readOnly;
   final bool obscureText;
   final Widget? suffixIcon;
   final String? helperText;
@@ -34,6 +36,7 @@ class AuthTextField extends StatelessWidget {
       focusNode: focusNode,
       keyboardType: keyboardType,
       textInputAction: textInputAction,
+      readOnly: readOnly,
       obscureText: obscureText,
       onEditingComplete: onEditingComplete,
       validator: validator,

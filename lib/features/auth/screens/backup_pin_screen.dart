@@ -7,6 +7,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
 import '../../../data/local/database/app_database.dart';
+import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/encryption_service.dart';
 import '../providers/encryption_sync_provider.dart';
 
@@ -181,6 +182,13 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
       } else {
         final success = await enc.restorePrivateKey(pin);
         if (success) {
+          // Reinstall recovery: re-download + decrypt the full history now
+          // that the private key is restored.
+          try {
+            await ref.read(messageRepositoryProvider).syncAllHistory();
+          } catch (e) {
+            debugPrint('[Restore] history sync failed: $e');
+          }
           ref.invalidate(encryptionSyncProvider);
           if (mounted) {
             context.go(AppRoutes.home);
@@ -467,7 +475,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodySmall
-                                    .copyWith(
+                                    ?.copyWith(
                                       fontWeight: FontWeight.bold,
                                       color: Theme.of(context)
                                           .colorScheme

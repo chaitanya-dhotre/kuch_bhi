@@ -55,29 +55,53 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<User> signInWithGoogle() async {
+  Future<GooglePrefill?> getGooglePrefill() async {
     try {
       final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
       final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) {
-        throw const AuthException('Google sign in was cancelled.');
-      }
+      if (googleUser == null) return null; // user cancelled
+      return GooglePrefill(
+        email:       googleUser.email,
+        displayName: googleUser.displayName,
+      );
+    } on AuthException {
+      rethrow;
+    } catch (e) {
+      throw AuthException('Google sign in failed: $e');
+    }
+  }
+
+  @override
+  Future<GoogleAuthResult?> signInWithGoogle() async {
+    try {
+      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+      final googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return null; // user cancelled
       final googleAuth = await googleUser.authentication;
       final idToken = googleAuth.idToken;
       if (idToken == null) {
         throw const AuthException('Failed to get Google ID token.');
       }
+      // Pre-generate the fields PB requires on CREATE. For an existing
+      // account these are simply ignored and the user is signed in directly.
+      final friendCode = await _generateUniqueFriendCode();
+      final username   = await _generateUniqueUsername(googleUser.email);
+      final displayName = (googleUser.displayName?.trim().isNotEmpty ?? false)
+          ? googleUser.displayName!.trim()
+          : googleUser.email.split('@').first;
       final authData = await _pb.collection('users').authWithOAuth2Code(
         'google', idToken, '', '',
         createData: {
-          'display_name': googleUser.displayName ?? googleUser.email,
-          'username':     _emailToUsername(googleUser.email),
-          'friend_code':  _generateFriendCode(),
+          'display_name': displayName,
+          'username':     username,
+          'friend_code':  friendCode,
+          'emailVisibility': true,
         },
       );
       final user = _recordToUser(authData.record!);
       await _saveSession(user);
-      return user;
+      final isNew = authData.meta['isNew'] == true;
+      return GoogleAuthResult(user: user, isNew: isNew);
     } on AuthException {
       rethrow;
     } on ClientException catch (e) {
@@ -423,10 +447,30 @@ class AuthRepositoryImpl implements AuthRepository {
     }
   }
 
-  String _emailToUsername(String email) => email
-      .split('@').first
-      .replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_')
-      .toLowerCase();
+  /// Builds a unique username from an email. Enforces the users-collection
+  /// `min 3` rule (pads short locals) and appends a numeric suffix until the
+  /// server reports the username is free.
+  Future<String> _generateUniqueUsername(String email) async {
+    var base = email
+        .split('@').first
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_')
+        .toLowerCase();
+    if (base.length < 3) base = base.padRight(3, '0');
+    var candidate = base;
+    var suffix = 0;
+    while (true) {
+      try {
+        await _pb.collection('users')
+            .getFirstListItem('username="$candidate"');
+        // Found → taken, try the next suffix.
+        suffix += 1;
+        candidate = '$base$suffix';
+      } on ClientException catch (e) {
+        if (e.statusCode == 404) return candidate;
+        rethrow;
+      }
+    }
+  }
 }
 
 // Clean provider — no loading state, no _LoadingAuthRepository.

@@ -149,18 +149,32 @@ class _ContextSheet extends ConsumerWidget {
             message.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
             message.isPinned ? 'Unpin' : 'Pin',
             () async {
-              await repo.togglePin(
-                message.localId,
-                message.conversationId,
-                !message.isPinned,
-              );
-              if (context.mounted) _afterAction(context);
+              try {
+                await repo.togglePin(
+                  message.localId,
+                  message.conversationId,
+                  !message.isPinned,
+                );
+                if (context.mounted) _afterAction(context);
+              } on StateError catch (e) {
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.message)),
+                  );
+                }
+              }
             },
           ),
 
           _tile(
             Icons.delete_outline, 'Delete for me',
             () async {
+              final confirmed = await _confirmDelete(
+                context,
+                'This message will be deleted for you only.',
+              );
+              if (!confirmed) return;
               await repo.deleteMessage(message.localId);
               if (context.mounted) _afterAction(context);
             },
@@ -171,6 +185,11 @@ class _ContextSheet extends ConsumerWidget {
             _tile(
               Icons.delete_forever_outlined, 'Delete for everyone',
               () async {
+                final confirmed = await _confirmDelete(
+                  context,
+                  'This message will be deleted for everyone in this chat.',
+                );
+                if (!confirmed) return;
                 await repo.deleteMessage(message.localId, forEveryone: true);
                 if (context.mounted) _afterAction(context);
               },
@@ -179,6 +198,32 @@ class _ContextSheet extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<bool> _confirmDelete(BuildContext context, String body) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title:   const Text('Delete message?'),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child:     const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              'Delete',
+              style: TextStyle(
+                color: Theme.of(dialogContext).colorScheme.error,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   Widget _tile(IconData icon, String label, VoidCallback onTap,

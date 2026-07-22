@@ -1,5 +1,4 @@
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../../services/media_upload_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -10,12 +9,14 @@ import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/presence_service.dart';
+import '../../../services/fcm_service.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_input.dart';
 import '../widgets/pinned_message_banner.dart';
 import '../../media/screens/media_docs_screen.dart';
 import '../../groups/screens/group_settings_screen.dart';
+import '../../starred_messages/screens/starred_messages_screen.dart';
 
 // ── Sealed list item ──────────────────────────────────────────────────────
 
@@ -61,6 +62,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   // Cached items list so scroll helpers can access it
   List<_ChatItem> _items = [];
 
+  final Map<String, String> _senderNameCache = {};
+
   ProviderSubscription<AsyncValue<List<Message>>>? _markReadSub;
 
   PresenceService get _pres => ref.read(presenceServiceProvider);
@@ -69,6 +72,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   void initState() {
     super.initState();
+    FcmService.activeConversationId = _cid;
     WidgetsBinding.instance.addObserver(this);
     _scrollCtrl.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -88,6 +92,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   @override
   void dispose() {
+    if (FcmService.activeConversationId == _cid) {
+      FcmService.activeConversationId = null;
+    }
     _markReadSub?.close();
     WidgetsBinding.instance.removeObserver(this);
     _scrollCtrl.dispose();
@@ -99,8 +106,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s == AppLifecycleState.resumed) _enter();
+    if (s == AppLifecycleState.resumed) {
+      FcmService.activeConversationId = _cid;
+      _enter();
+    }
     if (s == AppLifecycleState.paused || s == AppLifecycleState.inactive) {
+      FcmService.activeConversationId = null;
       _pres.leaveChat(_cid);
     }
   }
@@ -243,7 +254,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     int flatIndex = -1;
     for (int i = 0; i < _items.length; i++) {
       final item = _items[i];
-      if (item is _MsgItem && item.msg.localId == msg.localId) {
+      // Match on localId OR serverId — starred-screen messages are
+      // reconstructed from the server and their localId may actually be
+      // the server id.
+      if (item is _MsgItem &&
+          (item.msg.localId == msg.localId ||
+              (msg.serverId != null && item.msg.serverId == msg.serverId) ||
+              item.msg.serverId == msg.localId)) {
         flatIndex = i;
         break;
       }
@@ -288,7 +305,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   @override
   Widget build(BuildContext context) {
-    final conv           = widget.conversation;
+    final convAsync      = ref.watch(conversationStreamProvider(_cid));
+    final conv           = convAsync.asData?.value ?? widget.conversation;
     final messagesAsync  = ref.watch(messagesProvider(_cid));
     final otherUserId    = conv.otherUser?.id;
     final presence       = otherUserId != null
@@ -301,15 +319,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final messages = messagesAsync.asData?.value ?? [];
     final items    = _buildItems(messages);
 
-    // ── Group-specific: canSendMessages ───────────────────────
-    bool canSend = true;
-    if (conv.isGroup && conv.onlyAdminsCanMessage) {
-      final myRole = ref.watch(_myRoleProvider((
-        convId: _cid,
-        userId: myId,
-      ))).asData?.value;
-      canSend = myRole == 'admin';
-    }
+    // ── Group-specific reactive state ─────────────────────────
+    final membersAsync = ref.watch(groupMembersProvider(_cid));
+    final members = membersAsync.asData?.value ?? [];
+    final myMember = members.where((m) => m.id == myId).firstOrNull;
+    final isMeAdmin = myMember?.groupRole == 'admin';
+    final isLeft = myMember?.groupRole == 'left';
+    final memberCount = conv.isGroup ? members.where((m) => m.groupRole != 'left').length : 0;
+
+    final canSend = !conv.isGroup 
+        ? true 
+        : (isLeft ? false : (!conv.onlyAdminsCanMessage || isMeAdmin));
+
+    final restrictionMessage = isLeft
+        ? "You can't send messages to this group because you're no longer a member."
+        : null;
 
     return PopScope(
       canPop: false,
@@ -322,7 +346,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       child: Scaffold(
         appBar: _searchActive
             ? _searchBar(context, messages)
-            : _mainBar(context, conv, presence),
+            : _mainBar(context, conv, presence, memberCount),
         body: Column(
           children: [
             if (_loadingMore)
@@ -366,10 +390,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           final msgItem   = item as _MsgItem;
                           final msg       = msgItem.msg;
                           final isMine    = msg.senderId == myId;
+
+                          if (conv.isGroup && !isMine && !_senderNameCache.containsKey(msg.senderId)) {
+                            ref.read(appDatabaseProvider).usersDao.getUserById(msg.senderId).then((u) {
+                              if (u != null && mounted) {
+                                setState(() => _senderNameCache[msg.senderId] = u.displayName);
+                              }
+                            });
+                          }
+
                           final isMatch   = _searchQuery.isNotEmpty &&
-                              (msg.decryptedBody ?? '')
-                                  .toLowerCase()
-                                  .contains(_searchQuery.toLowerCase());
+                              (msg.decryptedBody ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
                           final isCurrent = _matchItemIndices.isNotEmpty &&
                               _matchIndex < _matchItemIndices.length &&
                               _items[_matchItemIndices[_matchIndex]] == item;
@@ -383,8 +414,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                 message:    msg,
                                 isMine:     isMine,
                                 isGroup:    conv.isGroup,
-                                senderName: conv.otherUser?.displayName
-                                    ?? 'Unknown',
+                                senderName: conv.isGroup
+                                    ? (_senderNameCache[msg.senderId] ?? 'Unknown')
+                                    : (conv.otherUser?.displayName ?? 'Unknown'),
                                 onReply: () => ref
                                     .read(replyProvider.notifier)
                                     .state = msg,
@@ -408,10 +440,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
             if (!_searchActive)
               MessageInput(
-                conversationId:   _cid,
-                isLoading:        false,
-                canSendMessages:  canSend,
-                onTyping:         () => _pres.onTyping(_cid),
+                conversationId:     _cid,
+                isLoading:          false,
+                canSendMessages:    canSend,
+                restrictionMessage: restrictionMessage,
+                onTyping:           () => _pres.onTyping(_cid),
                 onSend:           (text) {
                   final reply = ref.read(replyProvider);
                   String? replyPreview;
@@ -446,12 +479,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     BuildContext context,
     Conversation conv,
     OtherUserPresence? presence,
+    int memberCount,
   ) {
-    // Group member count subtitle
-    final memberCount = conv.memberCount
-        ?? ref.watch(_memberCountProvider(_cid)).asData?.value
-        ?? 0;
-
     return AppBar(
         titleSpacing: 0,
         leading: BackButton(onPressed: () =>
@@ -459,19 +488,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               if (context.mounted) Navigator.of(context).pop();
             })),
         title: Row(children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: AppColors.primaryLight,
-            backgroundImage: conv.avatarUrl != null
-                ? CachedNetworkImageProvider(conv.avatarUrl!)
-                : null,
-            child: conv.avatarUrl == null
-                ? Text(conv.displayName.substring(0, 1).toUpperCase(),
-                    style: const TextStyle(
-                      color: AppColors.primary, fontWeight: FontWeight.w700,
-                      fontSize: 14))
-                : null,
-          ),
+          if (!conv.isGroup)
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: AppColors.primaryLight,
+              backgroundImage: conv.avatarUrl != null
+                  ? CachedNetworkImageProvider(conv.avatarUrl!)
+                  : null,
+              child: conv.avatarUrl == null
+                  ? Text(conv.displayName.substring(0, 1).toUpperCase(),
+                      style: const TextStyle(
+                        color: AppColors.primary, fontWeight: FontWeight.w700,
+                        fontSize: 14))
+                  : null,
+            )
+          else
+            Stack(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primaryLight,
+                  backgroundImage: conv.iconUrl != null
+                      ? CachedNetworkImageProvider(conv.iconUrl!)
+                      : null,
+                  child: conv.iconUrl == null
+                      ? Text(
+                          conv.displayName.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(
+                            color: AppColors.primary, fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        )
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(1.5),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.group, size: 10, color: AppColors.primary),
+                  ),
+                ),
+              ],
+            ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -533,12 +595,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               }
             },
             itemBuilder: (_) => [
-              if (!conv.isGroup)
-                const PopupMenuItem(value: 'starred',      child: Text('Starred Messages'))
-              else
-                const PopupMenuItem(value: 'group_info',   child: Text('Group Info')),
-              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing Messages')),
               const PopupMenuItem(value: 'media_docs',   child: Text('Media & Docs')),
+              if (conv.isGroup)
+                const PopupMenuItem(value: 'group_info',   child: Text('Group Info'))
+              else
+                const PopupMenuItem(value: 'starred',      child: Text('Starred Messages')),
+              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing Messages')),
             ],
           ),
         ],
@@ -681,207 +743,6 @@ class _HighlightWrapper extends StatelessWidget {
   }
 }
 
-// ── Starred messages screen ───────────────────────────────────────────────
-
-class StarredMessagesScreen extends ConsumerWidget {
-  const StarredMessagesScreen({
-    super.key,
-    required this.conversationId,
-    this.onJump,
-  });
-  final String                 conversationId;
-  final void Function(Message)? onJump;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Starred Messages')),
-      body: FutureBuilder<List<Message>>(
-        future: ref.read(messageRepositoryProvider)
-            .getStarredMessages(conversationId),
-        builder: (context, snap) {
-          if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final msgs = snap.data!;
-          if (msgs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.star_outline, size: 64,
-                      color: Theme.of(context).colorScheme.onSurface
-                          .withValues(alpha: 0.2)),
-                  const SizedBox(height: 12),
-                  Text('No starred messages',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface
-                            .withValues(alpha: 0.4))),
-                ],
-              ),
-            );
-          }
-          return ListView.separated(
-            padding:         const EdgeInsets.all(16),
-            itemCount:       msgs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) {
-              final msg = msgs[i];
-              return _StarredCard(
-                message: msg,
-                onTap: onJump != null
-                    ? () {
-                        Navigator.pop(context);
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          onJump!(msg);
-                        });
-                      }
-                    : null,
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _StarredCard extends ConsumerStatefulWidget {
-  const _StarredCard({required this.message, this.onTap});
-  final Message       message;
-  final VoidCallback? onTap;
-
-  @override
-  ConsumerState<_StarredCard> createState() => _StarredCardState();
-}
-
-class _StarredCardState extends ConsumerState<_StarredCard> {
-  String? _thumbUrl;
-  bool _loadingImage = true;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.message.type == 'image' && widget.message.serverId != null) {
-      _loadImage();
-    }
-  }
-
-  Future<void> _loadImage() async {
-    final urls = await ref
-        .read(mediaUploadServiceProvider)
-        .getImageUrls(widget.message.serverId!);
-    if (mounted) {
-      setState(() {
-        _thumbUrl = urls?['thumb'];
-        _loadingImage = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final myId   = ref.watch(currentUserIdProvider).asData?.value ?? '';
-    final isMine = widget.message.senderId == myId;
-
-    return GestureDetector(
-      onTap: widget.onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color:        Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color:      Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset:     const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              const Icon(Icons.star, color: AppColors.warning, size: 14),
-              const SizedBox(width: 6),
-              Text(
-                isMine ? 'You' : 'Contact',
-                style: const TextStyle(
-                  fontSize:   12,
-                  fontWeight: FontWeight.w600,
-                  color:      AppColors.primary,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                DateFormat('MMM d, HH:mm')
-                    .format(widget.message.createdAt.toLocal()),
-                style: TextStyle(
-                  fontSize: 11,
-                  color:    Theme.of(context).colorScheme.onSurface
-                      .withValues(alpha: 0.5),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            if (widget.message.type == 'image' && widget.message.serverId != null)
-              _buildImageContent()
-            else
-              Text(
-                widget.message.decryptedBody ?? '🔒 Encrypted',
-                style: const TextStyle(fontSize: 15),
-              ),
-            if (widget.onTap != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Tap to jump to message',
-                style: TextStyle(
-                  fontSize: 11,
-                  color:    Theme.of(context).colorScheme.onSurface
-                      .withValues(alpha: 0.35),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildImageContent() {
-    if (_loadingImage) {
-      return const SizedBox(
-        height: 120,
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
-    if (_thumbUrl == null) {
-      return const SizedBox(
-        height: 120,
-        child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
-      );
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: CachedNetworkImage(
-        imageUrl: _thumbUrl!,
-        height: 200,
-        width: double.infinity,
-        fit: BoxFit.cover,
-        placeholder: (_, __) => Container(
-          height: 200,
-          color: Colors.grey.shade300,
-        ),
-        errorWidget: (_, __, ___) => const SizedBox(
-          height: 120,
-          child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
-        ),
-      ),
-    );
-  }
-}
-
 // ── Presence stream provider ──────────────────────────────────────────────
 
 final _presenceProvider = StreamProvider.autoDispose
@@ -890,21 +751,3 @@ final _presenceProvider = StreamProvider.autoDispose
   return ref.read(presenceServiceProvider).watchPresence(args.userId, args.convId);
 });
 
-// ── Group member count provider ───────────────────────────────────────────
-
-final _memberCountProvider =
-    FutureProvider.autoDispose.family<int, String>((ref, convId) async {
-  final db      = ref.read(appDatabaseProvider);
-  final members = await db.conversationsDao.getMembersForConversation(convId);
-  return members.length;
-});
-
-// ── My role in a conversation ─────────────────────────────────────────────
-
-final _myRoleProvider = FutureProvider.autoDispose
-    .family<String?, ({String convId, String userId})>((ref, args) async {
-  final db      = ref.read(appDatabaseProvider);
-  final members = await db.conversationsDao.getMembersForConversation(args.convId);
-  final mine    = members.where((m) => m.userId == args.userId).firstOrNull;
-  return mine?.role;
-});

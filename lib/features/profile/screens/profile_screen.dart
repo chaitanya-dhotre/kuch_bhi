@@ -25,6 +25,10 @@ class ProfileScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Profile'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => context.push(AppRoutes.settings),
+          ),
           TextButton(
             onPressed: () =>
                 ref.read(authProvider.notifier).signOut(),

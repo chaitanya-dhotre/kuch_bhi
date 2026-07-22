@@ -71,6 +71,7 @@ class _SwipeToReplyState extends State<SwipeToReply>
     final progress = (_offset / _threshold).clamp(0.0, 1.0);
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onHorizontalDragUpdate: _onUpdate,
       onHorizontalDragEnd:    _onEnd,
       child: Stack(

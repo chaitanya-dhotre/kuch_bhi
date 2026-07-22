@@ -98,15 +98,26 @@ class PresenceService {
 
   // ── Typing ────────────────────────────────────────────────────
 
+  DateTime? _lastTypingPatch;
+
   Future<void> onTyping(String conversationId) async {
     final uid = await _uid(); if (uid == null) return;
-    if (!_isTyping) {
+    final now = DateTime.now();
+    // Patch on first keystroke, then RENEW every 4s while typing continues.
+    // Recipients expire the indicator locally 6s after the last renewal, so
+    // a killed app can never leave a permanent "Typing..." on other devices.
+    final needsPatch = !_isTyping ||
+        _lastTypingPatch == null ||
+        now.difference(_lastTypingPatch!).inSeconds >= 4;
+    if (needsPatch) {
       _isTyping = true;
+      _lastTypingPatch = now;
       await _patch(uid, {'typing_in': conversationId});
     }
     _typingTimer?.cancel();
     _typingTimer = Timer(const Duration(seconds: 2), () async {
       _isTyping = false;
+      _lastTypingPatch = null;
       final id = await _uid(); if (id == null) return;
       await _patch(id, {'typing_in': ''});
     });
@@ -119,19 +130,50 @@ class PresenceService {
     String conversationId,
   ) {
     final ctrl = StreamController<OtherUserPresence>.broadcast();
+    Timer? typingExpiry;
+    OtherUserPresence? last;
+
+    void emit(OtherUserPresence p) {
+      if (ctrl.isClosed) return;
+      last = p;
+      ctrl.add(p);
+
+      // The sender renews typing_in every ≤2s while actively typing. If the
+      // app is killed mid-typing the clear never reaches the server, so we
+      // expire typing locally when no renewal arrives within 6s.
+      typingExpiry?.cancel();
+      if (p.isTyping) {
+        typingExpiry = Timer(const Duration(seconds: 6), () {
+          if (ctrl.isClosed || last == null) return;
+          ctrl.add(OtherUserPresence(
+            isOnline: last!.isOnline,
+            isTyping: false,
+            isInChat: last!.isInChat,
+            lastSeen: last!.lastSeen,
+          ));
+        });
+      }
+    }
 
     // Emit initial state.
     _pb.collection('users').getOne(otherUserId).then((r) {
-      if (!ctrl.isClosed) ctrl.add(_toPresence(r, conversationId));
-    }).catchError((e) => debugPrint('[Presence] initial fetch: $e'));
+      emit(_toPresence(r, conversationId));
+    }).catchError((e) {
+      debugPrint('[Presence] initial fetch: $e');
+      return null;
+    });
 
     // Subscribe to live updates.
     _pb.collection('users').subscribe(otherUserId, (event) {
       if (event.record == null || ctrl.isClosed) return;
-      ctrl.add(_toPresence(event.record!, conversationId));
-    }).catchError((e) => debugPrint('[Presence] subscribe: $e'));
+      emit(_toPresence(event.record!, conversationId));
+    }).catchError((e) {
+      debugPrint('[Presence] subscribe: $e');
+      return () async {};
+    });
 
     ctrl.onCancel = () {
+      typingExpiry?.cancel();
       _pb.collection('users').unsubscribe(otherUserId)
           .catchError((_) {});
     };

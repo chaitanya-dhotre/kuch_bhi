@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:drift/drift.dart' show OrderingMode, OrderingTerm, Value;
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
@@ -19,6 +22,7 @@ import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../../services/encryption_service.dart';
 import '../../services/media_upload_service.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
+import '../../services/fcm_service.dart';
 
 class MessageRepositoryImpl implements MessageRepository {
   MessageRepositoryImpl({
@@ -28,8 +32,20 @@ class MessageRepositoryImpl implements MessageRepository {
     required this.encryption,
     required this.mediaUploadService,
   }) {
-    _initGlobalSubscriptions();
+    // Kick off the very first connect (serialized — see _reconnect).
+    _reconnect();
     _initConnectivityRetry();
+
+    // Re-subscribe when auth state changes (e.g. login/logout).
+    _pb.authStore.onChange.listen((event) {
+      if (event.token.isNotEmpty) {
+        debugPrint('[Msg] Auth token changed (logged in). Reconnecting subscriptions.');
+        _reconnect();
+      } else {
+        debugPrint('[Msg] Auth token changed (logged out). Unsubscribing.');
+        _teardown();
+      }
+    });
   }
 
   final PocketBaseClient     pbClient;
@@ -46,18 +62,130 @@ class MessageRepositoryImpl implements MessageRepository {
   @override
   Stream<String> get reactionsChanges => _reactionsCtrl.stream;
 
-  // ── Global subscriptions (set up once for all conversations) ──
+  // ── Realtime subscription lifecycle ───────────────────────────
+  //
+  // PocketBase's subscribe()/unsubscribe() are ASYNC under the hood (they
+  // negotiate a single shared /api/realtime SSE client). Firing them
+  // concurrently — which used to happen from the constructor, the auth-change
+  // listener and resyncOnResume all at once — corrupts that shared client
+  // ("Missing or invalid client id", "Cannot add new events after close") and
+  // leaves every subscription dead. So ALL connect/teardown work is funnelled
+  // through a single serialized chain (_opChain) and guarded by retry+backoff.
+  // A lightweight poll fallback keeps devices without a working SSE/FCM path
+  // (e.g. de-Googled ROMs) up to date.
 
-  void _initGlobalSubscriptions() {
-    // Note: Messages that arrive while offline during reinstall are automatically
-    // handled by PocketBase subscription + SSE subscription + _cacheMsg flow when connection settles.
+  Future<void> _opChain = Future.value();
+  bool _subscribed = false;
+  int  _reconnectAttempts = 0;
+  Timer? _reconnectTimer;
+  Timer? _pollTimer;
+
+  /// Serializes [action] after any in-flight connect/teardown so the shared
+  /// SSE client is never mutated concurrently.
+  Future<T> _serialize<T>(Future<T> Function() action) {
+    final next = _opChain.then((_) => action());
+    // Keep the chain alive even if an action throws.
+    _opChain = next.then((_) {}, onError: (_) {});
+    return next;
+  }
+
+  Future<void> _teardown() => _serialize(_teardownInner);
+
+  Future<void> _teardownInner() async {
+    _subscribed = false;
+    for (final c in const [
+      'messages', 'conversations', 'conversation_members',
+      'message_receipts', 'reactions',
+    ]) {
+      try {
+        await _pb.collection(c).unsubscribe('*');
+      } catch (_) {}
+    }
+    debugPrint('[Msg] Unsubscribed from all PocketBase collections.');
+  }
+
+  /// Public entry point — always safe to call, always serialized.
+  void _reconnect() {
+    _reconnectTimer?.cancel();
+    _serialize(() async {
+      if (!_pb.authStore.isValid) return;
+      try {
+        await _teardownInner();
+        await _subscribeAll();
+        _subscribed = true;
+        _reconnectAttempts = 0;
+        debugPrint('[Msg] Realtime subscriptions established.');
+        _startPollFallback();
+      } catch (e) {
+        _subscribed = false;
+        _reconnectAttempts += 1;
+        // Exponential backoff, capped at 30s.
+        final delay = Duration(
+          seconds: (1 << (_reconnectAttempts.clamp(0, 5))).clamp(1, 30),
+        );
+        debugPrint('[Msg] Subscribe failed ($e). Retrying in ${delay.inSeconds}s.');
+        _reconnectTimer = Timer(delay, _reconnect);
+        // Even while SSE is down, keep polling so the UI still updates.
+        _startPollFallback();
+      }
+    });
+  }
+
+  /// Awaits each subscribe() so failures propagate to the retry logic and the
+  /// shared SSE client is built up one collection at a time.
+  Future<void> _subscribeAll() async {
+    await _subMessages();
+    await _subConversations();
+    await _subMembers();
+    await _subReceipts();
+    await _subReactions();
+  }
+
+  Future<void> _subMessages() async {
     // Messages subscription — handles incoming messages from all conversations
-    _pb.collection('messages').subscribe('*', (event) async {
+    await _pb.collection('messages').subscribe('*', (event) async {
       if (event.record == null) return;
       final r = event.record!;
       final myId = await _myId();
+      // Never process incoming events before the session id is known — that
+      // caused own-message echoes and empty recipient_id receipts.
+      if (myId.isEmpty) return;
 
-      // Skip our own sent messages — already handled optimistically in sendMessage
+      // Sync pin + delete-for-everyone state for ANY message (including our
+      // own), so these reflect live across devices without reopening.
+      try {
+        final existing = await db.messagesDao.getMessageByServerId(r.id);
+        if (existing != null) {
+          final serverPinned = r.getBoolValue('is_pinned');
+          final serverDeleted = r.getBoolValue('is_deleted_for_everyone');
+          if (serverPinned != existing.isPinned ||
+              serverDeleted != existing.isDeletedForEveryone) {
+            await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+              localId:              existing.localId,
+              serverId:             Value(existing.serverId),
+              conversationId:       existing.conversationId,
+              senderId:             existing.senderId,
+              type:                 existing.type,
+              encryptedBody:        existing.encryptedBody,
+              iv:                   existing.iv,
+              decryptedBody:        Value(existing.decryptedBody),
+              replyToId:            Value(existing.replyToId),
+              replyPreview:         Value(existing.replyPreview),
+              isPinned:             Value(serverPinned),
+              isStarred:            Value(existing.isStarred),
+              isDeletedForMe:       Value(existing.isDeletedForMe),
+              isDeletedForEveryone: Value(serverDeleted),
+              mediaId:              Value(existing.mediaId),
+              status:               Value(existing.status),
+              createdAt:            existing.createdAt,
+              updatedAt:            DateTime.now(),
+            ));
+          }
+        }
+      } catch (_) {}
+
+      // Skip our own sent messages for the incoming-decrypt path — already
+      // handled optimistically in sendMessage (pin/delete synced above).
       if (r.getStringValue('sender_id') == myId) return;
 
       final convId  = r.getStringValue('conversation_id');
@@ -70,29 +198,46 @@ class MessageRepositoryImpl implements MessageRepository {
             await _cacheUserRecord(u);
           } catch (_) {}
         }
-        final key = await _getConvKey(convId, myId);
-        await _cacheMsg(r, myId, key);
+        List<int>? key;
+        try {
+          key = await _getConvKey(convId, myId);
+        } on MissingKeyException catch (e) {
+          debugPrint('[Msg] incoming key not ready, caching ciphertext: $e');
+          key = null;
+        }
+        // Cache even if we can't decrypt yet — a later fetch/reconcile will
+        // decrypt once the key is available. Message is never lost.
+        await _cacheMsg(r, myId, key ?? const <int>[]);
+        // Always acknowledge delivery so the sender's tick advances.
         await _markDelivered(r.id, convId, myId);
         // Drift stream auto-emits — no manual push needed
       } catch (e) {
         debugPrint('[Msg] incoming error: $e');
       }
     });
+  }
 
-    // Conversation subscriptions — keep home screen in sync when a chat is
-    // created or membership changes on the other device.
-    _pb.collection('conversations').subscribe('*', (_) {
+  Future<void> _subConversations() async {
+    // Keep home screen in sync when a chat is created or membership changes
+    // on the other device.
+    await _pb.collection('conversations').subscribe('*', (_) {
       _syncConversationsBackground();
     });
-    _pb.collection('conversation_members').subscribe('*', (_) {
+  }
+
+  Future<void> _subMembers() async {
+    await _pb.collection('conversation_members').subscribe('*', (_) {
       _syncConversationsBackground();
     });
+  }
 
+  Future<void> _subReceipts() async {
     // Receipts subscription — updates tick status
-    _pb.collection('message_receipts').subscribe('*', (event) async {
+    await _pb.collection('message_receipts').subscribe('*', (event) async {
       if (event.record == null) return;
       final r   = event.record!;
       final myId = await _myId();
+      if (myId.isEmpty) return;
       final msgServerId = r.getStringValue('message_id');
       final recipientId = r.getStringValue('recipient_id');
       final deliveredAt = r.getStringValue('delivered_at');
@@ -121,8 +266,11 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     });
 
-    // Reactions subscription — fires on both devices when any reaction changes
-    _pb.collection('reactions').subscribe('*', (event) async {
+  }
+
+  Future<void> _subReactions() async {
+    // Reactions subscription — fires on both devices when any reaction changes.
+    await _pb.collection('reactions').subscribe('*', (event) async {
       if (event.record == null) return;
       final msgServerId = event.record!.getStringValue('message_id');
       if (msgServerId.isNotEmpty) {
@@ -131,6 +279,35 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     });
   }
+
+  // ── Poll fallback ─────────────────────────────────────────────
+  // For devices where SSE is flaky or FCM is unavailable (de-Googled ROMs),
+  // poll the active conversations every few seconds so incoming messages,
+  // receipts, reactions, pins and deletions still surface without a reopen.
+
+  void _startPollFallback() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      // If SSE is healthy this is cheap insurance; if it's down it's the only
+      // thing keeping the device current.
+      try {
+        final myId = await _myId();
+        if (myId.isEmpty) return;
+        final active = _activeConversationId;
+        if (active != null) {
+          await _fetchAndCacheMessages(active);
+          await _reconcileReceiptsForConversation(active, myId);
+        }
+        await _syncConversations(myId);
+      } catch (e) {
+        debugPrint('[Msg] poll fallback: $e');
+      }
+    });
+  }
+
+  /// The conversation currently on screen (set by watchMessages). Polled more
+  /// eagerly than the rest so the open chat feels live even without SSE.
+  String? _activeConversationId;
 
   void _initConnectivityRetry() {
     Connectivity().onConnectivityChanged.listen((results) {
@@ -168,6 +345,13 @@ class MessageRepositoryImpl implements MessageRepository {
   /// No manual StreamController needed.
   @override
   Stream<List<Message>> watchMessages(String conversationId) {
+    // Track the on-screen conversation for the poll fallback.
+    _activeConversationId = conversationId;
+    // Purge any locally-expired disappearing messages before showing the chat,
+    // then start the background fetch. The Drift stream auto-emits on delete.
+    db.messagesDao.deleteExpiredMessages();
+    // Collapse any duplicate rows the FCM background isolate raced in.
+    db.messagesDao.dedupByServerId();
     // Start background fetch (saves to Drift → auto-emits via stream below)
     _fetchAndCacheMessages(conversationId);
 
@@ -197,6 +381,7 @@ class MessageRepositoryImpl implements MessageRepository {
     final myId    = await _myId();
     final localId = _uuid.v4();
     final now     = DateTime.now();
+    final expiresAt = await _computeExpiry(conversationId, now);
 
     debugPrint('[Msg] Sending message - localId: $localId, convId: $conversationId');
 
@@ -214,6 +399,7 @@ class MessageRepositoryImpl implements MessageRepository {
       replyToId:      Value(replyToLocalId),
       replyPreview:   Value(replyPreview),
       status:         Value('pending'),
+      expiresAt:      Value(expiresAt),
       createdAt:      now,
       updatedAt:      now,
     ));
@@ -242,11 +428,24 @@ class MessageRepositoryImpl implements MessageRepository {
   }) async {
     debugPrint('[Msg] Starting upload for localId: $localId');
     
-    EncryptResult encrypted;
+    final List<int> key;
+    final EncryptResult encrypted;
+    final EncryptResult? encryptedReply;
     try {
-      final key = await _getConvKey(conversationId, myId);
-      encrypted  = await encryption.encryptMessage(plaintext, key);
+      key = await _getConvKey(conversationId, myId);
+      encrypted = await encryption.encryptMessage(plaintext, key);
+      // Encrypt the reply preview too — it must never hit the server as plaintext.
+      encryptedReply = (replyPreview != null && replyPreview.isNotEmpty)
+          ? await encryption.encryptMessage(replyPreview, key)
+          : null;
       debugPrint('[Msg] Message encrypted successfully');
+    } on MissingKeyException catch (e) {
+      // Key not ready yet (peer key not synced / offline). Keep the message
+      // PENDING so it retries automatically — do NOT mark failed, and never
+      // send under a placeholder key.
+      debugPrint('[Msg] Key not ready, staying pending: $e');
+      await db.messagesDao.updateMessageStatus(localId, 'pending');
+      return;
     } catch (e) {
       debugPrint('[Msg] Encryption failed: $e');
       await db.messagesDao.updateMessageStatus(localId, 'failed');
@@ -257,8 +456,8 @@ class MessageRepositoryImpl implements MessageRepository {
       // Resolve localId → serverId for reply reference
       String? replyServerId;
       if (replyToLocalId != null) {
-      final replyMsg = await db.messagesDao.getMessageByLocalId(replyToLocalId);
-      replyServerId  = replyMsg?.serverId;
+        final replyMsg = await db.messagesDao.getMessageByLocalId(replyToLocalId);
+        replyServerId = replyMsg?.serverId;
       }
 
       debugPrint('[Msg] Creating message record on server');
@@ -268,12 +467,17 @@ class MessageRepositoryImpl implements MessageRepository {
         'type':                   'text',
         'encrypted_body':         encrypted.ciphertext,
         'iv':                     encrypted.iv,
-        'reply_to_id':            replyServerId ?? '',   // Server ID, not local
-        'reply_preview':          replyPreview ?? '',    // Store plain text preview
+        'reply_to_id':            replyServerId ?? '',
+        // Encrypted preview stored as 'iv:ciphertext' (empty when no reply).
+        'reply_preview':          encryptedReply == null
+            ? ''
+            : '${encryptedReply.iv}:${encryptedReply.ciphertext}',
         'is_deleted_for_everyone': false,
       });
       debugPrint('[Msg] Message created on server with serverId: ${record.id}');
 
+      final serverCreated = DateTime.tryParse(record.created) ?? createdAt;
+      final expiresAt = await _computeExpiry(conversationId, serverCreated);
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
         serverId:       Value(record.id),
@@ -284,9 +488,12 @@ class MessageRepositoryImpl implements MessageRepository {
         iv:             encrypted.iv,
         decryptedBody:  Value(plaintext),
         replyToId:      Value(replyServerId),
+        // Keep the local plaintext reply preview for display.
         replyPreview:   Value(replyPreview),
         status:         Value('sent'),
-        createdAt:      createdAt,
+        expiresAt:      Value(expiresAt),
+        // Use the server's canonical timestamp so ordering matches all devices.
+        createdAt:      serverCreated,
         updatedAt:      DateTime.now(),
       ));
       debugPrint('[Msg] Local message updated with status: sent');
@@ -294,7 +501,7 @@ class MessageRepositoryImpl implements MessageRepository {
       await db.conversationsDao.updateLastMessage(
         conversationId,
         plaintext.length > 50 ? '${plaintext.substring(0, 50)}…' : plaintext,
-        DateTime.now(),
+        serverCreated,
       );
 
       debugPrint('[Msg] Creating receipts for serverId: ${record.id}');
@@ -370,11 +577,17 @@ class MessageRepositoryImpl implements MessageRepository {
     int?              videoHeight,
   }) async {
     try {
-      // Step A: Get conversation key and encrypt a dummy value (schema requires it)
-      EncryptResult encrypted;
+      // Step A: Get conversation key. Media bytes AND the body stub are
+      // E2E-encrypted with this key.
+      final List<int> key;
+      final EncryptResult encrypted;
       try {
-        final key = await _getConvKey(conversationId, myId);
+        key = await _getConvKey(conversationId, myId);
         encrypted = await encryption.encryptMessage(durationText ?? '', key);
+      } on MissingKeyException catch (e) {
+        debugPrint('[Msg] Media key not ready, staying pending: $e');
+        await db.messagesDao.updateMessageStatus(localId, 'pending');
+        return;
       } catch (e) {
         debugPrint('[Msg] Media encryption failed: $e');
         await db.messagesDao.updateMessageStatus(localId, 'failed');
@@ -411,6 +624,7 @@ class MessageRepositoryImpl implements MessageRepository {
           conversationId,
           quality ?? 'normal',
           messageServerId,
+          key,
         );
       } else if (mediaType == 'video') {
         if (thumbnailFile == null) {
@@ -423,6 +637,7 @@ class MessageRepositoryImpl implements MessageRepository {
           quality ?? 'normal',
           durationSeconds,
           messageServerId,
+          key,
           videoWidth:  videoWidth,
           videoHeight: videoHeight,
         );
@@ -431,6 +646,7 @@ class MessageRepositoryImpl implements MessageRepository {
           mediaFile,
           conversationId,
           messageServerId,
+          key,
         );
       } else {
         mediaId = await mediaUploadService.uploadVoice(
@@ -438,6 +654,7 @@ class MessageRepositoryImpl implements MessageRepository {
           conversationId,
           durationSeconds,
           messageServerId,
+          key,
         );
       }
       debugPrint('[Msg] Media uploaded, mediaId: $mediaId');
@@ -488,24 +705,25 @@ class MessageRepositoryImpl implements MessageRepository {
 
   @override
   Future<void> retryPendingMessages() async {
-    // Note: Pending/failed messages (status='pending'/'failed' with no serverId)
-    // that were in Drift are permanently lost after reinstall.
-    // We clean up stale pending messages that are older than 24 hours.
-    await db.messagesDao.deleteStuckPendingMessages();
-
     final pending = await db.messagesDao.getPendingMessages();
     if (pending.isEmpty) return;
 
     debugPrint('[Msg] Retrying ${pending.length} pending messages.');
 
+    // Resolve our id once; if the session isn't ready, skip this pass entirely
+    // (we do NOT delete or fail the user's queued messages — they'll retry).
+    final myId = await _myId();
+    if (myId.isEmpty) {
+      debugPrint('[Msg] Session not ready; deferring pending retry.');
+      return;
+    }
+
     for (final msg in pending) {
-      if (msg.decryptedBody == null) continue;
-      // Skip ghost messages created when myId() returned '' — their senderId
-      // is empty and they can never be uploaded correctly. Mark as failed.
+      if (msg.decryptedBody == null && msg.mediaId == null) continue;
+      // Repair ghost messages whose senderId was lost to an early auth race:
+      // adopt the now-known id instead of destroying the user's message.
       if (msg.senderId.isEmpty) {
-        debugPrint('[Msg] Purging ghost pending message ${msg.localId} (empty senderId).');
-        await db.messagesDao.updateMessageStatus(msg.localId, 'failed');
-        continue;
+        debugPrint('[Msg] Repairing pending message ${msg.localId} with resolved senderId.');
       }
       await retryMessage(msg.localId);
     }
@@ -514,17 +732,34 @@ class MessageRepositoryImpl implements MessageRepository {
   @override
   Future<void> retryMessage(String localId) async {
     final msg = await db.messagesDao.getMessageByLocalId(localId);
-    if (msg == null || msg.decryptedBody == null) return;
+    if (msg == null) return;
+    // Already synced — nothing to retry.
+    if (msg.serverId != null && msg.serverId!.isNotEmpty) return;
+
+    final myId = await _myId();
+    if (myId.isEmpty) return;
 
     // Reset to pending -> Drift stream auto-emits -> retry button disappears
     await db.messagesDao.updateMessageStatus(localId, 'pending');
 
-    // Re-upload with the SAME localId - no new entry created
+    // Media messages retry through their own path.
+    if (msg.type != 'text') {
+      // Media temp files may be gone after a restart; only text is safely
+      // re-uploadable from Drift. Leave media as-is for now.
+      if (msg.decryptedBody == null) return;
+    }
+
+    // Resolve reply preview (plaintext) from the referenced local/DB row.
+    String? replyPreview = msg.replyPreview;
+
+    // Re-upload with the SAME localId - no new entry created.
     await _uploadMessage(
       localId:        localId,
       conversationId: msg.conversationId,
-      myId:           await _myId(),
-      plaintext:      msg.decryptedBody!,
+      myId:           myId,
+      plaintext:      msg.decryptedBody ?? '',
+      replyToLocalId: null,
+      replyPreview:   replyPreview,
       createdAt:      msg.createdAt,
     );
   }
@@ -535,14 +770,54 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> markConversationRead(String conversationId) async {
     try {
       final myId = await _myId();
-      final res  = await _pb.collection('message_receipts').getList(
+      if (myId.isEmpty) return;
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+      // 1) Mark all my existing unread receipts in this conversation as read.
+      final res = await _pb.collection('message_receipts').getFullList(
         filter: 'conversation_id="$conversationId"'
             '&&recipient_id="$myId"&&read_at=""',
+        batch: 200,
       );
-      for (final r in res.items) {
-        await _pb.collection('message_receipts').update(r.id, body: {
-          'read_at': DateTime.now().toIso8601String(),
-        });
+      for (final r in res) {
+        try {
+          await _pb.collection('message_receipts').update(r.id, body: {
+            'read_at': nowUtc,
+            // Ensure delivered is set too — reading implies delivered.
+            if (r.getStringValue('delivered_at').isEmpty) 'delivered_at': nowUtc,
+          });
+        } catch (_) {}
+      }
+
+      // 2) For any incoming messages that don't yet have a receipt for me
+      //    (e.g. the sender's create failed), create one now marked read.
+      final rows = await db.messagesDao.watchMessages(conversationId).first;
+      final withReceipt = res.map((r) => r.getStringValue('message_id')).toSet();
+      for (final row in rows) {
+        final sid = row.serverId;
+        if (sid == null || sid.isEmpty) continue;
+        if (row.senderId == myId) continue;      // not my own messages
+        if (withReceipt.contains(sid)) continue; // already handled above
+        try {
+          await _pb.collection('message_receipts').create(body: {
+            'message_id':      sid,
+            'conversation_id': conversationId,
+            'recipient_id':    myId,
+            'delivered_at':    nowUtc,
+            'read_at':         nowUtc,
+          });
+        } catch (_) {
+          // Unique-index race — a receipt now exists; mark it read.
+          try {
+            final ex = await _pb.collection('message_receipts').getList(
+              filter: 'message_id="$sid"&&recipient_id="$myId"', perPage: 1,
+            );
+            if (ex.items.isNotEmpty) {
+              await _pb.collection('message_receipts').update(
+                ex.items.first.id, body: {'read_at': nowUtc});
+            }
+          } catch (_) {}
+        }
       }
     } catch (e) {
       debugPrint('[Receipt] markRead: $e');
@@ -566,8 +841,44 @@ class MessageRepositoryImpl implements MessageRepository {
         await _cacheMsg(r, myId, key);
       }
       // Drift auto-emits after the inserts above
+    } on MissingKeyException catch (e) {
+      debugPrint('[Msg] loadMore key not ready: $e');
     } catch (e) {
       debugPrint('[Msg] loadMore: $e');
+    }
+  }
+
+  @override
+  Future<void> fetchAndCacheSingleMessage(
+      String messageId, String conversationId) async {
+    try {
+      final myId = await _myId();
+
+      // Check if already cached
+      final existing = await db.messagesDao.getMessageByServerId(messageId);
+      if (existing != null) {
+        debugPrint('[Msg] Single message $messageId already cached locally.');
+        return;
+      }
+
+      final r = await _pb.collection('messages').getOne(messageId);
+      final senderId = r.getStringValue('sender_id');
+
+      // Ensure sender is cached in Drift
+      if (await db.usersDao.getUserById(senderId) == null) {
+        try {
+          final u = await _pb.collection('users').getOne(senderId);
+          await _cacheUserRecord(u);
+        } catch (_) {}
+      }
+
+      final key = await _getConvKey(conversationId, myId);
+      await _cacheMsg(r, myId, key);
+      debugPrint('[Msg] Successfully fetched and cached single message $messageId');
+    } on MissingKeyException catch (e) {
+      debugPrint('[Msg] single message key not ready: $e');
+    } catch (e) {
+      debugPrint('[Msg] Error fetching and caching single message: $e');
     }
   }
 
@@ -722,6 +1033,16 @@ class MessageRepositoryImpl implements MessageRepository {
     final msg = await db.messagesDao.getMessageByLocalId(localId);
     if (msg == null) return;
 
+    // Enforce max 3 pinned messages per conversation (bible §6.4).
+    if (pin) {
+      final current = await db.messagesDao.getPinnedMessages(conversationId);
+      final alreadyPinned = current.any((m) => m.localId == localId);
+      if (!alreadyPinned && current.length >= AppConstants.maxPinnedMessages) {
+        throw StateError(
+            'You can pin up to ${AppConstants.maxPinnedMessages} messages.');
+      }
+    }
+
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
       localId:        msg.localId,
       conversationId: msg.conversationId,
@@ -859,6 +1180,91 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   @override
+  Stream<List<Message>> watchPinnedMessages(String conversationId) {
+    return db.messagesDao
+        .watchPinnedMessages(conversationId)
+        .asyncMap((rows) async {
+      final myId = await _myId();
+      return rows.map((r) => _rowToMessage(r, myId)).toList();
+    });
+  }
+
+  @override
+  Future<LocalMediaFile?> getDecryptedMedia(
+    String conversationId,
+    String messageServerId, {
+    bool thumb = false,
+  }) async {
+    try {
+      final myId = await _myId();
+      final key = await _getConvKey(conversationId, myId);
+      return mediaUploadService.getDecryptedMedia(
+        messageServerId, key, thumb: thumb);
+    } on MissingKeyException catch (e) {
+      debugPrint('[Media] key not ready for decrypt: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<void> syncAllHistory() async {
+    final myId = await _myId();
+    if (myId.isEmpty) return;
+    debugPrint('[Sync] Full history sync starting for $myId');
+    try {
+      // Ensure conversations + members are cached first.
+      await _syncConversations(myId);
+      final convs = await db.conversationsDao.watchAllConversations().first;
+      for (final conv in convs) {
+        try {
+          List<int>? key;
+          // Retry key derivation a few times — during reinstall restore the
+          // peer's public key fetch can transiently fail on a flaky network,
+          // and skipping it would leave the whole conversation blank.
+          for (var attempt = 0; attempt < 3 && key == null; attempt++) {
+            try {
+              key = await _getConvKey(conv.id, myId);
+            } on MissingKeyException {
+              if (attempt < 2) {
+                await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+              }
+            }
+          }
+          if (key == null) {
+            debugPrint('[Sync] conv ${conv.id}: no key after retries, '
+                'messages will re-decrypt once key is available');
+          }
+          // Page through the ENTIRE conversation history.
+          var page = 1;
+          while (true) {
+            final res = await _pb.collection('messages').getList(
+              filter: 'conversation_id="${conv.id}"&&is_deleted_for_everyone=false',
+              sort: '-created',
+              page: page,
+              perPage: 200,
+            );
+            if (res.items.isEmpty) break;
+            // Cache every row even when key is null — _cacheMsg stores the
+            // ciphertext and a later chat-open re-decrypts. Never drop history.
+            for (final r in res.items) {
+              await _cacheMsg(r, myId, key ?? const <int>[]);
+            }
+            if (page >= res.totalPages) break;
+            page++;
+          }
+          await _syncDeletedForMe(conv.id);
+          await _syncStarredMessages(conv.id);
+        } catch (e) {
+          debugPrint('[Sync] conversation ${conv.id} failed: $e');
+        }
+      }
+      debugPrint('[Sync] Full history sync complete');
+    } catch (e) {
+      debugPrint('[Sync] Full history sync error: $e');
+    }
+  }
+
+  @override
   Future<List<Message>> searchMessages(String conversationId, String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
@@ -891,13 +1297,12 @@ class MessageRepositoryImpl implements MessageRepository {
         conversationId,
         body: {'disappearing_duration': seconds},
       );
-      await db.conversationsDao.upsertConversation(
-        ConversationsTableCompanion(
-          id: Value(conversationId),
-          disappearingDuration: Value(seconds),
-          updatedAt: Value(DateTime.now()),
-        ),
-      );
+      await (db.update(db.conversationsTable)
+            ..where((t) => t.id.equals(conversationId)))
+          .write(ConversationsTableCompanion(
+        disappearingDuration: Value(seconds),
+        updatedAt: Value(DateTime.now()),
+      ));
     } catch (e) {
       debugPrint('[Conv] setDisappearing: $e');
     }
@@ -907,10 +1312,12 @@ class MessageRepositoryImpl implements MessageRepository {
 
   @override
   Future<bool> isCurrentUserAdmin(String conversationId) async {
-    final myId  = await _myId();
-    final member = await db.conversationsDao
-        .getMemberByUserAndConv(myId, conversationId);
-    return member?.role == 'admin';
+    final myId = await _myId();
+    final members = await db.conversationsDao
+        .getMembersForConversation(conversationId);
+    return members
+        .where((m) => m.userId == myId)
+        .firstOrNull?.role == 'admin';
   }
 
   @override
@@ -927,74 +1334,62 @@ class MessageRepositoryImpl implements MessageRepository {
           u = await db.usersDao.getUserById(m.userId);
         } catch (_) {}
       }
-      if (u != null) users.add(_tableUserToEntity(u));
+      if (u != null) {
+        users.add(_tableUserToEntity(u, groupRole: m.role));
+      }
     }
     return users;
   }
 
   @override
   Future<void> addMemberToGroup(
-      String conversationId, String userId) async {
+      String conversationId, String newUserId) async {
     final myId = await _myId();
     if (!await isCurrentUserAdmin(conversationId)) {
-      throw StateError('Only admins can add members');
+      throw Exception('Not an admin');
     }
 
-    // a) Create conversation_members record in PocketBase
-    final memberRecord = await _pb.collection('conversation_members').create(
-      body: {
-        'conversation_id': conversationId,
-        'user_id':         userId,
-        'role':            'member',
-        'joined_at':       DateTime.now().toUtc().toIso8601String(),
-      },
-    );
-
-    // b) Get current group key + key_version
-    final groupKey = await encryption.getOrFetchGroupKey(conversationId, myId);
-    int currentVersion = 1;
+    // Idempotent membership: the server has UNIQUE(conversation_id,user_id),
+    // so re-adding a previously-removed member must NOT create a duplicate.
+    RecordModel memberRecord;
     try {
-      final myKeyRecord = await _pb.collection('group_keys').getFirstListItem(
-        'conversation_id="$conversationId"&&user_id="$myId"',
+      memberRecord = await _pb.collection('conversation_members').getFirstListItem(
+        'conversation_id="$conversationId"&&user_id="$newUserId"',
       );
-      currentVersion = myKeyRecord.getIntValue('key_version');
+      // Already a member — nothing to add (avoids duplicate rows/keys).
+      debugPrint('[Group] $newUserId already a member — skipping duplicate add.');
+    } catch (_) {
+      memberRecord = await _pb.collection('conversation_members').create(
+        body: {
+          'conversation_id': conversationId,
+          'user_id':         newUserId,
+          'role':            'member',
+        },
+      );
+    }
+
+    String? newPublicKey;
+    try {
+      final r = await _pb.collection('users').getOne(newUserId);
+      await _cacheUserRecord(r);
+      newPublicKey = r.getStringValue('public_key');
     } catch (_) {}
 
-    // c) Get new member's public key
-    var newUser = await db.usersDao.getUserById(userId);
-    if (newUser == null || newUser.publicKey == null) {
-      try {
-        final r = await _pb.collection('users').getOne(userId);
-        await _cacheUserRecord(r);
-        newUser = await db.usersDao.getUserById(userId);
-      } catch (_) {}
-    }
-    if (newUser?.publicKey == null) {
-      throw StateError('Cannot fetch public key for new member');
+    if (newPublicKey == null || newPublicKey.isEmpty) {
+      throw Exception('No public key for user');
     }
 
-    // d) Encrypt group key for new member
-    final encryptedKey = await encryption.encryptGroupKeyForMember(
-      groupKey, newUser!.publicKey!, conversationId,
-    );
+    // Rotate the group key so the newly-added member cannot read history
+    // from before they joined, and everyone converges on one current key.
+    await _rotateGroupKey(conversationId, myId);
 
-    // e) Create group_keys record
-    await _pb.collection('group_keys').create(body: {
-      'conversation_id':      conversationId,
-      'user_id':              userId,
-      'encrypted_key':        encryptedKey,
-      'encrypted_by_user_id': myId,
-      'key_version':          currentVersion,
-    });
-
-    // f) Update Drift
     await db.conversationsDao.upsertMember(
       ConversationMembersTableCompanion.insert(
         id:             memberRecord.id,
         conversationId: conversationId,
-        userId:         userId,
-        role:           const Value('member'),
+        userId:         newUserId,
         joinedAt:       DateTime.now(),
+        role:           const Value('member'),
       ),
     );
   }
@@ -1002,209 +1397,273 @@ class MessageRepositoryImpl implements MessageRepository {
   @override
   Future<void> removeMemberFromGroup(
       String conversationId, String userId) async {
+    final myId = await _myId();
     if (!await isCurrentUserAdmin(conversationId)) {
-      throw StateError('Only admins can remove members');
+      throw Exception('Not an admin');
     }
 
-    // a) Find and delete conversation_members record in PocketBase
+    // Delete ALL membership rows for this user (defensive against any
+    // pre-existing duplicates), tolerating a missing record.
     try {
-      final res = await _pb.collection('conversation_members').getFirstListItem(
-        'conversation_id="$conversationId"&&user_id="$userId"',
+      final memberRecs = await _pb.collection('conversation_members').getFullList(
+        filter: 'conversation_id="$conversationId"&&user_id="$userId"', batch: 50,
       );
-      await _pb.collection('conversation_members').delete(res.id);
-    } catch (_) {}
-
-    // b) Delete their group_keys record
-    try {
-      final kRes = await _pb.collection('group_keys').getFirstListItem(
-        'conversation_id="$conversationId"&&user_id="$userId"',
-      );
-      await _pb.collection('group_keys').delete(kRes.id);
-    } catch (_) {}
-
-    // c) Rotate the group key — forward secrecy
-    await _rotateGroupKey(conversationId);
-
-    // d) Update Drift: delete member row
-    final localMember = await db.conversationsDao
-        .getMemberByUserAndConv(userId, conversationId);
-    if (localMember != null) {
-      await (db.delete(db.conversationMembersTable)
-            ..where((t) => t.id.equals(localMember.id)))
-          .go();
+      for (final rec in memberRecs) {
+        await _pb.collection('conversation_members').delete(rec.id);
+      }
+    } catch (e) {
+      debugPrint('[Group] remove member server delete: $e');
     }
+
+    // Remove all of the removed user's group-key rows so they can't decrypt.
+    try {
+      final keyRecs = await _pb.collection('group_keys').getFullList(
+        filter: 'conversation_id="$conversationId"&&user_id="$userId"', batch: 50,
+      );
+      for (final rec in keyRecs) {
+        await _pb.collection('group_keys').delete(rec.id);
+      }
+    } catch (_) {}
+
+    // Fully remove locally (not a soft 'left' — they were removed by an admin).
+    await (db.delete(db.conversationMembersTable)
+          ..where((t) => t.conversationId.equals(conversationId)
+              & t.userId.equals(userId)))
+        .go();
+
+    // Rotate the key so the removed member can't read future messages.
+    await _rotateGroupKey(conversationId, myId);
   }
 
-  Future<void> _rotateGroupKey(String conversationId) async {
-    final myId = await _myId();
-
-    // a) Generate new group key
+  Future<void> _rotateGroupKey(String convId, String myId) async {
     final newKey = encryption.generateGroupKey();
 
-    // b) Determine new key version
-    int newVersion = 1;
-    try {
-      final existing = await _pb.collection('group_keys').getList(
-        filter:  'conversation_id="$conversationId"',
-        perPage: 1,
-        sort:    '-key_version',
-      );
-      if (existing.items.isNotEmpty) {
-        newVersion = existing.items.first.getIntValue('key_version') + 1;
-      }
-    } catch (_) {}
+    // Read the CURRENT membership straight from the server so a just-added
+    // member is included and a just-removed member is excluded.
+    final memberRecs = await _pb.collection('conversation_members').getFullList(
+      filter: 'conversation_id="$convId"', batch: 200,
+    );
 
-    // c) Get all remaining members
-    final members = await db.conversationsDao
-        .getMembersForConversation(conversationId);
+    // Determine the next key version from any existing key for this group.
+    final existing = await _pb.collection('group_keys').getList(
+      filter: 'conversation_id="$convId"',
+      sort: '-key_version',
+      perPage: 1,
+    );
+    final newVersion =
+        (existing.items.isEmpty ? 0 : existing.items.first.getIntValue('key_version')) + 1;
 
-    // d+e) Encrypt and create new group_keys record for each member
-    for (final m in members) {
-      var u = await db.usersDao.getUserById(m.userId);
-      if (u == null || u.publicKey == null) {
-        try {
-          final r = await _pb.collection('users').getOne(m.userId);
-          await _cacheUserRecord(r);
-          u = await db.usersDao.getUserById(m.userId);
-        } catch (_) {}
-      }
-      if (u?.publicKey == null) continue;
+    for (final m in memberRecs) {
+      final uid = m.getStringValue('user_id');
+      String? pubKey;
+      try {
+        final r = await _pb.collection('users').getOne(uid);
+        await _cacheUserRecord(r);
+        pubKey = r.getStringValue('public_key');
+      } catch (_) {}
+      if (pubKey == null || pubKey.isEmpty) continue;
 
-      final encryptedKey = await encryption.encryptGroupKeyForMember(
-        newKey, u!.publicKey!, conversationId,
+      final encKey = await encryption.encryptGroupKeyForMember(
+        newKey, pubKey, convId,
       );
       try {
         await _pb.collection('group_keys').create(body: {
-          'conversation_id':      conversationId,
-          'user_id':              m.userId,
-          'encrypted_key':        encryptedKey,
+          'conversation_id':      convId,
+          'user_id':              uid,
+          'encrypted_key':        encKey,
           'encrypted_by_user_id': myId,
           'key_version':          newVersion,
         });
       } catch (e) {
-        debugPrint('[GroupKey] Failed to create key for ${m.userId}: $e');
+        // Unique (conv,user,version) race — update the existing row instead.
+        debugPrint('[Group] group_key create conflict for $uid, updating: $e');
+        try {
+          final ex = await _pb.collection('group_keys').getFirstListItem(
+            'conversation_id="$convId"&&user_id="$uid"&&key_version=$newVersion',
+          );
+          await _pb.collection('group_keys').update(ex.id, body: {
+            'encrypted_key':        encKey,
+            'encrypted_by_user_id': myId,
+          });
+        } catch (_) {}
       }
     }
 
-    // f) Delete ALL old group_keys for this conversation (version < newVersion)
-    try {
-      final old = await _pb.collection('group_keys').getList(
-        filter:  'conversation_id="$conversationId"&&key_version<$newVersion',
-        perPage: 200,
-      );
-      for (final r in old.items) {
-        try { await _pb.collection('group_keys').delete(r.id); } catch (_) {}
+    // Delete stale older-version keys.
+    final oldRecs = await _pb.collection('group_keys').getFullList(
+      filter: 'conversation_id="$convId"&&key_version<$newVersion', batch: 200,
+    );
+    for (final r in oldRecs) {
+      try {
+        await _pb.collection('group_keys').delete(r.id);
+      } catch (e) {
+        debugPrint('[Group] Non-fatal: could not delete old group key record: $e');
       }
-    } catch (_) {}
+    }
 
-    // g) Update local cache with new key, clear derived shared key cache
+    // Update my own cache to the new key; other members' caches self-heal on
+    // decrypt failure (they re-fetch the latest key version).
     await storage.write(
-      key:   'group_key_$conversationId',
+      key:   'group_key_$convId',
       value: base64.encode(newKey),
     );
-    // Clear the per-member derived key cache so re-encryption uses new material
-    await storage.write(
-      key:   'contact_key_${conversationId}_groupkey',
-      value: '',
-    );
+    await storage.write(key: 'contact_key_${convId}_gk', value: '');
   }
 
   @override
   Future<void> promoteMemberToAdmin(
       String conversationId, String userId) async {
-    await _updateMemberRole(conversationId, userId, 'admin');
+    if (!await isCurrentUserAdmin(conversationId)) {
+      throw Exception('Not an admin');
+    }
+    final rec = await _pb.collection('conversation_members').getFirstListItem(
+      'conversation_id="$conversationId"&&user_id="$userId"',
+    );
+    await _pb.collection('conversation_members').update(rec.id, body: {'role': 'admin'});
+    await (db.update(db.conversationMembersTable)
+          ..where((t) => t.conversationId.equals(conversationId)
+              & t.userId.equals(userId)))
+        .write(const ConversationMembersTableCompanion(role: Value('admin')));
   }
 
   @override
   Future<void> demoteAdminToMember(
       String conversationId, String userId) async {
-    await _updateMemberRole(conversationId, userId, 'member');
-  }
-
-  Future<void> _updateMemberRole(
-      String conversationId, String userId, String role) async {
-    // Find PocketBase record
-    final res = await _pb.collection('conversation_members').getFirstListItem(
+    final members = await db.conversationsDao.getMembersForConversation(conversationId);
+    final adminCount = members.where((m) => m.role == 'admin').length;
+    final myId = await _myId();
+    if (userId == myId && adminCount <= 1) {
+      throw Exception('Cannot demote the only admin');
+    }
+    if (!await isCurrentUserAdmin(conversationId)) {
+      throw Exception('Not an admin');
+    }
+    final rec = await _pb.collection('conversation_members').getFirstListItem(
       'conversation_id="$conversationId"&&user_id="$userId"',
     );
-    await _pb.collection('conversation_members').update(res.id, body: {'role': role});
-
-    // Update Drift
-    final local = await db.conversationsDao
-        .getMemberByUserAndConv(userId, conversationId);
-    if (local != null) {
-      await db.conversationsDao.upsertMember(
-        ConversationMembersTableCompanion.insert(
-          id:             local.id,
-          conversationId: conversationId,
-          userId:         userId,
-          role:           Value(role),
-          joinedAt:       local.joinedAt,
-        ),
-      );
-    }
+    await _pb.collection('conversation_members').update(rec.id, body: {'role': 'member'});
+    await (db.update(db.conversationMembersTable)
+          ..where((t) => t.conversationId.equals(conversationId)
+              & t.userId.equals(userId)))
+          .write(const ConversationMembersTableCompanion(role: Value('member')));
   }
 
   @override
   Future<void> setOnlyAdminsCanMessage(
       String conversationId, bool value) async {
     if (!await isCurrentUserAdmin(conversationId)) {
-      throw StateError('Only admins can change this setting');
+      throw Exception('Not an admin');
     }
     await _pb.collection('conversations').update(
       conversationId,
       body: {'only_admins_can_message': value},
     );
-    // Update Drift
-    await db.conversationsDao.upsertConversation(
-      ConversationsTableCompanion(
-        id:                   Value(conversationId),
-        onlyAdminsCanMessage: Value(value),
-        updatedAt:            Value(DateTime.now()),
-      ),
-    );
+    await (db.update(db.conversationsTable)
+          ..where((t) => t.id.equals(conversationId)))
+        .write(ConversationsTableCompanion(
+          onlyAdminsCanMessage: Value(value)));
   }
 
   @override
   Future<void> leaveGroup(String conversationId) async {
     final myId = await _myId();
+    final members = await db.conversationsDao.getMembersForConversation(conversationId);
+    final me = members.where((m) => m.userId == myId).firstOrNull;
 
-    // a) Check if I'm the sole admin — if so, promote earliest-joining other member
-    final allMembers = await db.conversationsDao
-        .getMembersForConversation(conversationId);
-    final admins  = allMembers.where((m) => m.role == 'admin').toList();
-    final others  = allMembers
-        .where((m) => m.userId != myId)
-        .toList()
-      ..sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
-
-    if (admins.length == 1 && admins.first.userId == myId && others.isNotEmpty) {
-      try {
-        await _updateMemberRole(conversationId, others.first.userId, 'admin');
-      } catch (_) {}
+    if (me?.role == 'admin') {
+      final otherAdmins = members.where((m) => m.userId != myId && m.role == 'admin');
+      if (otherAdmins.isEmpty && members.length > 1) {
+        final nextAdmin = members
+          .where((m) => m.userId != myId)
+          .reduce((a, b) => a.joinedAt.isBefore(b.joinedAt) ? a : b);
+        await promoteMemberToAdmin(conversationId, nextAdmin.userId);
+      }
     }
 
-    // b) Delete my conversation_members record from PocketBase
     try {
-      final res = await _pb.collection('conversation_members').getFirstListItem(
+      final rec = await _pb.collection('conversation_members').getFirstListItem(
         'conversation_id="$conversationId"&&user_id="$myId"',
       );
-      await _pb.collection('conversation_members').delete(res.id);
-    } catch (_) {}
+      await _pb.collection('conversation_members').delete(rec.id);
+    } catch (e) {
+      debugPrint('[Group] Error deleting membership on server during leave: $e');
+    }
 
-    // c) Delete my group_keys record
     try {
-      final kRes = await _pb.collection('group_keys').getFirstListItem(
+      final keyRec = await _pb.collection('group_keys').getFirstListItem(
         'conversation_id="$conversationId"&&user_id="$myId"',
       );
-      await _pb.collection('group_keys').delete(kRes.id);
+      await _pb.collection('group_keys').delete(keyRec.id);
     } catch (_) {}
 
-    // d) Remove from local Drift
-    await db.conversationsDao.deleteConversation(conversationId);
+    await storage.delete(key: 'group_key_$conversationId');
 
-    // e) Clear cached group key
-    await storage.write(key: 'group_key_$conversationId', value: '');
+    if (me != null) {
+      await (db.update(db.conversationMembersTable)
+            ..where((t) => t.conversationId.equals(conversationId)
+                & t.userId.equals(myId)))
+          .write(const ConversationMembersTableCompanion(role: Value('left')));
+    }
+  }
+
+  @override
+  Future<void> updateGroupInfo(String conversationId,
+      {String? name, File? iconFile}) async {
+    if (!await isCurrentUserAdmin(conversationId)) {
+      throw Exception('Not an admin');
+    }
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    List<http.MultipartFile>? files;
+    if (iconFile != null) {
+      files = [
+        http.MultipartFile.fromBytes(
+          'icon',
+          await iconFile.readAsBytes(),
+          filename: 'icon.jpg',
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      ];
+    }
+    final rec = await _pb.collection('conversations').update(
+      conversationId,
+      body: body,
+      files: files ?? [],
+    );
+    final iconField = rec.getStringValue('icon');
+    final iconUrl   = iconField.isEmpty
+        ? null
+        : '${_pb.baseUrl}/api/files/conversations/$conversationId/$iconField';
+
+    await (db.update(db.conversationsTable)
+          ..where((t) => t.id.equals(conversationId)))
+        .write(ConversationsTableCompanion(
+      name:      Value(rec.getStringValue('name')),
+      iconUrl:   Value(iconUrl),
+      updatedAt: Value(DateTime.now()),
+    ));
+  }
+
+  @override
+  Stream<Conversation?> watchConversation(String conversationId) {
+    return db.conversationsDao.watchConversationById(conversationId).asyncMap((row) async {
+      if (row == null) return null;
+      if (row.type == 'group') {
+        final count = await _getMemberCount(row.id);
+        return _convDataToEntity(row, null, memberCount: count);
+      } else {
+        final myId = await _myId();
+        final other = await _getOtherUser(row.id, myId);
+        return _convDataToEntity(row, other);
+      }
+    });
+  }
+
+  @override
+  Stream<List<User>> watchGroupMembers(String conversationId) {
+    return db.conversationsDao
+        .watchMembersForConversation(conversationId)
+        .asyncMap((_) => getGroupMembers(conversationId));
   }
 
   // ── Private helpers ───────────────────────────────────────────
@@ -1224,12 +1683,45 @@ class MessageRepositoryImpl implements MessageRepository {
     return '';
   }
 
+  @override
+  Future<void> resyncOnResume() async {
+    debugPrint('[Msg] resyncOnResume — reconnecting realtime + refetching.');
+    // 1. Force-reconnect the SSE subscriptions. Android suspends the socket
+    //    while backgrounded and events sent in that window are lost forever —
+    //    a fresh subscribe guarantees a live connection. _reconnect() is
+    //    serialized internally, so calling it here can never race the
+    //    constructor or the auth-change listener.
+    _reconnect();
+
+    // 2. Refetch conversations + recent messages/receipts for every
+    //    conversation so anything missed while suspended is backfilled.
+    try {
+      final myId = await _myId();
+      if (myId.isEmpty) return;
+      // Remove any duplicate rows the FCM background isolate raced in.
+      await db.messagesDao.dedupByServerId();
+      await _syncConversations(myId);
+      final memberships =
+          await db.conversationsDao.getMembershipsOfUser(myId);
+      for (final m in memberships) {
+        if (m.role == 'left') continue;
+        await _fetchAndCacheMessages(m.conversationId);
+      }
+      // 3. Flush anything that failed to send while backgrounded.
+      await retryPendingMessages();
+    } catch (e) {
+      debugPrint('[Msg] resyncOnResume: $e');
+    }
+  }
+
   Future<void> _fetchAndCacheMessages(String conversationId) async {
     try {
       final myId = await _myId();
       debugPrint('[Msg] _fetchAndCacheMessages — myId: $myId, convId: $conversationId');
+      // No is_deleted_for_everyone filter: deletions that happened while this
+      // device was offline must ALSO sync (cacheMsg flips the local flag).
       final res  = await _pb.collection('messages').getList(
-        filter:  'conversation_id="$conversationId"&&is_deleted_for_everyone=false',
+        filter:  'conversation_id="$conversationId"',
         sort:    '-created',
         perPage: 40,
       );
@@ -1238,16 +1730,43 @@ class MessageRepositoryImpl implements MessageRepository {
       // Note: Group key recovery works seamlessly after private key restore.
       // The old encrypted group keys in PocketBase are decrypted using the user's restored X25519 key
       // on first access, and local FlutterSecureStorage group key cache is cleared on reinstall.
-      final key = await _getConvKey(conversationId, myId);
-      debugPrint('[Msg] _fetchAndCacheMessages — key isZero: ${key.every((b) => b == 0)}');
-      for (final r in res.items) {
-        await _cacheMsg(r, myId, key);
+      List<int>? key;
+      try {
+        key = await _getConvKey(conversationId, myId);
+      } on MissingKeyException catch (e) {
+        debugPrint('[Msg] key not ready during fetch: $e');
+        key = null;
+      }
+      if (key != null) {
+        for (final r in res.items) {
+          await _cacheMsg(r, myId, key);
+        }
       }
 
       await _syncDeletedForMe(conversationId);
       await _syncStarredMessages(conversationId);
+      // Repair any stuck ticks for my own messages in this conversation.
+      await _reconcileReceiptsForConversation(conversationId, myId);
     } catch (e) {
       debugPrint('[Msg] fetch error (offline?): $e');
+    }
+  }
+
+  /// Repairs sender-side tick status for a conversation by recomputing from
+  /// the server receipts. Fixes ticks that got stuck due to missed events.
+  Future<void> _reconcileReceiptsForConversation(
+      String conversationId, String myId) async {
+    try {
+      final rows = await db.messagesDao.watchMessages(conversationId).first;
+      for (final row in rows) {
+        if (row.senderId != myId) continue;
+        final sid = row.serverId;
+        if (sid == null || sid.isEmpty) continue;
+        if (row.status == 'read') continue; // already terminal
+        await _updateMsgReceiptStatus(row.localId, sid);
+      }
+    } catch (e) {
+      debugPrint('[Receipt] reconcile: $e');
     }
   }
 
@@ -1331,7 +1850,25 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
-  Future<void> _cacheMsg(RecordModel r, String myId, List<int> key) async {
+  /// In-flight cache operations keyed by serverId. The realtime subscription,
+  /// the FCM foreground handler, and background fetches can all try to cache
+  /// the same message concurrently — without serialization both see
+  /// "no existing row" and insert duplicates (two bubbles for one message).
+  final Map<String, Future<void>> _cacheInFlight = {};
+
+  Future<void> _cacheMsg(RecordModel r, String myId, List<int> key) {
+    final pending = _cacheInFlight[r.id];
+    // Swallow the previous op's error so the chain always continues.
+    final next = (pending ?? Future.value())
+        .catchError((_) {})
+        .then((_) => _cacheMsgInner(r, myId, key));
+    _cacheInFlight[r.id] = next.whenComplete(() {
+      if (identical(_cacheInFlight[r.id], next)) _cacheInFlight.remove(r.id);
+    });
+    return next;
+  }
+
+  Future<void> _cacheMsgInner(RecordModel r, String myId, List<int> key) async {
     // Note: isDeletedForEveryone is already synchronized automatically on fresh install
     // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
     final encBody = r.getStringValue('encrypted_body');
@@ -1339,97 +1876,207 @@ class MessageRepositoryImpl implements MessageRepository {
     String? decrypted;
     if (encBody.isNotEmpty && iv.isNotEmpty && encBody != '__pending__') {
       decrypted = await encryption.decryptMessage(encBody, iv, key);
+      if (decrypted == null) {
+        final convId = r.getStringValue('conversation_id');
+        final conv = await db.conversationsDao.getConversationById(convId);
+        if (conv?.type == 'group') {
+          debugPrint('[Enc] Group decryption failed. Invalidating cached group key and refetching...');
+          try {
+            await storage.delete(key: 'group_key_$convId');
+            final freshKey = await _getConvKey(convId, myId);
+            decrypted = await encryption.decryptMessage(encBody, iv, freshKey);
+          } catch (e) {
+            debugPrint('[Enc] Self-healing group key fetch failed: $e');
+          }
+        }
+      }
     }
+    // Decrypt the reply preview if present. New messages store it as
+    // 'iv:ciphertext'; legacy rows may hold plaintext — handle both.
+    String? replyPreview;
+    final rawReply = r.getStringValue('reply_preview');
+    if (rawReply.isNotEmpty) {
+      final idx = rawReply.indexOf(':');
+      if (idx > 0 && encBody != '__pending__') {
+        final rIv = rawReply.substring(0, idx);
+        final rCt = rawReply.substring(idx + 1);
+        replyPreview = await encryption.decryptMessage(rCt, rIv, key) ?? '🔒';
+      } else {
+        replyPreview = rawReply; // legacy plaintext
+      }
+    }
+
     final existing = await db.messagesDao.getMessageByServerId(r.id);
-    // Don't overwrite a 'read' status with 'delivered'
+    final isMine = r.getStringValue('sender_id') == myId;
     final existingStatus = existing?.status ?? '';
-    final status = r.getStringValue('sender_id') == myId
-        ? (existingStatus.isEmpty ? 'sent' : existingStatus)
-        : 'delivered';
+
+    // For my own messages: keep any existing (locally-known) status, but on a
+    // fresh install (existing == null) compute the real status from receipts
+    // instead of blindly resetting to 'sent'.
+    String status;
+    if (isMine) {
+      if (existingStatus.isNotEmpty) {
+        status = existingStatus;
+      } else {
+        status = await _computeSenderStatus(r.id);
+      }
+    } else {
+      // Incoming message: mark delivered locally (recipient side).
+      status = 'delivered';
+    }
 
     final rawMediaId = r.getStringValue('media_id');
     // 'file' is the server enum used for documents; normalise to 'document' locally.
     final rawType = r.getStringValue('type');
     final localType = rawType == 'file' ? 'document' : rawType;
+    final convId = r.getStringValue('conversation_id');
+    final createdAt = DateTime.tryParse(r.created) ?? DateTime.now();
+    final expiresAt = await _computeExpiry(convId, createdAt);
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
       localId:               existing?.localId ?? _uuid.v4(),
       serverId:              Value(r.id),
-      conversationId:        r.getStringValue('conversation_id'),
+      conversationId:        convId,
       senderId:              r.getStringValue('sender_id'),
       type:                  localType,
       encryptedBody:         encBody,
       iv:                    iv,
-      decryptedBody:         Value(decrypted),
+      // Never wipe an already-decrypted body with null (e.g. when a later
+      // cache pass runs with the key unavailable).
+      decryptedBody:         Value(decrypted ?? existing?.decryptedBody),
       replyToId:             Value(r.getStringValue('reply_to_id').isEmpty
           ? null : r.getStringValue('reply_to_id')),
-      replyPreview:          Value(r.getStringValue('reply_preview').isEmpty
-        ? null : r.getStringValue('reply_preview')),
+      replyPreview:          Value(replyPreview ?? existing?.replyPreview),
+      // Preserve locally-known star/pin/delete-for-me flags across re-caches.
+      isPinned:              Value(r.getBoolValue('is_pinned')),
+      isStarred:             Value(existing?.isStarred ?? false),
+      isDeletedForMe:        Value(existing?.isDeletedForMe ?? false),
       isDeletedForEveryone:  Value(r.getBoolValue('is_deleted_for_everyone')),
       mediaId:               Value(rawMediaId.isEmpty ? null : rawMediaId),
       status:                Value(status),
-      createdAt:             DateTime.tryParse(r.created) ?? DateTime.now(),
+      expiresAt:             Value(expiresAt),
+      createdAt:             createdAt,
       updatedAt:             DateTime.now(),
     ));
+
+    // Keep the conversation list ordered + previewed on the RECIPIENT side
+    // too (the sender's device updates it in sendMessage). Only bump for
+    // messages newer than the current lastMessageAt so backfills don't
+    // reorder the list.
+    if (!isMine && !r.getBoolValue('is_deleted_for_everyone')) {
+      try {
+        final conv = await db.conversationsDao.getConversationById(convId);
+        final currentLast = conv?.lastMessageAt;
+        if (currentLast == null || createdAt.isAfter(currentLast)) {
+          final preview = switch (localType) {
+            'image'    => '📷 Photo',
+            'video'    => '🎬 Video',
+            'voice'    => '🎤 Voice message',
+            'document' => '📎 Document',
+            _          => decrypted ?? 'New message',
+          };
+          await db.conversationsDao.updateLastMessage(
+              convId, preview, createdAt);
+        }
+      } catch (e) {
+        debugPrint('[Conv] recipient lastMessage bump: $e');
+      }
+    }
+  }
+
+  /// Computes a sender's message status ('sent'/'delivered'/'read') from the
+  /// current receipts. Used when re-caching own messages after a reinstall.
+  Future<String> _computeSenderStatus(String serverId) async {
+    try {
+      final res = await _pb.collection('message_receipts').getFullList(
+        filter: 'message_id="$serverId"', batch: 200,
+      );
+      if (res.isEmpty) return 'sent';
+      final allRead = res.every((r) => r.getStringValue('read_at').isNotEmpty);
+      final allDelivered =
+          res.every((r) => r.getStringValue('delivered_at').isNotEmpty);
+      return allRead ? 'read' : (allDelivered ? 'delivered' : 'sent');
+    } catch (_) {
+      return 'sent';
+    }
   }
 
   Future<void> _updateMsgReceiptStatus(
       String localId, String serverId) async {
     try {
-      final res = await _pb.collection('message_receipts').getList(
-        filter: 'message_id="$serverId"',
+      // getFullList avoids the 30-row default cap for large groups.
+      final items = await _pb.collection('message_receipts').getFullList(
+        filter: 'message_id="$serverId"', batch: 200,
       );
-      if (res.items.isEmpty) {
+      if (items.isEmpty) {
         debugPrint('[Receipt] No receipts found for message: $serverId');
         return;
       }
 
-      final readCount = res.items
-          .where((r) => r.getStringValue('read_at').isNotEmpty)
-          .length;
-      final deliveredCount = res.items
-          .where((r) => r.getStringValue('delivered_at').isNotEmpty)
-          .length;
-      final totalRecipients = res.items.length;
-
-      debugPrint(
-        '[Receipt] Status update for $serverId - '
-        'delivered: $deliveredCount/$totalRecipients, '
-        'read: $readCount/$totalRecipients',
-      );
-
-      final allRead      = res.items.every(
+      // Status is computed over the receipts that EXIST (one per recipient,
+      // guaranteed unique by the server index). "All delivered/read" across
+      // present recipients → delivered/read tick, matching WhatsApp/Signal.
+      final allRead = items.every(
           (r) => r.getStringValue('read_at').isNotEmpty);
-      final allDelivered = res.items.every(
+      final allDelivered = items.every(
           (r) => r.getStringValue('delivered_at').isNotEmpty);
 
-      final status = allRead
+      final computed = allRead
           ? 'read'
           : allDelivered
               ? 'delivered'
               : 'sent';
 
-      debugPrint('[Receipt] Updating local message status to: $status');
-      await db.messagesDao.updateMessageStatus(localId, status);
+      // Never regress a stronger status (read > delivered > sent) — receipt
+      // events can arrive out of order.
+      const rank = {'sent': 0, 'delivered': 1, 'read': 2};
+      final current = await db.messagesDao.getMessageByServerId(serverId);
+      final currentStatus = current?.status ?? 'sent';
+      if ((rank[computed] ?? 0) < (rank[currentStatus] ?? 0)) {
+        debugPrint('[Receipt] Skipping regression $currentStatus -> $computed');
+        return;
+      }
+
+      debugPrint('[Receipt] Updating local message status to: $computed');
+      await db.messagesDao.updateMessageStatus(localId, computed);
     } catch (e) {
       debugPrint('[Receipt] ERROR in statusUpdate: $e');
     }
   }
 
+  /// Marks a message delivered for the current user (the recipient).
+  /// Idempotent: the server has a UNIQUE(message_id, recipient_id) index, so
+  /// a racing create just fails harmlessly and we fall back to update.
   Future<void> _markDelivered(
       String serverId, String convId, String myId) async {
+    final nowUtc = DateTime.now().toUtc().toIso8601String();
     try {
       final res = await _pb.collection('message_receipts').getList(
         filter: 'message_id="$serverId"&&recipient_id="$myId"',
         perPage: 1,
       );
-      final nowUtc = DateTime.now().toUtc().toIso8601String();
       if (res.items.isEmpty) {
-        await _pb.collection('message_receipts').create(body: {
-          'message_id':     serverId,
-          'conversation_id': convId,
-          'recipient_id':   myId,
-          'delivered_at':   nowUtc,
-        });
+        try {
+          await _pb.collection('message_receipts').create(body: {
+            'message_id':      serverId,
+            'conversation_id': convId,
+            'recipient_id':    myId,
+            'delivered_at':    nowUtc,
+          });
+        } catch (_) {
+          // Lost the create race (unique index) — someone else created it;
+          // re-read and set delivered_at if still empty.
+          final again = await _pb.collection('message_receipts').getList(
+            filter: 'message_id="$serverId"&&recipient_id="$myId"',
+            perPage: 1,
+          );
+          if (again.items.isNotEmpty &&
+              again.items.first.getStringValue('delivered_at').isEmpty) {
+            await _pb.collection('message_receipts').update(
+              again.items.first.id,
+              body: {'delivered_at': nowUtc},
+            );
+          }
+        }
       } else if (res.items.first.getStringValue('delivered_at').isEmpty) {
         await _pb.collection('message_receipts').update(
           res.items.first.id,
@@ -1478,8 +2125,78 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
-  Future<List<int>> _getConvKey(String convId, String myId) async {
+  Future<ConversationsTableData?> _fetchAndCacheConversation(String convId, String myId) async {
+    try {
+      final conv = await _pb.collection('conversations').getOne(convId);
+      final iconField = conv.getStringValue('icon');
+      final iconUrl   = iconField.isEmpty
+          ? null
+          : '${_pb.baseUrl}/api/files/conversations/${conv.id}/$iconField';
+      final tableData = ConversationsTableData(
+        id:          conv.id,
+        type:        conv.getStringValue('type'),
+        name:        conv.getStringValue('name').isEmpty ? null : conv.getStringValue('name'),
+        iconUrl:     iconUrl,
+        createdById: conv.getStringValue('created_by'),
+        onlyAdminsCanMessage: conv.getBoolValue('only_admins_can_message'),
+        disappearingDuration: conv.getIntValue('disappearing_duration'),
+        isPinned:    false,
+        createdAt:   DateTime.tryParse(conv.getStringValue('created')) ?? DateTime.now(),
+        updatedAt:   DateTime.now(),
+      );
+      await db.conversationsDao.upsertConversation(
+        ConversationsTableCompanion.insert(
+          id:          tableData.id,
+          type:        tableData.type,
+          name:        Value(tableData.name),
+          iconUrl:     Value(tableData.iconUrl),
+          createdById: tableData.createdById,
+          onlyAdminsCanMessage: Value(tableData.onlyAdminsCanMessage),
+          disappearingDuration: Value(tableData.disappearingDuration),
+          isPinned:    Value(tableData.isPinned),
+          createdAt:   tableData.createdAt,
+          updatedAt:   tableData.updatedAt,
+        ),
+      );
+      final membersRes = await _pb.collection('conversation_members').getList(
+        filter: 'conversation_id="$convId"',
+        expand: 'user_id',
+      );
+      for (final m in membersRes.items) {
+        final u = m.expand['user_id']?.firstOrNull;
+        if (u != null) await _cacheUserRecord(u);
+        await db.conversationsDao.upsertMember(
+          ConversationMembersTableCompanion.insert(
+            id:             m.id,
+            conversationId: convId,
+            userId:         m.getStringValue('user_id'),
+            role:           Value(m.getStringValue('role').isEmpty ? 'member' : m.getStringValue('role')),
+            joinedAt:       DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
+          ),
+        );
+      }
+      return tableData;
+    } catch (e) {
+      debugPrint('[Msg] Failed to fetch and cache conversation $convId: $e');
+      return null;
+    }
+  }
+
+  /// Computes when a message should locally disappear based on the
+  /// conversation's disappearing-messages setting. Returns null when the
+  /// feature is Off (duration <= 0), meaning the message never expires.
+  Future<DateTime?> _computeExpiry(String convId, DateTime from) async {
     final conv = await db.conversationsDao.getConversationById(convId);
+    final seconds = conv?.disappearingDuration ?? 0;
+    if (seconds <= 0) return null;
+    return from.add(Duration(seconds: seconds));
+  }
+
+  Future<List<int>> _getConvKey(String convId, String myId) async {
+    var conv = await db.conversationsDao.getConversationById(convId);
+    if (conv == null) {
+      conv = await _fetchAndCacheConversation(convId, myId);
+    }
     if (conv?.type == 'group') {
       return encryption.getOrFetchGroupKey(convId, myId);
     }
@@ -1490,7 +2207,9 @@ class MessageRepositoryImpl implements MessageRepository {
         .map((m) => m.userId)
         .firstOrNull;
 
-    if (otherUserId == null || otherUserId.isEmpty) return List.filled(32, 0);
+    if (otherUserId == null || otherUserId.isEmpty) {
+      throw const MissingKeyException('no other member resolved for conversation');
+    }
 
     var u = await db.usersDao.getUserById(otherUserId);
     final cachedPublicKey = u?.publicKey;
@@ -1509,8 +2228,10 @@ class MessageRepositoryImpl implements MessageRepository {
       u = await db.usersDao.getUserById(otherUserId);
     } catch (_) {}
 
-    if (u?.publicKey == null) return List.filled(32, 0);
-    return encryption.getOrDeriveConversationKey(convId, u!.publicKey!);
+    if (u?.publicKey == null || u!.publicKey!.isEmpty) {
+      throw const MissingKeyException('peer public key not available yet');
+    }
+    return encryption.getOrDeriveConversationKey(convId, u.publicKey!);
   }
 
   Future<void> _syncConversations(String myId) async {
@@ -1525,6 +2246,18 @@ class MessageRepositoryImpl implements MessageRepository {
         final iconUrl   = iconField.isEmpty
             ? null
             : '${_pb.baseUrl}/api/files/conversations/${conv.id}/$iconField';
+        // NEVER clobber the locally-computed last-message preview/time with
+        // the server fields — nothing maintains them server-side, so they are
+        // stale. Local Drift (updated by _cacheMsg/updateLastMessage) is the
+        // source of truth; keep whichever timestamp is NEWER.
+        final existingConv =
+            await db.conversationsDao.getConversationById(conv.id);
+        final serverAtStr = conv.getStringValue('last_message_at');
+        final serverAt = serverAtStr.isEmpty
+            ? null : DateTime.tryParse(serverAtStr);
+        final localAt  = existingConv?.lastMessageAt;
+        final keepLocal = localAt != null &&
+            (serverAt == null || localAt.isAfter(serverAt));
         await db.conversationsDao.upsertConversation(
           ConversationsTableCompanion.insert(
             id:          conv.id,
@@ -1534,12 +2267,14 @@ class MessageRepositoryImpl implements MessageRepository {
             iconUrl:     Value(iconUrl),
             createdById: conv.getStringValue('created_by'),
             onlyAdminsCanMessage: Value(conv.getBoolValue('only_admins_can_message')),
-            lastMessagePreview: Value(
-                conv.getStringValue('last_message_preview').isEmpty
-                    ? null : conv.getStringValue('last_message_preview')),
-            lastMessageAt: Value(
-                conv.getStringValue('last_message_at').isEmpty
-                    ? null : DateTime.tryParse(conv.getStringValue('last_message_at'))),
+            disappearingDuration: Value(conv.getIntValue('disappearing_duration')),
+            isPinned: Value(existingConv?.isPinned ?? false),
+            lastMessagePreview: Value(keepLocal
+                ? existingConv?.lastMessagePreview
+                : (conv.getStringValue('last_message_preview').isEmpty
+                    ? existingConv?.lastMessagePreview
+                    : conv.getStringValue('last_message_preview'))),
+            lastMessageAt: Value(keepLocal ? localAt : (serverAt ?? localAt)),
             createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
             updatedAt: DateTime.now(),
           ),
@@ -1551,11 +2286,14 @@ class MessageRepositoryImpl implements MessageRepository {
             joinedAt: DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
           ),
         );
-        final others = await _pb.collection('conversation_members').getList(
+        // getFullList (not getList's 30 cap) so large groups sync fully.
+        final others = await _pb.collection('conversation_members').getFullList(
           filter: 'conversation_id="${conv.id}"&&user_id!="$myId"',
-          expand: 'user_id',
+          expand: 'user_id', batch: 200,
         );
-        for (final om in others.items) {
+        final serverMemberIds = <String>{myId};
+        for (final om in others) {
+          serverMemberIds.add(om.getStringValue('user_id'));
           final u = om.expand['user_id']?.firstOrNull;
           if (u != null) await _cacheUserRecord(u);
           await db.conversationsDao.upsertMember(
@@ -1566,6 +2304,37 @@ class MessageRepositoryImpl implements MessageRepository {
               joinedAt: DateTime.tryParse(om.getStringValue('joined_at')) ?? DateTime.now(),
             ),
           );
+        }
+
+        // Reconcile removals: drop local members who are no longer on the
+        // server (fixes "removed member still shows" on the other device).
+        final localForConv =
+            await db.conversationsDao.getMembersForConversation(conv.id);
+        for (final lm in localForConv) {
+          if (!serverMemberIds.contains(lm.userId)) {
+            await (db.delete(db.conversationMembersTable)
+                  ..where((t) => t.conversationId.equals(conv.id)
+                      & t.userId.equals(lm.userId)))
+                .go();
+          }
+        }
+      }
+
+      final activeConvIds = res.items
+          .map((m) => m.expand['conversation_id']?.firstOrNull?.id)
+          .whereType<String>()
+          .toSet();
+
+      final localMembers = await db.conversationsDao.getMembershipsOfUser(myId);
+      for (final lm in localMembers) {
+        if (lm.role != 'left' && !activeConvIds.contains(lm.conversationId)) {
+          final conv = await db.conversationsDao.getConversationById(lm.conversationId);
+          if (conv?.type == 'group') {
+            await (db.update(db.conversationMembersTable)
+                  ..where((t) => t.conversationId.equals(lm.conversationId)
+                      & t.userId.equals(myId)))
+                .write(const ConversationMembersTableCompanion(role: Value('left')));
+          }
         }
       }
     } catch (e) {
@@ -1606,11 +2375,14 @@ class MessageRepositoryImpl implements MessageRepository {
       (entry) => _convDataToEntity(entry.value, directOtherUsers[entry.key]),
     ));
     for (final r in groupRows) {
-      final members = await db.conversationsDao.getMembersForConversation(r.id);
-      convs.add(_convDataToEntity(r, null, memberCount: members.length));
+      final count = await _getMemberCount(r.id);
+      convs.add(_convDataToEntity(r, null, memberCount: count));
     }
     return convs;
   }
+
+  Future<int> _getMemberCount(String convId) async =>
+      (await db.conversationsDao.getMembersForConversation(convId)).length;
 
   Future<User?> _getOtherUser(String convId, String myId) async {
     final members = await db.conversationsDao.getMembersForConversation(convId);
@@ -1631,7 +2403,7 @@ class MessageRepositoryImpl implements MessageRepository {
         lastMessageAt: r.lastMessageAt,
         isPinned: r.isPinned, otherUser: otherUser,
         onlyAdminsCanMessage: r.onlyAdminsCanMessage,
-        memberCount: memberCount,
+        memberCount: memberCount ?? 0,
       );
 
   Message _rowToMessage(MessagesTableData r, String myId) => Message(
@@ -1647,11 +2419,11 @@ class MessageRepositoryImpl implements MessageRepository {
     mediaId: r.mediaId,
   );
 
-  User _tableUserToEntity(dynamic u) => User(
+  User _tableUserToEntity(dynamic u, {String? groupRole}) => User(
     id: u.id, displayName: u.displayName, username: u.username,
     email: u.email ?? '', friendCode: u.friendCode, avatarUrl: u.avatarUrl,
     about: u.about, publicKey: u.publicKey, isOnline: u.isOnline,
-    lastSeen: u.lastSeen, createdAt: u.createdAt,
+    lastSeen: u.lastSeen, createdAt: u.createdAt, groupRole: groupRole,
   );
 
   Future<void> _cacheUserRecord(RecordModel r) async {
@@ -1674,12 +2446,14 @@ class MessageRepositoryImpl implements MessageRepository {
 }
 
 final messageRepositoryProvider = Provider<MessageRepository>((ref) {
-  return MessageRepositoryImpl(
+  final repo = MessageRepositoryImpl(
     pbClient:           ref.watch(pocketbaseClientProvider),
     db:                 ref.read(appDatabaseProvider),
     storage:            ref.read(secureStorageProvider),
     encryption:         ref.read(encryptionServiceProvider),
     mediaUploadService: ref.read(mediaUploadServiceProvider),
   );
+  FcmService.setRepository(repo);
+  return repo;
 });
 // REPLACE the existing deleteMessage with this:
