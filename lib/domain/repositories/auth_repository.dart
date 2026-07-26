@@ -25,6 +25,23 @@ abstract class AuthRepository {
   /// Throws [AuthException] on failure.
   Future<GoogleAuthResult?> signInWithGoogle();
 
+  /// Step-1 of Google sign-in: fetch Google account profile without
+  /// authenticating. Returns email + display name so the onboarding
+  /// screen can autofill (and the user can edit) before the server
+  /// creates the PocketBase account.
+  /// Returns null if the user cancels the Google picker.
+  /// Throws [AuthException] on failure.
+  Future<GooglePrefill?> fetchGoogleProfile();
+
+  /// Step-2 of Google sign-in: takes the Google idToken + user-confirmed
+  /// display name and username, and creates the PocketBase account via
+  /// the hook. On success returns the authenticated [User].
+  Future<GoogleAuthResult> registerWithGoogle({
+    required String idToken,
+    required String displayName,
+    required String username,
+  });
+
   /// Register a new account.
   /// Auto-generates a unique friend code.
   /// Throws [AuthException] on failure.
@@ -63,11 +80,32 @@ class GooglePrefill {
 }
 
 /// Result of a full Google OAuth sign-in.
+///
+/// For an existing account, [user] is non-null and [isNew] is `false`.
+/// For a brand-new account (the hook returned 404 — no PB record yet),
+/// [user] is null, [isNew] is `true`, and the prefill fields
+/// ([email], [displayName], [idToken]) are populated so the UI can
+/// route to [GoogleOnboardingScreen] without re-triggering the
+/// Google account picker.
 class GoogleAuthResult {
-  const GoogleAuthResult({required this.user, required this.isNew});
-  final User user;
-  /// True when PocketBase just created this account (first Google login).
+  const GoogleAuthResult({
+    required this.user,
+    required this.isNew,
+    this.email,
+    this.displayName,
+    this.idToken,
+  });
+  final User? user;
+
+  /// True when PocketBase needs to create this account.
   final bool isNew;
+
+  /// Prefill for the onboarding screen — only populated when [isNew].
+  final String? email;
+  final String? displayName;
+  final String? idToken;
+
+  bool get needsOnboarding => isNew && user == null;
 }
 
 /// Typed exception for auth failures.

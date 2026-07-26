@@ -46,13 +46,15 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Fetches email + display name from a Google account for prefilling the
-  /// registration form. Does NOT authenticate — the caller navigates to the
-  /// register screen with the returned prefill data.
-  /// Returns null if the user cancelled the Google sign-in flow.
-  Future<GooglePrefill?> getGooglePrefill() async {
+  /// Step-1 of Google sign-in: fetch Google account profile without
+  /// authenticating. Returns email + display name so the onboarding
+  /// screen can autofill (and the user can edit) before the server
+  /// creates the PocketBase account.
+  /// Returns null if the user cancels the Google picker.
+  /// Throws [AuthException] on failure.
+  Future<GooglePrefill?> fetchGoogleProfile() async {
     try {
-      return await _repo.getGooglePrefill();
+      return await _repo.fetchGoogleProfile();
     } on AuthException catch (e) {
       state = AsyncData(AuthError(e.message));
       return null;
@@ -62,18 +64,63 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Full Google OAuth. On success sets AuthAuthenticated. Returns the result
-  /// so the caller can send brand-new accounts through onboarding.
+  /// Step-2 of Google sign-in: takes the Google idToken + user-confirmed
+  /// display name and username, and creates the PocketBase account via
+  /// the hook. On success returns the authenticated [User].
+  Future<GoogleAuthResult?> registerWithGoogle({
+    required String idToken,
+    required String displayName,
+    required String username,
+  }) async {
+    state = const AsyncData(AuthLoading());
+    try {
+      final result = await _repo.registerWithGoogle(
+        idToken: idToken,
+        displayName: displayName,
+        username: username,
+      );
+      if (result == null) {
+        state = const AsyncData(AuthUnauthenticated());
+        return null;
+      }
+      // Existing onboarding callers never had a value (function was
+      // declared non-nullable in early designs). Make the user explicit:
+      final user = result.user!;
+      state = AsyncData(AuthAuthenticated(user));
+      return result;
+    } on AuthException catch (e) {
+      state = AsyncData(AuthError(e.message));
+      return null;
+    } catch (e) {
+      state = AsyncData(AuthError('Google sign in failed: $e'));
+      return null;
+    }
+  }
+
+  /// Full Google OAuth:
+  /// - Existing account → returns [GoogleAuthResult] with `user != null`
+  ///   and transitions to [AuthAuthenticated]. Caller should send the
+  ///   splash so [encryptionSyncProvider] can route to backup-pin or home.
+  /// - New account → returns [GoogleAuthResult] with `user == null`,
+  ///   `isNew = true`, and prefill (`email`, `displayName`, `idToken`)
+  ///   populated. Caller should send to `/google-onboarding`.
   Future<GoogleAuthResult?> signInWithGoogle() async {
     state = const AsyncData(AuthLoading());
     try {
       final result = await _repo.signInWithGoogle();
       if (result == null) {
-        // Cancelled — restore unauthenticated state.
+        // User cancelled the Google picker.
         state = const AsyncData(AuthUnauthenticated());
         return null;
       }
-      state = AsyncData(AuthAuthenticated(result.user));
+      if (result.needsOnboarding) {
+        // Don't authenticate yet — onboarding will create the account
+        // and then call registerWithGoogle() which sets AuthAuthenticated.
+        state = const AsyncData(AuthUnauthenticated());
+        return result;
+      }
+      // Existing user authenticated successfully.
+      state = AsyncData(AuthAuthenticated(result.user!));
       return result;
     } on AuthException catch (e) {
       state = AsyncData(AuthError(e.message));

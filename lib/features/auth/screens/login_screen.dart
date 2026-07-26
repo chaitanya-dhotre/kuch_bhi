@@ -51,16 +51,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
   }
 
-  /// Google button: pull the account's email + name, then complete a normal
-  /// registration in the register screen (email locked). Existing accounts
-  /// are told to sign in with their password instead.
+  /// Google button:
+  /// - Existing accounts → full OAuth + PB auth, splash redirect picks
+  ///   the right destination (backup-pin or home) via encryptionSyncProvider.
+  /// - New accounts → onboard via [GoogleOnboardingScreen] so the user
+  ///   can choose username / display name / avatar before the account
+  ///   is created on the server. After successful registerWithGoogle()
+  ///   the redirect lands on backup-pin setup, then home.
   Future<void> _continueWithGoogle(BuildContext context) async {
-    // Full OAuth: signs in existing accounts directly, or creates + signs in
-    // a new one. The router's redirect then routes based on encryption state:
-    //   new account  → backup-PIN setup (onboarding) → home
-    //   existing acct→ key restore (if needed) → home
-    // No manual navigation needed here — authProvider drives the redirect.
-    await ref.read(authProvider.notifier).signInWithGoogle();
+    final result = await ref.read(authProvider.notifier).signInWithGoogle();
+    if (result == null || !context.mounted) return;
+
+    if (result.needsOnboarding) {
+      context.go(AppRoutes.googleOnboarding, extra: result);
+      return;
+    }
+
+    // Existing account: authentication succeeded — splash + redirect.
+    context.go(AppRoutes.splash);
   }
 
   @override
@@ -71,9 +79,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Show error snackbar when AuthError arrives.
     ref.listen(authProvider, (_, next) {
        next.whenData((state) {
-          if (state is AuthAuthenticated) {
-           context.go(AppRoutes.home);
-          } else if (state is AuthError) {
+          if (state is AuthError) {
               ScaffoldMessenger.of(context)
                ..hideCurrentSnackBar()
                ..showSnackBar(SnackBar(

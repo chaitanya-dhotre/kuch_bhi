@@ -7,11 +7,47 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
 import '../../../data/local/database/app_database.dart';
+import '../../../domain/repositories/message_repository.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/encryption_service.dart';
 import '../providers/encryption_sync_provider.dart';
 
 enum BackupPinMode { setup, restore, change }
+
+/// High-level restore steps. Drives the loading overlay message + icon so
+/// the user gets continuous feedback during PIN restore (which can take
+/// 1–3 minutes re-paging the full encrypted history).
+enum RestorePhase {
+  idle,
+  deriving,         // PBKDF2 + AES-GCM decrypt of the encrypted private key
+  finalisingKey,    // Saving decrypted key to secure storage
+  fetchingConvs,    // Re-downloading the conversation list
+  downloadingMsgs,  // Paging through all messages across conversations
+  decrypting,       // AES-GCM decrypt of every message ciphertext
+  ready,            // All done, transitioning to home
+}
+
+extension _RestorePhaseCopy on RestorePhase {
+  /// Human-readable message shown below the spinner.
+  String get message {
+    switch (this) {
+      case RestorePhase.idle:
+        return '';
+      case RestorePhase.deriving:
+        return 'Deriving your encryption key…';
+      case RestorePhase.finalisingKey:
+        return 'Unlocking your account…';
+      case RestorePhase.fetchingConvs:
+        return 'Loading your conversations…';
+      case RestorePhase.downloadingMsgs:
+        return 'Downloading messages…';
+      case RestorePhase.decrypting:
+        return 'Decrypting your messages…';
+      case RestorePhase.ready:
+        return 'Almost there…';
+    }
+  }
+}
 
 class BackupPinScreen extends ConsumerStatefulWidget {
   const BackupPinScreen({
@@ -33,6 +69,17 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
   bool _isLoading = false;
   bool _isValid = false;
   String? _errorMessage;
+
+  // ── Progress (restore mode only) ──────────────────────────────
+  // Drives the loading overlay's message and animated icon so the user has
+  // continuous feedback instead of a static "Processing key derivation…"
+  // string for the entire restore workflow.
+  RestorePhase _restorePhase = RestorePhase.idle;
+  int _convIndex = 0;
+  int _convTotal = 0;
+  int _msgCurrent = 0;
+  int _msgTotal = 0;
+  DateTime? _restoreStartedAt;
 
   final List<TextEditingController> _pinControllers =
       List.generate(6, (_) => TextEditingController());
@@ -133,6 +180,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _restoreStartedAt = DateTime.now();
     });
 
     final pin = _getPin();
@@ -140,10 +188,12 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
     try {
       final enc = ref.read(encryptionServiceProvider);
       if (_currentMode == BackupPinMode.change) {
+        setState(() => _restorePhase = RestorePhase.deriving);
         final success = await enc.restorePrivateKey(pin);
         if (success) {
           setState(() {
             _isLoading = false;
+            _restorePhase = RestorePhase.idle;
             _currentMode = BackupPinMode.setup;
             _isValid = false;
           });
@@ -157,6 +207,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
         } else {
           setState(() {
             _isLoading = false;
+            _restorePhase = RestorePhase.idle;
             _errorMessage = "Incorrect current PIN. Try again.";
           });
           for (final c in _pinControllers) {
@@ -180,33 +231,79 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
           }
         }
       } else {
+        // ── Restore mode ──
+        // Two long jobs back-to-back:
+        //   1. EncryptionService.restorePrivateKey(pin) — PBKDF2 + AES-GCM
+        //      (~5-10 s) then save to secure storage.
+        //   2. MessageRepository.syncAllHistory() — page through every
+        //      conversation's history and decrypt every message (~1-3 min).
+        setState(() => _restorePhase = RestorePhase.deriving);
         final success = await enc.restorePrivateKey(pin);
-        if (success) {
-          // Reinstall recovery: re-download + decrypt the full history now
-          // that the private key is restored.
-          try {
-            await ref.read(messageRepositoryProvider).syncAllHistory();
-          } catch (e) {
-            debugPrint('[Restore] history sync failed: $e');
-          }
-          ref.invalidate(encryptionSyncProvider);
-          if (mounted) {
-            context.go(AppRoutes.home);
-          }
-        } else {
+        if (!success) {
           setState(() {
             _isLoading = false;
+            _restorePhase = RestorePhase.idle;
             _errorMessage = "Incorrect PIN. Try again.";
           });
           for (final c in _pinControllers) {
             c.clear();
           }
           _pinFocusNodes[0].requestFocus();
+          return;
+        }
+        setState(() => _restorePhase = RestorePhase.finalisingKey);
+
+        // Reinstall recovery: re-download + decrypt the full history now
+        // that the private key is restored.
+        try {
+          setState(() => _restorePhase = RestorePhase.fetchingConvs);
+          await ref.read(messageRepositoryProvider).syncAllHistory(
+            onProgress: (p) {
+              switch (p.phase) {
+                case HistorySyncPhase.fetchingConversations:
+                  if (_restorePhase != RestorePhase.fetchingConvs) {
+                    setState(() => _restorePhase =
+                        RestorePhase.fetchingConvs);
+                  }
+                  break;
+                case HistorySyncPhase.downloadingMessages:
+                  setState(() {
+                    _restorePhase = RestorePhase.downloadingMsgs;
+                    _convIndex = p.conversationIndex ?? _convIndex;
+                    _convTotal = p.conversationCount ?? _convTotal;
+                    _msgCurrent = p.messageCurrent ?? _msgCurrent;
+                    _msgTotal = p.messageTotal ?? _msgTotal;
+                    // Once we start downloading, the next phase is
+                    // decrypting — flip to it for visual variety so the
+                    // user sees movement.
+                    if (_msgTotal > 0 &&
+                        _msgCurrent / _msgTotal >= 0.2 &&
+                        _restorePhase != RestorePhase.decrypting) {
+                      _restorePhase = RestorePhase.decrypting;
+                    }
+                  });
+                  break;
+                case HistorySyncPhase.finalisingConversation:
+                  // Keep showing "decrypting…" until all conversations done.
+                  break;
+                case HistorySyncPhase.complete:
+                  setState(() => _restorePhase = RestorePhase.ready);
+                  break;
+              }
+            },
+          );
+        } catch (e) {
+          debugPrint('[Restore] history sync failed: $e');
+        }
+        ref.invalidate(encryptionSyncProvider);
+        if (mounted) {
+          context.go(AppRoutes.home);
         }
       }
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _restorePhase = RestorePhase.idle;
         _errorMessage = "An error occurred: ${e.toString()}";
       });
     }
@@ -583,33 +680,226 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
             ),
           ),
         ),
-        if (_isLoading)
-          const Stack(
-            children: [
-              Opacity(
-                opacity: 0.4,
-                child: ModalBarrier(dismissible: false, color: Colors.black),
-              ),
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text(
-                      'Processing key derivation...',
+        if (_isLoading) _RestoreOverlay(
+          phase: _restorePhase,
+          startedAt: _restoreStartedAt,
+          convIndex: _convIndex,
+          convTotal: _convTotal,
+          msgCurrent: _msgCurrent,
+          msgTotal: _msgTotal,
+        ),
+      ],
+    );
+  }
+}
+
+/// Full-screen modal shown during PIN restore. Replaces the previous
+/// single-line "Processing key derivation…" string with a state-driven
+/// progress display: per-step icon, friendly label, animated progress
+/// dots, and an elapsed-time ticker. Hovered backdrop so the form is
+/// clearly disabled.
+class _RestoreOverlay extends StatefulWidget {
+  const _RestoreOverlay({
+    required this.phase,
+    required this.startedAt,
+    required this.convIndex,
+    required this.convTotal,
+    required this.msgCurrent,
+    required this.msgTotal,
+  });
+
+  final RestorePhase phase;
+  final DateTime? startedAt;
+  final int convIndex;
+  final int convTotal;
+  final int msgCurrent;
+  final int msgTotal;
+
+  @override
+  State<_RestoreOverlay> createState() => _RestoreOverlayState();
+}
+
+class _RestoreOverlayState extends State<_RestoreOverlay>
+    with SingleTickerProviderStateMixin {
+  late final Stopwatch _stopwatch;
+  late final AnimationController _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _stopwatch = Stopwatch()..start();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+    // Tick the elapsed-time display every second.
+    _tick();
+  }
+
+  @override
+  void dispose() {
+    _stopwatch.stop();
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _tick() async {
+    while (mounted) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
+      setState(() {});
+    }
+  }
+
+  String _formatElapsed() {
+    final s = _stopwatch.elapsed.inSeconds;
+    if (s < 60) return '${s}s';
+    final m = s ~/ 60;
+    final r = s % 60;
+    return '${m}m ${r.toString().padLeft(2, '0')}s';
+  }
+
+  IconData _iconFor(RestorePhase phase) {
+    switch (phase) {
+      case RestorePhase.deriving:
+        return Icons.key_outlined;
+      case RestorePhase.finalisingKey:
+        return Icons.lock_open_outlined;
+      case RestorePhase.fetchingConvs:
+        return Icons.chat_bubble_outline;
+      case RestorePhase.downloadingMsgs:
+        return Icons.cloud_download_outlined;
+      case RestorePhase.decrypting:
+        return Icons.lock_reset_outlined;
+      case RestorePhase.ready:
+        return Icons.check_circle_outline;
+      case RestorePhase.idle:
+        return Icons.hourglass_empty;
+    }
+  }
+
+  /// Secondary detail line shown below the main message — tells the user
+  /// where they are in the multi-conversation download / decrypt cycle.
+  String? _detailFor(RestorePhase phase) {
+    if (phase == RestorePhase.downloadingMsgs && widget.msgTotal > 0) {
+      return 'Message ${widget.msgCurrent} of ${widget.msgTotal}'
+          '${widget.convTotal > 1 ? " · chat ${widget.convIndex}/${widget.convTotal}" : ""}';
+    }
+    if (phase == RestorePhase.decrypting && widget.convTotal > 0) {
+      return 'Chat ${widget.convIndex} of ${widget.convTotal}';
+    }
+    if (phase == RestorePhase.ready) {
+      return 'Opening your chats…';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // In setup/change PIN modes we don't drive [_restorePhase] — fall back
+    // to a generic "Saving your PIN…" message that still feels alive.
+    final phase = widget.phase == RestorePhase.idle
+        ? RestorePhase.deriving
+        : widget.phase;
+    final detail = _detailFor(phase);
+
+    return Stack(
+      children: [
+        const Opacity(
+          opacity: 0.55,
+          child: ModalBarrier(dismissible: false, color: Colors.black),
+        ),
+        Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 24, vertical: 28),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A2E),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Pulsing icon — gives a feeling of continuous work even
+                // when the underlying progress has lulls (e.g. between
+                // PB pages).
+                FadeTransition(
+                  opacity: Tween<double>(begin: 0.4, end: 1.0).animate(
+                    CurvedAnimation(
+                      parent: _pulseCtrl,
+                      curve: Curves.easeInOut,
+                    ),
+                  ),
+                  child: Icon(
+                    _iconFor(phase),
+                    color: AppColors.primary,
+                    size: 44,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                // Phase message — keying on phase drives a soft swap
+                // animation every time the underlying state changes.
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  transitionBuilder: (child, anim) =>
+                      FadeTransition(opacity: anim, child: child),
+                  child: Text(
+                    phase.message,
+                    key: ValueKey(phase),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ),
+                if (detail != null) ...[
+                  const SizedBox(height: 8),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: Text(
+                      detail,
+                      key: ValueKey('${phase.name}-$detail'),
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 13,
                         decoration: TextDecoration.none,
                       ),
                     ),
-                  ],
+                  ),
+                ],
+                const SizedBox(height: 18),
+                LinearProgressIndicator(
+                  minHeight: 4,
+                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                      AppColors.primary),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  'Elapsed ${_formatElapsed()}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: 12,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ],
+            ),
           ),
+        ),
       ],
     );
   }

@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:async';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -72,6 +74,23 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<GooglePrefill?> fetchGoogleProfile() async {
+    try {
+      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+      final googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return null; // user cancelled
+      return GooglePrefill(
+        email: googleUser.email,
+        displayName: googleUser.displayName,
+      );
+    } on AuthException {
+      rethrow;
+    } catch (e) {
+      throw AuthException('Google sign in failed: $e');
+    }
+  }
+
+  @override
   Future<GoogleAuthResult?> signInWithGoogle() async {
     try {
       final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
@@ -82,33 +101,93 @@ class AuthRepositoryImpl implements AuthRepository {
       if (idToken == null) {
         throw const AuthException('Failed to get Google ID token.');
       }
-      // Pre-generate the fields PB requires on CREATE. For an existing
-      // account these are simply ignored and the user is signed in directly.
-      final friendCode = await _generateUniqueFriendCode();
-      final username   = await _generateUniqueUsername(googleUser.email);
-      final displayName = (googleUser.displayName?.trim().isNotEmpty ?? false)
-          ? googleUser.displayName!.trim()
-          : googleUser.email.split('@').first;
-      final authData = await _pb.collection('users').authWithOAuth2Code(
-        'google', idToken, '', '',
-        createData: {
-          'display_name': displayName,
-          'username':     username,
-          'friend_code':  friendCode,
-          'emailVisibility': true,
-        },
+      // Try to authenticate existing user with Google idToken.
+      final response = await http.post(
+        Uri.parse('${_pb.baseUrl}/api/hooks/google-auth'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'idToken': idToken, 'action': 'signin'}),
       );
-      final user = _recordToUser(authData.record!);
+      if (response.statusCode == 404) {
+        // No PocketBase record yet — caller (UI) must run onboarding.
+        // Return the email / displayName / idToken so the onboarding
+        // screen doesn't have to re-trigger the Google picker.
+        return GoogleAuthResult(
+          user: null,
+          isNew: true,
+          email: googleUser.email,
+          displayName: googleUser.displayName,
+          idToken: idToken,
+        );
+      }
+      if (response.statusCode != 200) {
+        final body = json.decode(response.body);
+        throw AuthException(body['message'] ?? 'Google auth failed',
+            code: response.statusCode.toString());
+      }
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final token = data['token'] as String?;
+      final recordData = data['record'] as Map<String, dynamic>?;
+      if (token == null || recordData == null) {
+        throw const AuthException('Invalid Google auth response from server');
+      }
+      final record = RecordModel.fromJson(recordData);
+      _pb.authStore.save(token, record);
+      final user = _recordToUser(record);
       await _saveSession(user);
-      final isNew = authData.meta['isNew'] == true;
-      return GoogleAuthResult(user: user, isNew: isNew);
+      return GoogleAuthResult(user: user, isNew: false);
     } on AuthException {
       rethrow;
     } on ClientException catch (e) {
       throw AuthException(_parseErrorMessage(e),
           code: e.statusCode.toString());
     } catch (e) {
+      debugPrint('[Auth] Google sign-in FAILED: $e');
       throw AuthException('Google sign in failed: $e');
+    }
+  }
+
+  @override
+  Future<GoogleAuthResult> registerWithGoogle({
+    required String idToken,
+    required String displayName,
+    required String username,
+  }) async {
+    try {
+      // Create account via hook
+      final response = await http.post(
+        Uri.parse('${_pb.baseUrl}/api/hooks/google-auth'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'idToken': idToken,
+          'action': 'register',
+          'display_name': displayName,
+          'username': username,
+        }),
+      );
+      if (response.statusCode != 200) {
+        final body = json.decode(response.body);
+        throw AuthException(body['message'] ?? 'Google registration failed',
+            code: response.statusCode.toString());
+      }
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final token = data['token'] as String?;
+      final recordData = data['record'] as Map<String, dynamic>?;
+      if (token == null || recordData == null) {
+        throw const AuthException('Invalid Google auth response from server');
+      }
+      final record = RecordModel.fromJson(recordData);
+      _pb.authStore.save(token, record);
+      final user = _recordToUser(record);
+      await _saveSession(user);
+      return GoogleAuthResult(user: user, isNew: true);
+    } on AuthException {
+      rethrow;
+    } on ClientException catch (e) {
+      throw AuthException(_parseErrorMessage(e),
+          code: e.statusCode.toString());
+    } catch (e) {
+      debugPrint('[Auth] Google registration FAILED: $e');
+      throw AuthException('Google registration failed: $e');
     }
   }
 
@@ -163,9 +242,11 @@ class AuthRepositoryImpl implements AuthRepository {
       final driftToken = await db.settingsDao
           .getSetting(AppSettingsKeys.authToken);
       if (driftToken != null && driftToken.isNotEmpty) {
+        debugPrint('[Auth] Restoring token from Drift');
         _pb.authStore.save(driftToken, null);
       }
       if (!pbClient.isAuthenticated) {
+        debugPrint('[Auth] Still not authenticated after drift token restore');
         return null;
       }
     }
@@ -194,14 +275,16 @@ class AuthRepositoryImpl implements AuthRepository {
 
     // No local cache at all — validate with the server once.
     try {
+      debugPrint('[Auth] No cache, calling authRefresh...');
       final authData = await _pb.collection('users').authRefresh();
+      debugPrint('[Auth] authRefresh succeeded: ${authData.record?.id}');
       final user = _recordToUser(authData.record!);
       await _saveSession(user);
       return user;
     } on ClientException catch (e) {
-      debugPrint('[Auth] No cache and refresh failed (${e.statusCode}): $e');
+      debugPrint('[Auth] No cache and authRefresh failed (${e.statusCode}): $e');
     } catch (e) {
-      debugPrint('[Auth] No cache and refresh failed: $e');
+      debugPrint('[Auth] No cache and authRefresh failed: $e');
     }
 
     return null;

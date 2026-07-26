@@ -1207,15 +1207,30 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   @override
-  Future<void> syncAllHistory() async {
+  Future<void> syncAllHistory({
+    void Function(HistorySyncProgress)? onProgress,
+  }) async {
     final myId = await _myId();
     if (myId.isEmpty) return;
     debugPrint('[Sync] Full history sync starting for $myId');
     try {
       // Ensure conversations + members are cached first.
+      onProgress?.call(const HistorySyncProgress(
+        phase: HistorySyncPhase.fetchingConversations,
+      ));
       await _syncConversations(myId);
       final convs = await db.conversationsDao.watchAllConversations().first;
-      for (final conv in convs) {
+      final convTotal = convs.length;
+      for (var i = 0; i < convs.length; i++) {
+        final conv = convs[i];
+        // Find the message count up-front so we can show "downloading X of Y".
+        final headRes = await _pb.collection('messages').getList(
+          filter:
+              'conversation_id="${conv.id}"&&is_deleted_for_everyone=false',
+          page: 1,
+          perPage: 1,
+        );
+        final msgTotal = headRes.totalItems;
         try {
           List<int>? key;
           // Retry key derivation a few times — during reinstall restore the
@@ -1226,7 +1241,8 @@ class MessageRepositoryImpl implements MessageRepository {
               key = await _getConvKey(conv.id, myId);
             } on MissingKeyException {
               if (attempt < 2) {
-                await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+                await Future.delayed(
+                    Duration(milliseconds: 400 * (attempt + 1)));
               }
             }
           }
@@ -1236,9 +1252,11 @@ class MessageRepositoryImpl implements MessageRepository {
           }
           // Page through the ENTIRE conversation history.
           var page = 1;
+          var downloaded = 0;
           while (true) {
             final res = await _pb.collection('messages').getList(
-              filter: 'conversation_id="${conv.id}"&&is_deleted_for_everyone=false',
+              filter:
+                  'conversation_id="${conv.id}"&&is_deleted_for_everyone=false',
               sort: '-created',
               page: page,
               perPage: 200,
@@ -1248,16 +1266,34 @@ class MessageRepositoryImpl implements MessageRepository {
             // ciphertext and a later chat-open re-decrypts. Never drop history.
             for (final r in res.items) {
               await _cacheMsg(r, myId, key ?? const <int>[]);
+              downloaded++;
+              if (msgTotal > 0) {
+                onProgress?.call(HistorySyncProgress(
+                  phase: HistorySyncPhase.downloadingMessages,
+                  conversationIndex: i + 1,
+                  conversationCount: convTotal,
+                  messageCurrent: downloaded,
+                  messageTotal: msgTotal,
+                ));
+              }
             }
             if (page >= res.totalPages) break;
             page++;
           }
+          onProgress?.call(HistorySyncProgress(
+            phase: HistorySyncPhase.finalisingConversation,
+            conversationIndex: i + 1,
+            conversationCount: convTotal,
+          ));
           await _syncDeletedForMe(conv.id);
           await _syncStarredMessages(conv.id);
         } catch (e) {
           debugPrint('[Sync] conversation ${conv.id} failed: $e');
         }
       }
+      onProgress?.call(const HistorySyncProgress(
+        phase: HistorySyncPhase.complete,
+      ));
       debugPrint('[Sync] Full history sync complete');
     } catch (e) {
       debugPrint('[Sync] Full history sync error: $e');

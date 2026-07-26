@@ -82,7 +82,7 @@ abstract class MessageRepository {
   /// After a reinstall + key restore, re-downloads and decrypts the full
   /// message history for every conversation the user belongs to. Safe to call
   /// multiple times (idempotent via serverId dedup).
-  Future<void> syncAllHistory();
+  Future<void> syncAllHistory({void Function(HistorySyncProgress)? onProgress});
 
   /// Search decrypted messages within a conversation.
   Future<List<Message>> searchMessages(String conversationId, String query);
@@ -143,4 +143,49 @@ abstract class MessageRepository {
 
   /// Watch group members reactively.
   Stream<List<User>> watchGroupMembers(String conversationId);
+}
+
+/// One step of [MessageRepository.syncAllHistory]. Reported through the
+/// `onProgress` callback so the UI can show a live progress message
+/// instead of a single static "processing…" string. [current]/[total]
+/// are non-null for the per-page download phase, null otherwise.
+class HistorySyncProgress {
+  const HistorySyncProgress({
+    required this.phase,
+    this.conversationIndex,
+    this.conversationCount,
+    this.messageCurrent,
+    this.messageTotal,
+  });
+
+  /// High-level phase label — keys the UI to a friendly message and icon.
+  final HistorySyncPhase phase;
+
+  /// 1-based index of the conversation currently being synced (null
+  /// during account-wide phases).
+  final int? conversationIndex;
+
+  /// Total number of conversations that need history.
+  final int? conversationCount;
+
+  /// For the download phase: 1-based index of the message currently being
+  /// pulled from the server.
+  final int? messageCurrent;
+
+  /// For the download phase: total message count across the conversation.
+  final int? messageTotal;
+}
+
+enum HistorySyncPhase {
+  /// Re-downloading the user's conversation list.
+  fetchingConversations,
+
+  /// Pulling all messages for one conversation, page by page.
+  downloadingMessages,
+
+  /// Running per-conv sync of delete-for-me + starred messages.
+  finalisingConversation,
+
+  /// All conversations done.
+  complete,
 }
