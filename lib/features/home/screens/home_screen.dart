@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
 import '../../../domain/entities/conversation.dart';
+import '../../../domain/entities/friendship.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../features/auth/providers/encryption_sync_provider.dart';
 import '../../../data/local/database/app_database.dart';
@@ -129,82 +130,29 @@ class HomeScreen extends ConsumerWidget {
               onRefresh: () async {
                 ref.invalidate(conversationsProvider);
               },
-              child: convsAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error:   (e, _) => Center(child: Text('Error: $e')),
-                data: (allConvs) {
-                  // Hide direct conversations whose other member hasn't
-                  // synced yet — the friend still shows in the Friends
-                  // section below, so this avoids a duplicate "Unknown" row.
-                  final convs = allConvs
-                      .where((c) => !(c.type == 'direct' && c.otherUser == null))
-                      .toList();
-                  final friends = friendsAsync.asData?.value ?? [];
-                  // Friends who don't have an active conversation yet.
-                  final convUserIds = convs
-                      .where((c) => c.type == 'direct' && c.otherUser != null)
-                      .map((c) => c.otherUser!.id)
-                      .toSet();
-                  final newFriends = friends
-                      .where((f) => !convUserIds.contains(f.friend.id))
-                      .toList();
-
-                  if (convs.isEmpty && newFriends.isEmpty) {
-                    return _EmptyState(
-                      onAddFriend: () => _showAddFriend(context, ref),
-                    );
-                  }
-
-                  return ListView(
-                    children: [
-                      // Conversations section.
-                      if (convs.isNotEmpty) ...[
-                        _SectionHeader(title: 'Chats'),
-                        ...convs.map((c) => _ConversationTile(conv: c)),
-                      ],
-
-                      // Friends with no conversation yet.
-                      if (newFriends.isNotEmpty) ...[
-                        _SectionHeader(title: 'Friends'),
-                        ...newFriends.map((f) => ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: AppColors.primaryLight,
-                            backgroundImage: f.friend.avatarUrl != null
-                                ? CachedNetworkImageProvider(f.friend.avatarUrl!)
-                                : null,
-                            child: f.friend.avatarUrl == null
-                                ? Text(
-                                    f.displayName.substring(0, 1).toUpperCase(),
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  )
-                                : null,
-                          ),
-                          title: Text(
-                            f.displayName,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Text(
-                            f.friend.isOnline ? 'Online' : 'Tap to start chatting',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: f.friend.isOnline
-                                  ? AppColors.success
-                                  : Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withValues(alpha: 0.5),
-                            ),
-                          ),
-                          onTap: () => _openChat(context, ref, f.friend.id),
-                        )),
-                      ],
-                    ],
-                  );
-                },
-              ),
+              // Hold a spinner until BOTH `conversationsProvider` and
+              // `friendshipsProvider` have produced their first real list.
+              // Firing the empty-state UI the moment conversations returned
+              // while friends was still loading caused a "blank list" flash
+              // on cold start — peer DM rows whose `otherUser` was not yet
+              // cached were filtered out and the friends list was still empty.
+              // NOTE: do NOT add a third provider that watches the conversation
+              // *stream* — a FutureProvider watching a StreamProvider re-runs on
+              // every emit, toggling isLoading and causing the list to flicker
+              // (and races the element lifecycle → defunct-element assertions).
+              child: (convsAsync.isLoading || friendsAsync.isLoading)
+                  ? const Center(child: CircularProgressIndicator())
+                  : convsAsync.when(
+                      // loading is handled by the outer branch above.
+                      loading: () => const SizedBox.shrink(),
+                      error: (e, _) => Center(child: Text('Error: $e')),
+                      data: (allConvs) => _buildList(
+                        context,
+                        ref,
+                        allConvs,
+                        friendsAsync.asData?.value ?? const [],
+                      ),
+                    ),
             ),
           ),
         ],
@@ -217,6 +165,49 @@ class HomeScreen extends ConsumerWidget {
         tooltip:         'New chat',
         child:           const Icon(Icons.add_comment_outlined),
       ),
+    );
+  }
+
+  Widget _buildList(
+    BuildContext context,
+    WidgetRef ref,
+    List<Conversation> allConvs,
+    List<Friendship> friends,
+  ) {
+    // Direct conversations only render when the peer user record has synced —
+    // rows whose `otherUser` is null are dropped here and the friend still
+    // appears under Friends, so a freshly accepted friend no longer surfaces
+    // in both "Chats" and "Friends".
+    final convs = allConvs
+        .where((c) => !(c.type == 'direct' && c.otherUser == null))
+        .toList();
+    final convUserIds = convs
+        .where((c) => c.type == 'direct' && c.otherUser != null)
+        .map((c) => c.otherUser!.id)
+        .toSet();
+    final newFriends = friends
+        .where((f) => !convUserIds.contains(f.friend.id))
+        .toList();
+
+    if (convs.isEmpty && newFriends.isEmpty) {
+      return _EmptyState(onAddFriend: () => _showAddFriend(context, ref));
+    }
+
+    // Merge DMs + groups into one chronological block. The DB query
+    // orders DESC by `last_message_at` (with `is_pinned` first) and
+    // `_convRowsToEntities` preserves that order, so iterating together
+    // gives a single intermixed Chats list.
+    return ListView(
+      children: [
+        if (convs.isNotEmpty) ...[
+          _SectionHeader(title: 'Chats'),
+          ...convs.map((c) => _ConversationTile(conv: c)),
+        ],
+        if (newFriends.isNotEmpty) ...[
+          _SectionHeader(title: 'Friends'),
+          ...newFriends.map((f) => _FriendsTile(entity: f, onTap: () => _openChat(context, ref, f.friend.id))),
+        ],
+      ],
     );
   }
 
@@ -327,12 +318,58 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+/// Friend entry shown under the "Friends" section — for friends that
+/// have no active conversation yet. Kept here so the home build-list
+/// stays small.
+class _FriendsTile extends StatelessWidget {
+  const _FriendsTile({required this.entity, required this.onTap});
+  final Friendship entity;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = entity;
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: AppColors.primaryLight,
+        backgroundImage: f.friend.avatarUrl != null
+            ? CachedNetworkImageProvider(f.friend.avatarUrl!)
+            : null,
+        child: f.friend.avatarUrl == null
+            ? Text(
+                f.displayName.substring(0, 1).toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            : null,
+      ),
+      title: Text(
+        f.displayName,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        f.friend.isOnline ? 'Online' : 'Tap to start chatting',
+        style: TextStyle(
+          fontSize: 12,
+          color: f.friend.isOnline
+              ? AppColors.success
+              : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
 class _ConversationTile extends ConsumerWidget {
   const _ConversationTile({required this.conv});
   final Conversation conv;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final hasUnread = conv.unreadCount > 0;
     return ListTile(
       leading: _ConvAvatar(conv: conv),
       title: Row(
@@ -340,7 +377,10 @@ class _ConversationTile extends ConsumerWidget {
           Expanded(
             child: Text(
               conv.displayName,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: TextStyle(
+                // Bold the title when there are unread messages.
+                fontWeight: hasUnread ? FontWeight.w800 : FontWeight.w600,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -363,12 +403,34 @@ class _ConversationTile extends ConsumerWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: 13,
+          fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w400,
           color: Theme.of(context)
               .colorScheme
               .onSurface
-              .withValues(alpha: 0.5),
+              .withValues(alpha: hasUnread ? 0.8 : 0.5),
         ),
       ),
+      trailing: hasUnread
+          ? Container(
+              margin: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              constraints: const BoxConstraints(minWidth: 22),
+              child: Text(
+                conv.unreadCount > 99 ? '99+' : '${conv.unreadCount}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          : null,
       onTap: () {
         context.push(AppRoutes.chat, extra: conv);
       },

@@ -834,6 +834,29 @@ class $ConversationsTableTable extends ConversationsTable
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _unreadCountMeta = const VerificationMeta(
+    'unreadCount',
+  );
+  @override
+  late final GeneratedColumn<int> unreadCount = GeneratedColumn<int>(
+    'unread_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastReadLocalIdMeta = const VerificationMeta(
+    'lastReadLocalId',
+  );
+  @override
+  late final GeneratedColumn<String> lastReadLocalId = GeneratedColumn<String>(
+    'last_read_local_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _muteUntilMeta = const VerificationMeta(
     'muteUntil',
   );
@@ -890,6 +913,8 @@ class $ConversationsTableTable extends ConversationsTable
     disappearingDuration,
     onlyAdminsCanMessage,
     isPinned,
+    unreadCount,
+    lastReadLocalId,
     muteUntil,
     wallpaperPath,
     createdAt,
@@ -985,6 +1010,24 @@ class $ConversationsTableTable extends ConversationsTable
         isPinned.isAcceptableOrUnknown(data['is_pinned']!, _isPinnedMeta),
       );
     }
+    if (data.containsKey('unread_count')) {
+      context.handle(
+        _unreadCountMeta,
+        unreadCount.isAcceptableOrUnknown(
+          data['unread_count']!,
+          _unreadCountMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_read_local_id')) {
+      context.handle(
+        _lastReadLocalIdMeta,
+        lastReadLocalId.isAcceptableOrUnknown(
+          data['last_read_local_id']!,
+          _lastReadLocalIdMeta,
+        ),
+      );
+    }
     if (data.containsKey('mute_until')) {
       context.handle(
         _muteUntilMeta,
@@ -1065,6 +1108,14 @@ class $ConversationsTableTable extends ConversationsTable
         DriftSqlType.bool,
         data['${effectivePrefix}is_pinned'],
       )!,
+      unreadCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}unread_count'],
+      )!,
+      lastReadLocalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_read_local_id'],
+      ),
       muteUntil: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}mute_until'],
@@ -1102,6 +1153,8 @@ class ConversationsTableData extends DataClass
   final int disappearingDuration;
   final bool onlyAdminsCanMessage;
   final bool isPinned;
+  final int unreadCount;
+  final String? lastReadLocalId;
   final DateTime? muteUntil;
   final String? wallpaperPath;
   final DateTime createdAt;
@@ -1117,6 +1170,8 @@ class ConversationsTableData extends DataClass
     required this.disappearingDuration,
     required this.onlyAdminsCanMessage,
     required this.isPinned,
+    required this.unreadCount,
+    this.lastReadLocalId,
     this.muteUntil,
     this.wallpaperPath,
     required this.createdAt,
@@ -1143,6 +1198,10 @@ class ConversationsTableData extends DataClass
     map['disappearing_duration'] = Variable<int>(disappearingDuration);
     map['only_admins_can_message'] = Variable<bool>(onlyAdminsCanMessage);
     map['is_pinned'] = Variable<bool>(isPinned);
+    map['unread_count'] = Variable<int>(unreadCount);
+    if (!nullToAbsent || lastReadLocalId != null) {
+      map['last_read_local_id'] = Variable<String>(lastReadLocalId);
+    }
     if (!nullToAbsent || muteUntil != null) {
       map['mute_until'] = Variable<DateTime>(muteUntil);
     }
@@ -1172,6 +1231,10 @@ class ConversationsTableData extends DataClass
       disappearingDuration: Value(disappearingDuration),
       onlyAdminsCanMessage: Value(onlyAdminsCanMessage),
       isPinned: Value(isPinned),
+      unreadCount: Value(unreadCount),
+      lastReadLocalId: lastReadLocalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastReadLocalId),
       muteUntil: muteUntil == null && nullToAbsent
           ? const Value.absent()
           : Value(muteUntil),
@@ -1205,6 +1268,8 @@ class ConversationsTableData extends DataClass
         json['onlyAdminsCanMessage'],
       ),
       isPinned: serializer.fromJson<bool>(json['isPinned']),
+      unreadCount: serializer.fromJson<int>(json['unreadCount']),
+      lastReadLocalId: serializer.fromJson<String?>(json['lastReadLocalId']),
       muteUntil: serializer.fromJson<DateTime?>(json['muteUntil']),
       wallpaperPath: serializer.fromJson<String?>(json['wallpaperPath']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -1225,6 +1290,8 @@ class ConversationsTableData extends DataClass
       'disappearingDuration': serializer.toJson<int>(disappearingDuration),
       'onlyAdminsCanMessage': serializer.toJson<bool>(onlyAdminsCanMessage),
       'isPinned': serializer.toJson<bool>(isPinned),
+      'unreadCount': serializer.toJson<int>(unreadCount),
+      'lastReadLocalId': serializer.toJson<String?>(lastReadLocalId),
       'muteUntil': serializer.toJson<DateTime?>(muteUntil),
       'wallpaperPath': serializer.toJson<String?>(wallpaperPath),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -1243,6 +1310,8 @@ class ConversationsTableData extends DataClass
     int? disappearingDuration,
     bool? onlyAdminsCanMessage,
     bool? isPinned,
+    int? unreadCount,
+    Value<String?> lastReadLocalId = const Value.absent(),
     Value<DateTime?> muteUntil = const Value.absent(),
     Value<String?> wallpaperPath = const Value.absent(),
     DateTime? createdAt,
@@ -1262,6 +1331,10 @@ class ConversationsTableData extends DataClass
     disappearingDuration: disappearingDuration ?? this.disappearingDuration,
     onlyAdminsCanMessage: onlyAdminsCanMessage ?? this.onlyAdminsCanMessage,
     isPinned: isPinned ?? this.isPinned,
+    unreadCount: unreadCount ?? this.unreadCount,
+    lastReadLocalId: lastReadLocalId.present
+        ? lastReadLocalId.value
+        : this.lastReadLocalId,
     muteUntil: muteUntil.present ? muteUntil.value : this.muteUntil,
     wallpaperPath: wallpaperPath.present
         ? wallpaperPath.value
@@ -1291,6 +1364,12 @@ class ConversationsTableData extends DataClass
           ? data.onlyAdminsCanMessage.value
           : this.onlyAdminsCanMessage,
       isPinned: data.isPinned.present ? data.isPinned.value : this.isPinned,
+      unreadCount: data.unreadCount.present
+          ? data.unreadCount.value
+          : this.unreadCount,
+      lastReadLocalId: data.lastReadLocalId.present
+          ? data.lastReadLocalId.value
+          : this.lastReadLocalId,
       muteUntil: data.muteUntil.present ? data.muteUntil.value : this.muteUntil,
       wallpaperPath: data.wallpaperPath.present
           ? data.wallpaperPath.value
@@ -1313,6 +1392,8 @@ class ConversationsTableData extends DataClass
           ..write('disappearingDuration: $disappearingDuration, ')
           ..write('onlyAdminsCanMessage: $onlyAdminsCanMessage, ')
           ..write('isPinned: $isPinned, ')
+          ..write('unreadCount: $unreadCount, ')
+          ..write('lastReadLocalId: $lastReadLocalId, ')
           ..write('muteUntil: $muteUntil, ')
           ..write('wallpaperPath: $wallpaperPath, ')
           ..write('createdAt: $createdAt, ')
@@ -1333,6 +1414,8 @@ class ConversationsTableData extends DataClass
     disappearingDuration,
     onlyAdminsCanMessage,
     isPinned,
+    unreadCount,
+    lastReadLocalId,
     muteUntil,
     wallpaperPath,
     createdAt,
@@ -1352,6 +1435,8 @@ class ConversationsTableData extends DataClass
           other.disappearingDuration == this.disappearingDuration &&
           other.onlyAdminsCanMessage == this.onlyAdminsCanMessage &&
           other.isPinned == this.isPinned &&
+          other.unreadCount == this.unreadCount &&
+          other.lastReadLocalId == this.lastReadLocalId &&
           other.muteUntil == this.muteUntil &&
           other.wallpaperPath == this.wallpaperPath &&
           other.createdAt == this.createdAt &&
@@ -1370,6 +1455,8 @@ class ConversationsTableCompanion
   final Value<int> disappearingDuration;
   final Value<bool> onlyAdminsCanMessage;
   final Value<bool> isPinned;
+  final Value<int> unreadCount;
+  final Value<String?> lastReadLocalId;
   final Value<DateTime?> muteUntil;
   final Value<String?> wallpaperPath;
   final Value<DateTime> createdAt;
@@ -1386,6 +1473,8 @@ class ConversationsTableCompanion
     this.disappearingDuration = const Value.absent(),
     this.onlyAdminsCanMessage = const Value.absent(),
     this.isPinned = const Value.absent(),
+    this.unreadCount = const Value.absent(),
+    this.lastReadLocalId = const Value.absent(),
     this.muteUntil = const Value.absent(),
     this.wallpaperPath = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -1403,6 +1492,8 @@ class ConversationsTableCompanion
     this.disappearingDuration = const Value.absent(),
     this.onlyAdminsCanMessage = const Value.absent(),
     this.isPinned = const Value.absent(),
+    this.unreadCount = const Value.absent(),
+    this.lastReadLocalId = const Value.absent(),
     this.muteUntil = const Value.absent(),
     this.wallpaperPath = const Value.absent(),
     required DateTime createdAt,
@@ -1424,6 +1515,8 @@ class ConversationsTableCompanion
     Expression<int>? disappearingDuration,
     Expression<bool>? onlyAdminsCanMessage,
     Expression<bool>? isPinned,
+    Expression<int>? unreadCount,
+    Expression<String>? lastReadLocalId,
     Expression<DateTime>? muteUntil,
     Expression<String>? wallpaperPath,
     Expression<DateTime>? createdAt,
@@ -1444,6 +1537,8 @@ class ConversationsTableCompanion
       if (onlyAdminsCanMessage != null)
         'only_admins_can_message': onlyAdminsCanMessage,
       if (isPinned != null) 'is_pinned': isPinned,
+      if (unreadCount != null) 'unread_count': unreadCount,
+      if (lastReadLocalId != null) 'last_read_local_id': lastReadLocalId,
       if (muteUntil != null) 'mute_until': muteUntil,
       if (wallpaperPath != null) 'wallpaper_path': wallpaperPath,
       if (createdAt != null) 'created_at': createdAt,
@@ -1463,6 +1558,8 @@ class ConversationsTableCompanion
     Value<int>? disappearingDuration,
     Value<bool>? onlyAdminsCanMessage,
     Value<bool>? isPinned,
+    Value<int>? unreadCount,
+    Value<String?>? lastReadLocalId,
     Value<DateTime?>? muteUntil,
     Value<String?>? wallpaperPath,
     Value<DateTime>? createdAt,
@@ -1480,6 +1577,8 @@ class ConversationsTableCompanion
       disappearingDuration: disappearingDuration ?? this.disappearingDuration,
       onlyAdminsCanMessage: onlyAdminsCanMessage ?? this.onlyAdminsCanMessage,
       isPinned: isPinned ?? this.isPinned,
+      unreadCount: unreadCount ?? this.unreadCount,
+      lastReadLocalId: lastReadLocalId ?? this.lastReadLocalId,
       muteUntil: muteUntil ?? this.muteUntil,
       wallpaperPath: wallpaperPath ?? this.wallpaperPath,
       createdAt: createdAt ?? this.createdAt,
@@ -1523,6 +1622,12 @@ class ConversationsTableCompanion
     if (isPinned.present) {
       map['is_pinned'] = Variable<bool>(isPinned.value);
     }
+    if (unreadCount.present) {
+      map['unread_count'] = Variable<int>(unreadCount.value);
+    }
+    if (lastReadLocalId.present) {
+      map['last_read_local_id'] = Variable<String>(lastReadLocalId.value);
+    }
     if (muteUntil.present) {
       map['mute_until'] = Variable<DateTime>(muteUntil.value);
     }
@@ -1554,6 +1659,8 @@ class ConversationsTableCompanion
           ..write('disappearingDuration: $disappearingDuration, ')
           ..write('onlyAdminsCanMessage: $onlyAdminsCanMessage, ')
           ..write('isPinned: $isPinned, ')
+          ..write('unreadCount: $unreadCount, ')
+          ..write('lastReadLocalId: $lastReadLocalId, ')
           ..write('muteUntil: $muteUntil, ')
           ..write('wallpaperPath: $wallpaperPath, ')
           ..write('createdAt: $createdAt, ')
@@ -6438,6 +6545,8 @@ typedef $$ConversationsTableTableCreateCompanionBuilder =
       Value<int> disappearingDuration,
       Value<bool> onlyAdminsCanMessage,
       Value<bool> isPinned,
+      Value<int> unreadCount,
+      Value<String?> lastReadLocalId,
       Value<DateTime?> muteUntil,
       Value<String?> wallpaperPath,
       required DateTime createdAt,
@@ -6456,6 +6565,8 @@ typedef $$ConversationsTableTableUpdateCompanionBuilder =
       Value<int> disappearingDuration,
       Value<bool> onlyAdminsCanMessage,
       Value<bool> isPinned,
+      Value<int> unreadCount,
+      Value<String?> lastReadLocalId,
       Value<DateTime?> muteUntil,
       Value<String?> wallpaperPath,
       Value<DateTime> createdAt,
@@ -6519,6 +6630,16 @@ class $$ConversationsTableTableFilterComposer
 
   ColumnFilters<bool> get isPinned => $composableBuilder(
     column: $table.isPinned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get unreadCount => $composableBuilder(
+    column: $table.unreadCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastReadLocalId => $composableBuilder(
+    column: $table.lastReadLocalId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6602,6 +6723,16 @@ class $$ConversationsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get unreadCount => $composableBuilder(
+    column: $table.unreadCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastReadLocalId => $composableBuilder(
+    column: $table.lastReadLocalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get muteUntil => $composableBuilder(
     column: $table.muteUntil,
     builder: (column) => ColumnOrderings(column),
@@ -6672,6 +6803,16 @@ class $$ConversationsTableTableAnnotationComposer
   GeneratedColumn<bool> get isPinned =>
       $composableBuilder(column: $table.isPinned, builder: (column) => column);
 
+  GeneratedColumn<int> get unreadCount => $composableBuilder(
+    column: $table.unreadCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastReadLocalId => $composableBuilder(
+    column: $table.lastReadLocalId,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get muteUntil =>
       $composableBuilder(column: $table.muteUntil, builder: (column) => column);
 
@@ -6737,6 +6878,8 @@ class $$ConversationsTableTableTableManager
                 Value<int> disappearingDuration = const Value.absent(),
                 Value<bool> onlyAdminsCanMessage = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
+                Value<int> unreadCount = const Value.absent(),
+                Value<String?> lastReadLocalId = const Value.absent(),
                 Value<DateTime?> muteUntil = const Value.absent(),
                 Value<String?> wallpaperPath = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -6753,6 +6896,8 @@ class $$ConversationsTableTableTableManager
                 disappearingDuration: disappearingDuration,
                 onlyAdminsCanMessage: onlyAdminsCanMessage,
                 isPinned: isPinned,
+                unreadCount: unreadCount,
+                lastReadLocalId: lastReadLocalId,
                 muteUntil: muteUntil,
                 wallpaperPath: wallpaperPath,
                 createdAt: createdAt,
@@ -6771,6 +6916,8 @@ class $$ConversationsTableTableTableManager
                 Value<int> disappearingDuration = const Value.absent(),
                 Value<bool> onlyAdminsCanMessage = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
+                Value<int> unreadCount = const Value.absent(),
+                Value<String?> lastReadLocalId = const Value.absent(),
                 Value<DateTime?> muteUntil = const Value.absent(),
                 Value<String?> wallpaperPath = const Value.absent(),
                 required DateTime createdAt,
@@ -6787,6 +6934,8 @@ class $$ConversationsTableTableTableManager
                 disappearingDuration: disappearingDuration,
                 onlyAdminsCanMessage: onlyAdminsCanMessage,
                 isPinned: isPinned,
+                unreadCount: unreadCount,
+                lastReadLocalId: lastReadLocalId,
                 muteUntil: muteUntil,
                 wallpaperPath: wallpaperPath,
                 createdAt: createdAt,

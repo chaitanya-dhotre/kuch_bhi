@@ -49,6 +49,34 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
         ConversationsTableCompanion(isPinned: Value(pinned)),
       );
 
+  // ── Unread badge ──────────────────────────────────────────────
+
+  /// Increment unreadCount if [messageLocalId] is newer than the current
+  /// lastReadLocalId — never resets to 0.
+  Future<void> bumpUnread(String convId, String messageLocalId) async {
+    final conv = await getConversationById(convId);
+    if (conv == null) return;
+    final lastRead = conv.lastReadLocalId;
+    if (lastRead == messageLocalId) {
+      // Same message the user already had at the top of the unread window.
+      return;
+    }
+    await (update(conversationsTable)..where((t) => t.id.equals(convId)))
+        .write(ConversationsTableCompanion(
+      unreadCount: Value(conv.unreadCount + 1),
+    ));
+  }
+
+  /// Mark conversation read — sets unreadCount to 0 and records the
+  /// last-read message localId so subsequent messages can bump correctly.
+  Future<void> markRead(String convId, String lastReadLocalId) async {
+    await (update(conversationsTable)..where((t) => t.id.equals(convId)))
+        .write(ConversationsTableCompanion(
+      unreadCount:     Value(0),
+      lastReadLocalId: Value(lastReadLocalId),
+    ));
+  }
+
   // ── Members ───────────────────────────────────────────────────
 
   Future<void> upsertMember(ConversationMembersTableCompanion m) =>

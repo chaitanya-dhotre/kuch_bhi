@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -66,6 +68,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   ProviderSubscription<AsyncValue<List<Message>>>? _markReadSub;
 
+  // Collapses the rapid messages-stream burst (rowCount 1→N during a backfill,
+  // plus the per-message re-emits) into a SINGLE server round-trip. Without
+  // this, every emit called `markConversationRead` — which writes a `read_at`
+  // receipt for each message → fired the receipts subscription → which
+  // re-ran reconcile → receipts flood. The open chat kept "running" forever.
+  Timer? _markReadDebounce;
+
   PresenceService get _pres => ref.read(presenceServiceProvider);
   String          get _cid  => widget.conversation.id;
 
@@ -82,9 +91,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         messagesProvider(_cid),
         (_, next) {
           if (!mounted) return;
-          if (next.hasValue && next.value!.isNotEmpty) {
-            ref.read(messageRepositoryProvider).markConversationRead(_cid);
-          }
+          if (!next.hasValue || next.value!.isEmpty) return;
+          // Debounce: reset the clock on every emit; only the LAST emit (after
+          // ~1.5s of quiet) actually marks read. This collapses an initial
+          // 30-message backfill from ~30 server round-trips into 1.
+          _markReadDebounce?.cancel();
+          _markReadDebounce = Timer(const Duration(milliseconds: 1500), () {
+            if (mounted) {
+              ref.read(messageRepositoryProvider).markConversationRead(_cid);
+            }
+          });
         },
       );
     });
@@ -96,6 +112,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       FcmService.activeConversationId = null;
     }
     _markReadSub?.close();
+    _markReadDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _scrollCtrl.dispose();
     _searchCtrl.dispose();

@@ -13,6 +13,8 @@ class ConversationsTable extends Table {
   BoolColumn get onlyAdminsCanMessage => boolean().withDefault(const Constant(false))();
   // Local-only fields (never synced to server)
   BoolColumn get isPinned => boolean().withDefault(const Constant(false))();
+  IntColumn get unreadCount => integer().withDefault(const Constant(0))();
+  TextColumn get lastReadLocalId => text().nullable()();
   DateTimeColumn get muteUntil => dateTime().nullable()();
   TextColumn get wallpaperPath => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();

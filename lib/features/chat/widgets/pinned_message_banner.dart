@@ -23,6 +23,30 @@ class PinnedMessageBanner extends ConsumerStatefulWidget {
 class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
   int _index = 0;
 
+  /// Type-aware preview for the pinned banner.
+  /// Plaintext-only fallback `decryptedBody ?? '📎 Attachment'` left media
+  /// messages looking blank (the body's just a duration string for voice/
+  /// video or empty for documents). Emojis here match the conversation-list
+  /// previews, so it feels consistent.
+  static String _previewForBanner(Message msg) {
+    final body = msg.decryptedBody ?? '';
+    switch (msg.type) {
+      case 'image':
+        return '📷 Photo';
+      case 'video':
+        return body.isNotEmpty ? '🎬 Video · $body' : '🎬 Video';
+      case 'voice':
+        return body.isNotEmpty && body != 'Voice message'
+            ? '🎤 Voice message · $body'
+            : '🎤 Voice message';
+      case 'document':
+        return body.isNotEmpty ? '📎 $body' : '📎 Document';
+      default:
+        final text = body.isNotEmpty ? body : '🔒 Encrypted';
+        return text.length > 60 ? '${text.substring(0, 60)}…' : text;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pinned = ref.watch(pinnedMessagesProvider(widget.conversationId));
@@ -34,7 +58,7 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
         if (messages.isEmpty) return const SizedBox.shrink();
 
         final msg = messages[_index % messages.length];
-        final preview = msg.decryptedBody ?? '📎 Attachment';
+        final preview = _previewForBanner(msg);
 
         return GestureDetector(
           onTap: () {

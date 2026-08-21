@@ -243,10 +243,16 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
+    // If thumb decryption/download failed (stale media ref, missing key, etc.)
+    // fall back to the icon-row so the card is helpful instead of empty.
     if (_thumbFile == null) {
-      return const SizedBox(
-        height: 120,
-        child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+      return _mediaRow(
+        context,
+        Icons.camera_alt_outlined,
+        // Reuse any caption/body if present, otherwise just the label.
+        (widget.message.decryptedBody ?? '').isNotEmpty
+            ? widget.message.decryptedBody!
+            : 'Photo',
       );
     }
     return ClipRRect(
@@ -256,9 +262,14 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         height: 200,
         width: double.infinity,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => const SizedBox(
-          height: 120,
-          child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+        // Decode failure inside Image.file (corrupt/truncated thumb) — fall
+        // through to the same icon row so the user always sees context.
+        errorBuilder: (_, __, ___) => _mediaRow(
+          context,
+          Icons.camera_alt_outlined,
+          (widget.message.decryptedBody ?? '').isNotEmpty
+              ? widget.message.decryptedBody!
+              : 'Photo',
         ),
       ),
     );

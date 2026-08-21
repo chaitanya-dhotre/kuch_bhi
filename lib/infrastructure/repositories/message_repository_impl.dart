@@ -284,21 +284,33 @@ class MessageRepositoryImpl implements MessageRepository {
   // For devices where SSE is flaky or FCM is unavailable (de-Googled ROMs),
   // poll the active conversations every few seconds so incoming messages,
   // receipts, reactions, pins and deletions still surface without a reopen.
+  //
+  // IMPORTANT: this loop only does the heavy work (re-fetch messages +
+  // receipts + full conversation sync) when SSE is NOT healthy — i.e. when
+  // `_subscribed == false`. When realtime is live, those updates arrive via
+  // the subscriptions, so re-fetching here would re-cache every message every
+  // 5s, and each cached row re-emits via the Drift stream → the open chat's
+  // `markConversationRead` listener fires N times → a server round-trip for
+  // each → creates receipts → the receipts subscription floods. That was the
+  // "receipts run infinitely while a chat is open" storm.
 
   void _startPollFallback() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-      // If SSE is healthy this is cheap insurance; if it's down it's the only
-      // thing keeping the device current.
       try {
         final myId = await _myId();
         if (myId.isEmpty) return;
         final active = _activeConversationId;
-        if (active != null) {
+        if (active != null && !_subscribed) {
+          // SSE is down — re-fetch messages + receipts for the on-screen chat.
           await _fetchAndCacheMessages(active);
           await _reconcileReceiptsForConversation(active, myId);
         }
-        await _syncConversations(myId);
+        // Only reconcile the conversation list server-side when SSE is down;
+        // when it's live, subscription handlers already drive `_syncConversations`.
+        if (!_subscribed) {
+          await _syncConversations(myId);
+        }
       } catch (e) {
         debugPrint('[Msg] poll fallback: $e');
       }
@@ -343,24 +355,45 @@ class MessageRepositoryImpl implements MessageRepository {
   /// Returns Drift's own reactive stream.
   /// Auto-emits on every table write — including optimistic inserts.
   /// No manual StreamController needed.
+  ///
+  /// COLD-START: if the local Drift cache for this conversation is empty we
+  /// HOLD the stream until the first server fetch completes, so Riverpod
+  /// reports `AsyncLoading` (spinner) rather than `AsyncData([])` ("Say hello
+  /// 👋") during the 1–2s before the fetch writes the rows. If we already have
+  /// cached rows (re-entering a chat) we hand them back immediately and let
+  /// the background fetch update the stream reactively — no warm-open delay.
   @override
   Stream<List<Message>> watchMessages(String conversationId) {
-    // Track the on-screen conversation for the poll fallback.
+    // Track the on-screen conversation for the poll fallback — set FIRST so the
+    // poll can track it even while the fetch below is awaiting.
     _activeConversationId = conversationId;
-    // Purge any locally-expired disappearing messages before showing the chat,
-    // then start the background fetch. The Drift stream auto-emits on delete.
+    // Purge any locally-expired disappearing messages before showing the chat.
+    // The Drift stream auto-emits on delete.
     db.messagesDao.deleteExpiredMessages();
     // Collapse any duplicate rows the FCM background isolate raced in.
     db.messagesDao.dedupByServerId();
-    // Start background fetch (saves to Drift → auto-emits via stream below)
-    _fetchAndCacheMessages(conversationId);
 
-    return db.messagesDao
-        .watchMessages(conversationId)
-        .asyncMap((rows) async {
-          debugPrint('[Msg] watchMessages EMIT — convId: $conversationId, rowCount: ${rows.length}');
-          return _rowsToMessages(rows);
-        });
+    return _messagesStream(conversationId);
+  }
+
+  Stream<List<Message>> _messagesStream(String conversationId) async* {
+    // Peek at the current local cache once to choose the cold vs warm path.
+    final cached = await db.messagesDao.watchMessages(conversationId).first;
+    if (cached.isEmpty) {
+      // Cold: await the first server fetch so the UI shows a spinner, not the
+      // empty-state, before the rows arrive. _fetchAndCacheMessages swallows its
+      // own errors (offline) so on failure we still yield the (empty) Drift
+      // stream below → "Say hello 👋" shows correctly when truly unreachable.
+      await _fetchAndCacheMessages(conversationId);
+    } else {
+      // Warm: hand cached rows back instantly; refresh in the background.
+      _fetchAndCacheMessages(conversationId);
+    }
+
+    await for (final rows in db.messagesDao.watchMessages(conversationId)) {
+      debugPrint('[Msg] watchMessages EMIT — convId: $conversationId, rowCount: ${rows.length}');
+      yield await _rowsToMessages(rows);
+    }
   }
 
   Future<List<Message>> _rowsToMessages(
@@ -819,6 +852,17 @@ class MessageRepositoryImpl implements MessageRepository {
           } catch (_) {}
         }
       }
+
+      // 3) Reset the LOCAL unread badge for this conversation. Pick the most
+      //    recent message localId and persist it as the new last-read cursor so
+      //    the next incoming message bumps the count from zero again.
+      String? lastReadLocalId;
+      if (rows.isNotEmpty) {
+        // rows from `watchMessages` are DESC by createdAt → first = newest.
+        lastReadLocalId = rows.first.localId;
+      }
+      await db.conversationsDao.markRead(
+        conversationId, lastReadLocalId ?? '');
     } catch (e) {
       debugPrint('[Receipt] markRead: $e');
     }
@@ -1153,19 +1197,34 @@ class MessageRepositoryImpl implements MessageRepository {
         perPage: 200,
       );
 
-      return res.items.map((record) {
-        return Message(
+      final out = <Message>[];
+      for (final record in res.items) {
+        final serverId = record.getStringValue('message_id');
+        // Resolve the REAL message type from the local cache — the
+        // starred_messages PB collection only stores message_preview (text),
+        // so without this lookup every starred media item would render as
+        // plaintext and look blank. Fall back to 'text' only when the
+        // message isn't in the local cache yet.
+        String realType = 'text';
+        try {
+          final local = await db.messagesDao.getMessageByServerId(serverId);
+          if (local != null && local.type.isNotEmpty) {
+            realType = local.type;
+          }
+        } catch (_) {}
+        out.add(Message(
           localId:        record.id,
-          serverId:       record.getStringValue('message_id'),
+          serverId:       serverId,
           conversationId: record.getStringValue('conversation_id'),
           senderId:       record.getStringValue('sender_id'),
-          type:           'text',
+          type:           realType,
           decryptedBody:  record.getStringValue('message_preview'),
           status:         'read',
           createdAt:      DateTime.tryParse(record.created) ?? DateTime.now(),
           isStarred:      true,
-        );
-      }).toList();
+        ));
+      }
+      return out;
     } catch (e) {
       debugPrint('[Star] getStarredMessages: $e');
       return [];
@@ -2012,6 +2071,13 @@ class MessageRepositoryImpl implements MessageRepository {
           };
           await db.conversationsDao.updateLastMessage(
               convId, preview, createdAt);
+          // Bump the unread badge unless the user is currently viewing
+          // this conversation (their last-read already points past it).
+          if (conv?.lastReadLocalId != null &&
+              conv!.lastReadLocalId!.isNotEmpty) {
+            await db.conversationsDao.bumpUnread(
+                convId, existing?.localId ?? _uuid.v4());
+          }
         }
       } catch (e) {
         debugPrint('[Conv] recipient lastMessage bump: $e');
@@ -2177,6 +2243,8 @@ class MessageRepositoryImpl implements MessageRepository {
         onlyAdminsCanMessage: conv.getBoolValue('only_admins_can_message'),
         disappearingDuration: conv.getIntValue('disappearing_duration'),
         isPinned:    false,
+        unreadCount: 0,
+        lastReadLocalId: null,
         createdAt:   DateTime.tryParse(conv.getStringValue('created')) ?? DateTime.now(),
         updatedAt:   DateTime.now(),
       );
@@ -2381,40 +2449,44 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<List<Conversation>> _convRowsToEntities(
       List<ConversationsTableData> rows) async {
     final myId = await _myId();
-    final directByOtherUser = <String, ConversationsTableData>{};
-    final directOtherUsers = <String, User?>{};
-    final groupRows = <ConversationsTableData>[];
 
+    // ── Pass 1: best direct-conv-row per counter-party + cache the peer ──
+    // For DMs with the same peer we keep the row with the most recent message.
+    final bestDirectByUser = <String, ConversationsTableData>{};
+    final otherByConvId = <String, User?>{};
     for (final r in rows) {
+      if (r.type != 'direct') continue;
       final other = await _getOtherUser(r.id, myId);
-      if (r.type != 'direct' || other == null) {
-        groupRows.add(r);
-        continue;
-      }
-
-      directOtherUsers.putIfAbsent(other.id, () => other);
-      final existing = directByOtherUser[other.id];
-      if (existing == null) {
-        directByOtherUser[other.id] = r;
-        continue;
-      }
-
-      final existingScore = existing.lastMessageAt ?? existing.createdAt;
+      otherByConvId[r.id] = other;
+      if (other == null) continue;
       final candidateScore = r.lastMessageAt ?? r.createdAt;
-      if (candidateScore.isAfter(existingScore)) {
-        directByOtherUser[other.id] = r;
+      final existing = bestDirectByUser[other.id];
+      if (existing == null ||
+          candidateScore.isAfter(existing.lastMessageAt ?? existing.createdAt)) {
+        bestDirectByUser[other.id] = r;
       }
     }
 
-    final convs = <Conversation>[];
-    convs.addAll(directByOtherUser.entries.map(
-      (entry) => _convDataToEntity(entry.value, directOtherUsers[entry.key]),
-    ));
-    for (final r in groupRows) {
-      final count = await _getMemberCount(r.id);
-      convs.add(_convDataToEntity(r, null, memberCount: count));
+    // ── Pass 2: emit in ORIGINAL DB order (pinned desc, then last_msg desc).
+    //    DMs and groups mix naturally — no more "all DMs then all groups".
+    final out = <Conversation>[];
+    for (final r in rows) {
+      if (r.type == 'direct') {
+        final other = otherByConvId[r.id];
+        if (other == null) {
+          // Peer not yet in local user cache — drop this row from the
+          // chat list. The Friends section below surfaces them.
+          continue;
+        }
+        if (bestDirectByUser[other.id]?.id != r.id) continue; // dup, kept the newer row
+        final count = await _getMemberCount(r.id);
+        out.add(_convDataToEntity(r, other, memberCount: count));
+      } else {
+        final count = await _getMemberCount(r.id);
+        out.add(_convDataToEntity(r, null, memberCount: count));
+      }
     }
-    return convs;
+    return out;
   }
 
   Future<int> _getMemberCount(String convId) async =>
@@ -2440,6 +2512,7 @@ class MessageRepositoryImpl implements MessageRepository {
         isPinned: r.isPinned, otherUser: otherUser,
         onlyAdminsCanMessage: r.onlyAdminsCanMessage,
         memberCount: memberCount ?? 0,
+        unreadCount: r.unreadCount,
       );
 
   Message _rowToMessage(MessagesTableData r, String myId) => Message(
