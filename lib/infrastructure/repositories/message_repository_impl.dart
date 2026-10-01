@@ -15,6 +15,7 @@ import '../../core/network/pocketbase_client.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../domain/entities/conversation.dart';
+import '../../domain/entities/group_invite.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
@@ -43,6 +44,11 @@ class MessageRepositoryImpl implements MessageRepository {
         _reconnect();
       } else {
         debugPrint('[Msg] Auth token changed (logged out). Unsubscribing.');
+        _pendingJoinEmitConvIds.clear(); // no join polls for the previous user
+        for (final t in _rotateDebounce.values) {
+          t.cancel();
+        }
+        _rotateDebounce.clear(); // no stale auto-rotates for the previous user
         _teardown();
       }
     });
@@ -57,10 +63,23 @@ class MessageRepositoryImpl implements MessageRepository {
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
 
-  final _reactionsCtrl = StreamController<String>.broadcast();
+  final _reactionsCtrl     = StreamController<String>.broadcast();
+  final _mediaChangesCtrl   = StreamController<String>.broadcast();
+
+  /// Conversations where an accepted invite's "X joined the group" bubble is
+  /// still deferred (no admin device has rotated the group key yet). Retried
+  /// on every resume sync — see [_emitJoinedWhenKeyReady].
+  final Set<String> _pendingJoinEmitConvIds = {};
 
   @override
   Stream<String> get reactionsChanges => _reactionsCtrl.stream;
+
+  /// Emits the message serverId of any `message_media` record created or
+  /// updated on the server (SSE). Bubbles use this to recover from the
+  /// upload race where the messages row hits the realtime feed BEFORE its
+  /// media row exists — see mediaFileProvider (#18).
+  @override
+  Stream<String> get mediaChanges => _mediaChangesCtrl.stream;
 
   // ── Realtime subscription lifecycle ───────────────────────────
   //
@@ -95,7 +114,7 @@ class MessageRepositoryImpl implements MessageRepository {
     _subscribed = false;
     for (final c in const [
       'messages', 'conversations', 'conversation_members',
-      'message_receipts', 'reactions',
+      'message_receipts', 'reactions', 'message_media',
     ]) {
       try {
         await _pb.collection(c).unsubscribe('*');
@@ -139,6 +158,7 @@ class MessageRepositoryImpl implements MessageRepository {
     await _subMembers();
     await _subReceipts();
     await _subReactions();
+    await _subMedia();
   }
 
   Future<void> _subMessages() async {
@@ -208,8 +228,11 @@ class MessageRepositoryImpl implements MessageRepository {
         // Cache even if we can't decrypt yet — a later fetch/reconcile will
         // decrypt once the key is available. Message is never lost.
         await _cacheMsg(r, myId, key ?? const <int>[]);
-        // Always acknowledge delivery so the sender's tick advances.
-        await _markDelivered(r.id, convId, myId);
+        // Acknowledge delivery so the sender's tick advances — narrative
+        // 'system' rows carry no ticks, skip them.
+        if (r.getStringValue('type') != 'system') {
+          await _markDelivered(r.id, convId, myId);
+        }
         // Drift stream auto-emits — no manual push needed
       } catch (e) {
         debugPrint('[Msg] incoming error: $e');
@@ -225,10 +248,89 @@ class MessageRepositoryImpl implements MessageRepository {
     });
   }
 
+  /// Per-conversation rotate debounce (one rotation per join burst).
+  final Map<String, Timer> _rotateDebounce = {};
+
   Future<void> _subMembers() async {
-    await _pb.collection('conversation_members').subscribe('*', (_) {
+    await _pb.collection('conversation_members').subscribe('*', (event) {
       _syncConversationsBackground();
+      if (event.action != 'create' || event.record == null) return;
+      final r = event.record!;
+      _maybeScheduleRotate(r.getStringValue('conversation_id'),
+          r.getStringValue('user_id'));
     });
+  }
+
+  /// Invite-accept self-joins create the member row from the JOINER's device.
+  /// Key distribution must come from a key-holding device: any admin of the
+  /// group rotates (debounced) so the joiner receives the current key.
+  Future<void> _maybeScheduleRotate(String convId, String newUserId) async {
+    if (convId.isEmpty) return;
+    final myId = await _myId();
+    if (myId.isEmpty || newUserId == myId) return;
+    final conv = await db.conversationsDao.getConversationById(convId);
+    if (conv?.type != 'group') return;
+    if (!await isCurrentUserAdmin(convId)) return;
+
+    // Deterministic rotate election: with 2+ admins online, every admin
+    // device used to schedule its own rotation; both then read the same
+    // next key_version before either wrote, colliding on
+    // UNIQUE(conversation_id,user_id,key_version). All admins now compute
+    // the same single owner (smallest admin user id) and only that device
+    // rotates. If the owner is offline, no rotation happens on this pass —
+    // the joiner's key-poll and the resume retry reconcile later.
+    if (!await _isRotationOwner(convId, myId)) return;
+
+    _rotateDebounce[convId]?.cancel();
+    _rotateDebounce[convId] = Timer(const Duration(seconds: 3), () async {
+      _rotateDebounce.remove(convId);
+      try {
+        await _rotateGroupKey(convId, myId);
+      } catch (e) {
+        debugPrint('[Group] auto-rotate on join failed: $e');
+      }
+    });
+  }
+
+  /// Election helper: true only if [myId] is the elected rotation owner —
+  /// the lexicographically smallest admin user id of [convId]. Every admin
+  /// device computes the same owner, so exactly one schedules the rotation.
+  /// DAO rows first (cheap); PB fallback when the DAO throws or a fresh
+  /// install has no local member rows yet.
+  Future<bool> _isRotationOwner(String convId, String myId) async {
+    var adminIds = const <String>[];
+    try {
+      final members =
+          await db.conversationsDao.getAllMembersForConversation(convId);
+      adminIds = members
+          .where((m) => m.role == 'admin')
+          .map((m) => m.userId)
+          .toList();
+    } catch (e) {
+      debugPrint('[Group] rotate election: dao member fetch failed: $e');
+    }
+    if (adminIds.isEmpty) {
+      try {
+        final recs = await _pb.collection('conversation_members').getFullList(
+              filter: 'conversation_id="$convId"&&role="admin"', batch: 200,
+            );
+        adminIds = recs.map((r) => r.getStringValue('user_id')).toList();
+      } catch (e) {
+        debugPrint('[Group] rotate election: pb admin fetch failed: $e');
+        // Cannot enumerate admins — isCurrentUserAdmin above already
+        // confirmed locally that we are one; proceed rather than stall the
+        // joiner's key distribution forever.
+        return true;
+      }
+    }
+    final sorted = adminIds.where((id) => id.isNotEmpty).toList()..sort();
+    if (sorted.isEmpty) return true;
+    if (sorted.first != myId) {
+      debugPrint(
+          '[Group] rotate election: owner=${sorted.first}, me=$myId -> skip');
+      return false;
+    }
+    return true;
   }
 
   Future<void> _subReceipts() async {
@@ -276,6 +378,23 @@ class MessageRepositoryImpl implements MessageRepository {
       if (msgServerId.isNotEmpty) {
         debugPrint('[Reaction] Change detected for message: $msgServerId');
         _reactionsCtrl.add(msgServerId);
+      }
+    });
+  }
+
+  Future<void> _subMedia() async {
+    // Media records land AFTER their messages row (the sender uploads the
+    // encrypted file only after creating the message, since the media row
+    // needs the message id), so the message's live SSE echo can beat the
+    // media row by seconds. Broadcast the message_id so open bubbles can
+    // retry their media fetch the moment the row exists (#18).
+    await _pb.collection('message_media').subscribe('*', (event) {
+      final r = event.record;
+      if (r == null) return;
+      final messageId = r.getStringValue('message_id');
+      if (messageId.isNotEmpty) {
+        debugPrint('[Media] Change detected for message: $messageId');
+        _mediaChangesCtrl.add(messageId);
       }
     });
   }
@@ -412,6 +531,10 @@ class MessageRepositoryImpl implements MessageRepository {
     String? replyPreview,
   }) async {
     final myId    = await _myId();
+    // Hard group-membership gate (#17): the chat screen hides the composer
+    // for removed/left members, this covers races (removed while the
+    // composer was open) and retry paths.
+    await _assertCanSend(conversationId);
     final localId = _uuid.v4();
     final now     = DateTime.now();
     final expiresAt = await _computeExpiry(conversationId, now);
@@ -559,6 +682,7 @@ class MessageRepositoryImpl implements MessageRepository {
     int? videoHeight,
   }) async {
     final myId    = await _myId();
+    await _assertCanSend(conversationId);
     final localId = _uuid.v4();
     final now     = DateTime.now();
 
@@ -734,6 +858,20 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// Group send-gate (#17): throws when the current user is not an ACTIVE
+  /// member of a group conversation (removed or left). DMs always pass.
+  Future<void> _assertCanSend(String conversationId) async {
+    final conv = await db.conversationsDao.getConversationById(conversationId);
+    if (conv?.type != 'group') return;
+    final myId = await _myId();
+    final members =
+        await db.conversationsDao.getAllMembersForConversation(conversationId);
+    final mine = members.where((m) => m.userId == myId).firstOrNull;
+    if (mine == null || mine.role == 'left') {
+      throw StateError('You are no longer a member of this group.');
+    }
+  }
+
   // ── Retry pending messages ────────────────────────────────────
 
   @override
@@ -757,6 +895,19 @@ class MessageRepositoryImpl implements MessageRepository {
       // adopt the now-known id instead of destroying the user's message.
       if (msg.senderId.isEmpty) {
         debugPrint('[Msg] Repairing pending message ${msg.localId} with resolved senderId.');
+      }
+      // Never retry into a group we're no longer a member of (#17) — the
+      // server would reject the create anyway.
+      final conv =
+          await db.conversationsDao.getConversationById(msg.conversationId);
+      if (conv?.type == 'group') {
+        final members = await db.conversationsDao
+            .getAllMembersForConversation(msg.conversationId);
+        final mine = members.where((m) => m.userId == myId).firstOrNull;
+        if (mine == null || mine.role == 'left') {
+          debugPrint('[Msg] Skipping retry in group we left: ${msg.conversationId}');
+          continue;
+        }
       }
       await retryMessage(msg.localId);
     }
@@ -830,6 +981,7 @@ class MessageRepositoryImpl implements MessageRepository {
         final sid = row.serverId;
         if (sid == null || sid.isEmpty) continue;
         if (row.senderId == myId) continue;      // not my own messages
+        if (row.type == 'system') continue;      // narrative rows carry no receipts
         if (withReceipt.contains(sid)) continue; // already handled above
         try {
           await _pb.collection('message_receipts').create(body: {
@@ -1417,8 +1569,12 @@ class MessageRepositoryImpl implements MessageRepository {
 
   @override
   Future<List<User>> getGroupMembers(String conversationId) async {
+    // UNFILTERED on purpose (#17): the chat screen's isLeft/isMeAdmin gate
+    // looks for the user's OWN row in this list — the filtered dao query
+    // drops 'left' rows, so a removed member's gate never fired and they
+    // could keep typing. Display lists filter `groupRole != 'left'` locally.
     final members = await db.conversationsDao
-        .getMembersForConversation(conversationId);
+        .getAllMembersForConversation(conversationId);
     final users = <User>[];
     for (final m in members) {
       var u = await db.usersDao.getUserById(m.userId);
@@ -1437,56 +1593,182 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   @override
-  Future<void> addMemberToGroup(
-      String conversationId, String newUserId) async {
+  Future<void> sendGroupInvite(String conversationId, String userId) async {
     final myId = await _myId();
     if (!await isCurrentUserAdmin(conversationId)) {
       throw Exception('Not an admin');
     }
-
-    // Idempotent membership: the server has UNIQUE(conversation_id,user_id),
-    // so re-adding a previously-removed member must NOT create a duplicate.
-    RecordModel memberRecord;
+    // Idempotent: one invite per (conversation, user) — UNIQUE index
+    // server-side. Re-invite flips an existing row back to pending.
     try {
-      memberRecord = await _pb.collection('conversation_members').getFirstListItem(
-        'conversation_id="$conversationId"&&user_id="$newUserId"',
+      final existing = await _pb.collection('group_invites').getFirstListItem(
+        'conversation_id="$conversationId"&&invited_user_id="$userId"',
       );
-      // Already a member — nothing to add (avoids duplicate rows/keys).
-      debugPrint('[Group] $newUserId already a member — skipping duplicate add.');
-    } catch (_) {
-      memberRecord = await _pb.collection('conversation_members').create(
-        body: {
-          'conversation_id': conversationId,
-          'user_id':         newUserId,
-          'role':            'member',
-        },
+      await _pb.collection('group_invites').update(
+        existing.id, body: {'status': 'pending'},
       );
+    } on ClientException catch (e) {
+      if (e.statusCode != 404) rethrow;
+      await _pb.collection('group_invites').create(body: {
+        'conversation_id': conversationId,
+        'invited_user_id': userId,
+        'invited_by':      myId,
+        'status':          'pending',
+      });
     }
+  }
 
-    String? newPublicKey;
-    try {
-      final r = await _pb.collection('users').getOne(newUserId);
-      await _cacheUserRecord(r);
-      newPublicKey = r.getStringValue('public_key');
-    } catch (_) {}
-
-    if (newPublicKey == null || newPublicKey.isEmpty) {
-      throw Exception('No public key for user');
-    }
-
-    // Rotate the group key so the newly-added member cannot read history
-    // from before they joined, and everyone converges on one current key.
-    await _rotateGroupKey(conversationId, myId);
-
-    await db.conversationsDao.upsertMember(
-      ConversationMembersTableCompanion.insert(
-        id:             memberRecord.id,
-        conversationId: conversationId,
-        userId:         newUserId,
-        joinedAt:       DateTime.now(),
-        role:           const Value('member'),
-      ),
+  /// Minimal RecordModel → User mapping for invite senders (this file has no
+  /// shared record→entity helper; mirrors friend_repository_impl's shape).
+  User _inviteRecordToUser(RecordModel r) {
+    final avatar = r.getStringValue('avatar');
+    return User(
+      id:          r.id,
+      displayName: r.getStringValue('display_name'),
+      username:    r.getStringValue('username'),
+      email:       r.getStringValue('email'),
+      friendCode:  r.getStringValue('friend_code'),
+      avatarUrl:   avatar.isEmpty
+          ? null
+          : '${_pb.baseUrl}/api/files/users/${r.id}/$avatar',
+      createdAt:   DateTime.tryParse(r.created) ?? DateTime.now(),
     );
+  }
+
+  @override
+  Future<List<GroupInvite>> getIncomingGroupInvites() async {
+    final myId = await _myId();
+    if (myId.isEmpty) return [];
+    final items = await _pb.collection('group_invites').getFullList(
+      filter: 'invited_user_id="$myId"&&status="pending"',
+      expand: 'invited_by,conversation_id',
+      sort:   '-created',
+      batch:  100,
+    );
+    final invites = <GroupInvite>[];
+    for (final r in items) {
+      final inviter = r.expand['invited_by']?.firstOrNull;
+      if (inviter != null) await _cacheUserRecord(inviter);
+      final convName = r.expand['conversation_id']?.firstOrNull
+          ?.getStringValue('name');
+      invites.add(GroupInvite(
+        id:               r.id,
+        conversationId:   r.getStringValue('conversation_id'),
+        conversationName: convName?.isNotEmpty == true ? convName! : 'Group',
+        invitedBy:        inviter != null
+            ? _inviteRecordToUser(inviter)
+            : User(
+                id:          '',
+                displayName: 'Someone',
+                username:    '',
+                email:       '',
+                friendCode:  '',
+                createdAt:   DateTime.now(),
+              ),
+        status:           r.getStringValue('status'),
+        createdAt:        DateTime.tryParse(r.getStringValue('created')) ??
+            DateTime.now(),
+      ));
+    }
+    return invites;
+  }
+
+  @override
+  Future<void> acceptGroupInvite(String inviteId) async {
+    final myId = await _myId();
+    if (myId.isEmpty) throw Exception('Not authenticated');
+    final invite = await _pb.collection('group_invites').getOne(inviteId);
+    final convId = invite.getStringValue('conversation_id');
+
+    // Self-join — conversation_members.createRule's invite clause covers
+    // this. A 400 here can be a UNIQUE(conversation_id,user_id) duplicate or
+    // a rule denial (e.g. the invite was cancelled between getOne and
+    // create); the catch below verifies which before tolerating.
+    try {
+      await _pb.collection('conversation_members').create(body: {
+        'conversation_id': convId,
+        'user_id':         myId,
+        'role':            'member',
+      });
+    } on ClientException catch (e) {
+      // 400 means the row was not created. Tolerate it ONLY if the
+      // membership already exists (UNIQUE duplicate, e.g. accepted on
+      // another device): verify the row, then continue as joined. If the
+      // lookup fails (404 or otherwise) this was a rule denial, not a
+      // duplicate — rethrow the original create failure so the caller sees
+      // it and the invite below is NOT marked accepted for a non-member.
+      if (e.statusCode != 400) rethrow;
+      try {
+        await _pb.collection('conversation_members').getFirstListItem(
+          'conversation_id="$convId"&&user_id="$myId"',
+        );
+      } catch (_) {
+        throw e;
+      }
+      debugPrint('[Invite] already a member of $convId — continuing');
+    }
+
+    await _pb.collection('group_invites').update(
+      inviteId, body: {'status': 'accepted'},
+    );
+
+    // Make the group appear locally right away (messages stay garbled until
+    // an admin device rotates the key and we fetch it).
+    try {
+      await _syncConversationsBackground();
+    } catch (e) {
+      debugPrint('[Invite] post-accept sync failed: $e');
+    }
+
+    // Bounded wait for the group key (admin auto-rotate), then a single
+    // "X joined the group" bubble.
+    unawaited(_emitJoinedWhenKeyReady(convId, myId));
+  }
+
+  /// After accepting an invite, the joiner holds no group key until an admin
+  /// device rotates. Poll (bounded) for the key, then emit the join bubble
+  /// exactly once (guarded by a local lookup for an existing copy).
+  Future<void> _emitJoinedWhenKeyReady(String convId, String myId) async {
+    const tries = 15;
+    for (var i = 0; i < tries; i++) {
+      try {
+        await encryption.getOrFetchGroupKey(convId, myId);
+        final myName = await _userName(myId);
+        final body   = '$myName joined the group';
+        final already = await db.messagesDao
+            .findSystemMessage(convId, myId, body);
+        if (already == null) {
+          await _emitSystemMessage(convId, body, actorUserId: myId);
+        }
+        _pendingJoinEmitConvIds.remove(convId);
+        return;
+      } on Exception {
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    }
+    debugPrint('[Invite] key not distributed within ${tries * 2}s — '
+        'join bubble deferred to next resume sync');
+    _pendingJoinEmitConvIds.add(convId);
+  }
+
+  @override
+  Future<void> declineGroupInvite(String inviteId) async {
+    await _pb.collection('group_invites').update(
+      inviteId, body: {'status': 'declined'},
+    );
+  }
+
+  @override
+  Future<Map<String, String>> getInviteStatusesForConversation(
+      String conversationId) async {
+    final rows = await _pb.collection('group_invites').getFullList(
+      filter: 'conversation_id="$conversationId"',
+      batch:  100,
+    );
+    return {
+      for (final r in rows)
+        r.getStringValue('invited_user_id'): r.getStringValue('status'),
+    };
   }
 
   @override
@@ -1497,20 +1779,57 @@ class MessageRepositoryImpl implements MessageRepository {
       throw Exception('Not an admin');
     }
 
-    // Delete ALL membership rows for this user (defensive against any
-    // pre-existing duplicates), tolerating a missing record.
-    try {
-      final memberRecs = await _pb.collection('conversation_members').getFullList(
-        filter: 'conversation_id="$conversationId"&&user_id="$userId"', batch: 50,
-      );
-      for (final rec in memberRecs) {
-        await _pb.collection('conversation_members').delete(rec.id);
-      }
-    } catch (e) {
-      debugPrint('[Group] remove member server delete: $e');
+    // Capture display names BEFORE we drop the membership rows / caches.
+    final removedName = await _userName(userId);
+    final adminName   = await _userName(myId);
+
+    // 1) Delete ALL membership rows for this user (defensive against any
+    //    pre-existing duplicates). Do NOT swallow failures — a silent 403
+    //    here was the root cause of #17: the "removed" member stayed a full
+    //    member server-side, reappeared after reopen and kept receiving.
+    //    Let the caller see the error so the failure surfaces.
+    final memberRecs = await _pb.collection('conversation_members').getFullList(
+      filter: 'conversation_id="$conversationId"&&user_id="$userId"', batch: 50,
+    );
+    for (final rec in memberRecs) {
+      await _pb.collection('conversation_members').delete(rec.id);
     }
 
-    // Remove all of the removed user's group-key rows so they can't decrypt.
+    // 2) Purge any pending invite for this user in this conversation — a live
+    //    invite would let them self-rejoin after being removed.
+    try {
+      final invs = await _pb.collection('group_invites').getFullList(
+        filter: 'conversation_id="$conversationId"&&invited_user_id="$userId"',
+        batch: 20,
+      );
+      for (final inv in invs) {
+        await _pb.collection('group_invites').delete(inv.id);
+      }
+    } catch (e) {
+      debugPrint('[Group] invite purge on remove failed: $e');
+    }
+
+    // 3) Emit "X was removed by Y" only on success, BEFORE the key
+    //    rotation. The removed member still holds the CURRENT group key in
+    //    their cache (their own sync wipes it later), so this row stays
+    //    decryptable for them too; emitting after the rotation would garble
+    //    it. Their device also gets its own local "You were removed" bubble
+    //    from the membership sync — this one is for the remaining members.
+    try {
+      await _emitSystemMessage(
+        conversationId,
+        '$removedName was removed by $adminName',
+        actorUserId: myId,
+      );
+    } catch (e) {
+      debugPrint('[Group] removeMember system message emit failed: $e');
+    }
+
+    // 4) Remove the removed user's group-key rows so they can't decrypt
+    //    anything on a fresh install. Best-effort: the server's
+    //    group_keys.deleteRule may forbid this — stale rows only ever
+    //    decrypt messages from BEFORE the rotation, which the user was
+    //    entitled to anyway.
     try {
       final keyRecs = await _pb.collection('group_keys').getFullList(
         filter: 'conversation_id="$conversationId"&&user_id="$userId"', batch: 50,
@@ -1520,13 +1839,15 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     } catch (_) {}
 
-    // Fully remove locally (not a soft 'left' — they were removed by an admin).
+    // 5) Fully remove locally (not a soft 'left' — they were removed by an
+    //    admin). The removed user's own device flips to 'left' via
+    //    _syncConversations when it sees the server row gone.
     await (db.delete(db.conversationMembersTable)
           ..where((t) => t.conversationId.equals(conversationId)
               & t.userId.equals(userId)))
         .go();
 
-    // Rotate the key so the removed member can't read future messages.
+    // 6) Rotate the key so the removed member can't read future messages.
     await _rotateGroupKey(conversationId, myId);
   }
 
@@ -1619,6 +1940,17 @@ class MessageRepositoryImpl implements MessageRepository {
           ..where((t) => t.conversationId.equals(conversationId)
               & t.userId.equals(userId)))
         .write(const ConversationMembersTableCompanion(role: Value('admin')));
+    try {
+      final myId = await _myId();
+      final name = await _userName(userId);
+      await _emitSystemMessage(
+        conversationId,
+        '$name is now an admin',
+        actorUserId: myId,
+      );
+    } catch (e) {
+      debugPrint('[Group] promote system message emit failed: $e');
+    }
   }
 
   @override
@@ -1641,6 +1973,17 @@ class MessageRepositoryImpl implements MessageRepository {
           ..where((t) => t.conversationId.equals(conversationId)
               & t.userId.equals(userId)))
           .write(const ConversationMembersTableCompanion(role: Value('member')));
+    try {
+      final myId = await _myId();
+      final name = await _userName(userId);
+      await _emitSystemMessage(
+        conversationId,
+        '$name is no longer an admin',
+        actorUserId: myId,
+      );
+    } catch (e) {
+      debugPrint('[Group] demote system message emit failed: $e');
+    }
   }
 
   @override
@@ -1675,6 +2018,21 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     }
 
+    // "X left" — emitted BEFORE deleting the key row/cache so it encrypts
+    // with the key the remaining members still share (and our own cached
+    // key is still available to encrypt it). Rotation at the end then
+    // excludes the leaver from all FUTURE messages.
+    try {
+      final myName = await _userName(myId);
+      await _emitSystemMessage(
+        conversationId,
+        '$myName left the group',
+        actorUserId: myId,
+      );
+    } catch (e) {
+      debugPrint('[Group] leaveGroup system message emit failed: $e');
+    }
+
     try {
       final rec = await _pb.collection('conversation_members').getFirstListItem(
         'conversation_id="$conversationId"&&user_id="$myId"',
@@ -1699,6 +2057,12 @@ class MessageRepositoryImpl implements MessageRepository {
                 & t.userId.equals(myId)))
           .write(const ConversationMembersTableCompanion(role: Value('left')));
     }
+
+    // Rotate the key so the leaver (who still holds the previous key in
+    // SecureStorage) cannot decrypt any FUTURE group messages they might
+    // still observe. Their membership row is already gone server-side, so
+    // _rotateGroupKey distributes the new key to the remaining members only.
+    await _rotateGroupKey(conversationId, myId);
   }
 
   @override
@@ -1804,6 +2168,12 @@ class MessageRepositoryImpl implements MessageRepository {
       }
       // 3. Flush anything that failed to send while backgrounded.
       await retryPendingMessages();
+
+      // 4. Retry deferred join bubbles (accept happened while no admin
+      //    device was online to rotate the group key).
+      for (final convId in _pendingJoinEmitConvIds.toList()) {
+        unawaited(_emitJoinedWhenKeyReady(convId, myId));
+      }
     } catch (e) {
       debugPrint('[Msg] resyncOnResume: $e');
     }
@@ -2073,7 +2443,9 @@ class MessageRepositoryImpl implements MessageRepository {
               convId, preview, createdAt);
           // Bump the unread badge unless the user is currently viewing
           // this conversation (their last-read already points past it).
-          if (conv?.lastReadLocalId != null &&
+          // Narrative 'system' rows don't count as unread.
+          if (localType != 'system' &&
+              conv?.lastReadLocalId != null &&
               conv!.lastReadLocalId!.isNotEmpty) {
             await db.conversationsDao.bumpUnread(
                 convId, existing?.localId ?? _uuid.v4());
@@ -2085,18 +2457,171 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// Returns the user's cached display name, falling back to the username
+  /// then the bare id. Local-only caller; safe to use everywhere.
+  Future<String> _userName(String userId) async {
+    if (userId.isEmpty) return 'Someone';
+    try {
+      final u = await db.usersDao.getUserById(userId);
+      if (u != null) {
+        if (u.displayName.isNotEmpty) return u.displayName;
+        if (u.username.isNotEmpty)    return '@${u.username}';
+      }
+      // Cache miss — pull and try again.
+      try {
+        final r = await _pb.collection('users').getOne(userId);
+        await _cacheUserRecord(r);
+        if (r.getStringValue('display_name').isNotEmpty) {
+          return r.getStringValue('display_name');
+        }
+        if (r.getStringValue('username').isNotEmpty) {
+          return '@${r.getStringValue('username')}';
+        }
+      } catch (_) {}
+    } catch (_) {}
+    return userId.length > 8 ? 'Member' : userId;
+  }
+
+  /// Emits a system / info message — a centered, italic "Alice created the
+  /// group" / "Bob added Charlie" / "You were removed by David" row that
+  /// surfaces to every group member (including the newly-added or just-
+  /// removed user) via the realtime SSE feed. Strategy:
+  ///  1. Insert a local row IMMEDIATELY so the actor (e.g. the admin who
+  ///     pressed "remove") sees the bubble appear without waiting for the
+  ///     round-trip.
+  ///  2. Encrypt the body with the group key and POST it to PB as a real
+  ///     `messages` record of `type='system'`. The SSE subscription will
+  ///     deliver it to every other device. The local cache is already there
+  ///     so the returning SSE echo is a harmless upsert (same localId).
+  ///  3. If the PB write fails (offline), the local bubble is still useful —
+  ///     it just won't reach other members until sync resumes.
+  Future<void> _emitSystemMessage(
+    String convId,
+    String body, {
+    required String actorUserId,
+  }) async {
+    try {
+      final id = 'sys_${_uuid.v4()}';
+      final now = DateTime.now();
+
+      // (1) local immediate insert
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:           id,
+        serverId:          const Value(null),
+        conversationId:    convId,
+        senderId:          actorUserId,
+        type:              'system',
+        encryptedBody:     '',
+        iv:                '',
+        decryptedBody:     Value(body),
+        status:            const Value('sent'),
+        createdAt:         now,
+        updatedAt:         now,
+      ));
+      debugPrint('[SysMsg] local emit → "$body" in $convId');
+
+      // (2) push to PB so every group member sees it too
+      try {
+        // Only groups post system messages; DMs don't have this concept.
+        final conv = await db.conversationsDao.getConversationById(convId);
+        if (conv?.type != 'group') return;
+        final myId = await _myId();
+        final key  = await _getConvKey(convId, myId);
+        final res  = await encryption.encryptMessage(body, key);
+
+        await _pb.collection('messages').create(body: {
+          'conversation_id': convId,
+          'sender_id':       actorUserId,
+          'type':            'system',
+          'encrypted_body':  res.ciphertext,
+          'iv':              res.iv,
+          // No reply, no media, no star/pin — system row stays boring.
+          'is_pinned':              false,
+          'is_deleted_for_everyone': false,
+          'created':                now.toUtc().toIso8601String(),
+        });
+        debugPrint('[SysMsg] PB posted.');
+      } catch (e) {
+        debugPrint('[SysMsg] PB post failed (kept local-only): $e');
+      }
+    } catch (e) {
+      debugPrint('[SysMsg] emit failed: $e');
+    }
+  }
+
+  /// Local-only info bubble (never pushed to PocketBase) — for narrative
+  /// rows that are only true on THIS device, e.g. "You were removed from
+  /// this group" when a membership sync notices an admin removal.
+  Future<void> _emitLocalSystemMessage(String convId, String body) async {
+    final id  = 'sys_${_uuid.v4()}';
+    final now = DateTime.now();
+    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId:           id,
+      serverId:          const Value(null),
+      conversationId:    convId,
+      senderId:          await _myId(),
+      type:              'system',
+      encryptedBody:     '',
+      iv:                '',
+      decryptedBody:     Value(body),
+      status:            const Value('sent'),
+      createdAt:         now,
+      updatedAt:         now,
+    ));
+    debugPrint('[SysMsg] local-only emit → "$body" in $convId');
+  }
+
   /// Computes a sender's message status ('sent'/'delivered'/'read') from the
   /// current receipts. Used when re-caching own messages after a reinstall.
+  /// Strict semantics (see [_updateMsgReceiptStatus]) — every non-sender
+  /// member of the conversation must have the matching timestamp.
   Future<String> _computeSenderStatus(String serverId) async {
     try {
       final res = await _pb.collection('message_receipts').getFullList(
         filter: 'message_id="$serverId"', batch: 200,
       );
       if (res.isEmpty) return 'sent';
-      final allRead = res.every((r) => r.getStringValue('read_at').isNotEmpty);
-      final allDelivered =
-          res.every((r) => r.getStringValue('delivered_at').isNotEmpty);
-      return allRead ? 'read' : (allDelivered ? 'delivered' : 'sent');
+
+      // Identify the conversation + sender so we can requery the live member
+      // list (the present-receipts list isn't reliable during member
+      // add/remove windows).
+      String? convId;
+      String? senderId;
+      try {
+        final msg = await _pb.collection('messages').getOne(serverId);
+        convId   = msg.getStringValue('conversation_id');
+        senderId = msg.getStringValue('sender_id');
+      } catch (_) {}
+
+      Set<String> required = res
+          .map((r) => r.getStringValue('recipient_id'))
+          .where((uid) => uid.isNotEmpty)
+          .toSet();
+      if (convId != null) {
+        try {
+          final members = await _pb.collection('conversation_members').getFullList(
+            filter: 'conversation_id="$convId"', batch: 200,
+          );
+          required = members
+              .map((m) => m.getStringValue('user_id'))
+              .where((uid) => uid.isNotEmpty && uid != senderId)
+              .toSet();
+          if (required.isEmpty) required = {'__none__'}; // Direct conv: no other members → tick immediately
+        } catch (_) {}
+      }
+
+      final deliveredIds = res
+          .where((r) => r.getStringValue('delivered_at').isNotEmpty)
+          .map((r) => r.getStringValue('recipient_id'))
+          .toSet();
+      final readIds = res
+          .where((r) => r.getStringValue('read_at').isNotEmpty)
+          .map((r) => r.getStringValue('recipient_id'))
+          .toSet();
+
+      if (required.every(readIds.contains)) return 'read';
+      if (required.every(deliveredIds.contains)) return 'delivered';
+      return 'sent';
     } catch (_) {
       return 'sent';
     }
@@ -2114,13 +2639,53 @@ class MessageRepositoryImpl implements MessageRepository {
         return;
       }
 
-      // Status is computed over the receipts that EXIST (one per recipient,
-      // guaranteed unique by the server index). "All delivered/read" across
-      // present recipients → delivered/read tick, matching WhatsApp/Signal.
-      final allRead = items.every(
-          (r) => r.getStringValue('read_at').isNotEmpty);
-      final allDelivered = items.every(
-          (r) => r.getStringValue('delivered_at').isNotEmpty);
+      // Strict WhatsApp-style semantics: delivered/read is ticked ONLY when
+      // EVERY non-sender member of the conversation has the matching
+      // timestamp. The naive `items.every(...)` over present receipts
+      // misses members whose receipt was never created (race during member
+      // add/remove windows) — that was letting "delivered" tick as soon as
+      // even one recipient filled it in. We cross-check against the live
+      // conversation_members list from the server.
+      String? convId;
+      String? senderId;
+      try {
+        final msg = await _pb.collection('messages').getOne(serverId);
+        convId   = msg.getStringValue('conversation_id');
+        senderId = msg.getStringValue('sender_id');
+      } catch (_) {}
+
+      Set<String> requiredRecipientIds = {};
+      if (convId != null && senderId != null) {
+        try {
+          final members = await _pb.collection('conversation_members').getFullList(
+            filter: 'conversation_id="$convId"', batch: 200,
+          );
+          requiredRecipientIds = members
+              .map((m) => m.getStringValue('user_id'))
+              .where((uid) => uid.isNotEmpty && uid != senderId)
+              .toSet();
+        } catch (_) {}
+      }
+      // Fall back to the present receipts when the cross-check can't run
+      // (server unreachable, message row missing — shouldn't regress tick).
+      if (requiredRecipientIds.isEmpty) {
+        requiredRecipientIds = items
+            .map((r) => r.getStringValue('recipient_id'))
+            .where((uid) => uid.isNotEmpty)
+            .toSet();
+      }
+
+      final deliveredIds = items
+          .where((r) => r.getStringValue('delivered_at').isNotEmpty)
+          .map((r) => r.getStringValue('recipient_id'))
+          .toSet();
+      final readIds = items
+          .where((r) => r.getStringValue('read_at').isNotEmpty)
+          .map((r) => r.getStringValue('recipient_id'))
+          .toSet();
+
+      final allDelivered = requiredRecipientIds.every(deliveredIds.contains);
+      final allRead      = requiredRecipientIds.every(readIds.contains);
 
       final computed = allRead
           ? 'read'
@@ -2138,7 +2703,9 @@ class MessageRepositoryImpl implements MessageRepository {
         return;
       }
 
-      debugPrint('[Receipt] Updating local message status to: $computed');
+      debugPrint('[Receipt] Updating local message status to: $computed '
+          '(deliveredIds=${deliveredIds.length}/${requiredRecipientIds.length}, '
+          'readIds=${readIds.length}/${requiredRecipientIds.length})');
       await db.messagesDao.updateMessageStatus(localId, computed);
     } catch (e) {
       debugPrint('[Receipt] ERROR in statusUpdate: $e');
@@ -2266,9 +2833,20 @@ class MessageRepositoryImpl implements MessageRepository {
         filter: 'conversation_id="$convId"',
         expand: 'user_id',
       );
+      // Join-triggered rotate, sync-discovery variant (see _syncConversations):
+      // pre-check BEFORE each upsert so rows new-to-this-device schedule the
+      // admin auto-rotate even when this fetch beats the full conversation
+      // sync to a freshly (re)installed device.
+      final localMemberIds = (await db.conversationsDao
+              .getAllMembersForConversation(convId))
+          .map((lm) => lm.userId)
+          .toSet();
       for (final m in membersRes.items) {
         final u = m.expand['user_id']?.firstOrNull;
         if (u != null) await _cacheUserRecord(u);
+        if (!localMemberIds.contains(m.getStringValue('user_id'))) {
+          await _maybeScheduleRotate(convId, m.getStringValue('user_id'));
+        }
         await db.conversationsDao.upsertMember(
           ConversationMembersTableCompanion.insert(
             id:             m.id,
@@ -2396,10 +2974,22 @@ class MessageRepositoryImpl implements MessageRepository {
           expand: 'user_id', batch: 200,
         );
         final serverMemberIds = <String>{myId};
+        // Join-triggered rotate, sync-discovery variant: if the SSE create
+        // event was missed (offline admin), a member row that is NEW to this
+        // device is discovered here. Must run BEFORE the upsert below makes
+        // the row exist locally — same-map debounce collapses the duplicate
+        // scheduling when the SSE handler fired moments earlier.
+        final localMemberIds = (await db.conversationsDao
+                .getAllMembersForConversation(conv.id))
+            .map((lm) => lm.userId)
+            .toSet();
         for (final om in others) {
           serverMemberIds.add(om.getStringValue('user_id'));
           final u = om.expand['user_id']?.firstOrNull;
           if (u != null) await _cacheUserRecord(u);
+          if (!localMemberIds.contains(om.getStringValue('user_id'))) {
+            await _maybeScheduleRotate(conv.id, om.getStringValue('user_id'));
+          }
           await db.conversationsDao.upsertMember(
             ConversationMembersTableCompanion.insert(
               id: om.id, conversationId: conv.id,
@@ -2438,6 +3028,24 @@ class MessageRepositoryImpl implements MessageRepository {
                   ..where((t) => t.conversationId.equals(lm.conversationId)
                       & t.userId.equals(myId)))
                 .write(const ConversationMembersTableCompanion(role: Value('left')));
+            // We did NOT leave from THIS device (leaveGroup sets 'left'
+            // locally first, so the branch above is skipped there) — the
+            // server dropped our membership: an admin removed us (#17).
+            // Wipe the cached group key so we can neither decrypt nor send
+            // anything further, and drop a local-only info bubble so the
+            // removal is visible in the timeline even if the removal SSE
+            // message was missed (e.g. offline at the time).
+            try {
+              await storage.delete(key: 'group_key_${lm.conversationId}');
+              await storage.write(
+                  key: 'contact_key_${lm.conversationId}_gk', value: '');
+              await _emitLocalSystemMessage(
+                lm.conversationId,
+                'You were removed from this group',
+              );
+            } catch (e) {
+              debugPrint('[Group] membership-loss cleanup failed: $e');
+            }
           }
         }
       }

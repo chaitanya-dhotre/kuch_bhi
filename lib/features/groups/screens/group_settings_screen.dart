@@ -133,6 +133,19 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       return;
     }
 
+    // Fetch per-friend invite statuses before opening the sheet (invites
+    // sent earlier may be pending/declined). Degrade to an empty map so
+    // the sheet still opens if the fetch fails.
+    var inviteStatuses = <String, String>{};
+    try {
+      inviteStatuses = await ref
+          .read(messageRepositoryProvider)
+          .getInviteStatusesForConversation(widget.conversation.id);
+    } catch (e) {
+      debugPrint('[Group] invite status fetch failed: $e');
+    }
+    if (!mounted) return;
+
     final selected = <String>{};
     await showModalBottomSheet(
       context: context,
@@ -142,7 +155,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
+        builder: (sheetCtx, setSheetState) => SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -166,14 +179,23 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                                 try {
                                   await ref
                                       .read(messageRepositoryProvider)
-                                      .addMemberToGroup(
+                                      .sendGroupInvite(
                                           widget.conversation.id, id);
                                 } catch (e) {
-                                  debugPrint('[Group] add member error: $e');
+                                  debugPrint('[Group] invite error: $e');
                                 }
                               }
+                              // Sheet is already popped; the guard checks the
+                              // screen's `mounted` and shows the snackbar on
+                              // the outer (screen) context.
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('Invite(s) sent')),
+                                );
+                              }
                             },
-                      child: Text('Add ${selected.length} members'),
+                      child: Text('Invite ${selected.length}'),
                     ),
                   ],
                 ),
@@ -181,7 +203,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
               const Divider(height: 16),
               ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                  maxHeight: MediaQuery.of(sheetCtx).size.height * 0.5,
                 ),
                 child: ListView.builder(
                   shrinkWrap: true,
@@ -215,7 +237,15 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                             : null,
                       ),
                       title: Text(f.displayName),
-                      subtitle: Text('@${u.username}'),
+                      subtitle: inviteStatuses[u.id] == 'pending'
+                          ? const Text('Invite pending',
+                              style: TextStyle(
+                                  color: Colors.orange, fontSize: 12))
+                          : inviteStatuses[u.id] == 'declined'
+                              ? const Text('Declined — invite again?',
+                                  style: TextStyle(
+                                      color: Colors.red, fontSize: 12))
+                              : Text('@${u.username}'),
                       activeColor: AppColors.primary,
                     );
                   },

@@ -262,6 +262,48 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         otherUser: null,
       );
 
+      // Drop a "Group created by <my name>" bubble at the head of the
+      // timeline so members see narrative context when they open the chat.
+      // (Encryption needs the group_key_STORED_ABOVE; local cache row is
+      // already visible immediately on this device via the SSE round-trip.)
+      try {
+        final myUser = await pb.collection('users').getOne(myId);
+        final myName = myUser.getStringValue('display_name').isNotEmpty
+            ? myUser.getStringValue('display_name')
+            : (myUser.getStringValue('username').isNotEmpty
+                ? '@${myUser.getStringValue('username')}'
+                : 'You');
+        final sysRes = await encryption.encryptMessage(
+          '$myName created the group "$groupName"',
+          groupKey,
+        );
+        final sysRec = await pb.collection('messages').create(body: {
+          'conversation_id':          convId,
+          'sender_id':                myId,
+          'type':                     'system',
+          'encrypted_body':           sysRes.ciphertext,
+          'iv':                       sysRes.iv,
+          'is_pinned':                false,
+          'is_deleted_for_everyone':  false,
+        });
+        // `created` is auto-managed by PocketBase v0.37.5 — don't override.
+        await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+          localId:           'sys_${sysRec.id}',
+          serverId:          Value(sysRec.id),
+          conversationId:    convId,
+          senderId:          myId,
+          type:              'system',
+          encryptedBody:     sysRes.ciphertext,
+          iv:                sysRes.iv,
+          decryptedBody:     Value('$myName created the group "$groupName"'),
+          status:            const Value('sent'),
+          createdAt:         DateTime.now(),
+          updatedAt:         DateTime.now(),
+        ));
+      } catch (e) {
+        debugPrint('[Group] create-group system message emit failed: $e');
+      }
+
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => ChatScreen(conversation: groupConv)),

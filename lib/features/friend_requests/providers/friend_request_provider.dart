@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/pocketbase_client.dart';
 import '../../../domain/entities/friend_request.dart';
+import '../../../domain/entities/group_invite.dart';
 import '../../../domain/entities/user.dart';
 import '../../../infrastructure/repositories/friend_repository_impl.dart';
+import '../../../infrastructure/repositories/message_repository_impl.dart';
 
 /// Watches incoming friend requests with proper subscription lifecycle.
 class IncomingRequestsNotifier
@@ -33,13 +35,49 @@ final incomingRequestsProvider =
   IncomingRequestsNotifier.new,
 );
 
-/// Badge count for the home screen icon.
+/// Watches incoming group invites with proper subscription lifecycle.
+///
+/// subscribe('*') may also deliver events for invites in conversations the
+/// user admins (their outgoing invites); `_refresh` always refetches only MY
+/// pending incoming invites, so those events just cause a harmless refetch.
+class IncomingGroupInvitesNotifier extends AsyncNotifier<List<GroupInvite>> {
+  @override
+  Future<List<GroupInvite>> build() async {
+    final pb = ref.read(pocketbaseClientProvider).pb;
+
+    if (pb != null) {
+      await pb.collection('group_invites').subscribe('*', (_) => _refresh());
+      ref.onDispose(() => pb.collection('group_invites').unsubscribe());
+    }
+
+    return ref.read(messageRepositoryProvider).getIncomingGroupInvites();
+  }
+
+  Future<void> _refresh() async {
+    state = AsyncData(
+      await ref.read(messageRepositoryProvider).getIncomingGroupInvites(),
+    );
+  }
+}
+
+final incomingGroupInvitesProvider =
+    AsyncNotifierProvider<IncomingGroupInvitesNotifier, List<GroupInvite>>(
+      IncomingGroupInvitesNotifier.new,
+    );
+
+/// Badge count for the home screen icon (friend requests + group invites).
 final pendingRequestCountProvider = Provider<int>((ref) {
-  return ref.watch(incomingRequestsProvider).when(
+  final friends = ref.watch(incomingRequestsProvider).when(
         data: (list) => list.length,
         loading: () => 0,
         error: (_, __) => 0,
       );
+  final invites = ref.watch(incomingGroupInvitesProvider).when(
+        data: (list) => list.length,
+        loading: () => 0,
+        error: (_, __) => 0,
+      );
+  return friends + invites;
 });
 
 // ── Add Friend State ───────────────────────────────────────────────────────

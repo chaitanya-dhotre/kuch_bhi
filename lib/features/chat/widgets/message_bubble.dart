@@ -55,6 +55,11 @@ class MessageBubble extends ConsumerWidget {
     final isDark    = Theme.of(context).brightness == Brightness.dark;
     final url       = extractFirstUrl(body);
 
+    // ── System / info bubbles — no reply, no long-press, no sender meta ─
+    if (message.type == 'system') {
+      return _SystemMessageBubble(body: body);
+    }
+
     final bubble = GestureDetector(
       onLongPress: () => showMessageMenu(
         context:    context,
@@ -403,6 +408,50 @@ class _TickIndicator extends StatelessWidget {
           Icon(Icons.check, size: 14, color: color),
           Positioned(left: 5, child: Icon(Icons.check, size: 14, color: color)),
         ],
+      ),
+    );
+  }
+}
+
+// ── System / info bubble ───────────────────────────────────────────────────
+//
+// WhastApp-style narrative info row rendered for 'system' messages (group
+// created, member added/removed, role change, etc). Always centered,
+// always grey, no sender colour metadata, no bubbles, no long-press.
+
+class _SystemMessageBubble extends StatelessWidget {
+  const _SystemMessageBubble({required this.body});
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final dimmed = Theme.of(context)
+        .colorScheme
+        .onSurface
+        .withValues(alpha: 0.55);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color:  Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            body,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize:    12,
+              fontStyle:   FontStyle.italic,
+              color:       dimmed,
+              fontWeight:  FontWeight.w500,
+            ),
+          ),
+        ),
       ),
     );
   }

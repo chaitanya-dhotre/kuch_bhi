@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/local/database/app_database.dart';
@@ -35,10 +36,37 @@ class MediaRef {
 }
 
 /// Downloads + decrypts the full media file (image/video/voice/document).
+///
+/// Upload-race recovery (#18): the sender creates the PocketBase `messages`
+/// row BEFORE its `message_media` row (the media upload needs the message
+/// id), so a live SSE echo can reach this provider while the media row
+/// doesn't exist yet — the first fetch 404s and returns null. Instead of
+/// caching that null forever (the old bug: blank bubble until an app
+/// restart), subscribe to the repo's message_media change feed FIRST, run
+/// the initial fetch, and when it comes back empty wait (bounded) for the
+/// media record to land, then retry once. The future completes with the
+/// media, or with null after the timeout (bubble keeps its placeholder).
 final mediaFileProvider =
-    FutureProvider.family<LocalMediaFile?, MediaRef>((ref, r) {
-  return ref.read(messageRepositoryProvider).getDecryptedMedia(
-        r.conversationId, r.serverId, thumb: r.thumb);
+    FutureProvider.family<LocalMediaFile?, MediaRef>((ref, r) async {
+  final repo = ref.read(messageRepositoryProvider);
+
+  // Subscribe BEFORE the first fetch so a media row landing mid-fetch
+  // can't slip between "fetch returned null" and "now wait for an event".
+  final mediaArrived =
+      repo.mediaChanges.where((id) => id == r.serverId).first;
+
+  final result = await repo.getDecryptedMedia(
+      r.conversationId, r.serverId, thumb: r.thumb);
+  if (result != null) return result;
+
+  try {
+    await mediaArrived.timeout(const Duration(seconds: 45));
+  } catch (_) {
+    // No media event in time (failed/cancelled upload) — fall through to
+    // one final attempt, then give up like the old behaviour.
+  }
+  return await repo.getDecryptedMedia(
+      r.conversationId, r.serverId, thumb: r.thumb);
 });
 
 // ── Messages (reactive Drift stream) ─────────────────────────────────────
@@ -63,12 +91,19 @@ class SendMessageNotifier extends Notifier<bool> {
     String? replyPreview,
   }) {
     if (text.trim().isEmpty) return;
-    ref.read(messageRepositoryProvider).sendMessage(
-      conversationId: conversationId,
-      plaintext:      text.trim(),
-      replyToLocalId: replyToLocalId,
-      replyPreview:   replyPreview,
-    );
+    try {
+      ref.read(messageRepositoryProvider).sendMessage(
+        conversationId: conversationId,
+        plaintext:      text.trim(),
+        replyToLocalId: replyToLocalId,
+        replyPreview:   replyPreview,
+      );
+    } catch (e) {
+      // Group-membership gate (#17) — the composer is hidden for
+      // removed/left members, but a removal can race an in-flight send.
+      // Must never crash the app.
+      debugPrint('[Chat] send rejected: $e');
+    }
   }
 }
 
@@ -92,17 +127,22 @@ class SendMediaMessageNotifier extends Notifier<bool> {
     int? videoWidth,
     int? videoHeight,
   }) async {
-    await ref.read(messageRepositoryProvider).sendMediaMessage(
-      conversationId:  conversationId,
-      mediaType:       mediaType,
-      mediaFile:       mediaFile,
-      thumbnailFile:   thumbnailFile,
-      quality:         quality,
-      durationSeconds: durationSeconds,
-      durationText:    durationText,
-      videoWidth:      videoWidth,
-      videoHeight:     videoHeight,
-    );
+    try {
+      await ref.read(messageRepositoryProvider).sendMediaMessage(
+        conversationId:  conversationId,
+        mediaType:       mediaType,
+        mediaFile:       mediaFile,
+        thumbnailFile:   thumbnailFile,
+        quality:         quality,
+        durationSeconds: durationSeconds,
+        durationText:    durationText,
+        videoWidth:      videoWidth,
+        videoHeight:     videoHeight,
+      );
+    } catch (e) {
+      // Group-membership gate (#17) — see SendMessageNotifier.send.
+      debugPrint('[Chat] media send rejected: $e');
+    }
   }
 }
 

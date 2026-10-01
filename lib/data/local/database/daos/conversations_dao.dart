@@ -90,6 +90,17 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
                 t.role.equals('left').not()))
           .get();
 
+  /// UNFILTERED members of a conversation (includes role='left' rows).
+  /// Used by the chat screen's send-gating (`isLeft`/`isMeAdmin`) — the
+  /// filtered [getMembersForConversation] drops the current user's own row
+  /// once they leave or are removed, which made the gate dead code (#17).
+  /// The member-list UI must keep using the filtered variant.
+  Future<List<ConversationMembersTableData>> getAllMembersForConversation(
+          String conversationId) =>
+      (select(conversationMembersTable)
+            ..where((t) => t.conversationId.equals(conversationId)))
+          .get();
+
   Future<void> updateLastReadMessage(
     String memberId,
     String messageLocalId,

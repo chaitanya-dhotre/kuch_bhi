@@ -613,10 +613,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'media_docs',   child: Text('Media & Docs')),
+              const PopupMenuItem(value: 'starred',      child: Text('Starred Messages')),
               if (conv.isGroup)
-                const PopupMenuItem(value: 'group_info',   child: Text('Group Info'))
-              else
-                const PopupMenuItem(value: 'starred',      child: Text('Starred Messages')),
+                const PopupMenuItem(value: 'group_info',  child: Text('Group Info')),
               const PopupMenuItem(value: 'disappearing', child: Text('Disappearing Messages')),
             ],
           ),

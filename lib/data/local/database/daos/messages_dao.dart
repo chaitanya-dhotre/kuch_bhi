@@ -58,6 +58,24 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         orElse: () => rows.first);
   }
 
+  /// Looks up a locally-cached system message by exact body (used to guard
+  /// against duplicate "X joined the group" bubbles). Plain loop — no
+  /// package:collection dependency in this DAO.
+  Future<MessagesTableData?> findSystemMessage(
+      String conversationId, String senderId, String body) async {
+    final rows = await (select(messagesTable)
+          ..where((t) =>
+              t.conversationId.equals(conversationId) &
+              t.senderId.equals(senderId) &
+              t.type.equals('system'))
+          ..limit(50))
+        .get();
+    for (final m in rows) {
+      if ((m.decryptedBody ?? '') == body) return m;
+    }
+    return null;
+  }
+
   /// Removes duplicate rows sharing one serverId. The FCM background isolate
   /// writes through its own AppDatabase instance, so it can race the main
   /// isolate's insert — both see "no row yet" and insert independently.

@@ -3,6 +3,7 @@ import 'dart:io';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../../services/media_upload_service.dart' show LocalMediaFile;
 import '../entities/conversation.dart';
+import '../entities/group_invite.dart';
 import '../entities/message.dart';
 import '../entities/user.dart';
 
@@ -62,6 +63,11 @@ abstract class MessageRepository {
   /// Emits the serverId of a message whenever its reactions change.
   Stream<String> get reactionsChanges;
 
+  /// Emits the message serverId whenever a `message_media` record for it is
+  /// created or updated on the server. Lets a bubble that raced the sender's
+  /// upload (message row exists, media row not yet) re-fetch and render.
+  Stream<String> get mediaChanges;
+
   /// Get starred messages for a conversation.
   Future<List<Message>> getStarredMessages(String conversationId);
 
@@ -116,8 +122,25 @@ abstract class MessageRepository {
   /// Returns all members of a group conversation as User entities.
   Future<List<User>> getGroupMembers(String conversationId);
 
-  /// Add a user to a group (caller must be admin).
-  Future<void> addMemberToGroup(String conversationId, String userId);
+  /// Sends (or re-sends) a group invite to [userId] (caller must be admin).
+  /// Idempotent per (conversation, user): an existing row is PATCHed back
+  /// to 'pending' instead of creating a duplicate.
+  Future<void> sendGroupInvite(String conversationId, String userId);
+
+  /// My pending incoming group invites, newest first.
+  Future<List<GroupInvite>> getIncomingGroupInvites();
+
+  /// Accept: creates my own membership row, marks the invite accepted,
+  /// syncs the conversation locally, then emits "X joined the group" once
+  /// the group key is distributed (bounded wait).
+  Future<void> acceptGroupInvite(String inviteId);
+
+  /// Decline: marks the invite declined. Nothing else.
+  Future<void> declineGroupInvite(String inviteId);
+
+  /// userId -> invite status for a conversation (picker chips).
+  Future<Map<String, String>> getInviteStatusesForConversation(
+      String conversationId);
 
   /// Remove a member from a group (caller must be admin). Rotates group key.
   Future<void> removeMemberFromGroup(String conversationId, String userId);

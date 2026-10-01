@@ -53,7 +53,9 @@ class AppRoutes {
   static const String googleOnboarding  = '/google-onboarding';
 }
 
-final _rootNavigatorKey = GlobalKey<NavigatorState>();
+/// Root navigator key — public so non-widget code (FcmService notification
+/// tap routing) can navigate via `rootNavigatorKey.currentContext`.
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class RouterRefreshNotifier extends ChangeNotifier {
   RouterRefreshNotifier(Ref ref) {
@@ -75,7 +77,7 @@ final routerRefreshNotifierProvider = Provider<RouterRefreshNotifier>((ref) {
 final appRouterProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = ref.read(routerRefreshNotifierProvider);
   return GoRouter(
-    navigatorKey: _rootNavigatorKey,
+    navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     refreshListenable: refreshNotifier,
     redirect: (context, state) {
