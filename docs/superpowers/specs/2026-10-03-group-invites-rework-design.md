@@ -36,20 +36,26 @@ Date: 2026-10-03. Supersedes the gaps left by `2026-09-24-group-invites-design.m
 
 ## Design
 
-### D1. History cutoff (server + client)
+### D1. History cutoff (client-only — amended 2026-10-03 during T1)
 
-- Server `messages.listRule/viewRule`:
-  - direct: current member clause, unchanged.
-  - group: member clause AND `@collection.conversation_members.created <= created`
-    (single `?=` expression over one member row — the user's own row, joined
-    at-or-before the message). Ex-members lose their member row (purge on
-    remove/leave) → no access.
+- **Server-side cutoff is NOT expressible on this PB build.** Back-reference
+  rules support only `?=` (equality); a bare `@collection…created <= created`
+  comparison evaluates as FOR-ALL over every member row of the conversation,
+  which erased old members' history (probe: 76 → 0 rows). `messages`
+  list/viewRule stay at the original member-visibility rule.
+- Protection model: pre-join rows are undecryptable by the joiner (they never
+  receive superseded key versions) — the crypto IS the barrier; the raw API
+  exposes only opaque ciphertext + metadata to a member. Same class of
+  guarantee as Signal's server behavior for non-delivered history.
 - Client: `watchMessages` path hides (a) rows older than the local member
   `joinedAt`, (b) non-media rows with null `decryptedBody` (never render
   ciphertext — also hides the FCM background-isolate placeholder flash).
 - Local `joinedAt` sync fix: fall back to the server CM row `created`
   (autodate, true join time) — today's sync maps the never-set `joined_at`
   field to `DateTime.now()` (sync time), which is wrong.
+- Kept from the T1 rule patch (verified by probes): `conversation_members.updateRule`
+  hardening (role changes admin-only — blocks member self-promotion) and
+  `group_keys.listRule` admin access (needed by D2).
 
 ### D2. Admin resume key reconciliation
 
@@ -66,11 +72,23 @@ banner "Waiting for group key from a group admin…" + composer disabled
 (reuses `canSend`/`restrictionMessage` gating). Join bubble emission stays
 as-is (`_emitJoinedWhenKeyReady`).
 
-### D4. Rejoin fix (server hook)
+### D4. Rejoin (amended during T5 — no code needed)
 
-`group_invite_notify.pb.js`: on invite update→`accepted`, if the invitee's CM
-row exists with `role = 'left'`, flip it to `member` (hooks bypass rules).
-Client unchanged.
+Rejoin-after-leave works natively: `leaveGroup` DELETES the server member row
+(only local Drift keeps `role='left'` for UI gating — the server role select
+doesn't even contain a `left` value), so a re-accept creates a fresh member
+row (`role=member`, `created=accept time`) and the next `_syncConversations`
+overwrites the local `left` role. The planned server hook flip was dead code
+(role='left' is impossible server-side) and was dropped.
+
+**Hook pitfall (root cause of the whole invite outage, verified by A/B
+probe):** a PB JS hook whose callback returns a helper function's return
+value (`return notifyInvite(e.record, e)`) breaks every create/update on that
+collection with an opaque 400 on this PB build. Hooks must be FLAT — direct
+`return e.next()` inside the arrow body (mirror `fcm_notify.pb.js`). Also:
+never deploy hook files through unquoted SSH heredocs — `$app` gets expanded
+away by the remote shell (the 3 Oct first redeploy did exactly that).
+Use scp.
 
 ### D5. CM updateRule hardening
 
@@ -90,8 +108,19 @@ again"); decline handler gets the same catch/notify treatment as accept.
 
 ## Out of scope (logged for W1/backlog)
 
+- **Rejoin history loss (user-reported 2026-10-04):** a member who leaves
+  and rejoins loses visibility of messages sent during their FIRST
+  membership stint — the cutoff uses the member row `created`, and rejoin
+  creates a fresh row. Fix needs join-history that survives leave/rejoin
+  (e.g. `first_joined_at` carried across, or soft-deleted member rows).
 - Key-archive for reinstall history decryption (old versions are deleted on
   rotate; already-lost keys stay lost).
 - Rotation-gap messages (sent pre-rotation while keyless) remain hidden for
   the joiner — client hides undecryptable rows; server still stores them.
 - Media bubbles in the keyless window keep the download placeholder.
+- Leaver-triggered rotation unblocks a keyless joiner (leaveGroup rotates and
+  distributes the new key to remaining members) — correct, but the keyless
+  banner clears without an admin coming online; copy may confuse.
+- `_fetchAndCacheConversation` syncs members via `getList` (30-row default
+  cap) — groups with >30 members truncate; the other sync path uses
+  getFullList.

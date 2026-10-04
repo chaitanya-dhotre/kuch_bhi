@@ -344,13 +344,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final isLeft = myMember?.groupRole == 'left';
     final memberCount = conv.isGroup ? members.where((m) => m.groupRole != 'left').length : 0;
 
-    final canSend = !conv.isGroup 
-        ? true 
-        : (isLeft ? false : (!conv.onlyAdminsCanMessage || isMeAdmin));
+    // Group-key readiness: a just-joined member holds no key until an admin
+    // device rotates. Keyless -> composer off + explanatory banner (spec D3).
+    final keyReady = !conv.isGroup
+        ? true
+        : (ref.watch(groupKeyReadyProvider(_cid)).asData?.value ?? false);
+
+    final canSend = !conv.isGroup
+        ? true
+        : (isLeft || !keyReady
+            ? false
+            : (!conv.onlyAdminsCanMessage || isMeAdmin));
 
     final restrictionMessage = isLeft
         ? "You can't send messages to this group because you're no longer a member."
-        : null;
+        : (!keyReady
+            ? 'Waiting for a group admin to come online and share the group key…'
+            : null);
 
     return PopScope(
       canPop: false,

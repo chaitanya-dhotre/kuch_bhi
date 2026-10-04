@@ -7,11 +7,21 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../domain/entities/conversation.dart';
+import '../../../domain/entities/group_invite.dart';
 import '../../../domain/entities/user.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/home/providers/friends_provider.dart';
 import '../../../features/media/screens/media_docs_screen.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
+
+/// Admin-side invite list for a conversation (group settings screen).
+/// Invalidate after any invite mutation.
+final pendingInvitesProvider = FutureProvider.autoDispose
+    .family<List<PendingGroupInvite>, String>(
+  (ref, conversationId) => ref
+      .watch(messageRepositoryProvider)
+      .getPendingInvitesForConversation(conversationId),
+);
 
 class GroupSettingsScreen extends ConsumerStatefulWidget {
   const GroupSettingsScreen({super.key, required this.conversation});
@@ -175,6 +185,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                           ? null
                           : () async {
                               Navigator.pop(ctx);
+                              var failed = 0;
                               for (final id in selected) {
                                 try {
                                   await ref
@@ -182,7 +193,9 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                                       .sendGroupInvite(
                                           widget.conversation.id, id);
                                 } catch (e) {
-                                  debugPrint('[Group] invite error: $e');
+                                  failed += 1;
+                                  debugPrint(
+                                      '[Group] invite error for $id: $e');
                                 }
                               }
                               // Sheet is already popped; the guard checks the
@@ -190,9 +203,17 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                               // the outer (screen) context.
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('Invite(s) sent')),
+                                  SnackBar(
+                                    content: Text(failed == 0
+                                        ? 'Invite(s) sent'
+                                        : 'Invited ${selected.length - failed}, '
+                                          'failed $failed — check connection and try again'),
+                                  ),
                                 );
+                                // Refresh the INVITES section without
+                                // reopening the screen.
+                                ref.invalidate(pendingInvitesProvider(
+                                    widget.conversation.id));
                               }
                             },
                       child: Text('Invite ${selected.length}'),
@@ -581,6 +602,97 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                     : null,
                 trailing: _buildMemberActions(user, myId, isAdmin && !isLeft, activeMembers),
               ),
+
+            // ── INVITES SECTION (admin only) ───────────────────────────────────
+            if (isAdmin && !isLeft)
+              Consumer(builder: (context, ref, _) {
+                final invitesAsync = ref.watch(
+                    pendingInvitesProvider(widget.conversation.id));
+                final invites = invitesAsync.asData?.value
+                        ?.where((i) => i.status != 'accepted')
+                        .toList() ??
+                    const <PendingGroupInvite>[];
+                if (invites.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _sectionHeader('INVITES'),
+                    for (final inv in invites)
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.primaryLight,
+                          backgroundImage: inv.user.avatarUrl != null
+                              ? CachedNetworkImageProvider(
+                                  inv.user.avatarUrl!)
+                              : null,
+                          child: inv.user.avatarUrl == null
+                              ? Text(
+                                  inv.user.displayName.isNotEmpty
+                                      ? inv.user.displayName[0]
+                                          .toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        title: Text(
+                          inv.user.displayName.isNotEmpty
+                              ? inv.user.displayName
+                              : inv.user.username,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(inv.status == 'pending'
+                            ? 'Invite pending'
+                            : 'Declined'),
+                        trailing: inv.status == 'pending'
+                            ? TextButton(
+                                onPressed: () async {
+                                  try {
+                                    await ref
+                                        .read(messageRepositoryProvider)
+                                        .cancelGroupInvite(inv.inviteId);
+                                    ref.invalidate(pendingInvitesProvider(
+                                        widget.conversation.id));
+                                  } catch (e) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
+                                              content:
+                                                  Text('Cancel failed: $e')));
+                                    }
+                                  }
+                                },
+                                child: const Text('Cancel'),
+                              )
+                            : TextButton(
+                                onPressed: () async {
+                                  try {
+                                    await ref
+                                        .read(messageRepositoryProvider)
+                                        .sendGroupInvite(
+                                            widget.conversation.id,
+                                            inv.user.id);
+                                    ref.invalidate(pendingInvitesProvider(
+                                        widget.conversation.id));
+                                  } catch (e) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
+                                              content: Text(
+                                                  'Re-invite failed: $e')));
+                                    }
+                                  }
+                                },
+                                child: const Text('Re-invite'),
+                              ),
+                      ),
+                  ],
+                );
+              }),
 
             // ── SETTINGS SECTION (admin only) ───────────────────────────────────
             if (isAdmin && !isLeft) ...[

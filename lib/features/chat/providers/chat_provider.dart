@@ -222,3 +222,19 @@ final conversationStreamProvider = StreamProvider.autoDispose
       .watch(messageRepositoryProvider)
       .watchConversation(conversationId);
 });
+
+// ── Group-key readiness ──────────────────────────────────────────────────
+//
+/// Emits false while this device has no distributed key for the group
+/// (join accepted, no admin device online yet to rotate); polls every 3s,
+/// stops once ready. DMs are always ready. Gates the composer + banner.
+final groupKeyReadyProvider = StreamProvider.autoDispose
+    .family<bool, String>((ref, conversationId) async* {
+  final repo = ref.read(messageRepositoryProvider);
+  while (true) {
+    final ready = await repo.hasUsableKey(conversationId);
+    yield ready;
+    if (ready) return;
+    await Future<void>.delayed(const Duration(seconds: 3));
+  }
+});

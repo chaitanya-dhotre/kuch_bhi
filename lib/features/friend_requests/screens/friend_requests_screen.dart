@@ -269,10 +269,16 @@ class _GroupInviteTile extends ConsumerWidget {
             // Decline.
             IconButton(
               onPressed: () async {
-                await ref
-                    .read(messageRepositoryProvider)
-                    .declineGroupInvite(invite.id);
-                ref.invalidate(incomingGroupInvitesProvider);
+                try {
+                  await ref
+                      .read(messageRepositoryProvider)
+                      .declineGroupInvite(invite.id);
+                  ref.invalidate(incomingGroupInvitesProvider);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to decline: $e')),
+                  );
+                }
               },
               icon: const Icon(Icons.close),
               style: IconButton.styleFrom(

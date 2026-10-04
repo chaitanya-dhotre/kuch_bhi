@@ -24,3 +24,16 @@ class GroupInvite {
 
   bool get isPending => status == 'pending';
 }
+
+/// An invite as seen from the ADMIN side (group settings): the invitee,
+/// not the inviter, is the interesting party.
+class PendingGroupInvite {
+  const PendingGroupInvite({
+    required this.inviteId,
+    required this.user,
+    required this.status,
+  });
+  final String inviteId;
+  final User   user;
+  final String status; // pending | accepted | declined
+}

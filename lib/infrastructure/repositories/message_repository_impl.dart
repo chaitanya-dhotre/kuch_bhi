@@ -12,6 +12,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/network/pocketbase_client.dart';
+import '../../core/utils/group_visibility.dart';
+import '../../core/utils/key_gap.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../domain/entities/conversation.dart';
@@ -518,7 +520,27 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<List<Message>> _rowsToMessages(
       List<MessagesTableData> rows) async {
     final myId = await _myId();
-    return rows.map((r) => _rowToMessage(r, myId)).toList();
+    if (rows.isEmpty) return [];
+    final convId = rows.first.conversationId;
+    DateTime? joinedAt;
+    final conv = await db.conversationsDao.getConversationById(convId);
+    if (conv?.type == 'group') {
+      final members =
+          await db.conversationsDao.getAllMembersForConversation(convId);
+      joinedAt =
+          members.where((m) => m.userId == myId).firstOrNull?.joinedAt;
+    }
+    return [
+      for (final r in rows)
+        if (joinedAt == null ||
+            isGroupRowVisible(
+              createdAt:      r.createdAt,
+              memberJoinedAt: joinedAt,
+              decryptedBody:  r.decryptedBody,
+              type:           r.type,
+            ))
+          _rowToMessage(r, myId),
+    ];
   }
 
   // ── Send message ──────────────────────────────────────────────
@@ -1568,6 +1590,19 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   @override
+  Future<bool> hasUsableKey(String conversationId) async {
+    final conv =
+        await db.conversationsDao.getConversationById(conversationId);
+    if (conv?.type != 'group') return true;
+    try {
+      await encryption.getOrFetchGroupKey(conversationId, await _myId());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
   Future<List<User>> getGroupMembers(String conversationId) async {
     // UNFILTERED on purpose (#17): the chat screen's isLeft/isMeAdmin gate
     // looks for the user's OWN row in this list — the filtered dao query
@@ -1769,6 +1804,32 @@ class MessageRepositoryImpl implements MessageRepository {
       for (final r in rows)
         r.getStringValue('invited_user_id'): r.getStringValue('status'),
     };
+  }
+
+  @override
+  Future<List<PendingGroupInvite>> getPendingInvitesForConversation(
+      String conversationId) async {
+    final rows = await _pb.collection('group_invites').getFullList(
+      filter: 'conversation_id="$conversationId"',
+      expand: 'invited_user_id',
+      batch: 100,
+    );
+    final out = <PendingGroupInvite>[];
+    for (final r in rows) {
+      final u = r.expand['invited_user_id']?.firstOrNull;
+      if (u == null) continue;
+      out.add(PendingGroupInvite(
+        inviteId: r.id,
+        status:   r.getStringValue('status'),
+        user:     _inviteRecordToUser(u),
+      ));
+    }
+    return out;
+  }
+
+  @override
+  Future<void> cancelGroupInvite(String inviteId) async {
+    await _pb.collection('group_invites').delete(inviteId);
   }
 
   @override
@@ -2160,6 +2221,9 @@ class MessageRepositoryImpl implements MessageRepository {
       // Remove any duplicate rows the FCM background isolate raced in.
       await db.messagesDao.dedupByServerId();
       await _syncConversations(myId);
+      // 2b. Rotate for members whose key distribution was missed while
+      // every admin device was offline (spec D2).
+      await _reconcileGroupKeyGaps();
       final memberships =
           await db.conversationsDao.getMembershipsOfUser(myId);
       for (final m in memberships) {
@@ -2176,6 +2240,60 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     } catch (e) {
       debugPrint('[Msg] resyncOnResume: $e');
+    }
+  }
+
+  /// Spec D2: after resume, find groups where some member has no current
+  /// key row (all admin devices missed the join SSE event) and rotate so
+  /// they can read the group. Only the elected rotation owner acts.
+  Future<void> _reconcileGroupKeyGaps() async {
+    try {
+      final myId = await _myId();
+      if (myId.isEmpty) return;
+      final memberships =
+          await db.conversationsDao.getMembershipsOfUser(myId);
+      for (final m in memberships) {
+        if (m.role != 'admin') continue;
+        final convId = m.conversationId;
+        final conv = await db.conversationsDao.getConversationById(convId);
+        if (conv?.type != 'group') continue;
+        try {
+          final members = await _pb
+              .collection('conversation_members')
+              .getFullList(filter: 'conversation_id="$convId"', batch: 200);
+          final keys = await _pb.collection('group_keys').getFullList(
+              filter: 'conversation_id="$convId"', batch: 200);
+          final maxByVersion = <String, int?>{};
+          int current = 0;
+          for (final k in keys) {
+            final uid = k.getStringValue('user_id');
+            final v = k.getIntValue('key_version');
+            if (v > current) current = v;
+            if ((maxByVersion[uid] ?? 0) < v) maxByVersion[uid] = v;
+          }
+          final memberVersions = {
+            for (final r in members)
+              r.getStringValue('user_id'):
+                  maxByVersion[r.getStringValue('user_id')],
+          };
+          final missing = membersMissingCurrentKey(
+              memberToMaxVersion: memberVersions, currentVersion: current);
+          if (missing.isEmpty) continue;
+          debugPrint('[Group] key gap in $convId for $missing');
+          if (!await _isRotationOwner(convId, myId)) continue;
+          _rotateDebounce[convId]?.cancel();
+          _rotateDebounce[convId] = Timer(const Duration(seconds: 3), () {
+            _rotateDebounce.remove(convId);
+            _rotateGroupKey(convId, myId).catchError((e) {
+              debugPrint('[Group] key-gap rotate failed: $e');
+            });
+          });
+        } catch (e) {
+          debugPrint('[Group] key-gap check failed for $convId: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('[Group] key-gap reconcile failed: $e');
     }
   }
 
@@ -2853,10 +2971,18 @@ class MessageRepositoryImpl implements MessageRepository {
             conversationId: convId,
             userId:         m.getStringValue('user_id'),
             role:           Value(m.getStringValue('role').isEmpty ? 'member' : m.getStringValue('role')),
-            joinedAt:       DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
+            joinedAt:       DateTime.tryParse(m.getStringValue('joined_at')) ??
+                DateTime.tryParse(m.created) ??
+                DateTime.now(),
           ),
         );
       }
+      // Drop stale rows (leave+rejoin gives the same user a NEW server row
+      // id; the old local row would keep role 'left' and break the gate).
+      await db.conversationsDao.removeStaleMemberRows(
+        convId,
+        {for (final m in membersRes.items) m.id},
+      );
       return tableData;
     } catch (e) {
       debugPrint('[Msg] Failed to fetch and cache conversation $convId: $e');
@@ -2965,7 +3091,9 @@ class MessageRepositoryImpl implements MessageRepository {
           ConversationMembersTableCompanion.insert(
             id: m.id, conversationId: conv.id, userId: myId,
             role: Value(m.getStringValue('role').isEmpty ? 'member' : m.getStringValue('role')),
-            joinedAt: DateTime.tryParse(m.getStringValue('joined_at')) ?? DateTime.now(),
+            joinedAt: DateTime.tryParse(m.getStringValue('joined_at')) ??
+                DateTime.tryParse(m.created) ??
+                DateTime.now(),
           ),
         );
         // getFullList (not getList's 30 cap) so large groups sync fully.
@@ -2995,13 +3123,19 @@ class MessageRepositoryImpl implements MessageRepository {
               id: om.id, conversationId: conv.id,
               userId: om.getStringValue('user_id'),
               role: Value(om.getStringValue('role').isEmpty ? 'member' : om.getStringValue('role')),
-              joinedAt: DateTime.tryParse(om.getStringValue('joined_at')) ?? DateTime.now(),
+              joinedAt: DateTime.tryParse(om.getStringValue('joined_at')) ??
+                  DateTime.tryParse(om.created) ??
+                  DateTime.now(),
             ),
           );
         }
 
         // Reconcile removals: drop local members who are no longer on the
-        // server (fixes "removed member still shows" on the other device).
+        // server (fixes "removed member still shows" on the other device),
+        // and drop stale rows whose server row id no longer exists (a
+        // leave+rejoin creates a NEW server row for the same user; the old
+        // local row would keep its 'left' role and break the rejoiner's
+        // composer gate).
         final localForConv =
             await db.conversationsDao.getMembersForConversation(conv.id);
         for (final lm in localForConv) {
@@ -3012,6 +3146,13 @@ class MessageRepositoryImpl implements MessageRepository {
                 .go();
           }
         }
+        await db.conversationsDao.removeStaleMemberRows(
+          conv.id,
+          {
+            m.id,
+            for (final om in others) om.id,
+          },
+        );
       }
 
       final activeConvIds = res.items

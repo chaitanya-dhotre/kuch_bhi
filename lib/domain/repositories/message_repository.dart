@@ -104,6 +104,10 @@ abstract class MessageRepository {
   /// Retry all pending (failed) messages.
   Future<void> retryPendingMessages();
 
+  /// True when this device can encrypt/decrypt for [conversationId]
+  /// (always true for DMs; groups require a distributed key).
+  Future<bool> hasUsableKey(String conversationId);
+
   /// Retry a specific failed message using its existing localId.
   /// Does NOT create a new message entry.
   Future<void> retryMessage(String localId);
@@ -141,6 +145,14 @@ abstract class MessageRepository {
   /// userId -> invite status for a conversation (picker chips).
   Future<Map<String, String>> getInviteStatusesForConversation(
       String conversationId);
+
+  /// All invites for a conversation, admin side (group settings list).
+  /// [PendingGroupInvite.user] is the invitee.
+  Future<List<PendingGroupInvite>> getPendingInvitesForConversation(
+      String conversationId);
+
+  /// Cancel (delete) an invite row (admin or invitee; server rule checks).
+  Future<void> cancelGroupInvite(String inviteId);
 
   /// Remove a member from a group (caller must be admin). Rotates group key.
   Future<void> removeMemberFromGroup(String conversationId, String userId);

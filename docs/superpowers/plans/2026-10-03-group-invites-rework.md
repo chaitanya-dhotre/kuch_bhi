@@ -21,13 +21,14 @@
 
 ---
 
-### Task 1: Server — messages history cutoff + CM updateRule + group_keys listRule
+### Task 1: Server — CM updateRule + group_keys listRule (AMENDED mid-execution)
 
 **Files:**
 - Create: throwaway probe script under `$CLAUDE_JOB_DIR/tmp/` (runs locally, hits https://kuch-bhi.duckdns.org)
 
 **Interfaces:**
-- Produces: `messages.listRule`/`viewRule` = `(conversation_id.type = "direct" && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) || (conversation_id.type = "group" && @collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.created <= created)`; `conversation_members.updateRule` = `(@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin" && @request.body.user_id:isset = false && @request.body.conversation_id:isset = false) || (user_id = @request.auth.id && @request.body.role:isset = false)`; `group_keys.listRule` = `@request.auth.id = user_id.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")`.
+- Produces: `conversation_members.updateRule` = `(@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin" && @request.body.user_id:isset = false && @request.body.conversation_id:isset = false) || (user_id = @request.auth.id && @request.body.role:isset = false)`; `group_keys.listRule` = `@request.auth.id = user_id.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")`.
+- **DROPPED mid-execution (2026-10-03):** the `messages` list/view history-cutoff rule. Probe result: back-reference comparisons support only `?=` (equality); a bare `@collection.conversation_members.created <= created` evaluated FOR-ALL over all member rows → old members' history erased (4chan: 76 → 0). Reverted + verified (76 restored). Cutoff is client-side only (Task 2); the crypto (joiner never holds superseded keys) is the real barrier. See spec D1 amendment.
 
 - [ ] **Step 1: Write the rule-patch + probe script**
 
@@ -481,10 +482,16 @@ Run: `flutter analyze` → 0 errors. Manual verify happens in Task 7.
 
 ---
 
-### Task 5: VM hook — rejoin role flip (server)
+### Task 5: VM hook — flat rewrite (AMENDED mid-execution)
 
 **Files:**
-- Modify: `/opt/pocketbase/pb_hooks/group_invite_notify.pb.js` (on VM, via SSH)
+- Modify: `/opt/pocketbase/pb_hooks/group_invite_notify.pb.js` (on VM, via scp — NEVER unquoted SSH heredocs: `$app` gets shell-expanded away)
+
+**Result (2026-10-03):**
+- ROOT CAUSE of the original outage: the dead session's hook used helper indirection (`return notifyInvite(e.record, e)`) — on this PB build that breaks every create/update on the collection with an opaque empty 400. Verified by A/B: flat hook → create 200 + hook logs; helper-indirection hook → opaque 400.
+- Rewritten FLAT (mirror of `fcm_notify.pb.js`): onRecordCreate notify + onRecordUpdate re-invite-notify, direct `return e.next()`.
+- Rejoin handler DROPPED: `leaveGroup` deletes the server member row (server role select has no `left` value at all), so re-accept creates a fresh row; local `left` role self-heals on next sync. Dead code removed.
+- Verified live: create→200 + `[FCM] invite push skipped` log (no-token path), update-to-pending→200 + `[FCM] invite webhook status: 200` (real push to token holder), state restored, probe rows cleaned.
 
 - [ ] **Step 1: Append the accepted-handler to the hook**
 

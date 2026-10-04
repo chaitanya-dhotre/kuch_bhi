@@ -82,6 +82,20 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
   Future<void> upsertMember(ConversationMembersTableCompanion m) =>
       into(conversationMembersTable).insertOnConflictUpdate(m);
 
+  /// Deletes member rows of [conversationId] whose ROW ID is not in
+  /// [serverRowIds]. Keyed by row id, not user id: a leave+rejoin creates a
+  /// NEW server row for the same user, so the old local row (stale role
+  /// 'left', old id) must go or the chat's member gate may pick it.
+  Future<void> removeStaleMemberRows(
+      String conversationId, Set<String> serverRowIds) {
+    if (serverRowIds.isEmpty) return Future.value();
+    return (delete(conversationMembersTable)
+          ..where((t) =>
+              t.conversationId.equals(conversationId) &
+              t.id.isNotIn(serverRowIds)))
+        .go();
+  }
+
   Future<List<ConversationMembersTableData>> getMembersForConversation(
           String conversationId) =>
       (select(conversationMembersTable)
