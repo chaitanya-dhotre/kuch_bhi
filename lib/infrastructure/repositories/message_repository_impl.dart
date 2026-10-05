@@ -45,6 +45,14 @@ class MessageRepositoryImpl implements MessageRepository {
     // A restored session starts "authenticated" so the first authRefresh
     // token rotation is treated as same-session churn, not a fresh login.
     _wasAuthenticated = _pb.authStore.isValid;
+    // Seed the identity too (review minor): without it the first auth event
+    // compares prev=null != id and does one spurious rebuild per session.
+    // Init-once — never overwrite a value a later event already resolved.
+    unawaited(storage.getCurrentUserId().then((id) {
+      if (_realtimeUserId == null && id != null && id.isNotEmpty) {
+        _realtimeUserId = id;
+      }
+    }));
 
     // Re-subscribe ONLY on identity change (login/logout/account switch) —
     // token-string churn from authRefresh must not rebuild the SSE client.
@@ -2478,6 +2486,16 @@ class MessageRepositoryImpl implements MessageRepository {
         }
         if (key != null) {
           await _cacheMessagesBatch(all, key, myId);
+          // Review C1 (hardening): the batch aborts WITHOUT writing when the
+          // session ended mid-flight — advancing the cursor then would skip
+          // this whole delta forever on the next login.
+          if (!sessionStillValid(
+              epochAtStart: epoch,
+              currentEpoch: _sessionEpoch,
+              authValid: _pb.authStore.isValid)) {
+            debugPrint('[Msg] cursor held back — batch aborted (session)');
+            return;
+          }
           // Review I2: only advance the cursor when the whole delta present
           // at fetch start landed (offset shifts during multi-page
           // catch-up would otherwise skip rows forever). Cold fetches
@@ -2536,7 +2554,14 @@ class MessageRepositoryImpl implements MessageRepository {
     for (final r in records) {
       final e = existingById[r.id];
       var body = decrypted[r.id];
-      if (body == null) failedDecrypts.add(r);
+      // Only genuine decrypt misses count. A row with empty ciphertext/iv
+      // (never happens server-side today) would otherwise trigger the
+      // key-invalidating self-heal — and its network refetch — on EVERY fetch.
+      if (body == null &&
+          r.getStringValue('encrypted_body').isNotEmpty &&
+          r.getStringValue('iv').isNotEmpty) {
+        failedDecrypts.add(r);
+      }
 
       String? preview;
       final rawReply = r.getStringValue('reply_preview');
@@ -3052,6 +3077,9 @@ class MessageRepositoryImpl implements MessageRepository {
   /// rows that are only true on THIS device, e.g. "You were removed from
   /// this group" when a membership sync notices an admin removal.
   Future<void> _emitLocalSystemMessage(String convId, String body) async {
+    // Spec D5 / review C1: never drop a local-only bubble into a signed-out
+    // (wiped) session — straggler timers from the previous account land here.
+    if (!_pb.authStore.isValid) return;
     final id  = 'sys_${_uuid.v4()}';
     final now = DateTime.now();
     await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(

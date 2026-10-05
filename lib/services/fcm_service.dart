@@ -556,20 +556,26 @@ class FcmService {
               ));
         } catch (_) {
           // Unique-index race — re-read and update if still undelivered.
-          final again = await pb.collection('message_receipts').getList(
-            filter: 'message_id="$messageId"&&recipient_id="$myId"', perPage: 1,
+          // All three calls ride _retryNetwork too (plan Task 5): the
+          // race path runs on the same cold-start network as the create.
+          final again = await _retryNetwork(
+            () => pb.collection('message_receipts').getList(
+                  filter: 'message_id="$messageId"&&recipient_id="$myId"',
+                  perPage: 1,
+                ),
           );
           if (again.items.isNotEmpty &&
               again.items.first.getStringValue('delivered_at').isEmpty) {
-            await pb.collection('message_receipts').update(
-              again.items.first.id, body: {'delivered_at': nowUtc});
+            await _retryNetwork(() => pb
+                .collection('message_receipts')
+                .update(again.items.first.id, body: {'delivered_at': nowUtc}));
           }
         }
       } else if (existing.items.first.getStringValue('delivered_at').isEmpty) {
-        await pb.collection('message_receipts').update(
-          existing.items.first.id,
-          body: {'delivered_at': nowUtc},
-        );
+        await _retryNetwork(() => pb.collection('message_receipts').update(
+              existing.items.first.id,
+              body: {'delivered_at': nowUtc},
+            ));
       }
 
       debugPrint('[FCM] Marked delivered: $messageId');

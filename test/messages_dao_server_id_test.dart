@@ -54,11 +54,11 @@ void main() {
         "VALUES ('s1', 's1', 'c1', 'u1', 'text', 'e', 'i', 'delivered', "
         "1791088201000, 1791088201000)");
     await db.customStatement(DedupBeforeUniqueIndex.sql);
-    // The migration's index creation now succeeds (would throw if dupes
-    // survived the dedupe).
+    // Exact production statement from app_database.dart's v6 onUpgrade
+    // (non-partial; SQLite exempts NULLs from UNIQUE either way).
     await db.customStatement(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_server_id '
-        'ON messages_table (server_id) WHERE server_id IS NOT NULL');
+        'ON messages_table (server_id)');
     final rows = await db.select(db.messagesTable).get();
     expect(rows.length, 1);
     expect(rows.single.localId, 'main-uuid'); // oldest rowid wins
