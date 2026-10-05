@@ -14,6 +14,8 @@ import '../../core/constants/app_constants.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
+import '../../core/utils/realtime_gate.dart';
+import '../../core/utils/sync_cursor.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../domain/entities/conversation.dart';
@@ -39,13 +41,39 @@ class MessageRepositoryImpl implements MessageRepository {
     _reconnect();
     _initConnectivityRetry();
 
-    // Re-subscribe when auth state changes (e.g. login/logout).
-    _pb.authStore.onChange.listen((event) {
-      if (event.token.isNotEmpty) {
-        debugPrint('[Msg] Auth token changed (logged in). Reconnecting subscriptions.');
+    // A restored session starts "authenticated" so the first authRefresh
+    // token rotation is treated as same-session churn, not a fresh login.
+    _wasAuthenticated = _pb.authStore.isValid;
+
+    // Re-subscribe ONLY on identity change (login/logout/account switch) —
+    // token-string churn from authRefresh must not rebuild the SSE client.
+    _pb.authStore.onChange.listen((event) async {
+      final authenticated = event.token.isNotEmpty;
+      String? userId;
+      if (authenticated) {
+        for (var i = 0; i < 10; i++) {
+          userId = await storage.getCurrentUserId();
+          if (userId != null && userId.isNotEmpty) break;
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+      if (!shouldReconnectRealtime(
+            wasAuthenticated: _wasAuthenticated,
+            isAuthenticated:  authenticated,
+            previousUserId:   _realtimeUserId,
+            newUserId:        userId,
+          )) {
+        debugPrint('[Msg] Auth token changed (same session) — ignoring.');
+        return;
+      }
+      _wasAuthenticated = authenticated;
+      _realtimeUserId = userId;
+      _cutoffCache.clear(); // identity changed — group cutoffs are per-user
+      if (authenticated) {
+        debugPrint('[Msg] Auth identity changed — reconnecting subscriptions.');
         _reconnect();
       } else {
-        debugPrint('[Msg] Auth token changed (logged out). Unsubscribing.');
+        debugPrint('[Msg] Logged out — unsubscribing.');
         _pendingJoinEmitConvIds.clear(); // no join polls for the previous user
         for (final t in _rotateDebounce.values) {
           t.cancel();
@@ -55,6 +83,10 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     });
   }
+
+  bool _wasAuthenticated = false;
+  String? _realtimeUserId;
+  Timer? _reconnectDebounce;
 
   final PocketBaseClient     pbClient;
   final AppDatabase          db;
@@ -126,29 +158,35 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   /// Public entry point — always safe to call, always serialized.
+  /// Debounced 500ms so rapid identity/connectivity fires collapse into a
+  /// single teardown+subscribe cycle instead of rebuilding the SSE client
+  /// N times.
   void _reconnect() {
-    _reconnectTimer?.cancel();
-    _serialize(() async {
-      if (!_pb.authStore.isValid) return;
-      try {
-        await _teardownInner();
-        await _subscribeAll();
-        _subscribed = true;
-        _reconnectAttempts = 0;
-        debugPrint('[Msg] Realtime subscriptions established.');
-        _startPollFallback();
-      } catch (e) {
-        _subscribed = false;
-        _reconnectAttempts += 1;
-        // Exponential backoff, capped at 30s.
-        final delay = Duration(
-          seconds: (1 << (_reconnectAttempts.clamp(0, 5))).clamp(1, 30),
-        );
-        debugPrint('[Msg] Subscribe failed ($e). Retrying in ${delay.inSeconds}s.');
-        _reconnectTimer = Timer(delay, _reconnect);
-        // Even while SSE is down, keep polling so the UI still updates.
-        _startPollFallback();
-      }
+    _reconnectDebounce?.cancel();
+    _reconnectDebounce = Timer(const Duration(milliseconds: 500), () {
+      _reconnectTimer?.cancel();
+      _serialize(() async {
+        if (!_pb.authStore.isValid) return;
+        try {
+          await _teardownInner();
+          await _subscribeAll();
+          _subscribed = true;
+          _reconnectAttempts = 0;
+          debugPrint('[Msg] Realtime subscriptions established.');
+          _startPollFallback();
+        } catch (e) {
+          _subscribed = false;
+          _reconnectAttempts += 1;
+          // Exponential backoff, capped at 30s.
+          final delay = Duration(
+            seconds: (1 << (_reconnectAttempts.clamp(0, 5))).clamp(1, 30),
+          );
+          debugPrint('[Msg] Subscribe failed ($e). Retrying in ${delay.inSeconds}s.');
+          _reconnectTimer = Timer(delay, _reconnect);
+          // Even while SSE is down, keep polling so the UI still updates.
+          _startPollFallback();
+        }
+      });
     });
   }
 
@@ -255,6 +293,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
   Future<void> _subMembers() async {
     await _pb.collection('conversation_members').subscribe('*', (event) {
+      _cutoffCache.clear(); // membership changed somewhere — recompute
       _syncConversationsBackground();
       if (event.action != 'create' || event.record == null) return;
       final r = event.record!;
@@ -491,8 +530,6 @@ class MessageRepositoryImpl implements MessageRepository {
     // Purge any locally-expired disappearing messages before showing the chat.
     // The Drift stream auto-emits on delete.
     db.messagesDao.deleteExpiredMessages();
-    // Collapse any duplicate rows the FCM background isolate raced in.
-    db.messagesDao.dedupByServerId();
 
     return _messagesStream(conversationId);
   }
@@ -517,19 +554,34 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// Group-history cutoff per conversation (member joinedAt), cached —
+  /// _rowsToMessages runs on EVERY table write; per-emit DAO round-trips
+  /// multiplied the watch storm. Invalidated on membership change via
+  /// [_invalidateCutoff].
+  final Map<String, DateTime?> _cutoffCache = {};
+
+  void _invalidateCutoff(String convId) => _cutoffCache.remove(convId);
+
+  Future<DateTime?> _groupCutoff(String convId) async {
+    if (_cutoffCache.containsKey(convId)) return _cutoffCache[convId];
+    DateTime? cutoff;
+    final conv = await db.conversationsDao.getConversationById(convId);
+    if (conv?.type == 'group') {
+      final myId = await _myId();
+      final members =
+          await db.conversationsDao.getAllMembersForConversation(convId);
+      cutoff =
+          members.where((m) => m.userId == myId).firstOrNull?.joinedAt;
+    }
+    _cutoffCache[convId] = cutoff;
+    return cutoff;
+  }
+
   Future<List<Message>> _rowsToMessages(
       List<MessagesTableData> rows) async {
     final myId = await _myId();
     if (rows.isEmpty) return [];
-    final convId = rows.first.conversationId;
-    DateTime? joinedAt;
-    final conv = await db.conversationsDao.getConversationById(convId);
-    if (conv?.type == 'group') {
-      final members =
-          await db.conversationsDao.getAllMembersForConversation(convId);
-      joinedAt =
-          members.where((m) => m.userId == myId).firstOrNull?.joinedAt;
-    }
+    final joinedAt = await _groupCutoff(rows.first.conversationId);
     return [
       for (final r in rows)
         if (joinedAt == null ||
@@ -656,6 +708,9 @@ class MessageRepositoryImpl implements MessageRepository {
 
       final serverCreated = DateTime.tryParse(record.created) ?? createdAt;
       final expiresAt = await _computeExpiry(conversationId, serverCreated);
+      // Clear any FCM-isolate placeholder for this id so stamping ours
+      // cannot violate the serverId unique index.
+      await db.messagesDao.deleteByServerIdExcept(record.id, localId);
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
         serverId:       Value(record.id),
@@ -839,6 +894,8 @@ class MessageRepositoryImpl implements MessageRepository {
       debugPrint('[Msg] Media uploaded, mediaId: $mediaId');
 
       // Step D: Update local record with serverId and mediaId
+      // (placeholder guard: clear any FCM-isolate row holding this id first)
+      await db.messagesDao.deleteByServerIdExcept(messageServerId, localId);
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
         serverId:       Value(messageServerId),
@@ -1746,6 +1803,7 @@ class MessageRepositoryImpl implements MessageRepository {
     await _pb.collection('group_invites').update(
       inviteId, body: {'status': 'accepted'},
     );
+    _invalidateCutoff(convId); // this device just joined — new cutoff
 
     // Make the group appear locally right away (messages stay garbled until
     // an admin device rotates the key and we fetch it).
@@ -1885,6 +1943,7 @@ class MessageRepositoryImpl implements MessageRepository {
     } catch (e) {
       debugPrint('[Group] removeMember system message emit failed: $e');
     }
+    _invalidateCutoff(conversationId);
 
     // 4) Remove the removed user's group-key rows so they can't decrypt
     //    anything on a fresh install. Best-effort: the server's
@@ -2111,6 +2170,7 @@ class MessageRepositoryImpl implements MessageRepository {
     } catch (_) {}
 
     await storage.delete(key: 'group_key_$conversationId');
+    _invalidateCutoff(conversationId);
 
     if (me != null) {
       await (db.update(db.conversationMembersTable)
@@ -2218,18 +2278,32 @@ class MessageRepositoryImpl implements MessageRepository {
     try {
       final myId = await _myId();
       if (myId.isEmpty) return;
-      // Remove any duplicate rows the FCM background isolate raced in.
-      await db.messagesDao.dedupByServerId();
       await _syncConversations(myId);
-      // 2b. Rotate for members whose key distribution was missed while
-      // every admin device was offline (spec D2).
-      await _reconcileGroupKeyGaps();
       final memberships =
           await db.conversationsDao.getMembershipsOfUser(myId);
+      // Most-recently-active first (the likely unread conv), fetched in
+      // small parallel batches — the old serial loop made the badge land
+      // 15-30s after open with a dozen conversations.
+      final targets = <String>[];
       for (final m in memberships) {
         if (m.role == 'left') continue;
-        await _fetchAndCacheMessages(m.conversationId);
+        targets.add(m.conversationId);
       }
+      final recency = <String, DateTime>{};
+      for (final cid in targets) {
+        final c = await db.conversationsDao.getConversationById(cid);
+        recency[cid] = c?.lastMessageAt ?? c?.createdAt ?? DateTime(2000);
+      }
+      targets.sort((a, b) => recency[b]!.compareTo(recency[a]!));
+      for (var i = 0; i < targets.length; i += 3) {
+        final chunk = targets.skip(i).take(3);
+        await Future.wait(
+            chunk.map((cid) => _fetchAndCacheMessages(cid)));
+      }
+      // 2b. Rotate for members whose key distribution was missed while
+      // every admin device was offline (spec D2) — AFTER the backfill so
+      // rare key-gap work never delays the badge/messages above.
+      await _reconcileGroupKeyGaps();
       // 3. Flush anything that failed to send while backgrounded.
       await retryPendingMessages();
 
@@ -2297,32 +2371,70 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  Future<DateTime?> _readCursor(String convId) async {
+    final raw = await db.settingsDao.getSetting('sync_cursor_$convId');
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> _writeCursor(String convId, DateTime at) =>
+      db.settingsDao.setSetting(
+          'sync_cursor_$convId', at.toUtc().toIso8601String());
+
+  /// Incremental fetch: cursor delta on warm caches (pages until caught
+  /// up), latest-40 only on cold. Batched cache = one existing-rows query,
+  /// one decryptBatch isolate hop, one Drift batch → ONE stream emit for
+  /// the whole page (was 40 serial decrypt+upserts ≈ 6s).
   Future<void> _fetchAndCacheMessages(String conversationId) async {
     try {
       final myId = await _myId();
       debugPrint('[Msg] _fetchAndCacheMessages — myId: $myId, convId: $conversationId');
       // No is_deleted_for_everyone filter: deletions that happened while this
-      // device was offline must ALSO sync (cacheMsg flips the local flag).
-      final res  = await _pb.collection('messages').getList(
-        filter:  'conversation_id="$conversationId"',
-        sort:    '-created',
-        perPage: 40,
-      );
-      debugPrint('[Msg] _fetchAndCacheMessages — fetched ${res.items.length} messages from server');
-      
-      // Note: Group key recovery works seamlessly after private key restore.
-      // The old encrypted group keys in PocketBase are decrypted using the user's restored X25519 key
-      // on first access, and local FlutterSecureStorage group key cache is cleared on reinstall.
-      List<int>? key;
-      try {
-        key = await _getConvKey(conversationId, myId);
-      } on MissingKeyException catch (e) {
-        debugPrint('[Msg] key not ready during fetch: $e');
-        key = null;
+      // device was offline must ALSO sync (companionFromRecord flips the local flag).
+      final cacheEmpty =
+          !(await db.messagesDao.hasAnyMessages(conversationId));
+      final cursor = cacheEmpty ? null : await _readCursor(conversationId);
+      final inc = incrementalFetchFilter(cursor);
+      final pageFilter = inc == null
+          ? 'conversation_id="$conversationId"'
+          : 'conversation_id="$conversationId" && $inc';
+
+      final all = <RecordModel>[];
+      var page = 1;
+      while (true) {
+        final res = await _pb.collection('messages').getList(
+              filter: pageFilter,
+              sort: '-created',
+              perPage: 40,
+              page: page,
+            );
+        all.addAll(res.items);
+        // Cold fetch: one page (latest 40), same as before — older history
+        // loads via loadMoreMessages. Warm fetch: page until delta caught up.
+        if (cursor == null ||
+            !shouldFetchNextPage(pageItems: res.items.length, perPage: 40)) {
+          break;
+        }
+        page++;
       }
-      if (key != null) {
-        for (final r in res.items) {
-          await _cacheMsg(r, myId, key);
+      debugPrint('[Msg] _fetchAndCacheMessages — fetched ${all.length} messages (cursor=${cursor != null})');
+
+      if (all.isNotEmpty) {
+        // Key unavailable (joiner awaiting rotation, DM peer key missing):
+        // do NOT cache rows and do NOT advance the cursor — the next open
+        // retries the same window, exactly like the old fetch behaviour.
+        List<int>? key;
+        try {
+          key = await _getConvKey(conversationId, myId);
+        } on MissingKeyException catch (e) {
+          debugPrint('[Msg] key not ready during fetch — skipping cache: $e');
+          key = null;
+        }
+        if (key != null) {
+          await _cacheMessagesBatch(all, key, myId);
+          final newest =
+              DateTime.tryParse(all.first.getStringValue('created'));
+          if (newest != null) await _writeCursor(conversationId, newest);
         }
       }
 
@@ -2332,6 +2444,112 @@ class MessageRepositoryImpl implements MessageRepository {
       await _reconcileReceiptsForConversation(conversationId, myId);
     } catch (e) {
       debugPrint('[Msg] fetch error (offline?): $e');
+    }
+  }
+
+  /// Batched cache: one existing-rows query, one decryptBatch hop, one
+  /// Drift batch insert. [records] must be one conversation, sorted
+  /// `-created`. Decrypt misses self-heal per-row (groups only) exactly
+  /// like the single-row path.
+  Future<void> _cacheMessagesBatch(
+      List<RecordModel> records, List<int> key, String myId) async {
+    if (records.isEmpty) return;
+    final convId = records.first.getStringValue('conversation_id');
+    final conv = await db.conversationsDao.getConversationById(convId);
+    _disappearingDurations[convId] = conv?.disappearingDuration ?? 0;
+
+    final existing = await db.messagesDao
+        .getMessagesByServerIds([for (final r in records) r.id]);
+    final existingById = {for (final e in existing) e.serverId!: e};
+
+    final decrypted = await encryption.decryptBatch(key, [
+      for (final r in records)
+        {
+          'id':         r.id,
+          'ciphertext': r.getStringValue('encrypted_body'),
+          'iv':         r.getStringValue('iv'),
+        },
+    ]);
+
+    final companions = <MessagesTableCompanion>[];
+    final failedDecrypts = <RecordModel>[];
+    for (final r in records) {
+      final e = existingById[r.id];
+      var body = decrypted[r.id];
+      if (body == null) failedDecrypts.add(r);
+
+      String? preview;
+      final rawReply = r.getStringValue('reply_preview');
+      if (rawReply.isNotEmpty) {
+        final idx = rawReply.indexOf(':');
+        if (idx > 0 && r.getStringValue('encrypted_body') != '__pending__') {
+          preview = await encryption.decryptMessage(
+                  rawReply.substring(idx + 1),
+                  rawReply.substring(0, idx), key) ?? '🔒';
+        } else {
+          preview = rawReply; // legacy plaintext
+        }
+      }
+
+      String? forced;
+      final isMine = r.getStringValue('sender_id') == myId;
+      if (isMine && (e == null || e.status.isEmpty)) {
+        forced = await _computeSenderStatus(r.id);
+      }
+
+      companions.add(_companionFromRecord(r,
+          existing: e, decrypted: body,
+          decryptedReplyPreview: preview, forcedStatus: forced, myId: myId));
+    }
+
+    // Clear any rows already holding these server ids (prior cache + FCM
+    // bg placeholders): ONE insert collision aborts the entire batch, which
+    // silently dropped whole fetches (no decrypt, no badge). Companions
+    // carry the preserved flags; the onConflict below also absorbs the
+    // placeholder-write race between this delete and the batch.
+    await db.messagesDao.deleteByServerIds([for (final r in records) r.id]);
+    await db.batch((b) {
+      for (final c in companions) {
+        b.insert(db.messagesTable, c,
+            onConflict: DoUpdate((_) => c,
+                target: [db.messagesTable.localId]));
+      }
+    });
+
+    // Self-heal decrypt misses: invalidate the cached conv key (group row
+    // cache, or ALL contact-key caches for a direct chat — covers stale
+    // ECDH derivations after re-key events) and retry each failed row once
+    // with the freshly fetched key.
+    if (failedDecrypts.isNotEmpty) {
+      try {
+        if (conv?.type == 'group') {
+          await storage.delete(key: 'group_key_$convId');
+        } else {
+          await storage.clearAllContactKeys();
+        }
+        final freshKey = await _getConvKey(convId, myId);
+        for (final r in failedDecrypts) {
+          final body = await encryption.decryptMessage(
+              r.getStringValue('encrypted_body'),
+              r.getStringValue('iv'), freshKey);
+          if (body != null) {
+            await db.messagesDao.upsertMessage(_companionFromRecord(r,
+                existing: existingById[r.id],
+                decrypted: body,
+                myId: myId));
+          }
+        }
+      } catch (e) {
+        debugPrint('[Enc] batch self-heal failed: $e');
+      }
+    }
+
+    // Conversation-list bump: newest incoming row only (sort -created →
+    // records.first). Fetch path is never "live" — no unread bump here.
+    final newest = records.first;
+    if (newest.getStringValue('sender_id') != myId) {
+      await _bumpConversationForIncoming(newest, _uuid.v4(),
+          previewText: decrypted[newest.id]);
     }
   }
 
@@ -2491,87 +2709,125 @@ class MessageRepositoryImpl implements MessageRepository {
 
     final existing = await db.messagesDao.getMessageByServerId(r.id);
     final isMine = r.getStringValue('sender_id') == myId;
-    final existingStatus = existing?.status ?? '';
 
     // For my own messages: keep any existing (locally-known) status, but on a
-    // fresh install (existing == null) compute the real status from receipts
-    // instead of blindly resetting to 'sent'.
-    String status;
-    if (isMine) {
-      if (existingStatus.isNotEmpty) {
-        status = existingStatus;
-      } else {
-        status = await _computeSenderStatus(r.id);
-      }
-    } else {
-      // Incoming message: mark delivered locally (recipient side).
-      status = 'delivered';
+    // fresh install (existing == null) — or when a prior cache left the status
+    // empty — compute the real status from receipts instead of blindly
+    // resetting to 'sent'.
+    String? forcedStatus;
+    if (isMine &&
+        (existing == null || (existing.status.isEmpty))) {
+      forcedStatus = await _computeSenderStatus(r.id);
     }
 
+    await db.messagesDao.upsertMessage(_companionFromRecord(
+      r,
+      existing: existing,
+      decrypted: decrypted,
+      decryptedReplyPreview: replyPreview,
+      forcedStatus: forcedStatus,
+      myId: myId,
+    ));
+    if (!isMine) {
+      await _bumpConversationForIncoming(r,
+          existing?.localId ?? _uuid.v4(),
+          previewText: decrypted);
+    }
+  }
+
+  /// Shared row-builder for the single and batched cache paths. Preserves
+  /// locally-known flags from [existing].
+  MessagesTableCompanion _companionFromRecord(
+    RecordModel r, {
+    required MessagesTableData? existing,
+    required String? decrypted,
+    String? decryptedReplyPreview,
+    String? forcedStatus,
+    required String myId,
+  }) {
+    final encBody = r.getStringValue('encrypted_body');
+    final iv      = r.getStringValue('iv');
     final rawMediaId = r.getStringValue('media_id');
-    // 'file' is the server enum used for documents; normalise to 'document' locally.
     final rawType = r.getStringValue('type');
     final localType = rawType == 'file' ? 'document' : rawType;
     final convId = r.getStringValue('conversation_id');
     final createdAt = DateTime.tryParse(r.created) ?? DateTime.now();
-    final expiresAt = await _computeExpiry(convId, createdAt);
-    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-      localId:               existing?.localId ?? _uuid.v4(),
-      serverId:              Value(r.id),
-      conversationId:        convId,
-      senderId:              r.getStringValue('sender_id'),
-      type:                  localType,
-      encryptedBody:         encBody,
-      iv:                    iv,
+    final isMine = r.getStringValue('sender_id') == myId;
+
+    String status;
+    if (isMine) {
+      final existingStatus = existing?.status ?? '';
+      status = forcedStatus ??
+          (existingStatus.isNotEmpty ? existingStatus : 'sent');
+    } else {
+      status = 'delivered';
+    }
+
+    return MessagesTableCompanion.insert(
+      localId:              existing?.localId ?? _uuid.v4(),
+      serverId:             Value(r.id),
+      conversationId:       convId,
+      senderId:             r.getStringValue('sender_id'),
+      type:                 localType,
+      encryptedBody:        encBody,
+      iv:                   iv,
       // Never wipe an already-decrypted body with null (e.g. when a later
       // cache pass runs with the key unavailable).
-      decryptedBody:         Value(decrypted ?? existing?.decryptedBody),
-      replyToId:             Value(r.getStringValue('reply_to_id').isEmpty
+      decryptedBody:        Value(decrypted ?? existing?.decryptedBody),
+      replyToId:            Value(r.getStringValue('reply_to_id').isEmpty
           ? null : r.getStringValue('reply_to_id')),
-      replyPreview:          Value(replyPreview ?? existing?.replyPreview),
+      replyPreview:         Value(decryptedReplyPreview ?? existing?.replyPreview),
       // Preserve locally-known star/pin/delete-for-me flags across re-caches.
-      isPinned:              Value(r.getBoolValue('is_pinned')),
-      isStarred:             Value(existing?.isStarred ?? false),
-      isDeletedForMe:        Value(existing?.isDeletedForMe ?? false),
-      isDeletedForEveryone:  Value(r.getBoolValue('is_deleted_for_everyone')),
-      mediaId:               Value(rawMediaId.isEmpty ? null : rawMediaId),
-      status:                Value(status),
-      expiresAt:             Value(expiresAt),
-      createdAt:             createdAt,
-      updatedAt:             DateTime.now(),
-    ));
+      isPinned:             Value(r.getBoolValue('is_pinned')),
+      isStarred:            Value(existing?.isStarred ?? false),
+      isDeletedForMe:       Value(existing?.isDeletedForMe ?? false),
+      isDeletedForEveryone: Value(r.getBoolValue('is_deleted_for_everyone')),
+      mediaId:              Value(rawMediaId.isEmpty ? null : rawMediaId),
+      status:               Value(status),
+      expiresAt:            Value(_computeExpirySync(convId, createdAt)),
+      createdAt:            createdAt,
+      updatedAt:            DateTime.now(),
+    );
+  }
 
-    // Keep the conversation list ordered + previewed on the RECIPIENT side
-    // too (the sender's device updates it in sendMessage). Only bump for
-    // messages newer than the current lastMessageAt so backfills don't
-    // reorder the list.
-    if (!isMine && !r.getBoolValue('is_deleted_for_everyone')) {
-      try {
-        final conv = await db.conversationsDao.getConversationById(convId);
-        final currentLast = conv?.lastMessageAt;
-        if (currentLast == null || createdAt.isAfter(currentLast)) {
-          final preview = switch (localType) {
-            'image'    => '📷 Photo',
-            'video'    => '🎬 Video',
-            'voice'    => '🎤 Voice message',
-            'document' => '📎 Document',
-            _          => decrypted ?? 'New message',
-          };
-          await db.conversationsDao.updateLastMessage(
-              convId, preview, createdAt);
-          // Bump the unread badge unless the user is currently viewing
-          // this conversation (their last-read already points past it).
-          // Narrative 'system' rows don't count as unread.
-          if (localType != 'system' &&
-              conv?.lastReadLocalId != null &&
-              conv!.lastReadLocalId!.isNotEmpty) {
-            await db.conversationsDao.bumpUnread(
-                convId, existing?.localId ?? _uuid.v4());
-          }
-        }
-      } catch (e) {
-        debugPrint('[Conv] recipient lastMessage bump: $e');
+  /// Keep the conversation list ordered + previewed on the RECIPIENT side
+  /// too (the sender's device updates it in sendMessage). Callers must gate
+  /// on `!isMine` first. Only bumps for messages newer than the current
+  /// lastMessageAt, so backfills can't reorder the list or double-count:
+  /// the newest row bumps once, every older row is skipped. This is what
+  /// makes the resume/cold-open backfill badge correctly.
+  Future<void> _bumpConversationForIncoming(
+    RecordModel r,
+    String incomingLocalId, {
+    String? previewText,
+  }) async {
+    final convId = r.getStringValue('conversation_id');
+    final createdAt = DateTime.tryParse(r.created) ?? DateTime.now();
+    if (r.getBoolValue('is_deleted_for_everyone')) return;
+    final rawType = r.getStringValue('type');
+    final localType = rawType == 'file' ? 'document' : rawType;
+    try {
+      final conv = await db.conversationsDao.getConversationById(convId);
+      final currentLast = conv?.lastMessageAt;
+      if (currentLast != null && !createdAt.isAfter(currentLast)) return;
+      final preview = switch (localType) {
+        'image'    => '📷 Photo',
+        'video'    => '🎬 Video',
+        'voice'    => '🎤 Voice message',
+        'document' => '📎 Document',
+        _          => previewText ?? 'New message',
+      };
+      await db.conversationsDao.updateLastMessage(convId, preview, createdAt);
+      // Unread badge: fires only for rows newer than the last known message
+      // (the guard above), so a backfill of older history never counts, and
+      // a genuinely-new message badges regardless of which path cached it
+      // (SSE, FCM foreground, or resume backfill). While the chat is open,
+      // markConversationRead resets it within ~1.5s as before.
+      if (localType != 'system') {
+        await db.conversationsDao.bumpUnread(convId, incomingLocalId);
       }
+    } catch (e) {
+      debugPrint('[Conv] recipient lastMessage bump: $e');
     }
   }
 
@@ -2947,6 +3203,7 @@ class MessageRepositoryImpl implements MessageRepository {
           updatedAt:   tableData.updatedAt,
         ),
       );
+      _disappearingDurations[convId] = tableData.disappearingDuration;
       final membersRes = await _pb.collection('conversation_members').getList(
         filter: 'conversation_id="$convId"',
         expand: 'user_id',
@@ -2996,8 +3253,20 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<DateTime?> _computeExpiry(String convId, DateTime from) async {
     final conv = await db.conversationsDao.getConversationById(convId);
     final seconds = conv?.disappearingDuration ?? 0;
+    _disappearingDurations[convId] = seconds; // self-warm the sync cache
     if (seconds <= 0) return null;
     return from.add(Duration(seconds: seconds));
+  }
+
+  /// Disappearing duration per conv, warmed by [_computeExpiry] and the
+  /// conversation sync — lets the batched message cache compute expiry
+  /// without a per-row DAO query.
+  final Map<String, int> _disappearingDurations = {};
+
+  DateTime? _computeExpirySync(String convId, DateTime from) {
+    final secs = _disappearingDurations[convId] ?? 0;
+    if (secs <= 0) return null;
+    return from.add(Duration(seconds: secs));
   }
 
   Future<List<int>> _getConvKey(String convId, String myId) async {
@@ -3087,6 +3356,7 @@ class MessageRepositoryImpl implements MessageRepository {
             updatedAt: DateTime.now(),
           ),
         );
+        _disappearingDurations[conv.id] = conv.getIntValue('disappearing_duration');
         await db.conversationsDao.upsertMember(
           ConversationMembersTableCompanion.insert(
             id: m.id, conversationId: conv.id, userId: myId,

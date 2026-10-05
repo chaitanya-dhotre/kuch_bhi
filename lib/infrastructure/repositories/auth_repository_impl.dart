@@ -269,7 +269,10 @@ class AuthRepositoryImpl implements AuthRepository {
         debugPrint('[Auth] Reinstall detected on restart — re-initialising encryption keys synchronously.');
         await _initEncryptionKeys(userId);
       }
-      _backgroundRefresh();
+      // NOTE: no _backgroundRefresh() here — navigation re-runs this path,
+      // and every refresh rotated the token (authStore.onChange → full SSE
+      // rebuild, ~54x/25min). Refresh is resume-only, via
+      // refreshSessionThrottled().
       return _tableDataToUser(cached);
     }
 
@@ -301,6 +304,23 @@ class AuthRepositoryImpl implements AuthRepository {
     });
   }
 
+  DateTime? _lastAuthRefresh;
+  static const _authRefreshInterval = Duration(minutes: 30);
+
+  /// Session refresh, throttled to once per 30 minutes. Called from app
+  /// RESUME only — never from navigation (every navigation used to
+  /// authRefresh, rotate the token, and rebuild all SSE subscriptions).
+  @override
+  Future<void> refreshSessionThrottled() async {
+    final now = DateTime.now();
+    if (_lastAuthRefresh != null &&
+        now.difference(_lastAuthRefresh!) < _authRefreshInterval) {
+      return;
+    }
+    _lastAuthRefresh = now;
+    _backgroundRefresh();
+  }
+
   // ── Sign out ───────────────────────────────────────────────────
 
   @override
@@ -308,9 +328,21 @@ class AuthRepositoryImpl implements AuthRepository {
     await _fcmTokenSubscription?.cancel();
     _fcmTokenSubscription = null;
     pbClient.clearAuth();
-    await storage.deleteAuthToken();
-    await db.settingsDao.setSetting(AppSettingsKeys.authToken,     '');
-    await db.settingsDao.setSetting(AppSettingsKeys.currentUserId, '');
+    // B1: the next sign-in must start CLEAN — wipe every table (messages,
+    // conversations, members, receipts, starred/deleted sync state) and all
+    // session secrets (auth token, group/contact key caches). The keypair
+    // stays: with the DB wiped it opens nothing, and it keeps the same
+    // account's re-login history readable. Late in-flight writes from
+    // timers fail harmlessly against empty tables; the router has already
+    // redirected to splash.
+    try {
+      await storage.clearSession();
+    } catch (e) {
+      debugPrint('[Auth] secure storage wipe failed: $e');
+    }
+    for (final table in db.allTables) {
+      await db.delete(table).go();
+    }
   }
 
   // ── Delete account ─────────────────────────────────────────────
@@ -421,11 +453,53 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       final enc = EncryptionService(storage, pbClient);
 
+      // One-time migration: claim the pre-scoping GLOBAL keypair — but only
+      // if its public half matches THIS account's published key (the global
+      // slot may belong to a different account that used the device before
+      // per-user slots existed; if it doesn't match, leave it alone for its
+      // owner to claim on their next login).
+      if (await storage.getPrivateKey() == null) {
+        try {
+          final legacyPriv = await storage.getLegacyPrivateKey();
+          final legacyPub  = await storage.getLegacyLocalPublicKey();
+          if (legacyPriv != null && legacyPub != null) {
+            final rec = await _pb.collection('users').getOne(userId);
+            final serverPub = rec.getStringValue('public_key');
+            if (serverPub.isNotEmpty && legacyPub == serverPub) {
+              await storage.savePrivateKey(legacyPriv);
+              await storage.saveLocalPublicKey(legacyPub);
+              debugPrint('[Keys] Adopted legacy keypair for $userId.');
+            }
+          }
+        } catch (e) {
+          debugPrint('[Keys] legacy adoption failed: $e');
+        }
+      }
+
       // Check if secure storage already had a key pair before this session.
       // If both keys exist in storage, the key pair was NOT freshly generated.
       final existingPriv = await storage.getPrivateKey();
       final existingPub  = await storage.getLocalPublicKey();
-      final hadExistingKeys = existingPriv != null && existingPub != null;
+      var hadExistingKeys = existingPriv != null && existingPub != null;
+
+      // Belt-over-braces: scoped slots make cross-account confusion
+      // impossible, but a mismatch against the server's published key means
+      // THIS account rotated keys elsewhere — our slot is stale, drop and
+      // restore-or-generate below.
+      if (hadExistingKeys) {
+        try {
+          final record = await _pb.collection('users').getOne(userId);
+          final serverPub = record.getStringValue('public_key');
+          if (serverPub.isNotEmpty && existingPub != serverPub) {
+            debugPrint(
+                '[Keys] Local keypair belongs to another account — dropping it.');
+            await storage.deleteKeyPair();
+            hadExistingKeys = false;
+          }
+        } catch (e) {
+          debugPrint('[Keys] pubkey mismatch check failed: $e');
+        }
+      }
 
       if (!hadExistingKeys) {
         // Private key is missing locally. Check if there is a PocketBase backup before generating a new key!

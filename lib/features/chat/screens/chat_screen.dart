@@ -266,9 +266,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   /// Fast path: widget in tree → ensureVisible.
   /// Slow path: estimate offset by item index, then retry ensureVisible
   /// once the ListView has rebuilt with the target item rendered.
-  void _scrollToMessage(Message msg) {
-    // Find the flat-item index for this message
-    int flatIndex = -1;
+  int _findFlatIndex(Message msg) {
     for (int i = 0; i < _items.length; i++) {
       final item = _items[i];
       // Match on localId OR serverId — starred-screen messages are
@@ -278,13 +276,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           (item.msg.localId == msg.localId ||
               (msg.serverId != null && item.msg.serverId == msg.serverId) ||
               item.msg.serverId == msg.localId)) {
-        flatIndex = i;
-        break;
+        return i;
       }
     }
-    if (flatIndex < 0) return;
+    return -1;
+  }
 
-    // Fast path — widget already rendered
+  void _scrollToFlatIndex(int flatIndex) {
     final item = _items[flatIndex];
     if (item is _MsgItem) {
       final ctx = item.key.currentContext;
@@ -298,8 +296,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         return;
       }
     }
-
-    // Slow path — scroll by proportional offset then retry
     _scrollToItemIndex(flatIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -316,6 +312,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
       }
     });
+  }
+
+  /// Unified jump for search/star/reply/pin. If the target is not in the
+  /// loaded window, fetch it from the server, wait for the stream to emit
+  /// it, then scroll precisely. Never bails silently (B3).
+  Future<void> _jumpToMessage(Message msg) async {
+    var flatIndex = _findFlatIndex(msg);
+    if (flatIndex < 0 && msg.serverId != null) {
+      try {
+        await ref
+            .read(messageRepositoryProvider)
+            .fetchAndCacheSingleMessage(msg.serverId!, _cid);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Message unavailable: $e')));
+        }
+        return;
+      }
+      for (var i = 0; i < 20 && flatIndex < 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (!mounted) return;
+        flatIndex = _findFlatIndex(msg);
+      }
+    }
+    if (flatIndex < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Message not found in this chat')));
+      }
+      return;
+    }
+    _scrollToFlatIndex(flatIndex);
   }
 
   // ── Build ─────────────────────────────────────────────────────────────
@@ -382,7 +411,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             if (!_searchActive)
               PinnedMessageBanner(
                 conversationId: _cid,
-                onTap: _scrollToMessage,
+                onTap: _jumpToMessage,
               ),
 
             Expanded(
@@ -453,7 +482,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                           (m) => m.serverId == msg.replyToId,
                                         ).firstOrNull;
                                         if (orig != null) {
-                                          _scrollToMessage(orig);
+                                          unawaited(_jumpToMessage(orig));
                                         }
                                       }
                                     : null,
@@ -606,7 +635,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => StarredMessagesScreen(
                     conversationId: _cid,
-                    onJump:         _scrollToMessage,
+                    onJump:         _jumpToMessage,
                   ),
                 ));
               } else if (v == 'group_info') {

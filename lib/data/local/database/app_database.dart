@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'migrations/dedup_sql.dart';
 import 'tables/users_table.dart';
 import 'tables/conversations_table.dart';
 import 'tables/conversation_members_table.dart';
@@ -54,7 +55,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -76,6 +77,14 @@ class AppDatabase extends _$AppDatabase {
                 conversationsTable, conversationsTable.unreadCount);
             await m.addColumn(
                 conversationsTable, conversationsTable.lastReadLocalId);
+          }
+          if (from < 6) {
+            // Duplicate rows (FCM background-isolate races) would break
+            // UNIQUE index creation — dedupe first, then build the index.
+            await customStatement(DedupBeforeUniqueIndex.sql);
+            await customStatement(
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_server_id '
+                'ON messages_table (server_id)');
           }
         },
       );

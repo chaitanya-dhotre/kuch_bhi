@@ -510,6 +510,20 @@ class EncryptionService {
       final pubKey = await kp.extractPublicKey();
       await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
 
+      // Re-publish the restored public key: the server's copy may have been
+      // replaced by a regenerate-on-mismatch during an account switch, and
+      // without re-publishing here the login-time mismatch guard would drop
+      // the just-restored keypair (and group_keys rows would stay
+      // unwrappable). Restore is a rollback to the account's ORIGINAL key —
+      // peers' existing DM derivations stay valid.
+      try {
+        await _pb.collection('users').update(userId, body: {
+          'public_key': base64.encode(pubKey.bytes),
+        });
+      } catch (e) {
+        debugPrint('[Enc] Restored pubkey re-upload failed: $e');
+      }
+
       // Invalidate all cached derived keys so they get re-derived with the
       // restored private key. Cover every prefix the app actually uses.
       final allKeys = await _storage.readAll();

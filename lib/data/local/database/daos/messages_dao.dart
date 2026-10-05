@@ -41,13 +41,72 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<void> upsertMessage(MessagesTableCompanion msg) =>
       into(messagesTable).insertOnConflictUpdate(msg);
 
+  /// True when any cached row exists for the conversation (warm vs cold
+  /// fetch decision — cold fetches the latest page, warm fetches only the
+  /// cursor delta).
+  Future<bool> hasAnyMessages(String conversationId) async {
+    final row = await (select(messagesTable)
+          ..where((t) => t.conversationId.equals(conversationId))
+          ..limit(1))
+        .getSingleOrNull();
+    return row != null;
+  }
+
+  /// Existing rows for a batch of server ids (batched-cache flag
+  /// preservation). Missing ids are simply absent from the result.
+  Future<List<MessagesTableData>> getMessagesByServerIds(
+      List<String> serverIds) async {
+    if (serverIds.isEmpty) return [];
+    return (select(messagesTable)..where((t) => t.serverId.isIn(serverIds)))
+        .get();
+  }
+
+  /// Upsert keyed on serverId (UNIQUE index target). Used by the FCM
+  /// background isolate whose rows are deterministic (localId == serverId):
+  /// when the main isolate already cached the message under a UUID key,
+  /// this UPDATES that row instead of inserting a duplicate bubble.
+  Future<void> upsertMessageByServerId(MessagesTableCompanion msg) {
+    assert(msg.serverId.present && msg.serverId.value != null);
+    return into(messagesTable).insert(
+      msg,
+      onConflict: DoUpdate(
+        // Never rewrite localId on conflict — the existing row keeps its
+        // UUID PK; only the content fields update.
+        (_) => msg.copyWith(localId: const Value.absent()),
+        target: [messagesTable.serverId],
+      ),
+    );
+  }
+
+  /// Deletes any OTHER row already holding [serverId] — called right before
+  /// stamping a freshly-sent optimistic row with its server id, so the
+  /// UPDATE cannot violate the unique index when the FCM isolate pre-cached
+  /// the same message.
+  Future<void> deleteByServerIdExcept(String serverId, String keepLocalId) =>
+      (delete(messagesTable)
+            ..where((t) =>
+                t.serverId.equals(serverId) &
+                t.localId.equals(keepLocalId).not()))
+          .go();
+
+  /// Removes existing rows for a batch of server ids so a following batch
+  /// INSERT cannot collide (previously-cached rows hit the PK, FCM bg
+  /// placeholders hit the unique serverId index — and ONE collision aborts
+  /// the whole Drift batch, dropping the entire fetch). The batch rebuilds
+  /// them from companions that carry the preserved flags.
+  Future<void> deleteByServerIds(List<String> serverIds) async {
+    if (serverIds.isEmpty) return;
+    await (delete(messagesTable)..where((t) => t.serverId.isIn(serverIds)))
+        .go();
+  }
+
   Future<MessagesTableData?> getMessageByLocalId(String localId) =>
       (select(messagesTable)..where((t) => t.localId.equals(localId)))
           .getSingleOrNull();
 
-  /// Tolerant of duplicate rows (cross-isolate races can produce them until
-  /// [dedupByServerId] runs): prefers the row that already has decrypted
-  /// content, falling back to the first.
+  /// Single row for a serverId — the unique index guarantees one.
+  /// Prefers the row that already has decrypted content (legacy dupes may
+  /// exist on devices that haven't run the v6 migration yet).
   Future<MessagesTableData?> getMessageByServerId(String serverId) async {
     final rows = await (select(messagesTable)
           ..where((t) => t.serverId.equals(serverId)))
@@ -76,51 +135,12 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return null;
   }
 
-  /// Removes duplicate rows sharing one serverId. The FCM background isolate
-  /// writes through its own AppDatabase instance, so it can race the main
-  /// isolate's insert — both see "no row yet" and insert independently.
-  /// Keeps the best row (decrypted > oldest) and deletes the rest.
-  Future<void> dedupByServerId() async {
-    final rows = await (select(messagesTable)
-          ..where((t) => t.serverId.isNotNull()))
-        .get();
-    final byServer = <String, List<MessagesTableData>>{};
-    for (final r in rows) {
-      byServer.putIfAbsent(r.serverId!, () => []).add(r);
-    }
-    for (final entry in byServer.entries) {
-      final dups = entry.value;
-      if (dups.length < 2) continue;
-      dups.sort((a, b) {
-        // Decrypted content wins; then prefer a real UUID localId (not the
-        // serverId placeholder used by the background isolate); then oldest.
-        final aDec = a.decryptedBody != null ? 0 : 1;
-        final bDec = b.decryptedBody != null ? 0 : 1;
-        if (aDec != bDec) return aDec - bDec;
-        final aPlaceholder = a.localId == a.serverId ? 1 : 0;
-        final bPlaceholder = b.localId == b.serverId ? 1 : 0;
-        if (aPlaceholder != bPlaceholder) return aPlaceholder - bPlaceholder;
-        return a.createdAt.compareTo(b.createdAt);
-      });
-      for (final extra in dups.skip(1)) {
-        await (delete(messagesTable)
-              ..where((t) => t.localId.equals(extra.localId)))
-            .go();
-      }
-    }
-  }
-
   Future<void> updateMessageStatus(String localId, String status) =>
       (update(messagesTable)..where((t) => t.localId.equals(localId))).write(
         MessagesTableCompanion(
           status:    Value(status),
           updatedAt: Value(DateTime.now()),
         ),
-      );
-
-  Future<void> setServerId(String localId, String serverId) =>
-      (update(messagesTable)..where((t) => t.localId.equals(localId))).write(
-        MessagesTableCompanion(serverId: Value(serverId)),
       );
 
   Future<void> cacheDecryptedBody(String localId, String decrypted) =>

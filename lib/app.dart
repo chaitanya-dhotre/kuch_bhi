@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/constants/app_colors.dart';
 import 'core/router/app_router.dart';
+import 'features/auth/providers/auth_provider.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'infrastructure/repositories/message_repository_impl.dart';
 import 'services/presence_service.dart';
@@ -22,6 +23,13 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(presenceServiceProvider).goOnline();
+      // Cold start: the lifecycle `resumed` event does NOT fire when the
+      // app is launched from killed — without this, messages received while
+      // the app was closed are never fetched on open, so the home badge
+      // stays stale (item-4 fail). Deltas are cursor-cheap; this is the
+      // cold-start twin of the resumed handler below.
+      ref.read(messageRepositoryProvider).resyncOnResume();
+      ref.read(authProvider.notifier).refreshSessionThrottled();
     });
   }
 
@@ -47,6 +55,8 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
         // Android suspends the SSE socket while backgrounded and events in
         // that window are silently lost. Reconnect + backfill everything.
         ref.read(messageRepositoryProvider).resyncOnResume();
+        // Resume-only throttled token/session refresh (never on navigation).
+        ref.read(authProvider.notifier).refreshSessionThrottled();
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
         // App backgrounded or about to be killed.

@@ -27,12 +27,48 @@ class SecureStorageService {
   Future<String?> getPbAuthStore()             => _storage.read(key: _keyPbAuthStore);
   Future<void>    deletePbAuthStore()          => _storage.delete(key: _keyPbAuthStore);
 
-  // ── Encryption keys ───────────────────────────────────────────
-  Future<void>    savePrivateKey(String b64) => _storage.write(key: _keyPrivateKey, value: b64);
-  Future<String?> getPrivateKey()            => _storage.read(key: _keyPrivateKey);
+  // ── Encryption keys (per-user scoped slots) ───────────────────
+  //
+  // Keys are namespaced `private_key_<userId>` / `local_public_key_<userId>`
+  // so account switching on one device never collides: logout keeps the
+  // keypair under its owner's slot, another account gets its own slot, and
+  // the owner returns to a fully intact slot. The pre-scoping GLOBAL slots
+  // are only readable via getLegacy* for the one-time adoption in
+  // _initEncryptionKeys (and only for the account whose published key
+  // matches).
 
-  Future<void>    saveLocalPublicKey(String b64) => _storage.write(key: _keyLocalPublicKey, value: b64);
-  Future<String?> getLocalPublicKey()            => _storage.read(key: _keyLocalPublicKey);
+  Future<String?> _scoped(String base) async {
+    final uid = await getCurrentUserId();
+    if (uid == null || uid.isEmpty) return null;
+    return '${base}_$uid';
+  }
+
+  Future<void> savePrivateKey(String b64) async {
+    final sk = await _scoped(_keyPrivateKey);
+    await _storage.write(key: sk ?? _keyPrivateKey, value: b64);
+  }
+
+  Future<String?> getPrivateKey() async {
+    final sk = await _scoped(_keyPrivateKey);
+    if (sk == null) return null;
+    return _storage.read(key: sk);
+  }
+
+  Future<void> saveLocalPublicKey(String b64) async {
+    final sk = await _scoped(_keyLocalPublicKey);
+    await _storage.write(key: sk ?? _keyLocalPublicKey, value: b64);
+  }
+
+  Future<String?> getLocalPublicKey() async {
+    final sk = await _scoped(_keyLocalPublicKey);
+    if (sk == null) return null;
+    return _storage.read(key: sk);
+  }
+
+  /// Pre-scoping global slots (migration source only).
+  Future<String?> getLegacyPrivateKey() => _storage.read(key: _keyPrivateKey);
+  Future<String?> getLegacyLocalPublicKey() =>
+      _storage.read(key: _keyLocalPublicKey);
 
   Future<void> saveContactEncryptionKey(String contactOrConvId, String keyB64) =>
       _storage.write(key: '$_prefixContactKey$contactOrConvId', value: keyB64);
@@ -73,6 +109,36 @@ class SecureStorageService {
 
   // ── Full wipe ─────────────────────────────────────────────────
   Future<void> clearAll() => _storage.deleteAll();
+
+  /// Sign-out wipe: EVERYTHING except the local keypair. With the Drift DB
+  /// wiped there is no ciphertext left for the keypair to open, and keeping
+  /// it means the same account re-logging in keeps its decryptability
+  /// (history re-syncs readable). A DIFFERENT account logging in is caught
+  /// by the pubkey-mismatch guard in _initEncryptionKeys, which drops the
+  /// foreign keypair and restores-or-generates for the new account.
+  Future<void> clearSession() async {
+    final all = await _storage.readAll();
+    for (final key in all.keys) {
+      // Keep every keypair slot (legacy + per-user scoped variants).
+      if (key == _keyPrivateKey ||
+          key.startsWith('${_keyPrivateKey}_') ||
+          key == _keyLocalPublicKey ||
+          key.startsWith('${_keyLocalPublicKey}_')) {
+        continue;
+      }
+      await _storage.delete(key: key);
+    }
+  }
+
+  /// Drops THIS user's stored keypair (account-mismatch guard). Never
+  /// touches the legacy global slot — that belongs to whichever account
+  /// still has to be migrated.
+  Future<void> deleteKeyPair() async {
+    final sk1 = await _scoped(_keyPrivateKey);
+    final sk2 = await _scoped(_keyLocalPublicKey);
+    if (sk1 != null) await _storage.delete(key: sk1);
+    if (sk2 != null) await _storage.delete(key: sk2);
+  }
 }
 
 final secureStorageProvider = Provider<SecureStorageService>(

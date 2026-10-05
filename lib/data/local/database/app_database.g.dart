@@ -6170,6 +6170,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $MessageDraftsTableTable messageDraftsTable =
       $MessageDraftsTableTable(this);
+  late final Index idxMessagesServerId = Index(
+    'idx_messages_server_id',
+    'CREATE UNIQUE INDEX idx_messages_server_id ON messages_table (server_id)',
+  );
   late final UsersDao usersDao = UsersDao(this as AppDatabase);
   late final ConversationsDao conversationsDao = ConversationsDao(
     this as AppDatabase,
@@ -6193,6 +6197,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     reactionsTable,
     appSettingsTable,
     messageDraftsTable,
+    idxMessagesServerId,
   ];
 }
 

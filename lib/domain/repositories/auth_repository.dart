@@ -59,6 +59,9 @@ abstract class AuthRepository {
   /// Sign out and clear all local auth state.
   Future<void> signOut();
 
+  /// Throttled (30 min) background session refresh. Resume-only.
+  Future<void> refreshSessionThrottled();
+
   /// Permanently delete the account and all associated data.
   /// This is irreversible.
   Future<void> deleteAccount();

@@ -2,6 +2,10 @@ import 'package:drift/drift.dart';
 
 /// Core messages table. Uses a local UUID as primary key for
 /// offline-first support. serverId is null until synced to PocketBase.
+/// The unique index on serverId makes duplicate bubbles impossible by
+/// construction — the FCM background isolate's placeholder writes update
+/// the main-isolate row instead of inserting a second one (schema v6).
+@TableIndex(name: 'idx_messages_server_id', columns: {#serverId}, unique: true)
 class MessagesTable extends Table {
   /// Local UUID — always set immediately on message creation.
   TextColumn get localId => text()();

@@ -158,6 +158,10 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     state = const AsyncData(AuthUnauthenticated());
   }
 
+  /// Throttled session refresh — called from app resume only, never from
+  /// navigation (see refreshSessionThrottled in the auth repository).
+  Future<void> refreshSessionThrottled() => _repo.refreshSessionThrottled();
+
   void clearError() {
     if (state.value is AuthError) {
       state = const AsyncData(AuthUnauthenticated());

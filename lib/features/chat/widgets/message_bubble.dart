@@ -194,6 +194,40 @@ class MessageBubble extends ConsumerWidget {
                 createdAt: message.createdAt,
               ),
             )
+          else if (message.serverId == null &&
+              const {'image', 'video', 'voice', 'document'}
+                  .contains(message.type))
+            // Optimistic upload in flight (serverId not stamped yet) —
+            // spinner placeholder, never ciphertext or an empty bubble.
+            Align(
+              alignment:
+                  isMine ? Alignment.centerRight : Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left:   isMine ? 64 : 12,
+                  right:  isMine ? 12 : 64,
+                  top:    2,
+                  bottom: 2,
+                ),
+                child: Container(
+                  width:  140,
+                  height: 140,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                  ),
+                ),
+              ),
+            )
           else if (emojiOnly)
             _EmojiOnlyBubble(message: message, isMine: isMine)
           else

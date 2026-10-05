@@ -8,6 +8,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:mime/mime.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:video_compress/video_compress.dart';
@@ -374,6 +375,24 @@ class MediaUploadService {
     bool thumb = false,
   }) async {
     try {
+      // Cleartext cache lives in app cache dir, keyed by MESSAGE id +
+      // variant (`<serverId>_f_` / `<serverId>_t_`). Fast path: when the
+      // file is already on disk, return it with ZERO network — the old
+      // record.id-based cache did a server round-trip on every tap before
+      // even checking the disk.
+      final cacheDir = await getTemporaryDirectory();
+      final mediaCache = Directory('${cacheDir.path}/media_clear');
+      if (!await mediaCache.exists()) await mediaCache.create(recursive: true);
+      final prefix = '${messageServerId}_${thumb ? 't' : 'f'}_';
+      await for (final entity in mediaCache.list()) {
+        if (entity is File && p.basename(entity.path).startsWith(prefix)) {
+          return LocalMediaFile(
+            file:     entity,
+            fileName: p.basename(entity.path),
+          );
+        }
+      }
+
       final record = await _pb.collection('message_media').getFirstListItem(
         'message_id="$messageServerId"',
       );
@@ -391,17 +410,13 @@ class MediaUploadService {
       final iv = record
           .getStringValue(thumb ? 'thumb_iv' : 'file_iv');
 
-      // Cache key: record id + variant. Cleartext cache lives in app cache dir.
-      final cacheDir = await getTemporaryDirectory();
-      final mediaCache = Directory('${cacheDir.path}/media_clear');
-      if (!await mediaCache.exists()) await mediaCache.create(recursive: true);
       // Strip the .enc suffix for the local file so viewers/open-external
       // get a sensible extension.
       final localName = storedName.endsWith('.enc')
           ? storedName.substring(0, storedName.length - 4)
           : storedName;
       final localFile =
-          File('${mediaCache.path}/${record.id}_${thumb ? 't_' : ''}$localName');
+          File('${mediaCache.path}/$prefix$localName');
 
       if (!await localFile.exists()) {
         final url =

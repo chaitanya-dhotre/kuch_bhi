@@ -445,6 +445,28 @@ class FcmService {
 
   /// Fetches + caches a single message using a standalone PB client in the
   /// background isolate (the repository singleton isn't available there).
+  /// Background-isolate network calls race Android's network bring-up
+  /// (Redmi: `Failed host lookup` right after process start) — retry with
+  /// backoff so a cold-start FCM pre-cache actually lands.
+  static Future<T> _retryNetwork<T>(Future<T> Function() op,
+      {int tries = 3}) async {
+    for (var i = 1;; i++) {
+      try {
+        return await op();
+      } on ClientException catch (e) {
+        // 404 (deleted message / rule-hidden) is terminal — retrying just
+        // burns the background isolate's short execution window.
+        if (i >= tries || e.statusCode == 404) rethrow;
+        debugPrint('[FCM] network retry $i/$tries: $e');
+        await Future<void>.delayed(Duration(seconds: 2 * i));
+      } catch (e) {
+        if (i >= tries) rethrow;
+        debugPrint('[FCM] network retry $i/$tries: $e');
+        await Future<void>.delayed(Duration(seconds: 2 * i));
+      }
+    }
+  }
+
   static Future<void> _cacheMessageBackground(
       String messageId, String conversationId) async {
     try {
@@ -466,10 +488,15 @@ class FcmService {
       }
       final pb = PocketBase(AppConstants.baseUrl);
       pb.authStore.save(token, null);
-      final r = await pb.collection('messages').getOne(messageId);
+      final r = await _retryNetwork(
+          () => pb.collection('messages').getOne(messageId));
       final rawType = r.getStringValue('type');
-      await localDb.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-        localId:        messageId, // deterministic; replaced by real localId on decrypt-sync
+      // Keyed on serverId (unique index): when the main isolate already
+      // cached this message under a UUID, this updates that row instead of
+      // inserting a duplicate bubble.
+      await localDb.messagesDao.upsertMessageByServerId(
+          MessagesTableCompanion.insert(
+        localId:        messageId, // deterministic; matches existing row on conflict
         serverId:       Value(messageId),
         conversationId: conversationId,
         senderId:       r.getStringValue('sender_id'),
@@ -510,20 +537,23 @@ class FcmService {
       pb.authStore.save(token, null);
 
       // Check if receipt already exists.
-      final existing = await pb.collection('message_receipts').getList(
-        filter: 'message_id="$messageId"&&recipient_id="$myId"',
-        perPage: 1,
-      );
+      final existing = await _retryNetwork(
+          () => pb.collection('message_receipts').getList(
+                filter: 'message_id="$messageId"&&recipient_id="$myId"',
+                perPage: 1,
+              ));
 
       final nowUtc = DateTime.now().toUtc().toIso8601String();
       if (existing.items.isEmpty) {
         try {
-          await pb.collection('message_receipts').create(body: {
-            'message_id':      messageId,
-            'conversation_id': conversationId,
-            'recipient_id':    myId,
-            'delivered_at':    nowUtc,
-          });
+          await _retryNetwork(() => pb.collection('message_receipts').create(
+                body: {
+                  'message_id':   messageId,
+                  'conversation_id': conversationId,
+                  'recipient_id': myId,
+                  'delivered_at': nowUtc,
+                },
+              ));
         } catch (_) {
           // Unique-index race — re-read and update if still undelivered.
           final again = await pb.collection('message_receipts').getList(
