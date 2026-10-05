@@ -6,7 +6,7 @@ import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   const VideoPlayerScreen({super.key, required this.url});
@@ -80,8 +80,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       allowMuting: true,
       showControls: true,
       materialProgressColors: ChewieProgressColors(
-        playedColor: AppColors.primary,
-        handleColor: AppColors.primary,
+        playedColor: context.t.accent,
+        handleColor: context.t.accent,
         backgroundColor: Colors.grey,
         bufferedColor: Colors.white54,
       ),

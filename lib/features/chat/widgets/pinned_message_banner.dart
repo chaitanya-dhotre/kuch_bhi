@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/theme/tokens.dart';
 
 class PinnedMessageBanner extends ConsumerStatefulWidget {
   const PinnedMessageBanner({
@@ -79,12 +79,12 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
                       .outline
                       .withValues(alpha: 0.15),
                 ),
-                left: const BorderSide(color: AppColors.primary, width: 3),
+                left: BorderSide(color: context.t.accent, width: 3),
               ),
             ),
             child: Row(
               children: [
-                const Icon(Icons.push_pin, size: 14, color: AppColors.primary),
+                Icon(Icons.push_pin, size: 14, color: context.t.accent),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -94,10 +94,10 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
                         messages.length > 1
                             ? 'Pinned Message ${_index + 1}/${messages.length}'
                             : 'Pinned Message',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize:   11,
                           fontWeight: FontWeight.w600,
-                          color:      AppColors.primary,
+                          color:      context.t.accent,
                         ),
                       ),
                       Text(

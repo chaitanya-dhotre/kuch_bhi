@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/theme/tokens.dart';
 
 // Extended emoji set — horizontally scrollable
 const _reactionEmojis = [
@@ -178,7 +178,7 @@ class _ContextSheet extends ConsumerWidget {
               await repo.deleteMessage(message.localId);
               if (context.mounted) _afterAction(context);
             },
-            color: AppColors.error,
+            color: context.t.error,
           ),
 
           if (isMine && message.serverId != null)
@@ -193,7 +193,7 @@ class _ContextSheet extends ConsumerWidget {
                 await repo.deleteMessage(message.localId, forEveryone: true);
                 if (context.mounted) _afterAction(context);
               },
-              color: AppColors.error,
+              color: context.t.error,
             ),
         ],
       ),

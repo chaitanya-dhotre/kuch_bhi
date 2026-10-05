@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +8,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/theme/tokens.dart';
 
 String _formatSize(dynamic raw) {
   final bytes = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
@@ -86,10 +86,10 @@ class _DocumentMessageBubbleState
     final mediaAsync = ref.watch(mediaFileProvider(
         MediaRef(widget.conversationId, widget.serverId)));
     final bg        = widget.isMine
-        ? AppColors.sentBubble
+        ? context.t.accent
         : widget.isDark
-            ? AppColors.receivedBubbleDark
-            : AppColors.receivedBubbleLight;
+            ? context.t.surface
+            : context.t.surface;
 
     return Align(
       alignment: widget.isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -161,12 +161,12 @@ class _DocumentMessageBubbleState
                           decoration: BoxDecoration(
                             color:        widget.isMine
                                 ? Colors.white.withValues(alpha: 0.2)
-                                : AppColors.primary.withValues(alpha: 0.12),
+                                : context.t.accent.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
                             _docIcon(fileName),
-                            color:  widget.isMine ? Colors.white : AppColors.primary,
+                            color:  widget.isMine ? Colors.white : context.t.accent,
                             size:   22,
                           ),
                         ),
@@ -208,17 +208,17 @@ class _DocumentMessageBubbleState
                         ),
                         const SizedBox(width: 8),
                         _isDownloading
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 20, height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color:       AppColors.primary,
+                                  color:       context.t.accent,
                                 ),
                               )
                             : Icon(
                                 Icons.download_outlined,
                                 size:  20,
-                                color: widget.isMine ? Colors.white70 : AppColors.primary,
+                                color: widget.isMine ? Colors.white70 : context.t.accent,
                               ),
                       ],
                     ),
@@ -232,9 +232,9 @@ class _DocumentMessageBubbleState
                         if (expiresAt != null && expiryBadgeText(expiresAt) != null) ...[
                           Text(
                             expiryBadgeText(expiresAt)!,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 9,
-                              color: AppColors.warning,
+                              color: context.t.accent,
                               fontWeight: FontWeight.w600,
                             ),
                           ),

@@ -1,15 +1,14 @@
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import '../../../features/media/widgets/expiry_badge.dart';
+import '../../../core/theme/tokens.dart';
 
 class VideoMessageBubble extends ConsumerStatefulWidget {
   const VideoMessageBubble({
@@ -45,7 +44,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final bg     = widget.isMine ? AppColors.sentBubble : (widget.isDark ? AppColors.receivedBubbleDark : AppColors.receivedBubbleLight);
+    final bg     = widget.isMine ? context.t.accent : (widget.isDark ? context.t.surface : context.t.surface);
     final shadow = widget.isMine
         ? BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 6, offset: const Offset(0, 2))
         : BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2));

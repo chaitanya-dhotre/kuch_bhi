@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../core/utils/emoji_utils.dart';
 import '../../../domain/entities/message.dart';
 import 'link_preview_card.dart';
@@ -15,16 +15,14 @@ import 'reply_quote.dart';
 import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
 
-// 8 deterministic sender name colors per Task 6
+// 5 deterministic sender name colors — Warm Pop tokens only (no violet/
+// indigo; spec veto). Names render on t.surface, all entries stay legible.
 const List<Color> _kSenderColors = [
-  Colors.red,
-  Colors.pink,
-  Colors.purple,
-  Colors.indigo,
-  Colors.teal,
-  Colors.green,
-  Colors.orange,
-  Colors.brown,
+  WarmPopTokens.accent,
+  WarmPopTokens.info,
+  WarmPopTokens.success,
+  WarmPopTokens.error,
+  WarmPopTokens.keyGold,
 ];
 
 Color _colorForSender(String senderId) =>
@@ -333,15 +331,11 @@ class _TextBubble extends StatelessWidget {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isMine
-              ? AppColors.sentBubble
-              : isDark
-                  ? AppColors.receivedBubbleDark
-                  : AppColors.receivedBubbleLight,
+          color: isMine ? context.t.accent : context.t.surface,
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color:      Colors.black.withValues(alpha: 0.06),
+              color:      context.t.ink.withValues(alpha: 0.06),
               blurRadius: 4,
               offset:     const Offset(0, 1),
             ),
@@ -358,20 +352,15 @@ class _TextBubble extends StatelessWidget {
                   fontStyle: FontStyle.italic,
                   fontSize:  14,
                   color: isMine
-                      ? Colors.white70
-                      : Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.5),
+                      ? context.t.onAccent.withValues(alpha: 0.7)
+                      : context.t.inkSoft,
                 ),
               )
             else
               Text(
                 message.decryptedBody ?? '🔒 Encrypted',
                 style: TextStyle(
-                  color:    isMine
-                      ? Colors.white
-                      : Theme.of(context).colorScheme.onSurface,
+                  color:    isMine ? context.t.onAccent : context.t.ink,
                   fontSize: 15,
                 ),
               ),
@@ -389,11 +378,8 @@ class _TextBubble extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     color: isMine
-                        ? Colors.white60
-                        : Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4),
+                        ? context.t.onAccent.withValues(alpha: 0.6)
+                        : context.t.inkFaint,
                   ),
                 ),
                 if (isMine) ...[
@@ -418,19 +404,21 @@ class _TickIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (status == 'pending') {
-      return const SizedBox(
+      return SizedBox(
         width: 12, height: 12,
-        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white54),
+        child: CircularProgressIndicator(
+            strokeWidth: 1.5,
+            color: context.t.onAccent.withValues(alpha: 0.54)),
       );
     }
     if (status == 'failed') {
-      return const Icon(Icons.error_outline, size: 14, color: Colors.redAccent);
+      return Icon(Icons.error_outline, size: 14, color: context.t.error);
     }
 
     final Color color = switch (status) {
-      'read'      => Colors.white,      // white = read (visible on indigo)
-      'delivered' => Colors.white54,
-      _           => Colors.white38,    // sent
+      'read'      => context.t.onAccent, // on-accent = read (visible on Marigold)
+      'delivered' => context.t.onAccent.withValues(alpha: 0.54),
+      _           => context.t.onAccent.withValues(alpha: 0.38), // sent
     };
 
     if (status == 'sent') return Icon(Icons.check, size: 14, color: color);

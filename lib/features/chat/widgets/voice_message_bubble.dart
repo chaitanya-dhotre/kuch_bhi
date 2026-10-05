@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/theme/tokens.dart';
 
 class VoiceMessageBubble extends ConsumerStatefulWidget {
   const VoiceMessageBubble({
@@ -119,10 +120,10 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
   Widget build(BuildContext context) {
     final isDark      = Theme.of(context).brightness == Brightness.dark;
     final bubbleColor = widget.isMine
-        ? AppColors.sentBubble
+        ? context.t.accent
         : isDark
-            ? AppColors.receivedBubbleDark
-            : AppColors.receivedBubbleLight;
+            ? context.t.surface
+            : context.t.surface;
 
     final onBubble = widget.isMine
         ? Colors.white
@@ -191,24 +192,24 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                     shape: BoxShape.circle,
                     color: widget.isMine
                         ? Colors.white.withValues(alpha: 0.25)
-                        : AppColors.primary.withValues(alpha: 0.15),
+                        : context.t.accent.withValues(alpha: 0.15),
                   ),
                   child: _isLoading
-                      ? const Padding(
-                          padding: EdgeInsets.all(10),
+                      ? Padding(
+                          padding: const EdgeInsets.all(10),
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppColors.primary,
+                            color: context.t.accent,
                           ),
                         )
                       : _hasError
-                          ? const Icon(Icons.error_outline,
-                              color: AppColors.error, size: 22)
+                          ? Icon(Icons.error_outline,
+                              color: context.t.error, size: 22)
                           : Icon(
                               _isPlaying ? Icons.pause : Icons.play_arrow,
                               color: widget.isMine
                                   ? Colors.white
-                                  : AppColors.primary,
+                                  : context.t.accent,
                               size: 24,
                             ),
                 ),
@@ -227,7 +228,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                       valueColor:       AlwaysStoppedAnimation<Color>(
                         widget.isMine
                             ? Colors.white
-                            : AppColors.primary,
+                            : context.t.accent,
                       ),
                       minHeight: 3,
                       borderRadius: BorderRadius.circular(2),
@@ -275,7 +276,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
               badgeText,
               style: TextStyle(
                 fontSize: 10,
-                color: AppColors.warning,
+                color: context.t.accent,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -326,7 +327,7 @@ class _VoiceTickIndicator extends StatelessWidget {
     }
     if (status == 'read') {
       return Icon(Icons.done_all, size: 12,
-          color: isMine ? Colors.white : AppColors.primary);
+          color: isMine ? Colors.white : context.t.accent);
     }
     if (status == 'delivered') {
       return Icon(Icons.done_all, size: 12, color: color);

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 
 class SwipeToReply extends StatefulWidget {
   const SwipeToReply({
@@ -85,9 +85,9 @@ class _SwipeToReplyState extends State<SwipeToReply>
               opacity: progress,
               child: Transform.scale(
                 scale: 0.6 + 0.4 * progress,
-                child: const Icon(
+                child: Icon(
                   Icons.reply_rounded,
-                  color: AppColors.primary,
+                  color: context.t.accent,
                   size: 22,
                 ),
               ),

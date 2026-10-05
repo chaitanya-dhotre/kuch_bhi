@@ -11,8 +11,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:record/record.dart';
 import 'package:video_compress/video_compress.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
 import 'reply_quote.dart';
@@ -462,7 +462,6 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final reply  = ref.watch(replyProvider);
 
     final restriction = widget.restrictionMessage ??
@@ -474,13 +473,13 @@ class _MessageInputState extends ConsumerState<MessageInput>
         child: Text(
           restriction,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: context.t.inkFaint, fontSize: 13),
         ),
       );
     }
 
     return Container(
-      color: isDark ? const Color(0xFF1A1A2E) : Colors.white,
+      color: context.t.surface,
       child: SafeArea(
         top: false,
         child: Column(
@@ -518,23 +517,20 @@ class _MessageInputState extends ConsumerState<MessageInput>
                 isSending:     _isSendingVoice,
                 onDiscard:     _discardPreview,
                 onSend:        _sendVoice,
-                isDark:        isDark,
               )
             else if (_isUploadingImage)
-              _ImageUploadRow(isDark: isDark)
+              _ImageUploadRow()
             else if (_isUploadingVideo)
               _VideoUploadRow(
-                isDark: isDark,
                 progress: _videoCompressProgress,
               )
             else if (_isUploadingDoc)
-              _DocUploadRow(isDark: isDark)
+              _DocUploadRow()
             else
               _NormalInputRow(
                 ctrl:          _ctrl,
                 hasText:       _hasText,
                 isLoading:     widget.isLoading,
-                isDark:        isDark,
                 onAttach:      _onAttachPressed,
                 onSend:        _send,
                 onMicLongPressStart:  _startRecording,
@@ -560,7 +556,6 @@ class _NormalInputRow extends StatelessWidget {
     required this.ctrl,
     required this.hasText,
     required this.isLoading,
-    required this.isDark,
     required this.onAttach,
     required this.onSend,
     required this.onMicLongPressStart,
@@ -571,7 +566,6 @@ class _NormalInputRow extends StatelessWidget {
   final TextEditingController   ctrl;
   final bool                    hasText;
   final bool                    isLoading;
-  final bool                    isDark;
   final VoidCallback            onAttach;
   final VoidCallback            onSend;
   final VoidCallback            onMicLongPressStart;
@@ -589,7 +583,7 @@ class _NormalInputRow extends StatelessWidget {
             onPressed: onAttach,
             icon: Icon(
               Icons.image_outlined,
-              color: isDark ? Colors.white60 : Colors.black54,
+              color: context.t.inkFaint,
             ),
             tooltip: 'Attach photo',
             visualDensity: VisualDensity.compact,
@@ -598,9 +592,7 @@ class _NormalInputRow extends StatelessWidget {
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF252840)
-                    : const Color(0xFFF5F5F7),
+                color: context.t.surface2,
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Row(
@@ -630,16 +622,16 @@ class _NormalInputRow extends StatelessWidget {
           if (hasText)
             FloatingActionButton.small(
               onPressed:       onSend,
-              backgroundColor: AppColors.primary,
+              backgroundColor: context.t.accent,
               elevation:       0,
               child: isLoading
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18, height: 18,
                       child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white,
+                        strokeWidth: 2, color: context.t.onAccent,
                       ),
                     )
-                  : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                  : Icon(Icons.send_rounded, color: context.t.onAccent, size: 20),
             )
           else
             GestureDetector(
@@ -648,9 +640,9 @@ class _NormalInputRow extends StatelessWidget {
               onLongPressEnd:         (_) => onMicLongPressEnd(),
               child: FloatingActionButton.small(
                 onPressed:       null,
-                backgroundColor: AppColors.primary,
+                backgroundColor: context.t.accent,
                 elevation:       0,
-                child: const Icon(Icons.mic, color: Colors.white, size: 22),
+                child: Icon(Icons.mic, color: context.t.onAccent, size: 22),
               ),
             ),
         ],
@@ -692,15 +684,15 @@ class _RecordingRow extends StatelessWidget {
           children: [
             ScaleTransition(
               scale: pulseAnim,
-              child: Icon(Icons.mic, color: AppColors.error, size: 28),
+              child: Icon(Icons.mic, color: context.t.error, size: 28),
             ),
             const SizedBox(width: 12),
             Text(
               _fmt(elapsed),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: AppColors.error,
+                color: context.t.error,
               ),
             ),
             const Spacer(),
@@ -711,13 +703,13 @@ class _RecordingRow extends StatelessWidget {
                 children: [
                   Icon(
                     Icons.chevron_left,
-                    color: Colors.grey.shade500,
+                    color: context.t.inkSoft,
                     size: 18,
                   ),
                   Text(
                     cancelled ? 'Release to cancel' : 'Slide to cancel',
                     style: TextStyle(
-                      color: Colors.grey.shade500,
+                      color: context.t.inkSoft,
                       fontSize: 13,
                     ),
                   ),
@@ -741,7 +733,6 @@ class _VoicePreviewRow extends StatefulWidget {
     required this.isSending,
     required this.onDiscard,
     required this.onSend,
-    required this.isDark,
   });
 
   final String       filePath;
@@ -749,7 +740,6 @@ class _VoicePreviewRow extends StatefulWidget {
   final bool         isSending;
   final VoidCallback onDiscard;
   final VoidCallback onSend;
-  final bool         isDark;
 
   @override
   State<_VoicePreviewRow> createState() => _VoicePreviewRowState();
@@ -827,7 +817,7 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
           // Discard button
           IconButton(
             onPressed: widget.isSending ? null : widget.onDiscard,
-            icon: const Icon(Icons.close, color: AppColors.error),
+            icon: Icon(Icons.close, color: context.t.error),
             tooltip: 'Discard',
           ),
 
@@ -836,9 +826,7 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: widget.isDark
-                    ? const Color(0xFF252840)
-                    : const Color(0xFFF5F5F7),
+                color: context.t.surface2,
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Row(
@@ -851,19 +839,19 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
                       height: 32,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: AppColors.primary.withValues(alpha: 0.15),
+                        color: context.t.accent.withValues(alpha: 0.15),
                       ),
                       child: _isLoading
-                          ? const Padding(
-                              padding: EdgeInsets.all(8),
+                          ? Padding(
+                              padding: const EdgeInsets.all(8),
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: AppColors.primary,
+                                color: context.t.accent,
                               ),
                             )
                           : Icon(
                               _isPlaying ? Icons.pause : Icons.play_arrow,
-                              color: AppColors.primary,
+                              color: context.t.accent,
                               size: 18,
                             ),
                     ),
@@ -880,9 +868,9 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
                           borderRadius: BorderRadius.circular(2),
                           child: LinearProgressIndicator(
                             value: progress,
-                            backgroundColor: Colors.grey.shade300,
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                              AppColors.primary,
+                            backgroundColor: context.t.line,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              context.t.accent,
                             ),
                             minHeight: 3,
                           ),
@@ -892,9 +880,7 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
                           displayDuration,
                           style: TextStyle(
                             fontSize: 11,
-                            color: widget.isDark
-                                ? Colors.white70
-                                : Colors.black54,
+                            color: context.t.inkSoft,
                           ),
                         ),
                       ],
@@ -910,16 +896,16 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
           // Send button
           FloatingActionButton.small(
             onPressed:       widget.isSending ? null : widget.onSend,
-            backgroundColor: AppColors.primary,
+            backgroundColor: context.t.accent,
             elevation:       0,
             child: widget.isSending
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18, height: 18,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white,
+                      strokeWidth: 2, color: context.t.onAccent,
                     ),
                   )
-                : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                : Icon(Icons.send_rounded, color: context.t.onAccent, size: 20),
           ),
         ],
       ),
@@ -930,9 +916,8 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
 // ── Image upload progress row ──────────────────────────────────────────────
 
 class _ImageUploadRow extends StatelessWidget {
-  const _ImageUploadRow({required this.isDark});
+  const _ImageUploadRow();
 
-  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
@@ -942,7 +927,7 @@ class _ImageUploadRow extends StatelessWidget {
         children: [
           Icon(
             Icons.image_outlined,
-            color: isDark ? Colors.white60 : Colors.black54,
+            color: context.t.inkFaint,
             size: 22,
           ),
           const SizedBox(width: 12),
@@ -969,9 +954,8 @@ class _ImageUploadRow extends StatelessWidget {
 // ── Video upload progress row ──────────────────────────────────────────────
 
 class _VideoUploadRow extends StatelessWidget {
-  const _VideoUploadRow({required this.isDark, required this.progress});
+  const _VideoUploadRow({required this.progress});
 
-  final bool   isDark;
   final double progress;
 
   @override
@@ -983,7 +967,7 @@ class _VideoUploadRow extends StatelessWidget {
         children: [
           Icon(
             Icons.videocam_outlined,
-            color: isDark ? Colors.white60 : Colors.black54,
+            color: context.t.inkFaint,
             size: 22,
           ),
           const SizedBox(width: 12),
@@ -1003,7 +987,7 @@ class _VideoUploadRow extends StatelessWidget {
                       '$pct%',
                       style: TextStyle(
                         fontSize: 12,
-                        color: isDark ? Colors.white60 : Colors.black54,
+                        color: context.t.inkFaint,
                       ),
                     ),
                   ],
@@ -1025,9 +1009,8 @@ class _VideoUploadRow extends StatelessWidget {
 // ── Document upload progress row ───────────────────────────────────────────
 
 class _DocUploadRow extends StatelessWidget {
-  const _DocUploadRow({required this.isDark});
+  const _DocUploadRow();
 
-  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
@@ -1037,7 +1020,7 @@ class _DocUploadRow extends StatelessWidget {
         children: [
           Icon(
             Icons.attach_file_outlined,
-            color: isDark ? Colors.white60 : Colors.black54,
+            color: context.t.inkFaint,
             size: 22,
           ),
           const SizedBox(width: 12),

@@ -4,8 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/chat_tile.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/section_header.dart';
+import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/status_banner.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/friendship.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -22,6 +27,7 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final t = context.t;
     final authState    = ref.watch(authProvider).valueOrNull;
     final user = authState is AuthAuthenticated ? authState.user : null;
     final pendingCount = ref.watch(pendingRequestCountProvider);
@@ -48,14 +54,14 @@ class HomeScreen extends ConsumerWidget {
                   top: 8, right: 8,
                   child: Container(
                     width: 16, height: 16,
-                    decoration: const BoxDecoration(
-                      color: AppColors.error, shape: BoxShape.circle,
+                    decoration: BoxDecoration(
+                      color: t.error, shape: BoxShape.circle,
                     ),
                     child: Center(
                       child: Text(
                         '$pendingCount',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onError,
                           fontSize: 10, fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -68,21 +74,9 @@ class HomeScreen extends ConsumerWidget {
             onTap: () => context.push(AppRoutes.profile),
             child: Padding(
               padding: const EdgeInsets.only(left: 8, right: 16),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.primaryLight,
-                backgroundImage: user?.avatarUrl != null
-                    ? CachedNetworkImageProvider(user!.avatarUrl!)
-                    : null,
-                child: user?.avatarUrl == null
-                    ? Text(
-                        user?.displayName.substring(0, 1).toUpperCase() ?? 'K',
-                        style: const TextStyle(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      )
-                    : null,
+              child: _AppAvatar(
+                url: user?.avatarUrl,
+                initials: user?.displayName.substring(0, 1).toUpperCase() ?? 'K',
               ),
             ),
           ),
@@ -92,19 +86,19 @@ class HomeScreen extends ConsumerWidget {
         children: [
           if (showBanner)
             Container(
-              color: Colors.amber.shade100,
+              color: t.accentSoft,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+                  Icon(Icons.warning_amber_rounded, color: t.accent),
                   const SizedBox(width: 12),
                   Expanded(
                     child: GestureDetector(
                       onTap: () => context.push(AppRoutes.backupPinSetup),
-                      child: const Text(
+                      child: Text(
                         'Backup your encryption key to restore messages after reinstall. Tap to set up.',
                         style: TextStyle(
-                          color: Colors.black87,
+                          color: t.ink,
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
@@ -112,7 +106,7 @@ class HomeScreen extends ConsumerWidget {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.black54, size: 20),
+                    icon: Icon(Icons.close, color: t.inkSoft, size: 20),
                     onPressed: () async {
                       final db = ref.read(appDatabaseProvider);
                       await db.settingsDao.setSetting(
@@ -130,7 +124,7 @@ class HomeScreen extends ConsumerWidget {
               onRefresh: () async {
                 ref.invalidate(conversationsProvider);
               },
-              // Hold a spinner until BOTH `conversationsProvider` and
+              // Hold a skeleton until BOTH `conversationsProvider` and
               // `friendshipsProvider` have produced their first real list.
               // Firing the empty-state UI the moment conversations returned
               // while friends was still loading caused a "blank list" flash
@@ -141,11 +135,36 @@ class HomeScreen extends ConsumerWidget {
               // every emit, toggling isLoading and causing the list to flicker
               // (and races the element lifecycle → defunct-element assertions).
               child: (convsAsync.isLoading || friendsAsync.isLoading)
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Skeleton(height: 56, radius: 16),
+                          SizedBox(height: 10),
+                          Skeleton(height: 56, radius: 16),
+                          SizedBox(height: 10),
+                          Skeleton(height: 56, radius: 16),
+                          SizedBox(height: 10),
+                          Skeleton(height: 56, radius: 16),
+                        ],
+                      ),
+                    )
                   : convsAsync.when(
                       // loading is handled by the outer branch above.
                       loading: () => const SizedBox.shrink(),
-                      error: (e, _) => Center(child: Text('Error: $e')),
+                      error: (e, _) => Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: StatusBanner(
+                            message: 'Could not load your chats.',
+                            onRetry: () {
+                              ref.invalidate(conversationsProvider);
+                              ref.invalidate(friendshipsProvider);
+                            },
+                          ),
+                        ),
+                      ),
                       data: (allConvs) => _buildList(
                         context,
                         ref,
@@ -160,8 +179,8 @@ class HomeScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton(
         heroTag:         'fab_main',
         onPressed:       () => _showNewChatSheet(context, ref),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: t.accent,
+        foregroundColor: t.onAccent,
         tooltip:         'New chat',
         child:           const Icon(Icons.add_comment_outlined),
       ),
@@ -200,11 +219,11 @@ class HomeScreen extends ConsumerWidget {
     return ListView(
       children: [
         if (convs.isNotEmpty) ...[
-          _SectionHeader(title: 'Chats'),
+          const SectionHeader('Chats'),
           ...convs.map((c) => _ConversationTile(conv: c)),
         ],
         if (newFriends.isNotEmpty) ...[
-          _SectionHeader(title: 'Friends'),
+          const SectionHeader('Friends'),
           ...newFriends.map((f) => _FriendsTile(entity: f, onTap: () => _openChat(context, ref, f.friend.id))),
         ],
       ],
@@ -294,30 +313,6 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Theme.of(context)
-              .colorScheme
-              .onSurface
-              .withValues(alpha: 0.4),
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
-  }
-}
-
 /// Friend entry shown under the "Friends" section — for friends that
 /// have no active conversation yet. Kept here so the home build-list
 /// stays small.
@@ -329,111 +324,30 @@ class _FriendsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final f = entity;
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppColors.primaryLight,
-        backgroundImage: f.friend.avatarUrl != null
-            ? CachedNetworkImageProvider(f.friend.avatarUrl!)
-            : null,
-        child: f.friend.avatarUrl == null
-            ? Text(
-                f.displayName.substring(0, 1).toUpperCase(),
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              )
-            : null,
-      ),
-      title: Text(
-        f.displayName,
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        f.friend.isOnline ? 'Online' : 'Tap to start chatting',
-        style: TextStyle(
-          fontSize: 12,
-          color: f.friend.isOnline
-              ? AppColors.success
-              : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-        ),
-      ),
+    return ChatTile(
+      title: f.displayName,
+      subtitle: f.friend.isOnline ? 'Online' : 'Tap to start chatting',
+      subtitleColor: f.friend.isOnline ? context.t.success : null,
+      avatarUrl: f.friend.avatarUrl,
       onTap: onTap,
     );
   }
 }
 
-class _ConversationTile extends ConsumerWidget {
+class _ConversationTile extends StatelessWidget {
   const _ConversationTile({required this.conv});
   final Conversation conv;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hasUnread = conv.unreadCount > 0;
-    return ListTile(
-      leading: _ConvAvatar(conv: conv),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              conv.displayName,
-              style: TextStyle(
-                // Bold the title when there are unread messages.
-                fontWeight: hasUnread ? FontWeight.w800 : FontWeight.w600,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (conv.lastMessageAt != null)
-            Text(
-              _formatTime(conv.lastMessageAt!),
-              style: TextStyle(
-                fontSize: 11,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.4),
-              ),
-            ),
-        ],
-      ),
-      subtitle: Text(
-        conv.lastMessagePreview ?? 'Tap to open chat',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w400,
-          color: Theme.of(context)
-              .colorScheme
-              .onSurface
-              .withValues(alpha: hasUnread ? 0.8 : 0.5),
-        ),
-      ),
-      trailing: hasUnread
-          ? Container(
-              margin: const EdgeInsets.only(left: 8),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              constraints: const BoxConstraints(minWidth: 22),
-              child: Text(
-                conv.unreadCount > 99 ? '99+' : '${conv.unreadCount}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            )
-          : null,
-      onTap: () {
-        context.push(AppRoutes.chat, extra: conv);
-      },
+  Widget build(BuildContext context) {
+    return ChatTile(
+      title: conv.displayName,
+      subtitle: conv.lastMessagePreview ?? 'Tap to open chat',
+      time: conv.lastMessageAt != null ? _formatTime(conv.lastMessageAt!) : null,
+      unreadCount: conv.unreadCount,
+      avatarUrl: conv.isGroup ? conv.iconUrl : conv.avatarUrl,
+      isGroup: conv.isGroup,
+      onTap: () => context.push(AppRoutes.chat, extra: conv),
     );
   }
 
@@ -447,58 +361,28 @@ class _ConversationTile extends ConsumerWidget {
   }
 }
 
-class _ConvAvatar extends StatelessWidget {
-  const _ConvAvatar({required this.conv});
-  final Conversation conv;
+class _AppAvatar extends StatelessWidget {
+  const _AppAvatar({this.url, required this.initials});
+  final String? url;
+  final String initials;
 
   @override
   Widget build(BuildContext context) {
-    if (!conv.isGroup) {
-      return CircleAvatar(
-        backgroundColor: AppColors.primaryLight,
-        backgroundImage: conv.avatarUrl != null
-            ? CachedNetworkImageProvider(conv.avatarUrl!)
-            : null,
-        child: conv.avatarUrl == null
-            ? Text(
-                conv.displayName.substring(0, 1).toUpperCase(),
-                style: const TextStyle(
-                  color: AppColors.primary, fontWeight: FontWeight.w700,
-                ),
-              )
-            : null,
-      );
-    }
-
-    // Group avatar
-    return Stack(
-      children: [
-        CircleAvatar(
-          backgroundColor: AppColors.primaryLight,
-          backgroundImage: conv.iconUrl != null
-              ? CachedNetworkImageProvider(conv.iconUrl!)
-              : null,
-          child: conv.iconUrl == null
-              ? Text(
-                  conv.displayName.substring(0, 1).toUpperCase(),
-                  style: const TextStyle(
-                    color: AppColors.primary, fontWeight: FontWeight.w700,
-                  ),
-                )
-              : null,
-        ),
-        Positioned(
-          bottom: 0, right: 0,
-          child: Container(
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              shape: BoxShape.circle,
+    final t = context.t;
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: t.accentSoft,
+      backgroundImage:
+          url != null ? CachedNetworkImageProvider(url!) : null,
+      child: url != null
+          ? null
+          : Text(
+              initials,
+              style: TextStyle(
+                color: t.accent,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            child: const Icon(Icons.group, size: 12, color: AppColors.primary),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -509,32 +393,13 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline, size: 80,
-              color: Theme.of(context)
-                  .colorScheme.onSurface.withValues(alpha: 0.2)),
-          const SizedBox(height: 16),
-          Text('No chats yet',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context)
-                        .colorScheme.onSurface.withValues(alpha: 0.5),
-                  )),
-          const SizedBox(height: 8),
-          Text('Add friends to start chatting.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context)
-                        .colorScheme.onSurface.withValues(alpha: 0.4),
-                  )),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onAddFriend,
-            icon:  const Icon(Icons.person_add_outlined),
-            label: const Text('Add a Friend'),
-          ),
-        ],
+    return EmptyState(
+      title: 'No chats yet',
+      subtitle: 'Add friends to start chatting.',
+      action: FilledButton.icon(
+        onPressed: onAddFriend,
+        icon:  const Icon(Icons.person_add_outlined),
+        label: const Text('Add a Friend'),
       ),
     );
   }

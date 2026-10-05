@@ -1,12 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../features/friend_requests/providers/friend_request_provider.dart';
 
 class AddFriendSheet extends ConsumerStatefulWidget {
@@ -159,12 +157,12 @@ class _CodeSearchTab extends ConsumerWidget {
                   ),
                 ),
                 child: state.isSearching
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: context.t.onAccent,
                         ),
                       )
                     : const Icon(Icons.search),
@@ -198,15 +196,15 @@ class _CodeSearchTab extends ConsumerWidget {
                 children: [
                   CircleAvatar(
                     radius: 28,
-                    backgroundColor: AppColors.primaryLight,
+                    backgroundColor: context.t.accentSoft,
                     child: Text(
                       state.foundUser!.displayName
                           .substring(0, 1)
                           .toUpperCase(),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                        color: context.t.accent,
                       ),
                     ),
                   ),
@@ -245,11 +243,11 @@ class _CodeSearchTab extends ConsumerWidget {
                   : () =>
                       ref.read(addFriendProvider.notifier).sendRequest(),
               icon: state.isSendingRequest
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                          strokeWidth: 2, color: context.t.onAccent),
                     )
                   : const Icon(Icons.person_add_outlined),
               label: const Text('Send Friend Request'),
@@ -267,23 +265,23 @@ class _CodeSearchTab extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.1),
+                color: context.t.success.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.check_circle_outline,
-                    color: AppColors.success,
+                    color: context.t.success,
                     size: 40,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Request sent to ${state.foundUser?.displayName}!',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: AppColors.success,
+                      color: context.t.success,
                     ),
                   ),
                 ],

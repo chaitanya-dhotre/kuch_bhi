@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/theme/tokens.dart';
 
 /// Resolves the original (replied-to) message row from Drift by server id.
 final _originalMessageProvider = FutureProvider.autoDispose
@@ -123,7 +123,7 @@ class ReplyQuote extends ConsumerWidget {
     } else {
       bg = isDark
           ? const Color(0xFF2A2D4A) // dark-mode received reply bg
-          : AppColors.primaryLight;  // light-mode: light lavender
+          : context.t.accentSoft;  // light-mode: light lavender
     }
 
     // ── Text colours ────────────────────────────────────────────
@@ -142,7 +142,7 @@ class ReplyQuote extends ConsumerWidget {
       final onBg = isDark
           ? const Color(0xFFF1F1F5) // near-white
           : const Color(0xFF1A1A2E); // near-black
-      nameColor    = AppColors.primary;
+      nameColor    = context.t.accent;
       previewColor = onBg.withValues(alpha: 0.80);
       iconColor    = onBg.withValues(alpha: 0.60);
     }
@@ -205,7 +205,7 @@ class ReplyQuote extends ConsumerWidget {
         color:        bg,
         borderRadius: BorderRadius.circular(12),
         border: Border(
-          left: BorderSide(color: AppColors.primary, width: 3),
+          left: BorderSide(color: context.t.accent, width: 3),
         ),
       ),
       child: Row(

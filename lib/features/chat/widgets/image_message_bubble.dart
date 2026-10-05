@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import '../../../features/media/widgets/expiry_badge.dart';
+import '../../../core/theme/tokens.dart';
 
 class ImageMessageBubble extends ConsumerStatefulWidget {
   const ImageMessageBubble({
@@ -212,10 +212,10 @@ class _BubbleWrapper extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: isMine
-            ? AppColors.sentBubble
+            ? context.t.accent
             : isDark
-                ? AppColors.receivedBubbleDark
-                : AppColors.receivedBubbleLight,
+                ? context.t.surface
+                : context.t.surface,
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(

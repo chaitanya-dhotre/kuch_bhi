@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pocketbase/pocketbase.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/network/pocketbase_client.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../data/local/database/tables/app_settings_table.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/theme/tokens.dart';
 
 class ReactionBar extends ConsumerWidget {
   const ReactionBar({
@@ -70,13 +69,13 @@ class _ReactionChip extends ConsumerWidget {
 
     // Colors that work in both light and dark, on both bubble sides
     final bg = group.isMine
-        ? AppColors.primary.withValues(alpha: 0.15)
+        ? context.t.accent.withValues(alpha: 0.15)
         : isDark
             ? Colors.white.withValues(alpha: 0.12)
             : Colors.black.withValues(alpha: 0.07);
 
     final border = group.isMine
-        ? AppColors.primary.withValues(alpha: 0.5)
+        ? context.t.accent.withValues(alpha: 0.5)
         : Colors.transparent;
 
     return GestureDetector(
@@ -141,9 +140,9 @@ class _ReactionChip extends ConsumerWidget {
             ),
             const Divider(height: 20),
             ...reactors.map((r) => ListTile(
-              leading:         const CircleAvatar(
-                backgroundColor: AppColors.primaryLight,
-                child: Icon(Icons.person, color: AppColors.primary, size: 18),
+              leading:         CircleAvatar(
+                backgroundColor: context.t.accentSoft,
+                child: Icon(Icons.person, color: context.t.accent, size: 18),
               ),
               title:           Text(r.$1),
               subtitle:        r.$2 == myId ? const Text('You') : null,
@@ -156,9 +155,9 @@ class _ReactionChip extends ConsumerWidget {
                         ref.invalidate(reactionsProvider(messageServerId));
                         if (context.mounted) Navigator.pop(context);
                       },
-                      child: const Text(
+                      child: Text(
                         'Remove',
-                        style: TextStyle(color: AppColors.error),
+                        style: TextStyle(color: context.t.error),
                       ),
                     )
                   : null,

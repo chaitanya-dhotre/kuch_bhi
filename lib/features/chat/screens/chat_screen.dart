@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
@@ -19,6 +18,7 @@ import '../widgets/pinned_message_banner.dart';
 import '../../media/screens/media_docs_screen.dart';
 import '../../groups/screens/group_settings_screen.dart';
 import '../../starred_messages/screens/starred_messages_screen.dart';
+import '../../../core/theme/tokens.dart';
 
 // ── Sealed list item ──────────────────────────────────────────────────────
 
@@ -550,14 +550,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           if (!conv.isGroup)
             CircleAvatar(
               radius: 18,
-              backgroundColor: AppColors.primaryLight,
+              backgroundColor: context.t.accentSoft,
               backgroundImage: conv.avatarUrl != null
                   ? CachedNetworkImageProvider(conv.avatarUrl!)
                   : null,
               child: conv.avatarUrl == null
                   ? Text(conv.displayName.substring(0, 1).toUpperCase(),
-                      style: const TextStyle(
-                        color: AppColors.primary, fontWeight: FontWeight.w700,
+                      style: TextStyle(
+                        color: context.t.accent, fontWeight: FontWeight.w700,
                         fontSize: 14))
                   : null,
             )
@@ -566,15 +566,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               children: [
                 CircleAvatar(
                   radius: 18,
-                  backgroundColor: AppColors.primaryLight,
+                  backgroundColor: context.t.accentSoft,
                   backgroundImage: conv.iconUrl != null
                       ? CachedNetworkImageProvider(conv.iconUrl!)
                       : null,
                   child: conv.iconUrl == null
                       ? Text(
                           conv.displayName.substring(0, 1).toUpperCase(),
-                          style: const TextStyle(
-                            color: AppColors.primary, fontWeight: FontWeight.w700,
+                          style: TextStyle(
+                            color: context.t.accent, fontWeight: FontWeight.w700,
                             fontSize: 14,
                           ),
                         )
@@ -588,7 +588,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       color: Theme.of(context).scaffoldBackgroundColor,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.group, size: 10, color: AppColors.primary),
+                    child: Icon(Icons.group, size: 10, color: context.t.accent),
                   ),
                 ),
               ],
@@ -618,7 +618,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     style: TextStyle(
                       fontSize: 12,
                       color: presence.showDot
-                          ? AppColors.success
+                          ? context.t.success
                           : Theme.of(context).colorScheme.onSurface
                               .withValues(alpha: 0.5),
                     ),
@@ -794,8 +794,8 @@ class _HighlightWrapper extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       color: current
-          ? AppColors.primary.withValues(alpha: 0.12)
-          : AppColors.primary.withValues(alpha: 0.04),
+          ? context.t.accent.withValues(alpha: 0.12)
+          : context.t.accent.withValues(alpha: 0.04),
       child: child,
     );
   }
