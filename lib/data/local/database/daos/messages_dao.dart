@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../../../core/utils/chunk_ids.dart';
 import '../app_database.dart';
 import '../tables/messages_table.dart';
 import '../tables/message_receipts_table.dart';
@@ -54,11 +55,18 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
 
   /// Existing rows for a batch of server ids (batched-cache flag
   /// preservation). Missing ids are simply absent from the result.
+  /// Chunked at 500 — SQLite bind-variable caps (999 on older Android)
+  /// made oversized catch-up deltas fail permanently (review I3).
   Future<List<MessagesTableData>> getMessagesByServerIds(
       List<String> serverIds) async {
     if (serverIds.isEmpty) return [];
-    return (select(messagesTable)..where((t) => t.serverId.isIn(serverIds)))
-        .get();
+    final out = <MessagesTableData>[];
+    for (final chunk in chunkIds(serverIds, 500)) {
+      out.addAll(await (select(messagesTable)
+            ..where((t) => t.serverId.isIn(chunk)))
+          .get());
+    }
+    return out;
   }
 
   /// Upsert keyed on serverId (UNIQUE index target). Used by the FCM
@@ -93,12 +101,36 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   /// INSERT cannot collide (previously-cached rows hit the PK, FCM bg
   /// placeholders hit the unique serverId index — and ONE collision aborts
   /// the whole Drift batch, dropping the entire fetch). The batch rebuilds
-  /// them from companions that carry the preserved flags.
+  /// them from companions that carry the preserved flags. Chunked at 500
+  /// for the same bind-variable cap as [getMessagesByServerIds].
   Future<void> deleteByServerIds(List<String> serverIds) async {
     if (serverIds.isEmpty) return;
-    await (delete(messagesTable)..where((t) => t.serverId.isIn(serverIds)))
-        .go();
+    for (final chunk in chunkIds(serverIds, 500)) {
+      await (delete(messagesTable)..where((t) => t.serverId.isIn(chunk)))
+          .go();
+    }
   }
+
+  /// Stuck non-media rows whose ciphertext never decrypted (review I1:
+  /// transient heal failures were previously skipped over forever by the
+  /// cursor). Excludes pending optimistic rows (no serverId, `__pending__`
+  /// marker) and media (their body is optional).
+  Future<List<MessagesTableData>> getUndecryptableRows(
+      String conversationId,
+      {int limit = 40}) =>
+      (select(messagesTable)
+            ..where((t) =>
+                t.conversationId.equals(conversationId) &
+                t.serverId.isNotNull() &
+                t.isDeletedForMe.equals(false) &
+                t.isDeletedForEveryone.equals(false) &
+                t.decryptedBody.isNull() &
+                t.type.isNotIn(['image', 'video', 'voice', 'document', 'file']) &
+                t.encryptedBody.isNotValue('__pending__'))
+            ..orderBy([(t) => OrderingTerm(expression: t.createdAt,
+                mode: OrderingMode.desc)])
+            ..limit(limit))
+          .get();
 
   Future<MessagesTableData?> getMessageByLocalId(String localId) =>
       (select(messagesTable)..where((t) => t.localId.equals(localId)))

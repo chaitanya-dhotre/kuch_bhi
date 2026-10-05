@@ -6,10 +6,12 @@ void main() {
     expect(incrementalFetchFilter(null), isNull);
   });
 
-  test('cursor → strictly-newer server filter, UTC ISO verbatim', () {
+  test('cursor → inclusive-newer server filter, UTC ISO verbatim', () {
+    // Inclusive (>=): a row inserted in the same millisecond as the cursor
+    // must be re-fetched, not skipped forever (review I2).
     final c = DateTime.utc(2026, 10, 4, 17, 58, 30, 177);
     expect(incrementalFetchFilter(c),
-        'created > "2026-10-04 17:58:30.177Z"');
+        'created >= "2026-10-04 17:58:30.177Z"');
   });
 
   test('server-timestamp strings pass through unmodified (no clock skew)', () {
@@ -17,7 +19,7 @@ void main() {
     // same instant — devices never contribute their own clock here.
     final server = DateTime.tryParse('2026-10-04 17:58:30.177Z')!;
     expect(incrementalFetchFilter(server.toUtc()),
-        'created > "2026-10-04 17:58:30.177Z"');
+        'created >= "2026-10-04 17:58:30.177Z"');
   });
 
   test('full page means maybe more delta → fetch next page', () {

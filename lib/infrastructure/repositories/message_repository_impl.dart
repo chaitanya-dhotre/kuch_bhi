@@ -15,6 +15,7 @@ import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
 import '../../core/utils/realtime_gate.dart';
+import '../../core/utils/session_epoch.dart';
 import '../../core/utils/sync_cursor.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
@@ -68,6 +69,7 @@ class MessageRepositoryImpl implements MessageRepository {
       }
       _wasAuthenticated = authenticated;
       _realtimeUserId = userId;
+      _sessionEpoch++; // in-flight work from the old session must not write
       _cutoffCache.clear(); // identity changed — group cutoffs are per-user
       if (authenticated) {
         debugPrint('[Msg] Auth identity changed — reconnecting subscriptions.');
@@ -79,6 +81,12 @@ class MessageRepositoryImpl implements MessageRepository {
           t.cancel();
         }
         _rotateDebounce.clear(); // no stale auto-rotates for the previous user
+        // Spec D5: cancel the ticking timers too — nothing may run against
+        // the wiped session.
+        _pollTimer?.cancel();
+        _reconnectTimer?.cancel();
+        _reconnectDebounce?.cancel();
+        _disappearingDurations.clear();
         _teardown();
       }
     });
@@ -87,6 +95,11 @@ class MessageRepositoryImpl implements MessageRepository {
   bool _wasAuthenticated = false;
   String? _realtimeUserId;
   Timer? _reconnectDebounce;
+  /// Bumped on every auth identity change (login/logout/account switch).
+  /// Async work captures it at start and re-checks before DB writes —
+  /// INSERTs into the signOut-wiped tables would repopulate the next
+  /// account's data (review C1, spec D5).
+  int _sessionEpoch = 0;
 
   final PocketBaseClient     pbClient;
   final AppDatabase          db;
@@ -543,9 +556,11 @@ class MessageRepositoryImpl implements MessageRepository {
       // own errors (offline) so on failure we still yield the (empty) Drift
       // stream below → "Say hello 👋" shows correctly when truly unreachable.
       await _fetchAndCacheMessages(conversationId);
+      unawaited(_repairUndecrypted(conversationId));
     } else {
       // Warm: hand cached rows back instantly; refresh in the background.
       _fetchAndCacheMessages(conversationId);
+      unawaited(_repairUndecrypted(conversationId));
     }
 
     await for (final rows in db.messagesDao.watchMessages(conversationId)) {
@@ -656,6 +671,7 @@ class MessageRepositoryImpl implements MessageRepository {
     String?           replyPreview,
     required DateTime createdAt,
   }) async {
+    final uploadEpoch = _sessionEpoch;
     debugPrint('[Msg] Starting upload for localId: $localId');
     
     final List<int> key;
@@ -708,6 +724,15 @@ class MessageRepositoryImpl implements MessageRepository {
 
       final serverCreated = DateTime.tryParse(record.created) ?? createdAt;
       final expiresAt = await _computeExpiry(conversationId, serverCreated);
+      // Review C1: encryption+create span the gap — never stamp rows into a
+      // session that ended mid-send (the local row was wiped with it).
+      if (!sessionStillValid(
+          epochAtStart: uploadEpoch,
+          currentEpoch: _sessionEpoch,
+          authValid: _pb.authStore.isValid)) {
+        debugPrint('[Msg] send landed after logout — local write skipped');
+        return;
+      }
       // Clear any FCM-isolate placeholder for this id so stamping ours
       // cannot violate the serverId unique index.
       await db.messagesDao.deleteByServerIdExcept(record.id, localId);
@@ -810,6 +835,7 @@ class MessageRepositoryImpl implements MessageRepository {
     int?              videoWidth,
     int?              videoHeight,
   }) async {
+    final uploadEpoch = _sessionEpoch;
     try {
       // Step A: Get conversation key. Media bytes AND the body stub are
       // E2E-encrypted with this key.
@@ -895,6 +921,13 @@ class MessageRepositoryImpl implements MessageRepository {
 
       // Step D: Update local record with serverId and mediaId
       // (placeholder guard: clear any FCM-isolate row holding this id first)
+      if (!sessionStillValid(
+          epochAtStart: uploadEpoch,
+          currentEpoch: _sessionEpoch,
+          authValid: _pb.authStore.isValid)) {
+        debugPrint('[Msg] media send landed after logout — write skipped');
+        return;
+      }
       await db.messagesDao.deleteByServerIdExcept(messageServerId, localId);
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
@@ -2386,6 +2419,7 @@ class MessageRepositoryImpl implements MessageRepository {
   /// one decryptBatch isolate hop, one Drift batch → ONE stream emit for
   /// the whole page (was 40 serial decrypt+upserts ≈ 6s).
   Future<void> _fetchAndCacheMessages(String conversationId) async {
+    final epoch = _sessionEpoch;
     try {
       final myId = await _myId();
       debugPrint('[Msg] _fetchAndCacheMessages — myId: $myId, convId: $conversationId');
@@ -2401,6 +2435,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
       final all = <RecordModel>[];
       var page = 1;
+      var totalAtStart = -1;
       while (true) {
         final res = await _pb.collection('messages').getList(
               filter: pageFilter,
@@ -2408,6 +2443,7 @@ class MessageRepositoryImpl implements MessageRepository {
               perPage: 40,
               page: page,
             );
+        if (totalAtStart < 0) totalAtStart = res.totalItems;
         all.addAll(res.items);
         // Cold fetch: one page (latest 40), same as before — older history
         // loads via loadMoreMessages. Warm fetch: page until delta caught up.
@@ -2419,6 +2455,16 @@ class MessageRepositoryImpl implements MessageRepository {
       }
       debugPrint('[Msg] _fetchAndCacheMessages — fetched ${all.length} messages (cursor=${cursor != null})');
 
+      // Review C1: the awaits above span seconds — a logout/account-switch
+      // during them must not write into the wiped session.
+      if (all.isNotEmpty &&
+          !sessionStillValid(
+              epochAtStart: epoch,
+              currentEpoch: _sessionEpoch,
+              authValid: _pb.authStore.isValid)) {
+        debugPrint('[Msg] fetch aborted — session ended mid-flight');
+        return;
+      }
       if (all.isNotEmpty) {
         // Key unavailable (joiner awaiting rotation, DM peer key missing):
         // do NOT cache rows and do NOT advance the cursor — the next open
@@ -2432,9 +2478,22 @@ class MessageRepositoryImpl implements MessageRepository {
         }
         if (key != null) {
           await _cacheMessagesBatch(all, key, myId);
+          // Review I2: only advance the cursor when the whole delta present
+          // at fetch start landed (offset shifts during multi-page
+          // catch-up would otherwise skip rows forever). Cold fetches
+          // (cursor == null) commit to newest-40 by design — older history
+          // is loadMoreMessages' job, nothing is being skipped.
+          final advance = cursor == null ||
+              shouldAdvanceCursor(
+                  fetched: all.length, totalAtStart: totalAtStart);
           final newest =
               DateTime.tryParse(all.first.getStringValue('created'));
-          if (newest != null) await _writeCursor(conversationId, newest);
+          if (newest != null && advance) {
+            await _writeCursor(conversationId, newest);
+          } else if (!advance) {
+            debugPrint('[Msg] cursor held back (partial catch-up '
+                '${all.length}/$totalAtStart)');
+          }
         }
       }
 
@@ -2454,6 +2513,7 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> _cacheMessagesBatch(
       List<RecordModel> records, List<int> key, String myId) async {
     if (records.isEmpty) return;
+    final epoch = _sessionEpoch;
     final convId = records.first.getStringValue('conversation_id');
     final conv = await db.conversationsDao.getConversationById(convId);
     _disappearingDurations[convId] = conv?.disappearingDuration ?? 0;
@@ -2502,11 +2562,20 @@ class MessageRepositoryImpl implements MessageRepository {
           decryptedReplyPreview: preview, forcedStatus: forced, myId: myId));
     }
 
+    // Review C1: decrypt awaited across the gap above — re-check before
+    // touching the (possibly wiped) tables.
+    if (!sessionStillValid(
+        epochAtStart: epoch,
+        currentEpoch: _sessionEpoch,
+        authValid: _pb.authStore.isValid)) {
+      return;
+    }
     // Clear any rows already holding these server ids (prior cache + FCM
     // bg placeholders): ONE insert collision aborts the entire batch, which
     // silently dropped whole fetches (no decrypt, no badge). Companions
-    // carry the preserved flags; the onConflict below also absorbs the
-    // placeholder-write race between this delete and the batch.
+    // carry the preserved flags. NOTE: the onConflict targets localId only
+    // — a placeholder written between this delete and the batch would still
+    // abort (rare, ms window); the cursor not advancing recovers it.
     await db.messagesDao.deleteByServerIds([for (final r in records) r.id]);
     await db.batch((b) {
       for (final c in companions) {
@@ -2550,6 +2619,55 @@ class MessageRepositoryImpl implements MessageRepository {
     if (newest.getStringValue('sender_id') != myId) {
       await _bumpConversationForIncoming(newest, _uuid.v4(),
           previewText: decrypted[newest.id]);
+    }
+  }
+
+  /// Review I1: bounded repair pass for rows whose ciphertext never
+  /// decrypted (transient heal failures the cursor would otherwise skip
+  /// forever). Runs on every chat open; at most 40 rows; media excluded by
+  /// the query; keyless conversations are left to the banner path.
+  Future<void> _repairUndecrypted(String conversationId) async {
+    try {
+      final rows =
+          await db.messagesDao.getUndecryptableRows(conversationId);
+      if (rows.isEmpty) return;
+      final epoch = _sessionEpoch;
+      final myId = await _myId();
+      if (myId.isEmpty) return;
+      List<int>? key;
+      try {
+        key = await _getConvKey(conversationId, myId);
+      } on MissingKeyException {
+        return;
+      }
+      final conv = await db.conversationsDao.getConversationById(conversationId);
+      for (final row in rows) {
+        if (!sessionStillValid(
+            epochAtStart: epoch,
+            currentEpoch: _sessionEpoch,
+            authValid: _pb.authStore.isValid)) {
+          return;
+        }
+        var plain = await encryption.decryptMessage(
+            row.encryptedBody, row.iv, key);
+        if (plain == null && conv?.type == 'group') {
+          try {
+            await storage.delete(key: 'group_key_$conversationId');
+            final fresh = await _getConvKey(conversationId, myId);
+            plain = await encryption.decryptMessage(
+                row.encryptedBody, row.iv, fresh);
+          } catch (_) {
+            return; // key still bad (e.g. rotated-away) — stop this pass
+          }
+        }
+        if (plain != null) {
+          await db.messagesDao.cacheDecryptedBody(row.localId, plain);
+        }
+      }
+      debugPrint('[Enc] repair pass decrypted '
+          '${rows.length} stuck row(s) in $conversationId');
+    } catch (e) {
+      debugPrint('[Enc] repair pass failed: $e');
     }
   }
 
@@ -2670,6 +2788,7 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Future<void> _cacheMsgInner(RecordModel r, String myId, List<int> key) async {
+    final epoch = _sessionEpoch;
     // Note: isDeletedForEveryone is already synchronized automatically on fresh install
     // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
     final encBody = r.getStringValue('encrypted_body');
@@ -2720,6 +2839,12 @@ class MessageRepositoryImpl implements MessageRepository {
       forcedStatus = await _computeSenderStatus(r.id);
     }
 
+    if (!sessionStillValid(
+        epochAtStart: epoch,
+        currentEpoch: _sessionEpoch,
+        authValid: _pb.authStore.isValid)) {
+      return; // session ended mid-decrypt — do not resurrect wiped rows
+    }
     await db.messagesDao.upsertMessage(_companionFromRecord(
       r,
       existing: existing,
@@ -3312,11 +3437,22 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Future<void> _syncConversations(String myId) async {
+    final epoch = _sessionEpoch;
     try {
       final res = await _pb.collection('conversation_members').getList(
         filter: 'user_id="$myId"', expand: 'conversation_id', sort: '-created',
       );
       for (final m in res.items) {
+        // Review C1: this loop spans many round-trips — bail the moment the
+        // session ends, or the wiped DB refills with the old account's
+        // conversations/members/users.
+        if (!sessionStillValid(
+            epochAtStart: epoch,
+            currentEpoch: _sessionEpoch,
+            authValid: _pb.authStore.isValid)) {
+          debugPrint('[Msg] conversation sync aborted — session ended');
+          return;
+        }
         final conv = m.expand['conversation_id']?.firstOrNull;
         if (conv == null) continue;
         final iconField = conv.getStringValue('icon');
