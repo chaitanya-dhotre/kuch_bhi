@@ -299,6 +299,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _scrollToItemIndex(flatIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // The list can shrink between frames (disappearing-message expiry)
+      // — never index past the end (review minor).
+      if (flatIndex >= _items.length) return;
       final item2 = _items[flatIndex];
       if (item2 is _MsgItem) {
         final ctx2 = item2.key.currentContext;
@@ -411,7 +414,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             if (!_searchActive)
               PinnedMessageBanner(
                 conversationId: _cid,
-                onTap: _jumpToMessage,
+                onTap: (m) => unawaited(_jumpToMessage(m)),
               ),
 
             Expanded(
@@ -635,7 +638,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => StarredMessagesScreen(
                     conversationId: _cid,
-                    onJump:         _jumpToMessage,
+                    onJump:         (m) => unawaited(_jumpToMessage(m)),
                   ),
                 ));
               } else if (v == 'group_info') {
