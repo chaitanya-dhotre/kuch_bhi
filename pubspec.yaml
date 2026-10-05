@@ -102,6 +102,9 @@ flutter:
     - assets/icons/
     - assets/animations/
   fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans/PlusJakartaSans-VF.ttf
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter-Regular.ttf

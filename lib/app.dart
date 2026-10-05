@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/constants/app_colors.dart';
+import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/settings/providers/theme_provider.dart';
@@ -77,8 +77,8 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
 
     // AMOLED is a dark variant selected via darkTheme + forced dark mode.
     final darkTheme = themeMode == AppThemeMode.amoled
-        ? AppColors.amoledTheme()
-        : AppColors.darkTheme();
+        ? warmPopDark(amoled: true)
+        : warmPopDark();
 
     final flutterThemeMode = switch (themeMode) {
       AppThemeMode.system => ThemeMode.system,
@@ -90,7 +90,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     return MaterialApp.router(
       title:                     'Kuch Bhi',
       debugShowCheckedModeBanner: false,
-      theme:       AppColors.lightTheme(),
+      theme:       warmPopLight(),
       darkTheme:   darkTheme,
       themeMode:   flutterThemeMode,
       routerConfig: router,

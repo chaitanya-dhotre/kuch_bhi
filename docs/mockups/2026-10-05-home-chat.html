@@ -1,0 +1,172 @@
+<meta charset="utf-8">
+<title>Kuch Bhi Home and Chat</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+  /* ── Warm Pop mockup: tokens verbatim from design_tokens.json.
+        Page chrome = warm neutral board; each device frame is a
+        self-contained theme specimen (light Home, dark Chat). ── */
+  :root {
+    --bg: #FAF7F1; --surface: #FFFFFF; --surface2: #F1ECE3;
+    --ink: #2A2520; --inkSoft: #6E655A; --inkFaint: #9C9284;
+    --line: #E4DDD1; --accent: #EFA00B; --accentSoft: #FFF3DC;
+    --onAccent: #2A2520;
+    --dark-bg: #171512; --dark-surface: #211E1A; --dark-surface2: #2B2823;
+    --dark-ink: #F3EDE3; --dark-inkSoft: #9C9284; --dark-line: #3B362F;
+    --dark-accentSoft: #3A2E14; --dark-onAccent: #21260F;
+    --m-body: #C6894F; --m-shade: #B27A42; --m-snout: #8B5E3E;
+    --m-nostril: #5C3B28; --m-face: #3A2E22;
+    --r-sm: 10px; --r-md: 16px; --r-lg: 20px; --r-xl: 24px;
+    --motion: 250ms;
+    --font: "Plus Jakarta Sans", ui-rounded, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font);
+    padding-inline: clamp(16px, 4vw, 40px);
+    padding-block: clamp(24px, 5vw, 48px) 64px;
+    margin: 0;
+  }
+  .wrap { max-width: 1060px; margin-inline: auto; display: flex; flex-direction: column; gap: 32px; }
+  h1 { font-size: clamp(24px, 4vw, 34px); font-weight: 800; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+  .lede { color: var(--inkSoft); max-width: 64ch; margin: 8px 0 0; line-height: 1.5; }
+  .cap { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--inkFaint); margin: 0 0 8px; }
+  h2 { font-size: 17px; font-weight: 700; margin: 0; }
+
+  .phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+  .phone { border-radius: var(--r-xl); padding: 18px 16px 20px; box-shadow: 0 12px 32px rgba(52,42,28,.10); border: 1px solid; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .phone.light { background: var(--bg); border-color: var(--line); color: var(--ink);
+    --p-surface: var(--surface); --p-surface2: var(--surface2); --p-inkSoft: var(--inkSoft); --p-inkFaint: var(--inkFaint); --p-line: var(--line); --p-accentSoft: var(--accentSoft); --p-onAccent: var(--onAccent); }
+  .phone.dark { background: var(--dark-bg); border-color: var(--dark-line); color: var(--dark-ink);
+    --p-surface: var(--dark-surface); --p-surface2: var(--dark-surface2); --p-inkSoft: var(--dark-inkSoft); --p-inkFaint: var(--dark-inkSoft); --p-line: var(--dark-line); --p-accentSoft: var(--dark-accentSoft); --p-onAccent: var(--dark-onAccent); color-scheme: dark; }
+  .plabel { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--p-inkFaint); }
+  .ptitle { font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin-top: -6px; }
+
+  .search { height: 42px; border-radius: 999px; background: var(--p-surface); border: 1px solid var(--p-line); display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--p-inkFaint); font-size: 13.5px; }
+  .row { display: flex; gap: 12px; align-items: center; background: var(--p-surface); border-radius: var(--r-md); padding: 12px; min-width: 0; }
+  .av { width: 40px; height: 40px; border-radius: 50%; background: var(--p-surface2); flex: none; display: grid; place-items: center; font-weight: 800; color: var(--p-inkSoft); font-size: 15px; }
+  .txt { min-width: 0; flex: 1; }
+  .nm { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pv { font-size: 12.5px; color: var(--p-inkSoft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .badge { background: var(--accent); color: var(--onAccent); font-size: 11.5px; font-weight: 800; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; flex: none; }
+  .fab { align-self: flex-end; width: 48px; height: 48px; border-radius: var(--r-md); background: var(--accent); color: var(--onAccent); display: grid; place-items: center; font-size: 24px; font-weight: 700; box-shadow: 0 8px 20px rgba(239,160,11,.35); }
+
+  .bubbles { display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: flex-end; }
+  .bub { max-width: 84%; padding: 10px 14px; font-size: 14px; line-height: 1.45; border-radius: 18px; }
+  .bub.them { background: var(--p-surface); border-bottom-left-radius: 6px; align-self: flex-start; }
+  .bub.me { background: var(--accent); color: var(--onAccent); border-bottom-right-radius: 6px; align-self: flex-end; font-weight: 600; }
+  .composer { display: flex; gap: 10px; align-items: center; }
+  .pill { flex: 1; height: 44px; border-radius: 999px; background: var(--p-surface); border: 1px solid var(--p-line); display: flex; align-items: center; padding: 0 16px; color: var(--p-inkFaint); font-size: 14px; min-width: 0; }
+  .send { width: 44px; height: 44px; border-radius: 50%; background: var(--accent); color: var(--onAccent); display: grid; place-items: center; font-size: 18px; font-weight: 800; flex: none; }
+  .chathead { display: flex; gap: 10px; align-items: center; }
+
+  .states { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .spec { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; min-width: 0; }
+  .spec .st { font-size: 12.5px; font-weight: 700; color: var(--inkFaint); text-transform: uppercase; letter-spacing: .1em; }
+  .empty { text-align: center; padding: 12px 8px; }
+  .empty .et { font-weight: 700; font-size: 15px; margin-top: 8px; }
+  .empty .es { font-size: 13px; color: var(--inkSoft); margin-top: 4px; }
+  .skrows { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+  .sk { display: flex; gap: 12px; align-items: center; }
+  .skb { background: var(--surface2); border-radius: 8px; height: 14px; flex: 1; animation: shimmer 1.4s ease-in-out infinite alternate; }
+  .skc { background: var(--surface2); border-radius: 50%; width: 40px; height: 40px; flex: none; animation: shimmer 1.4s ease-in-out infinite alternate; }
+  @keyframes shimmer { from { opacity: .55; } to { opacity: 1; } }
+  .banner { display: flex; gap: 10px; align-items: center; width: 100%; background: var(--accentSoft); border: 1px solid rgba(239,160,11,.45); border-radius: var(--r-md); padding: 12px 14px; font-size: 13.5px; font-weight: 600; }
+
+  .capy { animation: breathe 3.4s ease-in-out infinite; transform-origin: 50% 100%; }
+  @keyframes breathe { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(1.03); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .capy, .skb, .skc { animation: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="cap">W3 Phase A · approval mockup</p>
+    <h1>Kuch Bhi: Home and Chat</h1>
+    <p class="lede">The Warm Pop direction as shipped screens. Every value below comes from
+    <code>design_tokens.json</code>: Marigold accent, warm surfaces, 16-24px radii, system font
+    in the app (Jakarta only labels this board). Left frame is light, right is dark.</p>
+  </header>
+
+  <div class="phones">
+    <!-- LIGHT · HOME -->
+    <div class="phone light">
+      <span class="plabel">Light · Home</span>
+      <span class="ptitle">Chats</span>
+      <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg> Search</div>
+      <div class="row"><div class="av">A</div><div class="txt"><div class="nm">Aarav</div><div class="pv">Sounds good, see you at 8</div></div></div>
+      <div class="row"><div class="av">D</div><div class="txt"><div class="nm">Design Squad</div><div class="pv">Meera: the new build looks clean</div></div><span class="badge">3</span></div>
+      <div class="row"><div class="av">P</div><div class="txt"><div class="nm">Priya</div><div class="pv">Photo</div></div></div>
+      <div class="fab">+</div>
+    </div>
+
+    <!-- DARK · CHAT -->
+    <div class="phone dark">
+      <span class="plabel">Dark · Chat</span>
+      <div class="chathead">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></svg>
+        <div class="av" style="width:34px;height:34px;font-size:13px">M</div>
+        <span class="ptitle" style="margin-top:0;font-size:19px">Meera</span>
+      </div>
+      <div class="bubbles">
+        <div class="bub them">did you see the capybara board?</div>
+        <div class="bub me">on my way</div>
+        <div class="bub them">pick marigold, it is warm and nobody uses it</div>
+      </div>
+      <div class="composer"><div class="pill">Message...</div><div class="send">↑</div></div>
+    </div>
+  </div>
+
+  <section>
+    <p class="cap">States</p>
+    <h2>Empty, loading, and status</h2>
+    <div class="states">
+      <div class="spec">
+        <span class="st">Empty</span>
+        <div class="empty">
+          <svg class="capy" width="92" height="83" viewBox="0 0 200 180" aria-label="Capybara waiting">
+            <circle cx="80" cy="52" r="12.5" fill="var(--m-body)"/>
+            <circle cx="150" cy="58" r="11" fill="var(--m-body)"/>
+            <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--m-body)"/>
+            <rect x="52" y="126" width="28" height="24" rx="12" fill="var(--m-shade)"/>
+            <rect x="96" y="128" width="30" height="24" rx="12" fill="var(--m-shade)"/>
+            <rect x="138" y="126" width="24" height="24" rx="11" fill="var(--m-shade)"/>
+            <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--m-snout)"/>
+            <rect x="33" y="78" width="10" height="4.5" rx="2.25" transform="rotate(-20 38 80)" fill="var(--m-nostril)"/>
+            <rect x="49" y="75" width="10" height="4.5" rx="2.25" transform="rotate(14 54 77)" fill="var(--m-nostril)"/>
+            <path d="M35 114 q9 7 18 0" stroke="var(--m-nostril)" stroke-width="4" fill="none" stroke-linecap="round"/>
+            <circle cx="88" cy="66" r="5.5" fill="var(--m-face)"/>
+            <circle cx="90.5" cy="63.5" r="2" fill="#FFFFFF"/>
+            <circle cx="122" cy="62" r="5.5" fill="var(--m-face)"/>
+            <circle cx="124.5" cy="59.5" r="2" fill="#FFFFFF"/>
+          </svg>
+          <div class="et">No chats yet</div>
+          <div class="es">Add a friend to get started</div>
+        </div>
+      </div>
+      <div class="spec">
+        <span class="st">Loading</span>
+        <div class="skrows">
+          <div class="sk"><div class="skc"></div><div class="skb"></div></div>
+          <div class="sk"><div class="skc"></div><div class="skb" style="width:70%"></div></div>
+          <div class="sk"><div class="skc"></div><div class="skb" style="width:85%"></div></div>
+        </div>
+      </div>
+      <div class="spec">
+        <span class="st">Status</span>
+        <div class="banner">
+          <svg width="26" height="24" viewBox="0 0 200 180" aria-hidden="true">
+            <circle cx="80" cy="52" r="12.5" fill="var(--m-body)"/>
+            <circle cx="150" cy="58" r="11" fill="var(--m-body)"/>
+            <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--m-body)"/>
+            <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--m-snout)"/>
+            <circle cx="88" cy="66" r="5.5" fill="var(--m-face)"/>
+            <circle cx="122" cy="62" r="5.5" fill="var(--m-face)"/>
+          </svg>
+          Offline, holding your messages safely
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

@@ -1,0 +1,58 @@
+{
+  "colors": {
+    "accent": "#EFA00B",
+    "accentPressed": "#D98F08",
+    "bg": "#FAF7F1",
+    "surface": "#FFFFFF",
+    "surface2": "#F1ECE3",
+    "ink": "#2A2520",
+    "inkSoft": "#6E655A",
+    "inkFaint": "#9C9284",
+    "line": "#E4DDD1",
+    "accentSoft": "#FFF3DC",
+    "success": "#0E9F6E",
+    "error": "#E5484D",
+    "info": "#4A6FA5",
+    "dark": {
+      "bg": "#171512",
+      "surface": "#211E1A",
+      "surface2": "#2B2823",
+      "ink": "#F3EDE3",
+      "inkSoft": "#9C9284",
+      "line": "#3B362F",
+      "accentSoft": "#3A2E14",
+      "onAccent": "#21260F"
+    },
+    "mascot": {
+      "body": "#C6894F",
+      "shade": "#B27A42",
+      "snout": "#8B5E3E",
+      "nostril": "#5C3B28",
+      "face": "#3A2E22",
+      "key": "#E8A21D"
+    }
+  },
+  "radius": {
+    "sm": 10.0,
+    "md": 16.0,
+    "lg": 20.0,
+    "xl": 24.0,
+    "bubble": 18.0
+  },
+  "space": [
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48
+  ],
+  "motion": {
+    "fastMs": 150,
+    "baseMs": 250,
+    "slowMs": 400
+  }
+}
