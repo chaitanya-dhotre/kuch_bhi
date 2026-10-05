@@ -91,6 +91,24 @@ SearchField, SegmentedControl. Each ships light + dark + pressed/focus +
 disabled states from tokens. New features compose these; adding a component
 requires a spec amendment.
 
+### Reference sources (installed this session)
+
+- **impeccable** (`.claude/skills/impeccable`) — 24 design commands
+  (`/impeccable audit|polish|critique|...`) + 61 deterministic anti-slop
+  detector rules; use as the review gate on every component batch. Wants a
+  `PRODUCT.md` via `/impeccable init` at Phase A start (10-min interview,
+  records audience/voice — also useful product-truth for later website copy).
+- **brand-design-md** (`.claude/skills/brand-design-md`) — exact-token
+  analyses of apple, airbnb, uber, spotify, linear, notion. Cite their
+  values when a component spec needs a precedent (e.g. Airbnb card radius
+  ~14px, Cereal at 500/600 not 700+). Extract patterns, never brand identity.
+- **kokonutui.com** — React/Tailwind component library; not installable in
+  Flutter. Use as per-component interaction reference (fetch the specific
+  component page when building that widget; landing docs carry no catalog).
+- Plugin skills already available: `taste`, `frontend-design`,
+  `ui-ux-pro-max:design-system` (token architecture) and
+  `ui-ux-pro-max:ui-styling` (component/dark-mode patterns).
+
 ## Mascot system
 
 - **Source of truth:** the approved SVG paths, transcribed into a
