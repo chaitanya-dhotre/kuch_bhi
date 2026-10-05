@@ -44,6 +44,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('empty state accepts a custom mascot slot', (tester) async {
+    await tester.pumpWidget(host(const EmptyState(
+        title: 'No chats yet', mascot: Text('custom-mascot'))));
+    expect(find.text('custom-mascot'), findsOneWidget);
+    expect(find.byType(Capybara), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('showToast surfaces the message', (tester) async {
     await tester.pumpWidget(host(const SizedBox()));
     final ctx = tester.element(find.byType(Scaffold));

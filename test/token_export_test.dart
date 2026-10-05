@@ -21,6 +21,7 @@ void main() {
     final colors = map['colors'] as Map<String, dynamic>;
     expect(colors['accent'], '#EFA00B');
     expect(colors['bg'], '#FAF7F1');
+    expect(colors['onAccent'], '#2A2520');
     expect(map['radius']['lg'], 20);
     expect(map['space'], [4, 8, 12, 16, 20, 24, 32, 40, 48]);
     final dark = colors['dark'] as Map<String, dynamic>;
@@ -37,6 +38,7 @@ void main() {
     expect(hex(WarmPopTokens.mascotBody), WarmPopCore.mascotBody);
     expect(hex(WarmPopTokens.mascotSnout), WarmPopCore.mascotSnout);
     expect(hex(WarmPopTokens.bgDark), WarmPopCore.bgDark);
+    expect(hex(WarmPopTokens.onAccentLight), WarmPopCore.onAccentLight);
     expect(hex(WarmPopTokens.onAccentDark), WarmPopCore.onAccentDark);
     expect(WarmPopTokens.radiusLg, WarmPopCore.radius['lg']);
     expect(WarmPopTokens.space, WarmPopCore.space);

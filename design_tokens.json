@@ -10,6 +10,7 @@
     "inkFaint": "#9C9284",
     "line": "#E4DDD1",
     "accentSoft": "#FFF3DC",
+    "onAccent": "#2A2520",
     "success": "#0E9F6E",
     "error": "#E5484D",
     "info": "#4A6FA5",

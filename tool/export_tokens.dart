@@ -20,6 +20,7 @@ void main() {
       'inkFaint': WarmPopCore.inkFaint,
       'line': WarmPopCore.line,
       'accentSoft': WarmPopCore.accentSoftLight,
+      'onAccent': WarmPopCore.onAccentLight,
       'success': WarmPopCore.success,
       'error': WarmPopCore.error,
       'info': WarmPopCore.info,

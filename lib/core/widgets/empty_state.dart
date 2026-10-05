@@ -11,12 +11,14 @@ class EmptyState extends StatelessWidget {
       this.subtitle,
       this.action,
       this.withMascot = true,
-      this.mood = CapyMood.neutral});
+      this.mood = CapyMood.neutral,
+      this.mascot});
   final String title;
   final String? subtitle;
   final Widget? action;
   final bool withMascot;
   final CapyMood mood;
+  final Widget? mascot;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +30,10 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (withMascot) Capybara(mood: mood, size: const Size(180, 152)),
+            if (mascot != null)
+              mascot!
+            else if (withMascot)
+              Capybara(mood: mood, size: const Size(180, 152)),
             const SizedBox(height: 16),
             Text(title,
                 textAlign: TextAlign.center,
