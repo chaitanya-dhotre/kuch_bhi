@@ -16,17 +16,30 @@ import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
 
 // 5 deterministic sender name colors — Warm Pop tokens only (no violet/
-// indigo; spec veto). Names render on t.surface, all entries stay legible.
-const List<Color> _kSenderColors = [
-  WarmPopTokens.accent,
-  WarmPopTokens.info,
-  WarmPopTokens.success,
-  WarmPopTokens.error,
-  WarmPopTokens.keyGold,
-];
+// indigo; spec veto). Names render on t.surface. Light surface needs dark
+// ink (accent/keyGold are ~2.2:1 on white); dark surface gets the warm
+// highlight pair. Same slot count both themes so hash → index is stable.
+List<Color> _senderPalette(Brightness brightness) =>
+    brightness == Brightness.dark
+        ? const [
+            WarmPopTokens.accent,   // 8.0:1 on dark surface
+            WarmPopTokens.keyGold,  // 7.6:1
+            WarmPopTokens.info,
+            WarmPopTokens.success,
+            WarmPopTokens.error,
+          ]
+        : const [
+            WarmPopTokens.info,        // ~4.7:1 on white
+            WarmPopTokens.success,     // ~3.4:1
+            WarmPopTokens.error,       // ~3.9:1
+            WarmPopTokens.inkSoft,     // ~5.3:1
+            WarmPopTokens.mascotSnout, // ~5.7:1 warm brown
+          ];
 
-Color _colorForSender(String senderId) =>
-    _kSenderColors[senderId.hashCode.abs() % _kSenderColors.length];
+Color _colorForSender(String senderId, Brightness brightness) {
+  final palette = _senderPalette(brightness);
+  return palette[senderId.hashCode.abs() % palette.length];
+}
 
 class MessageBubble extends ConsumerWidget {
   const MessageBubble({
@@ -77,9 +90,10 @@ class MessageBubble extends ConsumerWidget {
               child: Text(
                 senderName,
                 style: TextStyle(
-                  fontSize:   11,
+                  fontSize:   12, // plan floor: labels ≥ w600 12px
                   fontWeight: FontWeight.w600,
-                  color:      _colorForSender(message.senderId),
+                  color:      _colorForSender(message.senderId,
+                      Theme.of(context).brightness),
                 ),
               ),
             ),

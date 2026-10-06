@@ -125,7 +125,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
             : context.t.surface;
 
     final onBubble = widget.isMine
-        ? Colors.white
+        ? context.t.onAccent // on the marigold sent bubble (never raw white)
         : Theme.of(context).colorScheme.onSurface;
 
     final progress = _total.inMilliseconds > 0
@@ -148,15 +148,17 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.grey.shade300,
+          color: context.t.surface2,
           borderRadius: BorderRadius.circular(18),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.timer_off_outlined, color: Colors.grey, size: 20),
-            SizedBox(width: 8),
-            Text('Media expired', style: TextStyle(color: Colors.grey, fontSize: 13)),
+            Icon(Icons.timer_off_outlined,
+                color: context.t.inkSoft, size: 20),
+            const SizedBox(width: 8),
+            Text('Media expired',
+                style: TextStyle(color: context.t.inkSoft, fontSize: 13)),
           ],
         ),
       );
@@ -190,7 +192,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: widget.isMine
-                        ? Colors.white.withValues(alpha: 0.25)
+                        ? context.t.onAccent.withValues(alpha: 0.16)
                         : context.t.accent.withValues(alpha: 0.15),
                   ),
                   child: _isLoading
@@ -198,7 +200,9 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                           padding: const EdgeInsets.all(10),
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: context.t.accent,
+                            color: widget.isMine
+                                ? context.t.onAccent
+                                : context.t.accent,
                           ),
                         )
                       : _hasError
@@ -207,7 +211,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                           : Icon(
                               _isPlaying ? Icons.pause : Icons.play_arrow,
                               color: widget.isMine
-                                  ? Colors.white
+                                  ? context.t.onAccent
                                   : context.t.accent,
                               size: 24,
                             ),
@@ -226,7 +230,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                       backgroundColor:  onBubble.withValues(alpha: 0.2),
                       valueColor:       AlwaysStoppedAnimation<Color>(
                         widget.isMine
-                            ? Colors.white
+                            ? context.t.onAccent
                             : context.t.accent,
                       ),
                       minHeight: 3,
@@ -275,7 +279,10 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
               badgeText,
               style: TextStyle(
                 fontSize: 10,
-                color: context.t.accent,
+                // accent-on-accent invisible on the sent bubble → flip.
+                color: widget.isMine
+                    ? context.t.onAccent
+                    : context.t.accent,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -317,17 +324,25 @@ class _VoiceTickIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isMine ? Colors.white70 : Colors.grey;
+    // Mirrors message_bubble _TickIndicator — onAccent family on the
+    // marigold sent bubble (never raw white), inkFaint otherwise.
+    final Color onMine = context.t.onAccent;
     if (status == 'pending') {
       return SizedBox(
         width: 10, height: 10,
-        child: CircularProgressIndicator(strokeWidth: 1.5, color: color),
+        child: CircularProgressIndicator(
+            strokeWidth: 1.5, color: onMine.withValues(alpha: 0.54)),
       );
     }
-    if (status == 'read') {
-      return Icon(Icons.done_all, size: 12,
-          color: isMine ? Colors.white : context.t.accent);
+    if (status == 'failed') {
+      return Icon(Icons.error_outline, size: 12, color: context.t.error);
     }
+    if (status == 'read') {
+      return Icon(Icons.done_all, size: 12, color: onMine);
+    }
+    final Color color = status == 'delivered'
+        ? onMine.withValues(alpha: 0.54)
+        : onMine.withValues(alpha: 0.38);
     if (status == 'delivered') {
       return Icon(Icons.done_all, size: 12, color: color);
     }

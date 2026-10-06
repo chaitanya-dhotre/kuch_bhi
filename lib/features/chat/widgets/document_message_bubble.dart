@@ -128,12 +128,18 @@ class _DocumentMessageBubbleState
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.timer_off_outlined, color: Colors.grey, size: 22),
+                    Icon(Icons.timer_off_outlined,
+                        color: widget.isMine
+                            ? context.t.onAccent
+                            : context.t.inkSoft,
+                        size: 22),
                     const SizedBox(width: 8),
                     Text(
                       'Media expired',
                       style: TextStyle(
-                        color: widget.isMine ? Colors.white54 : Colors.grey,
+                        color: widget.isMine
+                            ? context.t.onAccent.withValues(alpha: 0.54)
+                            : context.t.inkSoft,
                         fontSize: 13,
                       ),
                     ),
@@ -159,13 +165,15 @@ class _DocumentMessageBubbleState
                           width: 40, height: 40,
                           decoration: BoxDecoration(
                             color:        widget.isMine
-                                ? Colors.white.withValues(alpha: 0.2)
+                                ? context.t.onAccent.withValues(alpha: 0.16)
                                 : context.t.accent.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
                             _docIcon(fileName),
-                            color:  widget.isMine ? Colors.white : context.t.accent,
+                            color:  widget.isMine
+                                ? context.t.onAccent
+                                : context.t.accent,
                             size:   22,
                           ),
                         ),
@@ -183,7 +191,7 @@ class _DocumentMessageBubbleState
                                   fontSize:   13,
                                   fontWeight: FontWeight.w500,
                                   color:      widget.isMine
-                                      ? Colors.white
+                                      ? context.t.onAccent
                                       : Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
@@ -194,7 +202,8 @@ class _DocumentMessageBubbleState
                                   style: TextStyle(
                                     fontSize: 11,
                                     color:    widget.isMine
-                                        ? Colors.white70
+                                        ? context.t.onAccent
+                                            .withValues(alpha: 0.70)
                                         : Theme.of(context)
                                             .colorScheme
                                             .onSurface
@@ -217,7 +226,9 @@ class _DocumentMessageBubbleState
                             : Icon(
                                 Icons.download_outlined,
                                 size:  20,
-                                color: widget.isMine ? Colors.white70 : context.t.accent,
+                                color: widget.isMine
+                                    ? context.t.onAccent.withValues(alpha: 0.70)
+                                    : context.t.accent,
                               ),
                       ],
                     ),
@@ -233,7 +244,11 @@ class _DocumentMessageBubbleState
                             expiryBadgeText(expiresAt)!,
                             style: TextStyle(
                               fontSize: 9,
-                              color: context.t.accent,
+                              // on marigold (sent) accent-on-accent would be
+                              // invisible — flip to onAccent; received keeps accent.
+                              color: widget.isMine
+                                  ? context.t.onAccent
+                                  : context.t.accent,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -245,7 +260,7 @@ class _DocumentMessageBubbleState
                             style: TextStyle(
                               fontSize: 10,
                               color: widget.isMine
-                                  ? Colors.white60
+                                  ? context.t.onAccent.withValues(alpha: 0.60)
                                   : Theme.of(context)
                                       .colorScheme
                                       .onSurface
@@ -269,12 +284,12 @@ class _DocumentMessageBubbleState
   }
 
   Widget _shimmer() => Shimmer.fromColors(
-        baseColor:      Colors.grey.shade300,
-        highlightColor: Colors.grey.shade100,
+        baseColor:      context.t.line,
+        highlightColor: context.t.surface2,
         child: Container(
           height:           68,
           decoration: BoxDecoration(
-            color:        Colors.grey.shade300,
+            color:        context.t.line,
             borderRadius: BorderRadius.circular(18),
           ),
         ),
@@ -285,12 +300,15 @@ class _DocumentMessageBubbleState
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.broken_image_outlined, color: Colors.grey, size: 24),
+            Icon(Icons.broken_image_outlined,
+                color: context.t.inkFaint, size: 24),
             const SizedBox(width: 8),
             Text(
               'File unavailable',
               style: TextStyle(
-                color: widget.isMine ? Colors.white70 : Colors.grey,
+                color: widget.isMine
+                    ? context.t.onAccent.withValues(alpha: 0.70)
+                    : context.t.inkSoft,
                 fontSize: 13,
               ),
             ),
@@ -307,16 +325,28 @@ class _DocTickIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const color = Colors.white60;
+    // Mirrors message_bubble _TickIndicator (renders inside the sent
+    // marigold bubble only) — onAccent family, never raw white.
     if (status == 'pending') {
-      return const SizedBox(
+      return SizedBox(
         width: 10, height: 10,
-        child: CircularProgressIndicator(strokeWidth: 1.5, color: color),
+        child: CircularProgressIndicator(
+            strokeWidth: 1.5,
+            color: context.t.onAccent.withValues(alpha: 0.54)),
       );
     }
-    if (status == 'read')      return const Icon(Icons.done_all, size: 12, color: Colors.white);
-    if (status == 'delivered') return const Icon(Icons.done_all, size: 12, color: color);
-    if (status == 'sent')      return const Icon(Icons.done,     size: 12, color: color);
-    return const Icon(Icons.schedule, size: 12, color: color);
+    if (status == 'failed') {
+      return Icon(Icons.error_outline, size: 12, color: context.t.error);
+    }
+    final Color color = switch (status) {
+      'read'      => context.t.onAccent,
+      'delivered' => context.t.onAccent.withValues(alpha: 0.54),
+      _           => context.t.onAccent.withValues(alpha: 0.38),
+    };
+    if (status == 'read' || status == 'delivered') {
+      return Icon(Icons.done_all, size: 12, color: color);
+    }
+    if (status == 'sent') return Icon(Icons.done, size: 12, color: color);
+    return Icon(Icons.schedule, size: 12, color: color);
   }
 }

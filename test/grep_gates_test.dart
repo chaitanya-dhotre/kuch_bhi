@@ -118,29 +118,81 @@ void main() {
   // Gate 8: banned legacy purple/violet hexes anywhere in lib.
   // Old palette: primary 5E6AD2, primaryVariant 4A55C0/4A4F9A, navy 2A2D4A,
   // near-black 1A1A2E, Material default violet 6750A4. Warm Pop = Marigold.
+  test('gate 8 helper detects both banned hexes and Colors.purple variants',
+      () {
+    expect(bannedPaletteHits('fixture.dart', 'child: const Color(0xFF5E6AD2)'),
+        isNotEmpty, reason: 'hex must be caught');
+    expect(bannedPaletteHits('fixture.dart', 'color: Colors.purple'),
+        isNotEmpty, reason: 'Colors.purple must be caught');
+    expect(bannedPaletteHits('fixture.dart', 'color: Colors.Violet'),
+        isNotEmpty, reason: 'case variants must be caught');
+    expect(bannedPaletteHits('fixture.dart', 'color: Colors.grey'),
+        isEmpty, reason: 'non-banned color must pass');
+  });
+
   test('no banned purple/violet hexes anywhere in lib', () {
-    const banned = [
-      '5E6AD2', // old primary (periwinkle)
-      '4A4F9A', // old purple dark-mode reply bg
-      '4A55C0', // old primaryVariant / light reply bg
-      '2A2D4A', // old dark received reply bg
-      '1A1A2E', // near-black navy
-      '6750A4', // Material 3 default purple
-      'EEF0FB', // old primaryLight
-    ];
     final hits = <String>[];
     for (final f in Directory('lib')
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.dart'))) {
-      final src = f.readAsStringSync().toUpperCase();
-      for (final hex in banned) {
-        if (src.contains(hex)) hits.add('${f.path}: $hex');
-      }
-      if (RegExp(r'Colors\.(purple|violet|indigo)').hasMatch(src)) {
-        hits.add('${f.path}: Colors.purple/violet/indigo');
-      }
+      hits.addAll(bannedPaletteHits(f.path, f.readAsStringSync()));
     }
     expect(hits, isEmpty, reason: 'banned purple palette leaks: $hits');
   });
+
+  // Gate 9: doc/voice bubbles render chrome directly on the Marigold sent
+  // bubble — raw Colors.white/grey there is 2.2:1 or worse. Must ride
+  // theme tokens (onAccent family on accent, ink family on surface).
+  test('doc + voice bubbles carry no raw white/grey chrome', () {
+    final files = [
+      'lib/features/chat/widgets/document_message_bubble.dart',
+      'lib/features/chat/widgets/voice_message_bubble.dart',
+    ];
+    for (final f in files) {
+      final src = File(f).readAsStringSync();
+      expect(RegExp(r'Colors\.(white|grey)').hasMatch(src), isFalse,
+          reason: '$f must use tokens (onAccent/ink), not raw white/grey');
+    }
+  });
+
+  // Gate 10: media screens are chrome (not photo scrims) — greys and
+  // translucent chrome whites must be tokens. Full-opacity Colors.white on
+  // black photo-scrim pills (tile play/duration overlays) is allowed;
+  // media_viewer_screen is fully exempt (chewie over dark video content).
+  test('media docs screen + expiry badge carry no raw grey/alpha-white chrome',
+      () {
+    final files = [
+      'lib/features/media/screens/media_docs_screen.dart',
+      'lib/features/media/widgets/expiry_badge.dart',
+    ];
+    for (final f in files) {
+      final src = File(f).readAsStringSync();
+      expect(RegExp(r'Colors\.grey|Colors\.white(38|54|60|70)').hasMatch(src),
+          isFalse, reason: '$f must use Warm Pop tokens');
+    }
+  });
+}
+
+const _bannedPurpleHexes = [
+  '5E6AD2', // old primary (periwinkle)
+  '4A4F9A', // old purple dark-mode reply bg
+  '4A55C0', // old primaryVariant / light reply bg
+  '2A2D4A', // old dark received reply bg
+  '1A1A2E', // near-black navy
+  '6750A4', // Material 3 default purple
+  'EEF0FB', // old primaryLight
+];
+
+List<String> bannedPaletteHits(String path, String src) {
+  final hits = <String>[];
+  final upper = src.toUpperCase();
+  for (final hex in _bannedPurpleHexes) {
+    if (upper.contains(hex)) hits.add('$path: $hex');
+  }
+  if (RegExp(r'colors\.(purple|violet|indigo)', caseSensitive: false)
+      .hasMatch(src)) {
+    hits.add('$path: Colors.purple/violet/indigo');
+  }
+  return hits;
 }

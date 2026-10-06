@@ -51,18 +51,18 @@ class ExpiredMediaPlaceholder extends StatelessWidget {
       width:  width,
       height: height,
       decoration: BoxDecoration(
-        color:        Colors.grey.shade300,
+        color:        context.t.surface2,
         borderRadius: BorderRadius.circular(18),
       ),
-      child: const Column(
+      child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize:      MainAxisSize.min,
         children: [
-          Icon(Icons.timer_off_outlined, color: Colors.grey, size: 28),
-          SizedBox(height: 6),
+          Icon(Icons.timer_off_outlined, color: context.t.inkSoft, size: 28),
+          const SizedBox(height: 6),
           Text(
             'Media expired',
-            style: TextStyle(color: Colors.grey, fontSize: 12),
+            style: TextStyle(color: context.t.inkSoft, fontSize: 12),
           ),
         ],
       ),

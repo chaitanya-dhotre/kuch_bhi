@@ -107,15 +107,15 @@ IconData _docIcon(String fileName) {
   };
 }
 
-Widget _emptyState(String label, IconData icon) => Center(
+Widget _emptyState(BuildContext context, String label, IconData icon) => Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 56, color: Colors.grey.shade400),
+          Icon(icon, size: 56, color: context.t.inkFaint),
           const SizedBox(height: 12),
           Text(
             label,
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+            style: TextStyle(color: context.t.inkSoft, fontSize: 15),
           ),
         ],
       ),
@@ -145,17 +145,17 @@ class _MediaGridTile extends ConsumerWidget {
   final DateTime created;
   final String?  durationLabel;
 
-  Widget _placeholder() => Shimmer.fromColors(
-        baseColor:      Colors.grey.shade300,
-        highlightColor: Colors.grey.shade100,
-        child: Container(color: Colors.grey.shade300),
+  Widget _placeholder(BuildContext context) => Shimmer.fromColors(
+        baseColor:      context.t.line,
+        highlightColor: context.t.surface2,
+        child: Container(color: context.t.line),
       );
 
-  Widget _broken() => Container(
-        color: mediaType == 'video' ? Colors.grey.shade800 : Colors.grey.shade200,
+  Widget _broken(BuildContext context) => Container(
+        color: mediaType == 'video' ? context.t.ink : context.t.surface2,
         child: Icon(
           mediaType == 'video' ? Icons.videocam : Icons.broken_image,
-          color: mediaType == 'video' ? Colors.white38 : Colors.grey,
+          color: mediaType == 'video' ? context.t.inkFaint : context.t.inkSoft,
           size:  mediaType == 'video' ? 32 : 24,
         ),
       );
@@ -188,14 +188,14 @@ class _MediaGridTile extends ConsumerWidget {
     );
 
     final thumbWidget = thumbAsync.when(
-      loading: () => _placeholder(),
-      error:   (_, __) => _broken(),
+      loading: () => _placeholder(context),
+      error:   (_, __) => _broken(context),
       data: (media) => media == null
-          ? _broken()
+          ? _broken(context)
           : Image.file(
               media.file,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _broken(),
+              errorBuilder: (_, __, ___) => _broken(context),
             ),
     );
 
@@ -255,12 +255,12 @@ class _PhotosTab extends ConsumerWidget {
       error:   (e, _) => Center(child: Text('Error: $e')),
       data: (items) {
         if (items.isEmpty) {
-          return _emptyState('No photos yet', Icons.photo_outlined);
+          return _emptyState(context, 'No photos yet', Icons.photo_outlined);
         }
         final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
         final hiddenCount = items.length - visible.length;
         if (visible.isEmpty) {
-          return _emptyState('No photos yet', Icons.photo_outlined);
+          return _emptyState(context, 'No photos yet', Icons.photo_outlined);
         }
         return Column(
           children: [
@@ -269,7 +269,7 @@ class _PhotosTab extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
@@ -320,12 +320,12 @@ class _VideosTab extends ConsumerWidget {
       error:   (e, _) => Center(child: Text('Error: $e')),
       data: (items) {
         if (items.isEmpty) {
-          return _emptyState('No videos yet', Icons.videocam_outlined);
+          return _emptyState(context, 'No videos yet', Icons.videocam_outlined);
         }
         final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
         final hiddenCount = items.length - visible.length;
         if (visible.isEmpty) {
-          return _emptyState('No videos yet', Icons.videocam_outlined);
+          return _emptyState(context, 'No videos yet', Icons.videocam_outlined);
         }
         return Column(
           children: [
@@ -334,7 +334,7 @@ class _VideosTab extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
@@ -388,12 +388,12 @@ class _VoiceTab extends ConsumerWidget {
       error:   (e, _) => Center(child: Text('Error: $e')),
       data: (items) {
         if (items.isEmpty) {
-          return _emptyState('No voice messages yet', Icons.mic_none_outlined);
+          return _emptyState(context, 'No voice messages yet', Icons.mic_none_outlined);
         }
         final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
         final hiddenCount = items.length - visible.length;
         if (visible.isEmpty) {
-          return _emptyState('No voice messages yet', Icons.mic_none_outlined);
+          return _emptyState(context, 'No voice messages yet', Icons.mic_none_outlined);
         }
         return Column(
           children: [
@@ -402,7 +402,7 @@ class _VoiceTab extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
@@ -545,7 +545,7 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
             const SizedBox(height: 16),
             LinearProgressIndicator(
               value:           progress,
-              backgroundColor: Colors.grey.shade300,
+              backgroundColor: context.t.surface2,
               valueColor:      AlwaysStoppedAnimation(context.t.accent),
               minHeight:       4,
             ),
@@ -594,12 +594,12 @@ class _DocsTab extends ConsumerWidget {
       error:   (e, _) => Center(child: Text('Error: $e')),
       data: (items) {
         if (items.isEmpty) {
-          return _emptyState('No documents yet', Icons.folder_open_outlined);
+          return _emptyState(context, 'No documents yet', Icons.folder_open_outlined);
         }
         final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
         final hiddenCount = items.length - visible.length;
         if (visible.isEmpty) {
-          return _emptyState('No documents yet', Icons.folder_open_outlined);
+          return _emptyState(context, 'No documents yet', Icons.folder_open_outlined);
         }
         return Column(
           children: [
@@ -608,7 +608,7 @@ class _DocsTab extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
