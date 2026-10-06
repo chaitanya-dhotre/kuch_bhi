@@ -47,6 +47,12 @@ no UI redesign (chat/home restructure is separate queued work); no new features.
   in-memory decrypt cache, cursors. Decrypted in-memory body cache **also cleared on
   app backgrounding** (cheap, consistent with this model).
 - **Encryption at rest for media cache** → `docs/backlog.md` (not planned now).
+- **Notification content (accepted residual risk, explicit):** whatever text the app
+  hands the OS notification API can persist in the **system notification shade /
+  history** — outside app control. Accepted alongside the media risk: notifications
+  carry message text; users govern preview visibility via OS-level settings.
+  (Rejected alternative: generic "New message" + sender-only — still PII in the OS
+  store, loses product value for half-privacy.)
 - Keys remain in secure storage (unchanged).
 
 ## 4. Architecture — disjoint single-writer domains
@@ -351,3 +357,21 @@ None blocking. Deferred to the implementation plan: exact placeholder widget
 styling, fake-repo seeding content, seq allocation mechanics (Drift-side monotonic
 per conversation), schema-migration mechanics (drop `decrypted_body`, add
 `decrypt_state`/`key_id`), search scan budgets.
+
+## 19. Notes carried into the implementation plan (non-blocking, user 2026-10-07)
+
+1. **Decrypt-on-query guardrails:** debounce queries; **cancellable decrypt batches**
+   (typing a new character aborts the in-flight scan); metadata preflight FIRST
+   (conversation/date-range/sender) to shrink the candidate set; results stay
+   **ephemeral — never written to the shared body memcache** (else search quietly
+   rebuilds a plaintext cache).
+2. **messageBodyProvider:** coalesce per-bubble lazy requests into **small batch
+   decrypts** (fast scroll / post-resume must not fire one decrypt per row). A
+   decrypt-time bad MAC on the lazy path **writes `failed` back to the DB — terminal,
+   never retried** (same rule as batch path).
+3. **Isolate transport epoch guard:** main-side apply step re-checks the
+   session-epoch; results arriving after logout/account-switch are **dropped, not
+   applied**. Add to the DecryptPass test list.
+4. **Phase 0 addition:** confirm the collection's **create rule actually permits a
+   client-supplied id** — id-field settings alone don't prove it.
+5. **Notification residual risk** documented in §3 (accepted).
