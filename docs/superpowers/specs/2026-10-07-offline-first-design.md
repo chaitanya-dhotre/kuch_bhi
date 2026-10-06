@@ -274,11 +274,18 @@ cannot drift.
 ## 12. Network import gate (LAST — guard 4)
 
 - Enabled only after Phase 5 moves all screen-level HTTP behind repos.
-- Rule: **zero network imports outside `lib/infrastructure/`** covering:
-  `package:http`, `Dio`, `dart:io HttpClient`, `dart:io WebSocket`,
-  `web_socket_channel`, `firebase_*` / FCM, and any other SDK performing network I/O.
-  (Future robustness: `import_lint`/`dart_code_linter` — `docs/backlog.md` §0b, not
-  planned.)
+- Rule: **zero network SDK imports outside the sanctioned integration paths** —
+  `lib/infrastructure/` (ingest/outbox/blobs/services), `lib/services/`
+  (fcm/presence/encryption/upload integrations), `lib/core/network/` (the PB
+  client), and bootstrap `lib/main.dart` + `lib/firebase_options.dart`.
+  Everything else — features, data, domain, core (except network) — stays clean.
+  Covered SDKs: `package:http`, `Dio`, `package:pocketbase/`, `dart:io`
+  `HttpClient`/`WebSocket`/`Socket`, `web_socket_channel`, `firebase_*`/FCM,
+  `connectivity_plus`, any other SDK performing network I/O.
+  (Carve-outs added 2026-10-07 after plan-phase discovery of `lib/services`
+  integrations + bootstrap init — enforcement target is the UI/data/domain layer,
+  which is where bypasses actually bite. Future robustness:
+  `import_lint`/`dart_code_linter` — `docs/backlog.md` §0b, not planned.)
 - Two-gate rule from §4 is independent: writer-domain violations are code-review +
   architecture tests, not this import gate.
 
