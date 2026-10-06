@@ -38,7 +38,9 @@ no UI redesign (chat/home restructure is separate queued work); no new features.
 
 - **Message bodies:** no plaintext at rest. `decrypted_body` column is **dropped**;
   bodies decrypt on read into an **in-memory session cache** (see §8). DB stores
-  ciphertext + `decrypt_state` + `key_id` only.
+  ciphertext + `decrypt_state` + `key_id` only. **No other plaintext body store
+  exists anywhere**: no FTS/search index table, no persisted notification text
+  (search and notification policies in §5.1).
 - **Media files (accepted residual risk, explicit):** decrypted media lives in the
   **app-private directory ONLY** — never shared storage, never the gallery. Covered by
   logout wipe (§11). Also wiped on logout: outbox rows, blob rows, temp files,
@@ -79,21 +81,41 @@ UI never performs network I/O in render paths. Commands go to repos; repos enque
 ## 5. Data model
 
 ### 5.1 `messages` (modified)
-- `encrypted_body`, `iv` — unchanged (always written; commit never waits for keys).
-- `decrypt_state ∈ {pending, ready, key_missing, failed}` — `failed` is **terminal**
-  (corrupt/tampered ciphertext must not retry forever).
+- `encrypted_body`, `iv` — always written; commit never waits for keys. **Enqueue
+  encrypts inside the same Drift transaction** as the outbox row (§5.2) — neither the
+  message row nor the outbox ever holds plaintext.
+- `decrypt_state ∈ {pending, ready, key_missing, failed}`:
+  - `pending` — committed, decrypt not yet attempted.
+  - `key_missing` — attempted, key unavailable; retried on key-arrival events.
+  - `ready` — **"decryptable"**: `key_id` resolves, so a body read WILL succeed.
+    It does **not** mean plaintext is resident — plaintext exists only in the
+    in-memory body cache, which may be empty (e.g. after backgrounding).
+  - `failed` — **terminal**: correct key yet ciphertext is corrupt/tampered; never
+    retried.
 - `key_id` (text) — key/epoch reference so DecryptPass knows which key to await after
   rotation.
 - **DROP** `decrypted_body` column (migration in Phase 4).
-- `server_id` = client-generated uuid once custom-ID is live (§16); display `status`
-  unchanged, but **only IngestBoundary and OutboxWorker may mutate it, in the same
-  transaction as the matching `outbox.state` change** (dual-truth rule).
-- **Own sent messages are never placeholders:** at enqueue, body is set from local
-  input, `decrypt_state = ready`.
-- FTS/search index covers `decrypt_state = ready` rows only.
+- `server_id` = client-generated op id once custom-ID is live (§16, 15-char lowercase
+  alnum); display `status` unchanged, but **only IngestBoundary and OutboxWorker may
+  mutate it, in the same transaction as the matching `outbox.state` change**
+  (dual-truth rule).
+- **Body access — `messageBodyProvider(messageId)` is the single read path.** Cache
+  hit → text; miss → schedules decrypt (§8) → provider notifies on completion →
+  bubble rebuilds. The Drift stream carries row existence; the provider carries body
+  arrival — no reliance on stream re-emission to fill cached-out bodies.
+- **Own sent messages are never placeholders:** at enqueue the body is encrypted,
+  `decrypt_state = ready`, and the main isolate immediately decrypts it into the
+  body cache (bubble shows without any async gap).
+- **Search: no persistent index of any kind** (neither FTS table nor stored tokens —
+  both would be plaintext at rest). Search = **decrypt-on-query**: metadata prefilter
+  over the requested scope → batch-decrypt candidates → match → ephemeral results,
+  run inside the DecryptPass machinery, never storing plaintext. Scan budgets and
+  scopes (per-conversation first) are plan-level.
+- **Notifications:** decrypted text may be rendered transiently but **never
+  persisted** — no notification-history store at rest.
 
 ### 5.2 `outbox` (new — Drift table IS the queue; survives kill)
-Columns: `op_id (PK, client uuid)` · `kind ∈ {text_send, media_upload, reaction, pin,
+Columns: `op_id` (PK — client-generated, 15-char lowercase a-z0-9) · `kind ∈ {text_send, media_upload, reaction, pin,
 star, delete, …}` · `ref` (local message/blob id) · `conversation_id` · `seq`
 (monotonic per conversation) · `state ∈ {queued, sending, sent, failed_terminal}` ·
 `attempts` · `next_attempt_at` (transient failures — 429/5xx/timeout — stay
@@ -102,14 +124,28 @@ state, so "waiting" and "needs user action" can never be confused) · `created_a
 `last_error` + `error_class` · `depends_on` (op_id of a prerequisite op, e.g.
 `message_send` → its `media_upload`).
 
-**Idempotency (core):** `op_id` is client-generated and becomes the PocketBase record
-`id` on create (§16). The boundary upserts by that id; a duplicate-id error on retry
-**counts as success**. The three delivery paths — drain-ack, SSE echo of own message,
-timeout-retry after a server-received-but-ack-lost — converge on the same id, so no
-duplicate bubbles.
+**Idempotency (core):** `op_id` is client-generated — **15 random lowercase
+alphanumeric characters** (PocketBase's id alphabet `[a-z0-9]`, length 15; a
+hyphenated UUID would be rejected) — and becomes the PocketBase record `id` on create
+(§16). The boundary upserts by that id. On a duplicate-id error the boundary
+**fetches the existing record and verifies it is ours (`sender_id` matches the
+session, `conversation_id` matches the op) before counting it success** — a foreign
+record at that id is a terminal error, never a silent ack. The three delivery paths —
+drain-ack, SSE echo of own message, timeout-retry after a server-received-but-ack-lost
+— converge on the same id, so no duplicate bubbles.
 
-**Enqueue atomicity:** message/blob row + outbox row written in **one Drift
-transaction**. A kill between them is impossible by construction.
+**Idempotency per kind** (not all kinds are creates):
+
+| Kind class | Members | Rule |
+|---|---|---|
+| Create | `text_send`, `media_upload`, reaction (create) | client id → duplicate-id + ownership check = success |
+| Update | `star`, `pin`, `edit` | re-apply is naturally idempotent (same payload → same end state); ack = success regardless of prior state |
+| Delete | `delete` | delete-by-id; **404/already-gone on retry = success** |
+
+**Enqueue atomicity:** message/blob row + outbox row **and the body encryption**
+happen in **one Drift transaction** on the main isolate — the outbox payload stores
+only ciphertext/refs, never plaintext. A kill between them is impossible by
+construction.
 
 **Two-step outgoing media:** `media_upload` op runs first; its dependent `message_send`
 (`depends_on`) drains only after the upload op reaches `sent`. Discarding a terminal
@@ -146,7 +182,7 @@ cannot drift.
 
 ## 7. IngestBoundary rules
 
-- Sole entry for record data from network (§4). Sources tagged `sse | fetch |
+- Sole entry for record data from network (§4). Sources tagged `sse`, `fetch`,
   `drain-ack`.
 - **One transaction per batch:** upsert rows (by server/op id) + advance the
   per-conversation sync cursor + mutate matching `outbox.state`/`messages.status` —
@@ -161,33 +197,49 @@ cannot drift.
 
 ## 8. DecryptPass
 
-- Triggered: after each boundary commit and on key-arrival events (reuses the
-  existing `groupKeyReadyProvider` signal).
-- **Batched, off the UI isolate** (compute/worker isolate) so a large catch-up sync
-  cannot jank the screen.
-- Loads ciphertext rows where `decrypt_state ∈ {pending, key_missing}`, resolves key
-  via `key_id`, writes result: `ready` (+ decrypted plaintext goes to the **in-memory
-  cache only**), `failed` (terminal — bad MAC/parse), or stays `key_missing`.
+- Triggered: after each boundary commit, on key-arrival events (reuses the existing
+  `groupKeyReadyProvider` signal), and lazily per body via `messageBodyProvider`.
+- **Isolate model (isolates share no memory — stated explicitly):**
+  - **Key material is resolved on the main isolate** (the secure-storage plugin
+    lives there) and passed with each batch job.
+  - **Crypto runs in a worker isolate** (heavy loop); each job returns
+    `(messageId, plaintext, newState)` tuples **back over a SendPort**.
+  - **The main isolate applies every result**: DB state writes + body-cache
+    population + provider notification. The worker never touches Drift or the cache.
+  - Small batches (≤50 rows) decrypt directly on the main isolate — avoids hop
+    overhead for the common interactive case.
+- Loads ciphertext rows where `decrypt_state ∈ {pending, key_missing}`; result:
+  `ready` (decryptable — plaintext handed to the main-side cache when produced),
+  `failed` (terminal — bad MAC/parse with the correct key), or stays `key_missing`.
 - On rotation, `key_id` mismatch rows are re-queued for the new key; `failed` never
   retries.
 - **Placeholder law (same as media):** any consumer of a body must handle
-  `decrypt_state != ready` — chat bubbles, **conversation-list previews,
-  notifications, and search** render placeholders (skeleton line + 🔒 hint), never
-  blanks, never spinner-blocks. Search/FTS indexes `ready` rows only.
+  "decryptable but not yet resident" via `messageBodyProvider` — chat bubbles,
+  conversation-list previews, notifications, and search render placeholders
+  (skeleton line + 🔒 hint) until the provider emits, never blanks, never
+  spinner-blocks. Search decrypts on query (§5.1) — no index to keep in sync.
 - Memcache eviction: LRU by message id, bounded; cleared on backgrounding and
-  logout (§3, §11).
+  logout (§3, §11). A cleared cache is safe: `ready` rows re-decrypt on next
+  provider read.
 
 ## 9. MediaBlobStore
 
 - Sole writer of blob rows + files (§4).
+- **Single entry point: `requestBlob(blobId, reason)`** — every consumer (bubbles,
+  viewer, docs grid, future auto-download policies) calls this and nothing else
+  touches the store. State check inside → download/restore/enqueue as needed.
+  Future add-ons (B: auto-fetch recent, C: starred-always-offline) are policy layers
+  that call the same entry — they require no new plumbing.
 - **States:** `queued → downloading → ready`; offline stays **`queued`** (auto-resume
-  on reconnect — failed ≠ offline); `failed` only for dead URL/expired/verify-mismatch;
-  `evicted` = bytes dropped, metadata retained (bubble re-renders placeholder, can
-  re-download).
-- **Startup janitor:** stale `downloading` rows → `queued`; orphan temp files deleted.
-  Same treatment for stale `sending` lives in §6.
-- **Download verify:** size/hash check before `ready`; mismatch → `failed(error_class:
-  verify)`.
+  on reconnect — failed ≠ offline); `evicted` = bytes dropped, metadata retained
+  (bubble re-renders placeholder, can re-download).
+- **`downloading` covers the full in-flight pipeline: download → size/hash verify →
+  decrypt.** `ready` means **downloaded, verified, decrypted, and on disk in the
+  app-private directory** — i.e. ready = playable/viewable, matching §3.
+- **`failed` carries `error_class`**: `dead_link`/`expired`/`verify`/`decrypt` —
+  only these are terminal; offline never produces them.
+- **Startup janitor:** stale `downloading` rows → `queued`; orphan temp files
+  deleted. Stale `sending` treatment lives in §6.
 - **Eviction:** config constant `kMediaCacheMaxBytes = 300 * 1024 * 1024` (tunable via
   one constant). Trigger deferred: on app start + when watermark (85%) crossed —
   **never on the write/send path**. Eviction order = LRU over `last_access`, skipping
@@ -252,19 +304,31 @@ commits; no mid-refactor broken states)
 | Phase | Content | Risk note |
 |---|---|---|
 | **0** | §16 custom-ID verification + characterization tests (incl. read paths) | gate for everything else |
-| **1** | Outbox FSM + enqueue transaction + client-id sends | data-loss risk first (guard 1) |
+| **1** | Outbox FSM + enqueue transaction + client-id sends | data-loss risk first (guard 1); interim thin ack handler (below) |
 | **2** | MediaBlobStore FSM + startup janitor + deferred eviction | |
-| **3** | IngestBoundary extraction (sse/fetch/drain-ack → one entry; cursor+tombstone txn) | behavior-preserving cut |
-| **4** | Cache-policy flip: always-commit ciphertext, `decrypt_state`, DecryptPass, drop `decrypted_body`, placeholder UI | riskier than it looks — Phase 0 read-path tests are the safety net |
+| **3** | IngestBoundary extraction (sse/fetch/drain-ack → one entry; cursor+tombstone txn) | behavior-preserving cut; absorbs Phase 1's interim ack handler |
+| **4** | Cache-policy flip: always-commit ciphertext, `decrypt_state`, DecryptPass, drop `decrypted_body`, `messageBodyProvider`, placeholder UI | riskier than it looks — Phase 0 read-path tests are the safety net |
 | **5** | Screen HTTP → repos (profile upload, group create, link preview) | |
 | **6** | Import gate ON + offline matrix (§14) | gate last (guard 4) |
+
+**Interim paths (stated so no phase is blocked):** Phases 1–3 run on the **current
+schema** (`decrypted_body` still present) — they are behavior-preserving; only Phase 4
+migrates the schema. Phase 1's drain-ack applies updates through a **thin ack handler
+inside OutboxWorker that follows the same transaction rules and is explicitly marked
+interim — Phase 3 replaces it with the real boundary**. The own-message `ready` rule
+is enforced for real in Phase 4; before that, own-message display uses the existing
+`decrypted_body` (which Phase 4 removes).
 
 ## 16. Phase 0 — custom-ID verification + fallback (decided now)
 
 **Plan A (primary):** PocketBase accepts client-supplied record ids on create. Verify
-against our `messages` collection with one authenticated, read-only inspection of
-collection settings + one test create in a throwaway dev record (no superuser, no
-password-file access — if a write test needs elevated rights, stop and ask the user).
+against our `messages` collection: (a) **collection id-field settings** for the
+PocketBase version in use (0.37.5) — custom-id support and any per-collection toggle;
+(b) one authenticated, read-only inspection of collection settings; (c) one test
+create in a throwaway dev record using a **15-char `[a-z0-9]` id** (PB's id alphabet
+and length — hyphenated UUIDs are invalid), plus a duplicate-id retry asserting the
+ownership check of §5.2. No superuser, no password-file access — if a write test needs
+elevated rights, stop and ask the user.
 Implementation: include `id: op_id` in every create body.
 
 **Plan B (fallback, if collection rules reject custom ids):** **client dedupe key
@@ -285,4 +349,5 @@ changes · FCM fixes · chat/home UI restructure · consistency sweep (end-game)
 
 None blocking. Deferred to the implementation plan: exact placeholder widget
 styling, fake-repo seeding content, seq allocation mechanics (Drift-side monotonic
-per conversation), FTS table migration details.
+per conversation), schema-migration mechanics (drop `decrypted_body`, add
+`decrypt_state`/`key_id`), search scan budgets.
