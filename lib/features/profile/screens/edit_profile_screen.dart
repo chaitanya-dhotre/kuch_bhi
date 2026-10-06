@@ -5,8 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/network/pocketbase_client.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -87,7 +87,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(
             content: Text(e.toString()),
-            backgroundColor: AppColors.error,
+            backgroundColor: context.t.error,
             behavior: SnackBarBehavior.floating,
           ));
       }
@@ -132,17 +132,17 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     children: [
                       CircleAvatar(
                         radius: 48,
-                        backgroundColor: AppColors.primaryLight,
+                        backgroundColor: context.t.accentSoft,
                         backgroundImage: _pickedImage != null
                             ? FileImage(_pickedImage!)
                             : null,
                         child: _pickedImage == null
                             ? Text(
                                 initial,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 36,
                                   fontWeight: FontWeight.w700,
-                                  color: AppColors.primary,
+                                  color: context.t.accent,
                                 ),
                               )
                             : null,
@@ -152,14 +152,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         right: 0,
                         child: Container(
                           padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
+                          decoration: BoxDecoration(
+                            color: context.t.accent,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.camera_alt_outlined,
                             size: 16,
-                            color: Colors.white,
+                            color: context.t.onAccent,
                           ),
                         ),
                       ),

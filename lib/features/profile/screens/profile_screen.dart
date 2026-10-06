@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -32,9 +32,9 @@ class ProfileScreen extends ConsumerWidget {
           TextButton(
             onPressed: () =>
                 ref.read(authProvider.notifier).signOut(),
-            child: const Text(
+            child: Text(
               'Sign Out',
-              style: TextStyle(color: AppColors.error),
+              style: TextStyle(color: context.t.error),
             ),
           ),
         ],
@@ -49,13 +49,13 @@ class ProfileScreen extends ConsumerWidget {
             // Avatar.
             CircleAvatar(
               radius: 48,
-              backgroundColor: AppColors.primaryLight,
+              backgroundColor: context.t.accentSoft,
               child: Text(
                 user.displayName.substring(0, 1).toUpperCase(),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 36,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
+                  color: context.t.accent,
                 ),
               ),
             ),
@@ -84,16 +84,16 @@ class ProfileScreen extends ConsumerWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.primaryLight,
+                color: context.t.accentSoft,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Column(
                 children: [
-                  const Text(
+                  Text(
                     'Your Friend Code',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
+                      color: context.t.accent,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -102,11 +102,11 @@ class ProfileScreen extends ConsumerWidget {
                     children: [
                       Text(
                         user.friendCode,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 6,
-                          color: AppColors.primary,
+                          color: context.t.accent,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -122,9 +122,9 @@ class ProfileScreen extends ConsumerWidget {
                             ),
                           );
                         },
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.copy_outlined,
-                          color: AppColors.primary,
+                          color: context.t.accent,
                         ),
                       ),
                     ],
@@ -133,28 +133,35 @@ class ProfileScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
+            // Tonal secondary per approved Batch 2 mockup (AppButton
+            // .secondary is an outline style; tonal variant deferred).
             ElevatedButton.icon(
               onPressed: () => context.push(AppRoutes.backupPinChange),
               icon: const Icon(Icons.lock_reset_outlined),
               label: const Text('Change Backup PIN'),
               style: ElevatedButton.styleFrom(
+                backgroundColor: context.t.accentSoft,
+                foregroundColor: context.t.accent,
+                elevation: 0,
                 minimumSize: const Size.fromHeight(50),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
                 ),
               ),
             ),
             const SizedBox(height: 24),
 
             // QR code.
+            // QR card stays white in both themes so the code scans and the
+            // caption reads: fixed tokens, never theme-flipped ink on white.
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: WarmPopTokens.surface,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
+                    color: WarmPopTokens.ink.withValues(alpha: 0.06),
                     blurRadius: 20,
                     offset: const Offset(0, 4),
                   ),
@@ -168,22 +175,19 @@ class ProfileScreen extends ConsumerWidget {
                     size: 200,
                     eyeStyle: const QrEyeStyle(
                       eyeShape: QrEyeShape.square,
-                      color: AppColors.primary,
+                      color: WarmPopTokens.accent,
                     ),
                     dataModuleStyle: const QrDataModuleStyle(
                       dataModuleShape: QrDataModuleShape.square,
-                      color: Color(0xFF1A1A2E),
+                      color: WarmPopTokens.ink,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
+                  const Text(
                     'Share this QR code to add friends',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.4),
+                      color: WarmPopTokens.inkSoft,
                     ),
                   ),
                 ],

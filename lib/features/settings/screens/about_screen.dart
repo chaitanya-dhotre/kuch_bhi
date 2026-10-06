@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -26,11 +26,11 @@ class AboutScreen extends StatelessWidget {
                     width: 88,
                     height: 88,
                     decoration: BoxDecoration(
-                      color: AppColors.primary,
+                      color: context.t.accent,
                       borderRadius: BorderRadius.circular(22),
                     ),
-                    child: const Icon(Icons.lock_outline,
-                        color: Colors.white, size: 44),
+                    child: Icon(Icons.lock_outline,
+                        color: context.t.onAccent, size: 44),
                   ),
                   const SizedBox(height: 16),
                   Text(

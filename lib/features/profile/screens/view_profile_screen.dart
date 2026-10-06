@@ -2,7 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../domain/entities/user.dart';
 
 class ViewProfileScreen extends StatelessWidget {
@@ -22,17 +22,17 @@ class ViewProfileScreen extends StatelessWidget {
             const SizedBox(height: 16),
             CircleAvatar(
               radius: 48,
-              backgroundColor: AppColors.primaryLight,
+              backgroundColor: context.t.accentSoft,
               backgroundImage: user.avatarUrl != null
                   ? CachedNetworkImageProvider(user.avatarUrl!)
                   : null,
               child: user.avatarUrl == null
                   ? Text(
                       user.displayName.substring(0, 1).toUpperCase(),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 36,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                        color: context.t.accent,
                       ),
                     )
                   : null,
@@ -47,7 +47,8 @@ class ViewProfileScreen extends StatelessWidget {
                   margin: const EdgeInsets.only(right: 8),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: user.isOnline ? AppColors.success : Colors.grey,
+                    color:
+                        user.isOnline ? context.t.success : context.t.inkFaint,
                   ),
                 ),
                 Text(
@@ -86,16 +87,16 @@ class ViewProfileScreen extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.primaryLight,
+                color: context.t.accentSoft,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Column(
                 children: [
-                  const Text(
+                  Text(
                     'Friend Code',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
+                      color: context.t.accent,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -104,11 +105,11 @@ class ViewProfileScreen extends StatelessWidget {
                     children: [
                       Text(
                         user.friendCode,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 6,
-                          color: AppColors.primary,
+                          color: context.t.accent,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -124,9 +125,9 @@ class ViewProfileScreen extends StatelessWidget {
                             ),
                           );
                         },
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.copy_outlined,
-                          color: AppColors.primary,
+                          color: context.t.accent,
                         ),
                       ),
                     ],
