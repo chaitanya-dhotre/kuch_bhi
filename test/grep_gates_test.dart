@@ -33,6 +33,24 @@ void main() {
     }
   });
 
+  test('auth screens carry no AppColors / Color(0x / Colors.', () {
+    final files = [
+      'lib/features/auth/screens/login_screen.dart',
+      'lib/features/auth/screens/register_screen.dart',
+      'lib/features/auth/screens/google_onboarding_screen.dart',
+      'lib/features/auth/screens/forgot_password_screen.dart',
+      'lib/features/auth/screens/backup_pin_screen.dart',
+    ];
+    for (final f in files) {
+      final src = File(f).readAsStringSync();
+      expect(src.contains('AppColors'), isFalse, reason: f);
+      expect(src.contains('Color(0x'), isFalse, reason: f);
+      expect(RegExp(r'Colors\.(purple|indigo|white|black)').hasMatch(src),
+          isFalse, reason: f);
+      expect(RegExp(r'5E6AD2|EEF0FB').hasMatch(src), isFalse, reason: f);
+    }
+  });
+
   test('chat screen + widgets carry no AppColors / purple / indigo', () {
     final files = Directory('lib/features/chat')
         .listSync(recursive: true)
@@ -47,6 +65,23 @@ void main() {
           reason: f.path);
       expect(RegExp(r'5E6AD2|1E2030|EEF0FB').hasMatch(src), isFalse,
           reason: f.path);
+    }
+  });
+
+  test('google sign-in button renders 4-color SVG asset, not a blue text G',
+      () {
+    final src =
+        File('lib/features/auth/widgets/google_sign_in_button.dart')
+            .readAsStringSync();
+    expect(src.contains('google_g.svg'), isTrue, reason: 'SVG asset required');
+    expect(src.contains('SvgPicture'), isTrue, reason: 'SVG widget required');
+    expect(src.contains('4285F4'), isFalse,
+        reason: 'single-blue text G replaced by official 4-color mark');
+    final asset = File('assets/icons/google_g.svg');
+    expect(asset.existsSync(), isTrue, reason: 'asset file must exist');
+    final svg = asset.readAsStringSync();
+    for (final hex in ['#EA4335', '#4285F4', '#FBBC05', '#34A853']) {
+      expect(svg.contains(hex), isTrue, reason: 'missing brand color $hex');
     }
   });
 }

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
 
@@ -92,7 +92,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ..hideCurrentSnackBar()
             ..showSnackBar(SnackBar(
               content: Text(state.message),
-              backgroundColor: AppColors.error,
+              backgroundColor: context.t.error,
               behavior: SnackBarBehavior.floating,
             ));
         }
@@ -250,18 +250,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   FilledButton(
                     onPressed: isLoading ? null : _submit,
                     style: FilledButton.styleFrom(
+                      backgroundColor: context.t.accent,
+                      foregroundColor: context.t.onAccent,
                       minimumSize: const Size.fromHeight(52),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
                     child: isLoading
-                        ? const SizedBox(
+                        ? SizedBox(
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: context.t.onAccent,
                             ),
                           )
                         : const Text(
@@ -292,7 +294,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         child: Text(
                           'Sign In',
                           style: TextStyle(
-                            color: AppColors.primary,
+                            color: context.t.accent,
                             fontWeight: FontWeight.w600,
                           ),
                         ),

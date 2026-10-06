@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/network/pocketbase_client.dart';
+import '../../../core/theme/tokens.dart';
 import '../widgets/auth_text_field.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
@@ -44,7 +44,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(
             content: Text(e.toString()),
-            backgroundColor: AppColors.error,
+            backgroundColor: context.t.error,
             behavior: SnackBarBehavior.floating,
           ));
       }
@@ -137,18 +137,20 @@ class _FormView extends StatelessWidget {
           FilledButton(
             onPressed: isLoading ? null : onSubmit,
             style: FilledButton.styleFrom(
+              backgroundColor: context.t.accent,
+              foregroundColor: context.t.onAccent,
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
             child: isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     height: 20,
                     width: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: context.t.onAccent,
                     ),
                   )
                 : const Text(
@@ -176,7 +178,7 @@ class _SuccessView extends StatelessWidget {
         Icon(
           Icons.mark_email_read_outlined,
           size: 64,
-          color: AppColors.primary,
+          color: context.t.accent,
         ),
         const SizedBox(height: 24),
         Text(
@@ -202,6 +204,8 @@ class _SuccessView extends StatelessWidget {
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),
           style: FilledButton.styleFrom(
+            backgroundColor: context.t.accent,
+            foregroundColor: context.t.onAccent,
             minimumSize: const Size.fromHeight(52),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),

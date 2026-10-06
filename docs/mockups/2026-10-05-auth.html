@@ -1,0 +1,254 @@
+<meta charset="utf-8">
+<title>Kuch Bhi Auth Screens</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+  /* Warm Pop mockup: tokens verbatim from design_tokens.json.
+     Page chrome = warm neutral board; each device frame is a
+     self-contained theme specimen (light Login, dark Register,
+     light Backup PIN). Clone of the approved boards. */
+  :root {
+    --bg: #FAF7F1; --surface: #FFFFFF; --surface2: #F1ECE3;
+    --ink: #2A2520; --inkSoft: #6E655A; --inkFaint: #9C9284;
+    --line: #E4DDD1; --accent: #EFA00B; --accentSoft: #FFF3DC;
+    --onAccent: #2A2520; --error: #C4402F;
+    --dark-bg: #171512; --dark-surface: #211E1A; --dark-surface2: #2B2823;
+    --dark-ink: #F3EDE3; --dark-inkSoft: #9C9284; --dark-line: #3B362F;
+    --dark-accentSoft: #3A2E14; --dark-onAccent: #21260F;
+    --m-body: #C6894F; --m-shade: #B27A42; --m-snout: #8B5E3E;
+    --m-nostril: #5C3B28; --m-face: #3A2E22;
+    --r-sm: 10px; --r-md: 16px; --r-lg: 20px; --r-xl: 24px;
+    --motion: 250ms;
+    --font: "Plus Jakarta Sans", ui-rounded, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font);
+    padding-inline: clamp(16px, 4vw, 40px);
+    padding-block: clamp(24px, 5vw, 48px) 64px;
+    margin: 0;
+  }
+  .wrap { max-width: 1060px; margin-inline: auto; display: flex; flex-direction: column; gap: 32px; }
+  h1 { font-size: clamp(24px, 4vw, 34px); font-weight: 800; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+  .lede { color: var(--inkSoft); max-width: 64ch; margin: 8px 0 0; line-height: 1.5; }
+  .cap { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--inkFaint); margin: 0 0 8px; }
+  h2 { font-size: 17px; font-weight: 700; margin: 0; }
+
+  .phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+  .phone { border-radius: var(--r-xl); padding: 18px 16px 20px; box-shadow: 0 12px 32px rgba(52,42,28,.10); border: 1px solid; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .phone.light { background: var(--bg); border-color: var(--line); color: var(--ink);
+    --p-surface: var(--surface); --p-surface2: var(--surface2); --p-inkSoft: var(--inkSoft); --p-inkFaint: var(--inkFaint); --p-line: var(--line); --p-accentSoft: var(--accentSoft); --p-onAccent: var(--onAccent); }
+  .phone.dark { background: var(--dark-bg); border-color: var(--dark-line); color: var(--dark-ink);
+    --p-surface: var(--dark-surface); --p-surface2: var(--dark-surface2); --p-inkSoft: var(--dark-inkSoft); --p-inkFaint: var(--dark-inkSoft); --p-line: var(--dark-line); --p-accentSoft: var(--dark-accentSoft); --p-onAccent: var(--dark-onAccent); color-scheme: dark; }
+  .plabel { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--p-inkFaint); }
+  .ptitle { font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin-top: -6px; }
+
+  /* Auth shared */
+  .hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding-top: 4px; }
+  .hero .hl { font-size: 22px; font-weight: 800; letter-spacing: -.02em; margin-top: 6px; }
+  .hero .hs { font-size: 13.5px; color: var(--p-inkSoft); }
+  .field { background: var(--p-surface); border: 1.5px solid var(--p-line); border-radius: 12px; padding: 9px 14px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .field .fl { font-size: 12.5px; font-weight: 600; color: var(--p-inkSoft); }
+  .field .fv { font-size: 14.5px; min-height: 19px; }
+  .field .fv.ph { color: var(--p-inkFaint); }
+  .field .fh { font-size: 12.5px; color: var(--p-inkFaint); margin-top: 1px; }
+  .field.foc { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .field .eye { position: absolute; right: 12px; color: var(--p-inkFaint); font-size: 14px; }
+  .field.hasEye { position: relative; padding-right: 40px; }
+  .btn1 { width: 100%; min-height: 50px; border-radius: 14px; background: var(--accent); color: var(--p-onAccent); border: none; font-family: var(--font); font-size: 15.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+  .btn1[disabled] { opacity: .45; }
+  .linkrow { display: flex; justify-content: space-between; align-items: center; margin-top: -4px; }
+  .link { color: var(--accent); font-size: 13.5px; font-weight: 700; background: none; border: none; font-family: var(--font); padding: 6px 2px; cursor: pointer; }
+  .link.faint { color: var(--p-inkFaint); }
+  .or { display: flex; align-items: center; gap: 12px; color: var(--p-inkFaint); font-size: 12.5px; }
+  .or::before, .or::after { content: ""; height: 1px; background: var(--p-line); flex: 1; }
+  .btnG { width: 100%; min-height: 50px; border-radius: 14px; background: var(--p-surface); color: var(--ink); border: 1.5px solid var(--p-line); font-family: var(--font); font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; }
+  .phone.dark .btnG { color: var(--dark-ink); }
+  .foot { display: flex; justify-content: center; gap: 5px; font-size: 13.5px; color: var(--p-inkSoft); margin-top: 2px; }
+
+  /* Backup PIN */
+  .pintile { width: 64px; height: 64px; border-radius: 18px; background: var(--accent); color: var(--p-onAccent); display: grid; place-items: center; margin-inline: auto; }
+  .pincard { background: var(--p-surface2); border: 1px solid var(--p-line); border-radius: var(--r-lg); padding: 18px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .pincard .pl { font-size: 12px; font-weight: 700; color: var(--p-inkSoft); }
+  .pinrow { display: flex; justify-content: space-between; gap: 6px; }
+  .pin { width: 40px; height: 48px; border-radius: 12px; background: var(--p-surface); border: 1.5px solid var(--p-line); display: grid; place-items: center; font-size: 20px; font-weight: 800; }
+  .pin.on { border-color: var(--accent); }
+  .pin .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+  .phone.dark .pin .dot { background: var(--dark-ink); }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .spec { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .spec .st { font-size: 12.5px; font-weight: 700; color: var(--inkFaint); text-transform: uppercase; letter-spacing: .1em; }
+  .spec p { margin: 0; font-size: 13.5px; color: var(--inkSoft); line-height: 1.5; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="cap">W3 Phase B &middot; approval mockup</p>
+    <h1>Kuch Bhi: Auth screens</h1>
+    <p class="lede">Batch 3 on Warm Pop tokens, cloned from the approved boards. Marigold
+    replaces indigo on every primary button and link, inputs sit on warm surface with a
+    line border, and the login logo becomes the Capybara mascot slot. Frames: light Login,
+    dark Register, light Backup PIN. Auth logic and providers stay untouched, this batch is
+    palette and chrome only.</p>
+  </header>
+
+  <div class="phones">
+    <!-- LIGHT · LOGIN -->
+    <div class="phone light">
+      <span class="plabel">Light &middot; Login</span>
+      <div class="hero">
+        <svg width="92" height="83" viewBox="0 0 200 180" aria-label="Capybara waiting">
+          <circle cx="80" cy="52" r="12.5" fill="var(--m-body)"/>
+          <circle cx="150" cy="58" r="11" fill="var(--m-body)"/>
+          <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--m-body)"/>
+          <rect x="52" y="126" width="28" height="24" rx="12" fill="var(--m-shade)"/>
+          <rect x="96" y="128" width="30" height="24" rx="12" fill="var(--m-shade)"/>
+          <rect x="138" y="126" width="24" height="24" rx="11" fill="var(--m-shade)"/>
+          <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--m-snout)"/>
+          <rect x="33" y="78" width="10" height="4.5" rx="2.25" transform="rotate(-20 38 80)" fill="var(--m-nostril)"/>
+          <rect x="49" y="75" width="10" height="4.5" rx="2.25" transform="rotate(14 54 77)" fill="var(--m-nostril)"/>
+          <path d="M35 114 q9 7 18 0" stroke="var(--m-nostril)" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <circle cx="88" cy="66" r="5.5" fill="var(--m-face)"/>
+          <circle cx="90.5" cy="63.5" r="2" fill="#FFFFFF"/>
+          <circle cx="122" cy="62" r="5.5" fill="var(--m-face)"/>
+          <circle cx="124.5" cy="59.5" r="2" fill="#FFFFFF"/>
+        </svg>
+        <span class="hl">Welcome back</span>
+        <span class="hs">Sign in to continue</span>
+      </div>
+      <div class="field">
+        <span class="fl">Email</span>
+        <span class="fv">chaitanya@example.com</span>
+      </div>
+      <div class="field foc hasEye">
+        <span class="fl">Password</span>
+        <span class="fv">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+        <span class="eye">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </span>
+      </div>
+      <button class="btn1">Sign In</button>
+      <div class="linkrow">
+        <span></span>
+        <button class="link">Forgot password?</button>
+      </div>
+      <div class="or">or</div>
+      <button class="btnG">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Continue with Google
+      </button>
+      <div class="foot">
+        <span>Don't have an account?</span>
+        <button class="link" style="font-size:13.5px;">Sign Up</button>
+      </div>
+    </div>
+
+    <!-- DARK · REGISTER -->
+    <div class="phone dark">
+      <span class="plabel">Dark &middot; Register</span>
+      <div class="hero">
+        <span class="hl">Create account</span>
+        <span class="hs">Join Kuch Bhi</span>
+      </div>
+      <div class="field">
+        <span class="fl">Display Name</span>
+        <span class="fv">Pixel Chait</span>
+      </div>
+      <div class="field">
+        <span class="fl">Username</span>
+        <span class="fv">pixel_chait</span>
+        <span class="fh">Letters, numbers, and underscores only</span>
+      </div>
+      <div class="field">
+        <span class="fl">Email</span>
+        <span class="fv">chaitanya@example.com</span>
+      </div>
+      <div class="field hasEye">
+        <span class="fl">Password</span>
+        <span class="fv">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+        <span class="eye">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </span>
+      </div>
+      <div class="field hasEye">
+        <span class="fl">Confirm Password</span>
+        <span class="fv">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+        <span class="eye">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </span>
+      </div>
+      <button class="btn1" style="margin-top:4px;">Create Account</button>
+      <div class="foot">
+        <span>Already have an account?</span>
+        <button class="link" style="font-size:13.5px;">Sign In</button>
+      </div>
+    </div>
+
+    <!-- LIGHT · BACKUP PIN -->
+    <div class="phone light">
+      <span class="plabel">Light &middot; Backup PIN</span>
+      <div class="hero" style="gap:4px;">
+        <span class="pintile">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1.5"/></svg>
+        </span>
+        <span class="hl">Create Backup PIN</span>
+        <span class="hs" style="max-width:30ch;">This 6-digit PIN protects your encryption key. You'll need it if you reinstall the app. Store it safely.</span>
+      </div>
+      <div class="pincard">
+        <span class="pl">Choose PIN</span>
+        <div class="pinrow">
+          <span class="pin on"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+        </div>
+        <span class="pl" style="margin-top:6px;">Confirm PIN</span>
+        <div class="pinrow">
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+          <span class="pin"><span class="dot"></span></span>
+        </div>
+      </div>
+      <button class="btn1">Save PIN</button>
+      <div class="linkrow" style="justify-content:center;">
+        <button class="link faint">Skip for now</button>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Batch 3 notes</h2>
+    <div class="notes" style="margin-top:12px;">
+      <div class="spec">
+        <span class="st">Palette</span>
+        <p>Primary buttons, links, focus borders, and the PIN tile ride Marigold accent
+        with onAccent text. Errors and snackbars use t.error. Indigo AppColors is gone
+        from these five files.</p>
+      </div>
+      <div class="spec">
+        <span class="st">Inputs</span>
+        <p>AuthTextField fills t.surface with a t.line border in every theme, replacing the
+        violet-tinted surfaceContainerHighest fill. Focused border is 1.5px accent.</p>
+      </div>
+      <div class="spec">
+        <span class="st">Mascot slot</span>
+        <p>The KB monogram on Login becomes the Capybara slot, same rig as the approved
+        empty state. Slot not decision, the mascot art stays swappable.</p>
+      </div>
+      <div class="spec">
+        <span class="st">Scope</span>
+        <p>Login, Register, Google onboarding, Forgot password, Backup PIN: palette and
+        chrome only. Auth logic, providers, validators, and navigation are untouched.</p>
+      </div>
+    </div>
+  </section>
+</div>

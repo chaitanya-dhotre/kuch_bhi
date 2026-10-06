@@ -7,9 +7,9 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/network/pocketbase_client.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class GoogleOnboardingScreen extends ConsumerStatefulWidget {
@@ -175,13 +175,13 @@ class _GoogleOnboardingScreenState
                   height: 64,
                   margin: const EdgeInsets.symmetric(horizontal: 130),
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: context.t.accent,
                     borderRadius: BorderRadius.circular(18),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Icon(
                       Icons.lock_person_outlined,
-                      color: Colors.white,
+                      color: context.t.onAccent,
                       size: 32,
                     ),
                   ),
@@ -238,7 +238,7 @@ class _GoogleOnboardingScreenState
                                     style: TextStyle(
                                       fontSize: 36,
                                       fontWeight: FontWeight.w600,
-                                      color: AppColors.primary,
+                                      color: context.t.accent,
                                     ),
                                   ),
                                 ),
@@ -247,16 +247,16 @@ class _GoogleOnboardingScreenState
                           width: 32,
                           height: 32,
                           decoration: BoxDecoration(
-                            color: AppColors.primary,
+                            color: context.t.accent,
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: Theme.of(context).scaffoldBackgroundColor,
                               width: 2,
                             ),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.camera_alt_outlined,
-                            color: Colors.white,
+                            color: context.t.onAccent,
                             size: 16,
                           ),
                         ),
@@ -394,8 +394,8 @@ class _GoogleOnboardingScreenState
                   Text(
                     _errorMessage!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.error,
+                    style: TextStyle(
+                      color: context.t.error,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
@@ -408,18 +408,20 @@ class _GoogleOnboardingScreenState
                 FilledButton(
                   onPressed: _isLoading ? null : _submit,
                   style: FilledButton.styleFrom(
+                    backgroundColor: context.t.accent,
+                    foregroundColor: context.t.onAccent,
                     minimumSize: const Size.fromHeight(52),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                   child: _isLoading
-                      ? const SizedBox(
+                      ? SizedBox(
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: Colors.white,
+                            color: context.t.onAccent,
                           ),
                         )
                       : const Text(

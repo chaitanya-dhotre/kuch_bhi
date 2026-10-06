@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+import '../../../core/theme/tokens.dart';
 
 class GoogleSignInButton extends StatelessWidget {
   const GoogleSignInButton({super.key, this.onPressed});
@@ -9,35 +12,21 @@ class GoogleSignInButton extends StatelessWidget {
     return OutlinedButton(
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
+        foregroundColor: context.t.ink,
         minimumSize: const Size.fromHeight(52),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
         ),
-        side: BorderSide(
-          color: Theme.of(context)
-              .colorScheme
-              .outline
-              .withValues(alpha: 0.4),
-        ),
+        side: BorderSide(color: context.t.line),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Google 'G' logo drawn with text — no asset needed
-          Container(
+          // Official 4-color Google G brand mark
+          SvgPicture.asset(
+            'assets/icons/google_g.svg',
             width: 20,
             height: 20,
-            decoration: const BoxDecoration(shape: BoxShape.circle),
-            child: const Text(
-              'G',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF4285F4),
-                height: 1.25,
-              ),
-            ),
           ),
           const SizedBox(width: 10),
           const Text(

@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/repositories/message_repository.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
@@ -356,9 +356,9 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                 });
                 _pinFocusNodes[0].requestFocus();
               },
-              child: const Text(
+              child: Text(
                 'Start Fresh',
-                style: TextStyle(color: Colors.red),
+                style: TextStyle(color: context.t.error),
               ),
             ),
           ],
@@ -475,13 +475,13 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                       height: 64,
                       margin: const EdgeInsets.symmetric(horizontal: 130),
                       decoration: BoxDecoration(
-                        color: AppColors.primary,
+                        color: context.t.accent,
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Icon(
                           Icons.lock_person_outlined,
-                          color: Colors.white,
+                          color: context.t.onAccent,
                           size: 32,
                         ),
                       ),
@@ -502,7 +502,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                         "Set up a backup PIN to protect your key.",
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AppColors.primary,
+                              color: context.t.accent,
                               fontWeight: FontWeight.w600,
                             ),
                       ),
@@ -596,8 +596,8 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                       Text(
                         _errorMessage!,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.error,
+                        style: TextStyle(
+                          color: context.t.error,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                         ),
@@ -610,18 +610,20 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                     FilledButton(
                       onPressed: _isValid && !_isLoading ? _submit : null,
                       style: FilledButton.styleFrom(
+                        backgroundColor: context.t.accent,
+                        foregroundColor: context.t.onAccent,
                         minimumSize: const Size.fromHeight(52),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                       child: _isLoading
-                          ? const SizedBox(
+                          ? SizedBox(
                               height: 22,
                               width: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.5,
-                                color: Colors.white,
+                                color: context.t.onAccent,
                               ),
                             )
                           : Text(
@@ -805,9 +807,11 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
 
     return Stack(
       children: [
+        // Restore overlay stays a warm-dark modal in both themes so the
+        // progress text keeps contrast: static tokens, never theme-flipped.
         const Opacity(
           opacity: 0.55,
-          child: ModalBarrier(dismissible: false, color: Colors.black),
+          child: ModalBarrier(dismissible: false, color: WarmPopTokens.ink),
         ),
         Center(
           child: Container(
@@ -815,11 +819,11 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
             padding: const EdgeInsets.symmetric(
                 horizontal: 24, vertical: 28),
             decoration: BoxDecoration(
-              color: const Color(0xFF1A1A2E),
+              color: WarmPopTokens.ink,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.4),
+                  color: WarmPopTokens.ink.withValues(alpha: 0.4),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -840,7 +844,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                   ),
                   child: Icon(
                     _iconFor(phase),
-                    color: AppColors.primary,
+                    color: WarmPopTokens.accent,
                     size: 44,
                   ),
                 ),
@@ -856,7 +860,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                     key: ValueKey(phase),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: WarmPopTokens.surface,
                       fontSize: 17,
                       fontWeight: FontWeight.w600,
                       decoration: TextDecoration.none,
@@ -872,7 +876,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                       key: ValueKey('${phase.name}-$detail'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
+                        color: WarmPopTokens.surface.withValues(alpha: 0.6),
                         fontSize: 13,
                         decoration: TextDecoration.none,
                       ),
@@ -882,16 +886,16 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                 const SizedBox(height: 18),
                 LinearProgressIndicator(
                   minHeight: 4,
-                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                  backgroundColor: WarmPopTokens.surface.withValues(alpha: 0.1),
                   valueColor: const AlwaysStoppedAnimation<Color>(
-                      AppColors.primary),
+                      WarmPopTokens.accent),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   'Elapsed ${_formatElapsed()}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45),
+                    color: WarmPopTokens.surface.withValues(alpha: 0.45),
                     fontSize: 12,
                     decoration: TextDecoration.none,
                   ),

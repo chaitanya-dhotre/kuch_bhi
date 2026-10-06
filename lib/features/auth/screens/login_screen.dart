@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
+import '../../mascot/capybara.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/google_sign_in_button.dart';
@@ -84,7 +85,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                ..hideCurrentSnackBar()
                ..showSnackBar(SnackBar(
               content: Text(state.message),
-                backgroundColor: AppColors.error,
+                backgroundColor: context.t.error,
                 behavior: SnackBarBehavior.floating,
               ));
           }
@@ -103,8 +104,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 children: [
                   const SizedBox(height: 48),
 
-                  // ── Logo + title ──────────────────────────────
-                  _AppLogo(),
+                  // ── Mascot slot + title ───────────────────────
+                  // Approved Batch 3 mockup: Capybara replaces the KB
+                  // monogram (slot not decision, art stays swappable).
+                  const Center(
+                    child: Capybara(size: Size(112, 95)),
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'Welcome back',
@@ -173,18 +178,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   FilledButton(
                     onPressed: isLoading ? null : _submit,
                     style: FilledButton.styleFrom(
+                      backgroundColor: context.t.accent,
+                      foregroundColor: context.t.onAccent,
                       minimumSize: const Size.fromHeight(52),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
                     child: isLoading
-                        ? const SizedBox(
+                        ? SizedBox(
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: context.t.onAccent,
                             ),
                           )
                         : const Text(
@@ -252,7 +259,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         child: Text(
                           'Sign Up',
                           style: TextStyle(
-                            color: AppColors.primary,
+                            color: context.t.accent,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -270,28 +277,3 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 }
 
-class _AppLogo extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 72,
-      height: 72,
-      margin: const EdgeInsets.symmetric(horizontal: 140),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Center(
-        child: Text(
-          'KB',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 26,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
-          ),
-        ),
-      ),
-    );
-  }
-}
