@@ -11,9 +11,10 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:pocketbase/pocketbase.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/network/pocketbase_client.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../data/local/database/tables/conversation_members_table.dart';
 import '../../../data/local/database/tables/conversations_table.dart';
@@ -353,7 +354,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                 fontWeight: FontWeight.w700,
                 color: _selectedIds.isEmpty
                     ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                    : AppColors.primary,
+                    : context.t.accent,
               ),
             ),
           ),
@@ -384,15 +385,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                           }
                         }),
                         secondary: CircleAvatar(
-                          backgroundColor: AppColors.primaryLight,
+                          backgroundColor: context.t.accentSoft,
                           backgroundImage: f.friend.avatarUrl != null
                               ? CachedNetworkImageProvider(f.friend.avatarUrl!)
                               : null,
                           child: f.friend.avatarUrl == null
                               ? Text(
                                   f.displayName.substring(0, 1).toUpperCase(),
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
+                                  style: TextStyle(
+                                    color: context.t.accent,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 )
@@ -412,7 +413,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                                 .withValues(alpha: 0.5),
                           ),
                         ),
-                        activeColor:   AppColors.primary,
+                        activeColor:   context.t.accent,
                         checkboxShape: const CircleBorder(),
                       );
                     },
@@ -449,16 +450,16 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                 children: [
                   CircleAvatar(
                     radius: 56,
-                    backgroundColor: AppColors.primaryLight,
+                    backgroundColor: context.t.accentSoft,
                     backgroundImage:
                         _iconFile != null ? FileImage(_iconFile!) : null,
                     child: _iconFile == null
                         ? Text(
                             letter,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 40,
                               fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
+                              color: context.t.accent,
                             ),
                           )
                         : null,
@@ -467,12 +468,12 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     bottom: 0, right: 0,
                     child: Container(
                       padding: const EdgeInsets.all(6),
-                      decoration: const BoxDecoration(
-                        color: AppColors.primary, shape: BoxShape.circle,
+                      decoration: BoxDecoration(
+                        color: context.t.accent, shape: BoxShape.circle,
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.camera_alt_outlined,
-                        color: Colors.white,
+                        color: context.t.onAccent,
                         size: 18,
                       ),
                     ),
@@ -533,28 +534,13 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             const SizedBox(height: 32),
 
             // Create button
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: (_creating || _nameController.text.trim().isEmpty)
-                    ? null
-                    : () => _createGroup(friends),
-                icon:  _creating
-                    ? const SizedBox(
-                        width: 20, height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.check_rounded),
-                label: Text(_creating ? 'Creating…' : 'Create Group'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
+            AppButton(
+              onPressed: (_creating || _nameController.text.trim().isEmpty)
+                  ? null
+                  : () => _createGroup(friends),
+              busy: _creating,
+              expanded: true,
+              child: Text(_creating ? 'Creating…' : 'Create Group'),
             ),
           ],
         ),
@@ -591,15 +577,15 @@ class _SelectedChips extends StatelessWidget {
         runSpacing: 4,
         children: selected.map((f) => Chip(
           avatar: CircleAvatar(
-            backgroundColor: AppColors.primaryLight,
+            backgroundColor: context.t.accentSoft,
             backgroundImage: f.friend.avatarUrl != null
                 ? CachedNetworkImageProvider(f.friend.avatarUrl!)
                 : null,
             child: f.friend.avatarUrl == null
                 ? Text(
                     f.displayName.substring(0, 1).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 11, color: AppColors.primary,
+                    style: TextStyle(
+                      fontSize: 11, color: context.t.accent,
                     ),
                   )
                 : null,

@@ -84,4 +84,25 @@ void main() {
       expect(svg.contains(hex), isTrue, reason: 'missing brand color $hex');
     }
   });
+
+  test('requests + groups screens carry no AppColors / Color(0x / raw palette',
+      () {
+    final files = [
+      'lib/features/friend_requests/screens/friend_requests_screen.dart',
+      'lib/features/groups/screens/group_settings_screen.dart',
+      'lib/features/groups/screens/create_group_screen.dart',
+      'lib/features/home/screens/add_friend_screen.dart',
+    ];
+    for (final f in files) {
+      final src = File(f).readAsStringSync();
+      expect(src.contains('AppColors'), isFalse, reason: f);
+      expect(src.contains('Color(0x'), isFalse, reason: f);
+      expect(
+          RegExp(r'Colors\.(purple|indigo|white|black|orange|red|green)')
+              .hasMatch(src),
+          isFalse,
+          reason: f);
+      expect(RegExp(r'5E6AD2|EEF0FB').hasMatch(src), isFalse, reason: f);
+    }
+  });
 }

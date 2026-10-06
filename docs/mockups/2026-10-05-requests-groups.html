@@ -1,0 +1,225 @@
+<meta charset="utf-8">
+<title>Kuch Bhi Requests Groups</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+  /* Warm Pop mockup: tokens verbatim from design_tokens.json.
+     Page chrome = warm neutral board; each device frame is a
+     self-contained theme specimen (light Requests, dark Group Info).
+     Clone of the approved profile-settings board. */
+  :root {
+    --bg: #FAF7F1; --surface: #FFFFFF; --surface2: #F1ECE3;
+    --ink: #2A2520; --inkSoft: #6E655A; --inkFaint: #9C9284;
+    --line: #E4DDD1; --accent: #EFA00B; --accentSoft: #FFF3DC;
+    --onAccent: #2A2520; --error: #C4402F;
+    --dark-bg: #171512; --dark-surface: #211E1A; --dark-surface2: #2B2823;
+    --dark-ink: #F3EDE3; --dark-inkSoft: #9C9284; --dark-line: #3B362F;
+    --dark-accentSoft: #3A2E14; --dark-onAccent: #21260F;
+    --r-sm: 10px; --r-md: 16px; --r-lg: 20px; --r-xl: 24px;
+    --motion: 250ms;
+    --font: "Plus Jakarta Sans", ui-rounded, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font);
+    padding-inline: clamp(16px, 4vw, 40px);
+    padding-block: clamp(24px, 5vw, 48px) 64px;
+    margin: 0;
+  }
+  .wrap { max-width: 1060px; margin-inline: auto; display: flex; flex-direction: column; gap: 32px; }
+  h1 { font-size: clamp(24px, 4vw, 34px); font-weight: 800; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+  .lede { color: var(--inkSoft); max-width: 64ch; margin: 8px 0 0; line-height: 1.5; }
+  .cap { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--inkFaint); margin: 0 0 8px; }
+  h2 { font-size: 17px; font-weight: 700; margin: 0; }
+
+  .phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+  .phone { border-radius: var(--r-xl); padding: 18px 16px 20px; box-shadow: 0 12px 32px rgba(52,42,28,.10); border: 1px solid; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .phone.light { background: var(--bg); border-color: var(--line); color: var(--ink);
+    --p-surface: var(--surface); --p-surface2: var(--surface2); --p-inkSoft: var(--inkSoft); --p-inkFaint: var(--inkFaint); --p-line: var(--line); --p-accentSoft: var(--accentSoft); --p-onAccent: var(--onAccent); }
+  .phone.dark { background: var(--dark-bg); border-color: var(--dark-line); color: var(--dark-ink);
+    --p-surface: var(--dark-surface); --p-surface2: var(--dark-surface2); --p-inkSoft: var(--dark-inkSoft); --p-inkFaint: var(--dark-inkSoft); --p-line: var(--dark-line); --p-accentSoft: var(--dark-accentSoft); --p-onAccent: var(--dark-onAccent); color-scheme: dark; }
+  .plabel { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--p-inkFaint); }
+
+  .appbar { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+  .appbar .t { font-size: 19px; font-weight: 800; letter-spacing: -.01em; flex: 1; }
+
+  /* Requests — invite cards: secondary Decline + Marigold Accept (AppButton pair) */
+  .rcard { background: var(--p-surface); border-radius: var(--r-md); padding: 14px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.04); border: 1px solid var(--p-line); min-width: 0; }
+  .rcard .who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .av { width: 44px; height: 44px; border-radius: 50%; background: var(--p-accentSoft); color: var(--accent); display: grid; place-items: center; font-size: 17px; font-weight: 700; flex: none; }
+  .rcard .tx { flex: 1; min-width: 0; }
+  .rcard .nm { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rcard .sub { font-size: 12.5px; color: var(--p-inkSoft); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acts { display: flex; gap: 8px; }
+  .btnA { flex: 1; min-height: 44px; border-radius: 12px; background: var(--accent); color: var(--onAccent); border: none; font-family: var(--font); font-size: 14.5px; font-weight: 700; cursor: pointer; }
+  .btnD { flex: 1; min-height: 44px; border-radius: 12px; background: var(--p-surface); color: var(--ink); border: 1.5px solid var(--p-line); font-family: var(--font); font-size: 14.5px; font-weight: 700; cursor: pointer; }
+  .sechdr { font-size: 12.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); padding: 4px 4px 0; }
+
+  /* Group Info — member rows (SettingsTile pattern) */
+  .ghead { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; }
+  .ghead .ring { position: relative; width: 92px; height: 92px; border-radius: 50%; background: var(--p-accentSoft); display: grid; place-items: center; font-size: 34px; font-weight: 700; color: var(--accent); }
+  .ghead .cam { position: absolute; right: -2px; bottom: -2px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--onAccent); display: grid; place-items: center; border: 2px solid var(--dark-bg); }
+  .ghead .nm { display: flex; align-items: center; gap: 6px; font-size: 20px; font-weight: 800; margin-top: 10px; }
+  .ghead .nm .ed { color: var(--accent); display: grid; place-items: center; }
+  .ghead .mem { font-size: 13px; color: var(--p-inkSoft); }
+  .row2 { display: flex; align-items: center; gap: 14px; background: var(--p-surface); border-radius: var(--r-md); padding: 13px 14px; min-width: 0; }
+  .row2 .rt { flex: 1; min-width: 0; }
+  .row2 .rl { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .row2 .rs { font-size: 12.5px; color: var(--accent); margin-top: 1px; }
+  .row2 .ch { color: var(--p-inkFaint); flex: none; }
+  .badge { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--p-accentSoft); border-radius: 5px; padding: 2px 6px; }
+  .switch { width: 44px; height: 26px; border-radius: 13px; background: var(--accent); position: relative; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+  .leave { width: 100%; min-height: 48px; border-radius: 12px; background: transparent; color: var(--error); border: 1.5px solid var(--error); font-family: var(--font); font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .spec { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .spec .st { font-size: 12.5px; font-weight: 700; color: var(--inkFaint); text-transform: uppercase; letter-spacing: .1em; }
+  .spec p { margin: 0; font-size: 13.5px; color: var(--inkSoft); line-height: 1.5; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="cap">W3 Phase B · approval mockup</p>
+    <h1>Kuch Bhi: Requests + Groups</h1>
+    <p class="lede">Batch 4 on Warm Pop tokens, cloned from the approved boards.
+    Frames: light Requests (invite cards — secondary Decline, Marigold Accept),
+    dark Group Info (member rows, Admin badge in accent, Leave Group in error).
+    Token colors only, zero violet/indigo.</p>
+  </header>
+
+  <div class="phones">
+    <!-- LIGHT · REQUESTS -->
+    <div class="phone light">
+      <span class="plabel">Light · Requests</span>
+      <div class="appbar"><span class="t">Requests</span></div>
+
+      <div class="rcard">
+        <div class="who">
+          <div class="av">P</div>
+          <div class="tx">
+            <div class="nm">Priya Sharma</div>
+            <div class="sub">@priya.sh</div>
+          </div>
+        </div>
+        <div class="acts">
+          <button class="btnD">Decline</button>
+          <button class="btnA">Accept</button>
+        </div>
+      </div>
+
+      <div class="rcard">
+        <div class="who">
+          <div class="av">R</div>
+          <div class="tx">
+            <div class="nm">Rohit Mehta</div>
+            <div class="sub">@rohit_m</div>
+          </div>
+        </div>
+        <div class="acts">
+          <button class="btnD">Decline</button>
+          <button class="btnA">Accept</button>
+        </div>
+      </div>
+
+      <span class="sechdr">Group invites</span>
+
+      <div class="rcard">
+        <div class="who">
+          <div class="av">W</div>
+          <div class="tx">
+            <div class="nm">Weekend Trekkers</div>
+            <div class="sub">Aarav invited you to join</div>
+          </div>
+        </div>
+        <div class="acts">
+          <button class="btnD">Decline</button>
+          <button class="btnA">Accept</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DARK · GROUP INFO -->
+    <div class="phone dark">
+      <span class="plabel">Dark · Group Info</span>
+      <div class="appbar"><span class="t">Group Info</span></div>
+
+      <div class="ghead">
+        <div class="ring">W
+          <span class="cam"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+        </div>
+        <div class="nm">Weekend Trekkers
+          <span class="ed"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></span>
+        </div>
+        <div class="mem">5 members</div>
+      </div>
+
+      <span class="sechdr">Members</span>
+
+      <div class="row2">
+        <div class="av" style="width:40px;height:40px;font-size:15px;">A</div>
+        <div class="rt">
+          <div class="rl">Aarav Singh <span class="badge">Admin</span></div>
+        </div>
+        <span class="ch"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></span>
+      </div>
+
+      <div class="row2">
+        <div class="av" style="width:40px;height:40px;font-size:15px;">Y</div>
+        <div class="rt">
+          <div class="rl">You</div>
+          <div class="rs">@you</div>
+        </div>
+        <span class="ch"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></span>
+      </div>
+
+      <div class="row2">
+        <div class="av" style="width:40px;height:40px;font-size:15px;">M</div>
+        <div class="rt">
+          <div class="rl">Meera Patel</div>
+        </div>
+        <span class="ch"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></span>
+      </div>
+
+      <span class="sechdr">Settings</span>
+
+      <div class="row2">
+        <div class="rt">
+          <div class="rl">Only Admins Can Message</div>
+          <div class="sub" style="color:var(--p-inkSoft);font-size:12.5px;">Members cannot send messages</div>
+        </div>
+        <span class="switch"></span>
+      </div>
+
+      <button class="leave">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Leave Group
+      </button>
+    </div>
+  </div>
+
+  <section>
+    <h2>Notes</h2>
+    <div class="notes" style="margin-top:12px;">
+      <div class="spec">
+        <span class="st">Palette</span>
+        <p>Accept = Marigold primary (accent/onAccent). Decline = secondary AppButton (surface + line border + ink label) — not red. Avatar letters accent on accentSoft. Old primaryLight/primary violet replaced.</p>
+      </div>
+      <div class="spec">
+        <span class="st">Rows</span>
+        <p>Invite cards keep card elevation (surface, radius-md, soft shadow). Member rows follow SettingsTile pattern (row2). Admin badge accentSoft/accent. "You" subtitle accent.</p>
+      </div>
+      <div class="spec">
+        <span class="st">Danger</span>
+        <p>Leave Group = full-width outlined button, border/icon/label all t.error — the only error-colored control on the screen. Remove-from-group dialog action keeps t.error.</p>
+      </div>
+      <div class="spec">
+        <span class="st">Scope</span>
+        <p>friend_requests, group_settings, create_group, add_friend residual (white spinner → token). Invite/member logic, providers, repos untouched.</p>
+      </div>
+    </div>
+  </section>
+</div>

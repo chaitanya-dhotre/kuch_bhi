@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/group_invite.dart';
 import '../../../domain/entities/user.dart';
@@ -180,7 +181,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                             fontSize: 17, fontWeight: FontWeight.w700),
                       ),
                     ),
-                    FilledButton(
+                    AppButton(
                       onPressed: selected.isEmpty
                           ? null
                           : () async {
@@ -243,15 +244,15 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                         }
                       }),
                       secondary: CircleAvatar(
-                        backgroundColor: AppColors.primaryLight,
+                        backgroundColor: context.t.accentSoft,
                         backgroundImage: u.avatarUrl != null
                             ? CachedNetworkImageProvider(u.avatarUrl!)
                             : null,
                         child: u.avatarUrl == null
                             ? Text(
                                 u.displayName.substring(0, 1).toUpperCase(),
-                                style: const TextStyle(
-                                  color: AppColors.primary,
+                                style: TextStyle(
+                                  color: context.t.accent,
                                   fontWeight: FontWeight.w700,
                                 ),
                               )
@@ -259,15 +260,15 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                       ),
                       title: Text(f.displayName),
                       subtitle: inviteStatuses[u.id] == 'pending'
-                          ? const Text('Invite pending',
+                          ? Text('Invite pending',
                               style: TextStyle(
-                                  color: Colors.orange, fontSize: 12))
+                                  color: context.t.accent, fontSize: 12))
                           : inviteStatuses[u.id] == 'declined'
-                              ? const Text('Declined — invite again?',
+                              ? Text('Declined — invite again?',
                                   style: TextStyle(
-                                      color: Colors.red, fontSize: 12))
+                                      color: context.t.error, fontSize: 12))
                               : Text('@${u.username}'),
-                      activeColor: AppColors.primary,
+                      activeColor: context.t.accent,
                     );
                   },
                 ),
@@ -306,7 +307,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, true),
-                    style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                    style: TextButton.styleFrom(
+                        foregroundColor: context.t.error),
                     child: const Text('Remove'),
                   ),
                 ],
@@ -335,11 +337,11 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
             value: 'remove_admin',
             child: Text('Remove Admin'),
           ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'remove',
           child: Text(
             'Remove from Group',
-            style: TextStyle(color: AppColors.error),
+            style: TextStyle(color: context.t.error),
           ),
         ),
       ],
@@ -376,7 +378,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                 }
               }
             },
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            style:
+                TextButton.styleFrom(foregroundColor: context.t.error),
             child: const Text('Leave'),
           ),
         ],
@@ -439,17 +442,17 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                 children: [
                   CircleAvatar(
                     radius: 50,
-                    backgroundColor: AppColors.primaryLight,
+                    backgroundColor: context.t.accentSoft,
                     backgroundImage: iconUrl != null
                         ? CachedNetworkImageProvider(iconUrl)
                         : null,
                     child: iconUrl == null
                         ? Text(
                             groupName.substring(0, 1).toUpperCase(),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 40,
                               fontWeight: FontWeight.w700,
-                              color: AppColors.primary,
+                              color: context.t.accent,
                             ),
                           )
                         : null,
@@ -460,13 +463,13 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                       right: 0,
                       child: Container(
                         padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: AppColors.primary,
+                        decoration: BoxDecoration(
+                          color: context.t.accent,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.camera_alt,
-                          color: Colors.white,
+                          color: context.t.onAccent,
                           size: 18,
                         ),
                       ),
@@ -491,8 +494,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    const Icon(Icons.edit_outlined,
-                        size: 18, color: AppColors.primary),
+                    Icon(Icons.edit_outlined,
+                        size: 18, color: context.t.accent),
                   ],
                 ),
               )
@@ -538,8 +541,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                   ),
                   if (isAdmin && !isLeft)
                     IconButton(
-                      icon: const Icon(Icons.person_add_outlined,
-                          color: AppColors.primary),
+                      icon: Icon(Icons.person_add_outlined,
+                          color: context.t.accent),
                       onPressed: () => _showAddMemberSheet(activeMembers),
                     ),
                 ],
@@ -549,7 +552,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
             for (final user in activeMembers)
               ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: AppColors.primaryLight,
+                  backgroundColor: context.t.accentSoft,
                   backgroundImage: user.avatarUrl != null
                       ? CachedNetworkImageProvider(user.avatarUrl!)
                       : null,
@@ -558,8 +561,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                           user.displayName.isNotEmpty
                               ? user.displayName[0].toUpperCase()
                               : '?',
-                          style: const TextStyle(
-                            color: AppColors.primary,
+                          style: TextStyle(
+                            color: context.t.accent,
                             fontWeight: FontWeight.w700,
                           ),
                         )
@@ -581,14 +584,14 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
+                          color: context.t.accentSoft,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Admin',
                           style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.primary,
+                            fontSize: 11,
+                            color: context.t.accent,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -597,8 +600,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                   ],
                 ),
                 subtitle: user.id == myId
-                    ? const Text('You',
-                        style: TextStyle(color: AppColors.primary))
+                    ? Text('You', style: TextStyle(color: context.t.accent))
                     : null,
                 trailing: _buildMemberActions(user, myId, isAdmin && !isLeft, activeMembers),
               ),
@@ -620,7 +622,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                     for (final inv in invites)
                       ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: AppColors.primaryLight,
+                          backgroundColor: context.t.accentSoft,
                           backgroundImage: inv.user.avatarUrl != null
                               ? CachedNetworkImageProvider(
                                   inv.user.avatarUrl!)
@@ -631,8 +633,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                                       ? inv.user.displayName[0]
                                           .toUpperCase()
                                       : '?',
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
+                                  style: TextStyle(
+                                    color: context.t.accent,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 )
@@ -701,7 +703,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                 title: const Text('Only Admins Can Message'),
                 subtitle: const Text('Members cannot send messages'),
                 value: conv.onlyAdminsCanMessage,
-                activeColor: AppColors.primary,
+                activeColor: context.t.accent,
                 onChanged: (v) async {
                   await ref
                       .read(messageRepositoryProvider)
@@ -734,12 +736,11 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.exit_to_app,
-                        color: AppColors.error),
-                    label: const Text('Leave Group',
-                        style: TextStyle(color: AppColors.error)),
+                    icon: Icon(Icons.exit_to_app, color: context.t.error),
+                    label: Text('Leave Group',
+                        style: TextStyle(color: context.t.error)),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.error),
+                      side: BorderSide(color: context.t.error),
                     ),
                     onPressed: _confirmLeaveGroup,
                   ),

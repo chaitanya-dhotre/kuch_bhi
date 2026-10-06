@@ -370,9 +370,10 @@ class _QrScanTabState extends State<_QrScanTab> {
             onPressed: _pickingFromGallery ? null : _pickFromGallery,
             tooltip: 'Pick QR from gallery',
             child: _pickingFromGallery
-                ? const SizedBox(
+                ? SizedBox(
                     width: 20, height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: context.t.onAccent),
                   )
                 : const Icon(Icons.photo_library_outlined),
           ),

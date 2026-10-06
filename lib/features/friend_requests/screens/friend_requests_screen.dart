@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
 import '../../../domain/entities/friend_request.dart';
 import '../../../domain/entities/group_invite.dart';
 import '../../../infrastructure/repositories/friend_repository_impl.dart';
@@ -107,91 +108,94 @@ class _RequestTile extends ConsumerWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
+              color: context.t.ink.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Row(
+        child: Column(
           children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: AppColors.primaryLight,
-              child: Text(
-                request.fromUser.displayName
-                    .substring(0, 1)
-                    .toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    request.fromUser.displayName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
-                  ),
-                  Text(
-                    '@${request.fromUser.username}',
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: context.t.accentSoft,
+                  child: Text(
+                    request.fromUser.displayName
+                        .substring(0, 1)
+                        .toUpperCase(),
                     style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.5),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: context.t.accent,
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        request.fromUser.displayName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Text(
+                        '@${request.fromUser.username}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            // Decline.
-            IconButton(
-              onPressed: () async {
-                await ref
-                    .read(friendRepositoryProvider)
-                    .declineRequest(request.id);
-              },
-              icon: const Icon(Icons.close),
-              style: IconButton.styleFrom(
-                backgroundColor:
-                    AppColors.error.withValues(alpha: 0.1),
-                foregroundColor: AppColors.error,
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Accept.
-            IconButton(
-              onPressed: () async {
-                try {
-                  await ref
-                      .read(friendRepositoryProvider)
-                      .acceptRequest(request.id);
+            const SizedBox(height: 12),
+            // Decline (secondary) + Accept (Marigold primary) — approved mockup.
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton(
+                    variant: AppButtonVariant.secondary,
+                    onPressed: () async {
+                      await ref
+                          .read(friendRepositoryProvider)
+                          .declineRequest(request.id);
+                    },
+                    child: const Text('Decline'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AppButton(
+                    onPressed: () async {
+                      try {
+                        await ref
+                            .read(friendRepositoryProvider)
+                            .acceptRequest(request.id);
 
-                  // Force immediate UI refresh on both sides.
-                  ref.invalidate(incomingRequestsProvider);
-                  ref.invalidate(friendshipsProvider);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to accept: $e')),
-                  );
-                }
-              },
-              icon: const Icon(Icons.check),
-              style: IconButton.styleFrom(
-                backgroundColor:
-                    AppColors.success.withValues(alpha: 0.1),
-                foregroundColor: AppColors.success,
-              ),
+                        // Force immediate UI refresh on both sides.
+                        ref.invalidate(incomingRequestsProvider);
+                        ref.invalidate(friendshipsProvider);
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to accept: $e')),
+                        );
+                      }
+                    },
+                    child: const Text('Accept'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -217,98 +221,101 @@ class _GroupInviteTile extends ConsumerWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
+              color: context.t.ink.withValues(alpha: 0.04),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Row(
+        child: Column(
           children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: AppColors.primaryLight,
-              child: Text(
-                invite.conversationName
-                    .substring(0, 1)
-                    .toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    invite.conversationName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
-                  ),
-                  Text(
-                    inviter.displayName.isNotEmpty
-                        ? '${inviter.displayName} invited you to join'
-                        : 'You were invited to join',
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: context.t.accentSoft,
+                  child: Text(
+                    invite.conversationName
+                        .substring(0, 1)
+                        .toUpperCase(),
                     style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.5),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: context.t.accent,
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        invite.conversationName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Text(
+                        inviter.displayName.isNotEmpty
+                            ? '${inviter.displayName} invited you to join'
+                            : 'You were invited to join',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            // Decline.
-            IconButton(
-              onPressed: () async {
-                try {
-                  await ref
-                      .read(messageRepositoryProvider)
-                      .declineGroupInvite(invite.id);
-                  ref.invalidate(incomingGroupInvitesProvider);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to decline: $e')),
-                  );
-                }
-              },
-              icon: const Icon(Icons.close),
-              style: IconButton.styleFrom(
-                backgroundColor:
-                    AppColors.error.withValues(alpha: 0.1),
-                foregroundColor: AppColors.error,
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Accept.
-            IconButton(
-              onPressed: () async {
-                try {
-                  await ref
-                      .read(messageRepositoryProvider)
-                      .acceptGroupInvite(invite.id);
+            const SizedBox(height: 12),
+            // Decline (secondary) + Accept (Marigold primary) — approved mockup.
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton(
+                    variant: AppButtonVariant.secondary,
+                    onPressed: () async {
+                      try {
+                        await ref
+                            .read(messageRepositoryProvider)
+                            .declineGroupInvite(invite.id);
+                        ref.invalidate(incomingGroupInvitesProvider);
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to decline: $e')),
+                        );
+                      }
+                    },
+                    child: const Text('Decline'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AppButton(
+                    onPressed: () async {
+                      try {
+                        await ref
+                            .read(messageRepositoryProvider)
+                            .acceptGroupInvite(invite.id);
 
-                  ref.invalidate(incomingGroupInvitesProvider);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to accept: $e')),
-                  );
-                }
-              },
-              icon: const Icon(Icons.check),
-              style: IconButton.styleFrom(
-                backgroundColor:
-                    AppColors.success.withValues(alpha: 0.1),
-                foregroundColor: AppColors.success,
-              ),
+                        ref.invalidate(incomingGroupInvitesProvider);
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to accept: $e')),
+                        );
+                      }
+                    },
+                    child: const Text('Accept'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
