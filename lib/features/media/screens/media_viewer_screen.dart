@@ -5,12 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 
 // ── Args passed via GoRouter extra or MaterialPageRoute ──────────────────────
 
@@ -102,8 +101,8 @@ class _MediaViewerScreenState extends State<MediaViewerScreen>
       allowMuting:     true,
       showControls:    true,
       materialProgressColors: ChewieProgressColors(
-        playedColor:    AppColors.primary,
-        handleColor:    AppColors.primary,
+        playedColor:    WarmPopTokens.accent,
+        handleColor:    WarmPopTokens.accent,
         backgroundColor: Colors.grey,
         bufferedColor:  Colors.white54,
       ),

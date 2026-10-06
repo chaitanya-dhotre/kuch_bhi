@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shimmer/shimmer.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
 import '../../../core/theme/tokens.dart';

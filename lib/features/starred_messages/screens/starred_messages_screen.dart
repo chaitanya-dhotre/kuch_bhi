@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../chat/providers/chat_provider.dart';
@@ -140,14 +140,14 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         children: [
           Row(
             children: [
-              const Icon(Icons.star, color: AppColors.warning, size: 14),
+              Icon(Icons.star, color: context.t.accent, size: 14),
               const SizedBox(width: 6),
               Text(
                 isMine ? 'You' : 'Contact',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize:   12,
                   fontWeight: FontWeight.w600,
-                  color:      AppColors.primary,
+                  color:      context.t.accent,
                 ),
               ),
               const Spacer(),

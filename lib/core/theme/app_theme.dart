@@ -4,7 +4,7 @@ import 'tokens.dart';
 ThemeData warmPopLight() => _build(ColorTokens.light, Brightness.light);
 
 /// AMOLED: Warm Pop on a pure-black ground (preserves the app's existing
-/// theme-mode option — matches AppColors.amoledTheme's black surfaces).
+/// theme-mode option — matches the legacy AMOLED palette's black surfaces).
 ThemeData warmPopDark({bool amoled = false}) =>
     _build(amoled ? const ColorTokens(
       bg: Colors.black,

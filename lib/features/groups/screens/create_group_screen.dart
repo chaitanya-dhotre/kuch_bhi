@@ -6,18 +6,14 @@ import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:pocketbase/pocketbase.dart';
 
 import '../../../core/network/pocketbase_client.dart';
-import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../data/local/database/app_database.dart';
-import '../../../data/local/database/tables/conversation_members_table.dart';
-import '../../../data/local/database/tables/conversations_table.dart';
 import '../../../data/local/secure_storage/secure_storage_service.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/friendship.dart';

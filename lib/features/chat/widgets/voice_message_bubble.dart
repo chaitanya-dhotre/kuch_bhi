@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
 import '../../../core/theme/tokens.dart';

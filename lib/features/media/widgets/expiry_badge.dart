@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
 
 /// Overlays an orange "Expires in Xd" pill badge on the top-right corner
@@ -21,13 +21,13 @@ class ExpiryBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
-          color:        AppColors.warning.withValues(alpha: 0.88),
+          color:        context.t.accent.withValues(alpha: 0.88),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           text,
-          style: const TextStyle(
-            color:      Colors.white,
+          style: TextStyle(
+            color:      context.t.onAccent,
             fontSize:   10,
             fontWeight: FontWeight.w600,
           ),

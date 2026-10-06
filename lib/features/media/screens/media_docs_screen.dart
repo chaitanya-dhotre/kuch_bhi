@@ -6,7 +6,7 @@ import 'package:open_file/open_file.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:shimmer/shimmer.dart';
 
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../core/network/pocketbase_client.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../chat/providers/chat_provider.dart';
@@ -416,12 +416,12 @@ class _VoiceTab extends ConsumerWidget {
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
               leading: CircleAvatar(
-                backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-                child: const Icon(Icons.mic, color: AppColors.primary),
+                backgroundColor: context.t.accent.withValues(alpha: 0.12),
+                child: Icon(Icons.mic, color: context.t.accent),
               ),
               title: Text('Voice message · $dur'),
               subtitle: Text(date),
-              trailing: const Icon(Icons.play_circle_outline, color: AppColors.primary),
+              trailing: Icon(Icons.play_circle_outline, color: context.t.accent),
               onTap: () => _playInSheet(context, conversationId, serverId, dur),
             );
           },
@@ -536,7 +536,7 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.mic, size: 40, color: AppColors.primary),
+            Icon(Icons.mic, size: 40, color: context.t.accent),
             const SizedBox(height: 12),
             Text(
               'Voice message · ${widget.duration}',
@@ -546,7 +546,7 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
             LinearProgressIndicator(
               value:           progress,
               backgroundColor: Colors.grey.shade300,
-              valueColor:      const AlwaysStoppedAnimation(AppColors.primary),
+              valueColor:      AlwaysStoppedAnimation(context.t.accent),
               minHeight:       4,
             ),
             const SizedBox(height: 8),
@@ -559,14 +559,14 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
             ),
             const SizedBox(height: 12),
             if (_loading)
-              const CircularProgressIndicator(color: AppColors.primary)
+              CircularProgressIndicator(color: context.t.accent)
             else
               IconButton(
                 iconSize: 48,
                 onPressed: () => _playing ? _player.pause() : _player.play(),
                 icon: Icon(
                   _playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: AppColors.primary,
+                  color: context.t.accent,
                   size: 48,
                 ),
               ),
@@ -623,12 +623,12 @@ class _DocsTab extends ConsumerWidget {
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
               leading: CircleAvatar(
-                backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-                child: Icon(_docIcon(fileName), color: AppColors.primary),
+                backgroundColor: context.t.accent.withValues(alpha: 0.12),
+                child: Icon(_docIcon(fileName), color: context.t.accent),
               ),
               title:    Text(fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('$size · $date'),
-              trailing: const Icon(Icons.download_outlined, color: AppColors.primary),
+              trailing: Icon(Icons.download_outlined, color: context.t.accent),
               onTap:    () => _openDoc(context, ref, serverId),
             );
           },

@@ -105,4 +105,42 @@ void main() {
       expect(RegExp(r'5E6AD2|EEF0FB').hasMatch(src), isFalse, reason: f);
     }
   });
+
+  test('no AppColors remains in lib (except the file itself, deleted)', () {
+    final hits = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .where((f) => f.readAsStringSync().contains('AppColors'));
+    expect(hits.map((f) => f.path), isEmpty);
+  });
+
+  // Gate 8: banned legacy purple/violet hexes anywhere in lib.
+  // Old palette: primary 5E6AD2, primaryVariant 4A55C0/4A4F9A, navy 2A2D4A,
+  // near-black 1A1A2E, Material default violet 6750A4. Warm Pop = Marigold.
+  test('no banned purple/violet hexes anywhere in lib', () {
+    const banned = [
+      '5E6AD2', // old primary (periwinkle)
+      '4A4F9A', // old purple dark-mode reply bg
+      '4A55C0', // old primaryVariant / light reply bg
+      '2A2D4A', // old dark received reply bg
+      '1A1A2E', // near-black navy
+      '6750A4', // Material 3 default purple
+      'EEF0FB', // old primaryLight
+    ];
+    final hits = <String>[];
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      final src = f.readAsStringSync().toUpperCase();
+      for (final hex in banned) {
+        if (src.contains(hex)) hits.add('${f.path}: $hex');
+      }
+      if (RegExp(r'Colors\.(purple|violet|indigo)').hasMatch(src)) {
+        hits.add('${f.path}: Colors.purple/violet/indigo');
+      }
+    }
+    expect(hits, isEmpty, reason: 'banned purple palette leaks: $hits');
+  });
 }

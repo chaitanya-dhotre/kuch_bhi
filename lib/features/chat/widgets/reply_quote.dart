@@ -107,44 +107,36 @@ class ReplyQuote extends ConsumerWidget {
     final String resolvedType = original?.type ?? _fallbackType;
 
     // ── Background ──────────────────────────────────────────────
-    // Sent bubble reply    : solid dark-purple tint — always visible on any
-    //                        scaffold because it has real opacity.
-    // Received bubble      : light lavender (light mode) / dark slate (dark mode)
+    // Sent bubble reply    : warm white tint on the marigold sent bubble.
+    // Received bubble      : accentSoft (cream/brown, theme-aware) inset.
     // Input bar (compact)  : adaptive surface container
     final Color bg;
     if (compact) {
       bg = Theme.of(context).colorScheme.surfaceContainerHighest;
     } else if (isMine) {
-      // Use a solid colour derived from the sent-bubble colour so it's always
-      // visible regardless of the scaffold bg behind it.
-      bg = isDark
-          ? const Color(0xFF4A4F9A) // lighter purple for dark mode
-          : const Color(0xFF4A55C0); // darker purple for light mode
+      // Subtle inset on the accent-filled sent bubble — same trick as the
+      // bubble's own separator (ink @ 6%), kept visible via white tint.
+      bg = Colors.white.withValues(alpha: 0.18);
     } else {
-      bg = isDark
-          ? const Color(0xFF2A2D4A) // dark-mode received reply bg
-          : context.t.accentSoft;  // light-mode: light lavender
+      bg = context.t.accentSoft; // light cream / dark warm brown
     }
 
     // ── Text colours ────────────────────────────────────────────
-    // Sent bubble  → always white (always high contrast on purple bg).
-    // Received + compact → respect actual bg brightness.
+    // Sent bubble  → on the white tint: dark onAccent in light mode, light
+    //                ink in dark mode (tint over dark scaffold = mid grey).
+    // Received + compact → theme ink (already correct in both brightnesses).
     final Color nameColor;
     final Color previewColor;
     final Color iconColor;
     if (isMine && !compact) {
-      nameColor    = Colors.white;
-      previewColor = Colors.white.withValues(alpha: 0.85);
-      iconColor    = Colors.white.withValues(alpha: 0.75);
+      final onTint = isDark ? context.t.ink : context.t.onAccent;
+      nameColor    = onTint;
+      previewColor = onTint.withValues(alpha: 0.80);
+      iconColor    = onTint.withValues(alpha: 0.65);
     } else {
-      // Light bg (received light / compact light) → dark text.
-      // Dark bg (received dark / compact dark)   → light text.
-      final onBg = isDark
-          ? const Color(0xFFF1F1F5) // near-white
-          : const Color(0xFF1A1A2E); // near-black
       nameColor    = context.t.accent;
-      previewColor = onBg.withValues(alpha: 0.80);
-      iconColor    = onBg.withValues(alpha: 0.60);
+      previewColor = context.t.ink.withValues(alpha: 0.80);
+      iconColor    = context.t.ink.withValues(alpha: 0.60);
     }
 
     // ── Preview label per resolved type ─────────────────────────
