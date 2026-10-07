@@ -69,6 +69,36 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     return (newest?.seq ?? 0) + 1;
   }
 
+  /// Clears the retry schedule/metadata for ONE op back to NULL/0
+  /// (Task 2 minor: [setState] can only write provided values and can never
+  /// clear an optional field back to NULL). Used by retryOp and by the
+  /// connectivity-restored attempts reset.
+  Future<void> clearRetry(String opId) =>
+      (update(outboxTable)..where((t) => t.opId.equals(opId))).write(
+        const OutboxTableCompanion(
+          attempts: Value(0),
+          nextAttemptAt: Value(null),
+          lastError: Value(null),
+          errorClass: Value(null),
+        ),
+      );
+
+  /// Bulk [clearRetry] for every QUEUED op — the connectivity-restored
+  /// hook (spec §6: attempts reset + no schedule → immediate drain).
+  Future<void> clearRetryQueued() =>
+      (update(outboxTable)
+            ..where((t) => t.state.equalsValue(OutboxState.queued)))
+          .write(const OutboxTableCompanion(
+            attempts: Value(0),
+            nextAttemptAt: Value(null),
+            lastError: Value(null),
+            errorClass: Value(null),
+          ));
+
+  /// Removes an op row (discardOp cascade).
+  Future<void> deleteOp(String opId) =>
+      (delete(outboxTable)..where((t) => t.opId.equals(opId))).go();
+
   Future<List<OutboxTableData>> all() =>
       (select(outboxTable)
             ..orderBy([

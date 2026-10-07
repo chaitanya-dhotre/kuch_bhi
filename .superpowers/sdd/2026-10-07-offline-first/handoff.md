@@ -273,3 +273,186 @@ drain, i.e. after the txn — see correction 4.
     params as ownership guards); op==null → only setState (no-op).
 11. Migration `if (from < 7) m.createTable(outboxTable)`; `AppDatabase.test()`
     exercises onCreate only (same as v1–v6 — no upgrade-path test exists).
+
+## Task 3
+
+OutboxWorker — drain FSM, backoff, 4xx classes, FIFO, stale recovery,
+pause, retryOp/discardOp. Files: `lib/infrastructure/offline/outbox_worker.dart`
+(NEW), `message_repository_impl.dart` (sender + hooks), `message_repository.dart`
+(interface), `outbox_dao.dart` + `messages_dao.dart` (additions),
+`test/offline/outbox_worker_test.dart` 12/12; full suite **91 pass**;
+analyze **0 errors** (88 legacy, unchanged).
+
+### AS-BUILT API (consumed by tasks 4+)
+
+```dart
+// lib/infrastructure/offline/outbox_worker.dart
+const int deferStatus = -1;               // nextAttempt "local defer" status
+const String kOutboxPauseKey = 'outbox_pause';  // settingsDao key
+const String kOutboxPauseAuth = 'auth';          // value written on 401
+
+enum OpSendOutcome { sent, deferred }
+typedef OpSender = Future<OpSendOutcome> Function(OutboxTableData op);
+
+class TerminalOpError implements Exception { final int statusCode; }
+class PauseAllOpError implements Exception {}
+class OpSendException implements Exception {   // sender-thrown HTTP error
+  final int statusCode; final String? retryAfterHeader;   // carries Retry-After
+}
+
+String terminalErrorClass(int status); // 400 bad_request · 403 forbidden ·
+// 404 dead_link · 413 payload_too_large · else http_$status
+
+DateTime? nextAttempt({
+  required int httpStatus, required String? retryAfterHeader,
+  required int attempts, required DateTime now,
+  required DateTime Function() clock,   // brief-verbatim; scheduling uses `now`
+  required Random random,
+});
+// {400,403,404,413} → throw TerminalOpError
+// 401 → throw PauseAllOpError
+// deferStatus(-1) → null  (stay queued, NO schedule change)
+// 429 + parseable Retry-After ≥0 → now+secs (else falls through to backoff)
+// else → now + min(300s, 5s·2^attempts) · (1 + random.nextDouble()·0.25)
+//        (cap applies BEFORE jitter → max delay 375s; attempts≥6 ⇒ base 300s)
+// Retryable failures record errorClass 'transient' (label choice — brief
+// pinned only the status classes).
+
+class OutboxWorker {
+  OutboxWorker({
+    required OutboxDao outbox, required MessagesDao messages,
+    required SettingsDao settings, required OpSender send,
+    DateTime Function()? now, Random? random,
+  }); // ctor: connectivity listener (moved) + stale-sending recovery kick
+  Future<void> get ready;          // stale-recovery future (tests await it)
+  Future<void> drain();            // serialized; concurrent callers coalesce
+                                   // into ONE extra pass (await ⇒ post-write)
+  void kick();                     // fire-and-forget drain, errors logged
+  void onConnectivityRestored();   // flag → clearRetryQueued + drain
+  void onAuthPaused(bool paused);  // set/clear outbox_pause, NO drain
+  void onAuthResumed();            // flag → clear pause + drain
+  Future<void> retryOp(String opId);
+  Future<void> discardOp(String opId); // dependsOn cascade, then drain
+  void dispose();                  // cancels connectivity sub (tests)
+}
+```
+
+### Drain pass (one pass, FIFO)
+
+1. `await ready` → consume connectivity-reset flag (`clearRetryQueued`) and
+   resume flag (clear pause) → bail if paused.
+2. **Carry-in C1**: over `all()` — queued op whose message row has
+   `serverId≠null && status ∈ {sent,delivered,read}` → `setState(sent,
+   attempts:0)` (interim-linger completion; NEVER re-sends).
+3. `due(now)` (queued & schedule elapsed, ordered `(conversationId, seq)`);
+   group by conversation; per conversation walk `forConversation` in seq:
+   `sent`→skip; **non-queued head (failedTerminal|sending) → break**;
+   **not-due head → break** (backoff blocks FIFO); **dependsOn not `sent`
+   → break** (spec §5.2 two-step); else process.
+4. `_processOne`: `sending` → sender → outcome:
+   - `sent` → ensure row `sent` (attempts 0) — real sender already acked;
+   - `deferred` → back to `queued` ONLY if row still `sending`
+     (sender-written verdicts — terminal, encrypt_failed — untouched);
+   - throw → `_applyFailure` via `nextAttempt`; terminal ⇒
+     `failedTerminal` + errorClass + message `failed` (only if still
+     `pending`); 401 ⇒ row back to `queued` + `outbox_pause='auth'` +
+     STOP the pass (attempts/nextAttemptAt/lastError untouched = queue
+     untouched); else ⇒ `queued`, attempts+1, nextAttemptAt, lastError,
+     errorClass `transient`.
+   After each op: op removed → continue; op ≠ `sent` → break (blocks rest
+   of conversation — covers terminal, backoff, defer).
+
+### Kind sender (repo side)
+
+`MessageRepositoryImpl.sendOutboxOp(op)` PUBLIC — worker's `send:` callback
+(tests inject it too). `text_send` → `_sendTextOp` (the old `_drainOutbox`
+body, adapted): inputs from op+message row; **create carries
+`'id': op.opId`**; dup(id) → `resolveDuplicateSend` ownership (true ⇒
+`sent`, false ⇒ collision verdict already written ⇒ `deferred`); other
+ClientExceptions PROPAGATE to the worker; MissingKey ⇒ deferred (stays
+pending); other encrypt errors ⇒ message `failed` + op `failedTerminal`
+errorClass `encrypt_failed` + deferred; success ⇒ dual-truth txn {full
+message stamp + outbox sent} then updateLastMessage + receipts.
+`media_upload`/other kinds ⇒ `throw StateError` (see correction 6).
+`_drainOutbox` DELETED — the only send path is the worker now.
+
+### retryOp / discardOp (Task 4 banner)
+
+- Interface: `Future<void> retryOp(String opId)`,
+  `Future<void> discardOp(String opId)` added to `MessageRepository`
+  (impl delegates to worker).
+- `retryOp`: `clearRetry` (attempts/nextAttemptAt/lastError/errorClass →
+  0/NULL — carry-in C2) → `queued` → message `failed`→`pending` → drain.
+- `discardOp`: one `all()` read, transitive `dependsOn` collect → delete
+  MESSAGE rows first, then op rows (kill-window leaves harmless orphan
+  ops, never orphan messages that retryPendingMessages would re-send) →
+  drain (next FIFO op flows immediately).
+
+### Connectivity hook points (moved)
+
+`Connectivity().onConnectivityChanged` listener body moved VERBATIM from
+`_initConnectivityRetry` (repo ctor no longer calls it; method deleted;
+connectivity_plus import dropped from repo). Only the action inside the
+`if` changed, per brief: `onConnectivityRestored()` = `clearRetryQueued`
+(attempts→0, schedule→NULL for every queued op) + immediate drain. A row
+waiting a 4-min backoff sends on the event (test 4).
+
+### DAO additions
+
+```dart
+// outbox_dao.dart
+Future<void> clearRetry(String opId);      // attempts=0, nextAttemptAt/
+Future<void> clearRetryQueued();           // lastError/errorClass → NULL/0
+Future<void> deleteOp(String opId);        //   — single / all queued
+// messages_dao.dart
+Future<void> deleteByLocalId(String localId); // discard cascade hard-delete
+```
+
+### Corrections vs brief (reality rule)
+
+1. **`nextAttempt` `clock` param is unused** — brief-verbatim signature
+   kept; scheduling uses `now` (fake-clock seam).
+2. **Retry-After cannot reach the production sender**: pocketbase 0.21
+   `client.dart` drops response headers when building `ClientException`
+   (no headers field). The worker honors it via `OpSendException` (tested
+   at worker level, brief case 3); the production path supplies `null` →
+   backoff. A header-carrying transport seam is a follow-up if spec §6
+   full compliance is required.
+3. **errorClass labels** (brief pinned only status classes):
+   `dead_link`/`forbidden` match outbox_table.dart's column comment;
+   400→`bad_request`, 413→`payload_too_large`, retryable→`transient`,
+   local crypto→`encrypt_failed`.
+4. **attempts semantics**: worker passes `op.attempts+1` into
+   `nextAttempt` (spec literal `attempts++, next = now + base·2^attempts`)
+   → first failure base = 5s·2^1 = 10s. Cap BEFORE jitter (brief formula
+   verbatim) ⇒ max delay 375s, floor 300s for attempts≥6.
+5. **Connectivity action delta**: listener now drains the outbox instead
+   of calling `retryPendingMessages()`. Outbox-enqueued sends covered;
+   pre-outbox legacy pending rows no longer auto-retry on the connectivity
+   event (still covered by `resyncOnResume` → retryPendingMessages, and
+   retryMessage now ENQUEUES an op for them).
+6. **`media_upload` production sender not moved** — progress.md ruling:
+   outgoing enqueue wiring is out of plan scope; the existing media flow
+   (`_uploadMediaMessage`) is create+upload interleaved with serverId
+   dependency and has no standalone upload to move verbatim. Kinds other
+   than `text_send` throw StateError → (if ever prematurely enqueued)
+   transient backoff, never data loss. Drain-side dependency gating for
+   two-step media is fully built + tested (brief case 8, seeded rows).
+7. **`retryMessage` rerouted through the outbox** (was direct
+   `_drainOutbox` call): finds the op by `ref` (via `forConversation`) and
+   resets it, or ENQUEUES one for legacy opless rows, then drains — a
+   direct send could race the worker's drain and double-create (different
+   create ids). Side effect: retry now keeps the reply link (old code
+   passed `replyToLocalId: null` — dropped replies on retry).
+8. **Stale recovery is construction-time + `ready` future** (not part of
+   drain): tests await `worker.ready` before asserting `sending→queued`.
+9. **`sendMessage` reply params** (`replyToLocalId`/`replyPreview`) still
+   enqueue into the message row; `_sendTextOp` reads them from there.
+10. **Repo worker instance is exposed** as `MessageRepositoryImpl
+    .outboxWorker` (tests construct their OWN worker with fake now/Random
+    + `send: repo.sendOutboxOp`; the repo's worker serves production kicks
+    — two listeners in tests are inert: the mocked EventChannel never
+    emits).
+11. **Discard does not touch conversation last-message preview** —
+    if the discarded op's message was the last preview, the preview can
+    go stale until the next sync (known gap, banner UX may want it).

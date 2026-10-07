@@ -185,6 +185,11 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         ),
       );
 
+  /// Hard-deletes one local row — discardOp's cascade for an op whose
+  /// message never reached the server (no server tombstone needed).
+  Future<void> deleteByLocalId(String localId) =>
+      (delete(messagesTable)..where((t) => t.localId.equals(localId))).go();
+
   Future<void> cacheDecryptedBody(String localId, String decrypted) =>
       (update(messagesTable)..where((t) => t.localId.equals(localId))).write(
         MessagesTableCompanion(decryptedBody: Value(decrypted)),

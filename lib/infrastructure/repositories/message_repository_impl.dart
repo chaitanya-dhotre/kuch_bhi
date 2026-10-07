@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +26,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
+import '../offline/outbox_worker.dart';
 import '../../services/encryption_service.dart';
 import '../../services/media_upload_service.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
@@ -59,9 +59,17 @@ class MessageRepositoryImpl implements MessageRepository {
     required this.encryption,
     required this.mediaUploadService,
   }) {
+    // ── Task 3: the OutboxWorker owns the drain FSM, the connectivity
+    // listener (moved from _initConnectivityRetry) and stale-`sending`
+    // recovery. Built FIRST: the kick below and every hook route through it.
+    outboxWorker = OutboxWorker(
+      outbox: db.outboxDao,
+      messages: db.messagesDao,
+      settings: db.settingsDao,
+      send: sendOutboxOp,
+    );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
-    _initConnectivityRetry();
 
     // A restored session starts "authenticated" so the first authRefresh
     // token rotation is treated as same-session churn, not a fresh login.
@@ -135,6 +143,10 @@ class MessageRepositoryImpl implements MessageRepository {
   final SecureStorageService storage;
   final EncryptionService    encryption;
   final MediaUploadService   mediaUploadService;
+
+  /// Task 3: drain FSM + connectivity/auth hooks. Exposed for tests and
+  /// for [retryOp]/[discardOp] delegation (Task 4 banner routes here).
+  late final OutboxWorker outboxWorker;
 
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
@@ -523,14 +535,8 @@ class MessageRepositoryImpl implements MessageRepository {
   /// eagerly than the rest so the open chat feels live even without SSE.
   String? _activeConversationId;
 
-  void _initConnectivityRetry() {
-    Connectivity().onConnectivityChanged.listen((results) {
-      if (results.any((r) => r != ConnectivityResult.none)) {
-        debugPrint('[Msg] Connectivity restored. Retrying pending messages.');
-        retryPendingMessages();
-      }
-    });
-  }
+  // Task 3: `_initConnectivityRetry` MOVED into OutboxWorker — its listener
+  // now calls OutboxWorker.onConnectivityRestored (attempts reset + drain).
 
   // ── Watch conversations (Drift reactive) ──────────────────────
 
@@ -666,7 +672,7 @@ class MessageRepositoryImpl implements MessageRepository {
     // stays plaintext-cached in `decryptedBody` (interim — Task 9 drops
     // the column per spec); encryption runs on the drain path with the
     // EXISTING `EncryptionService.encryptMessage` code, now behind
-    // [_drainOutbox]. ─────────────────────────────────────────────
+    // [sendOutboxOp]. ─────────────────────────────────────────────
     await db.transaction(() async {
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
@@ -694,41 +700,70 @@ class MessageRepositoryImpl implements MessageRepository {
     });
     debugPrint('[Msg] OPTIMISTIC INSERT DONE — myId: $myId, convId: $conversationId');
 
-    // ── INTERIM drain kick (Task 3 swaps in OutboxWorker.drain() —
-    // the worker is not constructed yet): the OLD network send, moved
-    // verbatim out of sendMessage behind [_drainOutbox] (renamed from
-    // `_uploadMessage`; body unchanged, guard 5). Fire-and-forget,
-    // exactly as the pre-outbox send was. ─────────────────────────
-    _drainOutbox(
-      localId:        localId,
-      conversationId: conversationId,
-      myId:           myId,
-      plaintext:      plaintext,
-      replyToLocalId: replyToLocalId,
-      replyPreview:   replyPreview,
-      createdAt:      now,
-    );
+    // ── Drain kick (Task 3): the OutboxWorker drains the queued op —
+    // FSM-driven (error classes/backoff/FIFO) instead of the interim
+    // direct send. Fire-and-forget, exactly as before.
+    outboxWorker.kick();
   }
 
-  /// INTERIM outbox drain (Task 3's OutboxWorker replaces this stub):
-  /// performs the OLD network send — `_uploadMessage` renamed, body
-  /// moved VERBATIM from the pre-outbox send path (guard 5: no edits to
-  /// the moved code while I'm in here). It encrypts with the existing
-  /// `EncryptionService` path, creates the server record, then stamps
-  /// the local row — the interim stand-in until the worker drives
-  /// [handleDrainAck] per op.
-  Future<void> _drainOutbox({
-    required String   localId,
-    required String   conversationId,
-    required String   myId,
-    required String   plaintext,
-    String?           replyToLocalId,
-    String?           replyPreview,
-    required DateTime createdAt,
-  }) async {
+  /// Kind-sender for [OutboxWorker] (brief §Interfaces: the worker's
+  /// "repo-ish sender callback"). Dispatches on `op.kind`:
+  ///  - `text_send` → the network-create path moved out of the old
+  ///    `_drainOutbox`/`sendMessage` send, now op-aware (client id on the
+  ///    create + error propagation for the worker's FSM);
+  ///  - everything else → loud [StateError]: outgoing `media_upload`
+  ///    enqueue wiring is a plan follow-up (progress.md ruling — nothing
+  ///    enqueues other kinds yet; the worker's dependency gating for them
+  ///    is covered by seeded-row tests).
+  ///
+  /// Contract with the worker:
+  ///  - success → message row stamped + outbox `sent` in ONE txn →
+  ///    [OpSendOutcome.sent];
+  ///  - local defer (no key / no session / row gone) →
+  ///    [OpSendOutcome.deferred] — re-queue, NO schedule change;
+  ///  - HTTP failures → thrown ([ClientException], or rethrown after the
+  ///    duplicate-id ownership check) for `nextAttempt` classification.
+  Future<OpSendOutcome> sendOutboxOp(OutboxTableData op) async {
+    switch (op.kind) {
+      case 'text_send':
+        return _sendTextOp(op);
+      default:
+        throw StateError('No sender wired for outbox kind "${op.kind}"');
+    }
+  }
+
+  /// `text_send` sender: body moved from the interim `_drainOutbox`
+  /// (itself `_uploadMessage` renamed — guard 5 lineage), adapted to the
+  /// op-driven flow:
+  ///  1. derives all send inputs from the op + its message row;
+  ///  2. create carries `'id': op.opId` (spec §5.2 idempotency key);
+  ///  3. duplicate-id → [resolveDuplicateSend] ownership check (success or
+  ///     terminal verdict), never a blind re-create;
+  ///  4. failures PROPAGATE to the worker (old catch-all → message
+  ///     'failed' is gone: the FSM decides terminal vs backoff).
+  Future<OpSendOutcome> _sendTextOp(OutboxTableData op) async {
+    final localId = op.ref;
+    final conversationId = op.conversationId;
+    final msg = await db.messagesDao.getMessageByLocalId(localId);
+    if (msg == null) {
+      // Message row gone (discarded/wiped) — the op can never complete.
+      await db.outboxDao.deleteOp(op.opId);
+      return OpSendOutcome.deferred;
+    }
+    final plaintext = msg.decryptedBody;
+    if (plaintext == null) {
+      return OpSendOutcome.deferred; // nothing to send yet
+    }
+    final myId = await _myId();
+    if (myId.isEmpty) {
+      return OpSendOutcome.deferred; // session not ready — retry on kick
+    }
+    final replyPreview = msg.replyPreview;
+    final createdAt = msg.createdAt;
+
     final uploadEpoch = _sessionEpoch;
     debugPrint('[Msg] Starting upload for localId: $localId');
-    
+
     final List<int> key;
     final EncryptResult encrypted;
     final EncryptResult? encryptedReply;
@@ -746,23 +781,35 @@ class MessageRepositoryImpl implements MessageRepository {
       // send under a placeholder key.
       debugPrint('[Msg] Key not ready, staying pending: $e');
       await db.messagesDao.updateMessageStatus(localId, 'pending');
-      return;
+      return OpSendOutcome.deferred;
     } catch (e) {
+      // Local crypto failure — not retryable by backoff. Terminal on both
+      // rows (worker sees state != sending and leaves it alone).
       debugPrint('[Msg] Encryption failed: $e');
       await db.messagesDao.updateMessageStatus(localId, 'failed');
-      return;
+      await db.outboxDao.setState(
+        op.opId,
+        OutboxState.failedTerminal,
+        lastError: '$e',
+        errorClass: 'encrypt_failed',
+      );
+      return OpSendOutcome.deferred;
     }
 
-    try {
-      // Resolve localId → serverId for reply reference
-      String? replyServerId;
-      if (replyToLocalId != null) {
-        final replyMsg = await db.messagesDao.getMessageByLocalId(replyToLocalId);
-        replyServerId = replyMsg?.serverId;
-      }
+    // Resolve localId → serverId for reply reference
+    String? replyServerId;
+    final replyRef = msg.replyToId;
+    if (replyRef != null && replyRef.isNotEmpty) {
+      final replyMsg = await db.messagesDao.getMessageByLocalId(replyRef);
+      replyServerId = replyMsg?.serverId;
+    }
 
-      debugPrint('[Msg] Creating message record on server');
-      final record = await _pb.collection('messages').create(body: {
+    debugPrint('[Msg] Creating message record on server');
+    final RecordModel record;
+    try {
+      record = await _pb.collection('messages').create(body: {
+        // spec §5.2: the op id IS the server record id (idempotency key).
+        'id':                   op.opId,
         'conversation_id':        conversationId,
         'sender_id':              myId,
         'type':                   'text',
@@ -775,19 +822,35 @@ class MessageRepositoryImpl implements MessageRepository {
             : '${encryptedReply.iv}:${encryptedReply.ciphertext}',
         'is_deleted_for_everyone': false,
       });
-      debugPrint('[Msg] Message created on server with serverId: ${record.id}');
-
-      final serverCreated = DateTime.tryParse(record.created) ?? createdAt;
-      final expiresAt = await _computeExpiry(conversationId, serverCreated);
-      // Review C1: encryption+create span the gap — never stamp rows into a
-      // session that ended mid-send (the local row was wiped with it).
-      if (!sessionStillValid(
-          epochAtStart: uploadEpoch,
-          currentEpoch: _sessionEpoch,
-          authValid: _pb.authStore.isValid)) {
-        debugPrint('[Msg] send landed after logout — local write skipped');
-        return;
+    } on ClientException catch (e) {
+      if (isDuplicateIdError(e)) {
+        // Timeout-retry / send-after-kill: the record already exists.
+        final ours = await resolveDuplicateSend(
+          opId: op.opId,
+          senderId: myId,
+          conversationId: conversationId,
+        );
+        return ours
+            ? OpSendOutcome.sent
+            : OpSendOutcome.deferred; // collision verdict already written
       }
+      rethrow; // real HTTP failure → worker classifies via nextAttempt
+    }
+    debugPrint('[Msg] Message created on server with serverId: ${record.id}');
+
+    final serverCreated = DateTime.tryParse(record.created) ?? createdAt;
+    final expiresAt = await _computeExpiry(conversationId, serverCreated);
+    // Review C1: encryption+create span the gap — never stamp rows into a
+    // session that ended mid-send (the local row was wiped with it).
+    if (!sessionStillValid(
+        epochAtStart: uploadEpoch,
+        currentEpoch: _sessionEpoch,
+        authValid: _pb.authStore.isValid)) {
+      debugPrint('[Msg] send landed after logout — local write skipped');
+      return OpSendOutcome.deferred;
+    }
+    // Dual-truth txn (spec §5.1): message stamp + outbox `sent` together.
+    await db.transaction(() async {
       // Clear any FCM-isolate placeholder for this id so stamping ours
       // cannot violate the serverId unique index.
       await db.messagesDao.deleteByServerIdExcept(record.id, localId);
@@ -809,20 +872,19 @@ class MessageRepositoryImpl implements MessageRepository {
         createdAt:      serverCreated,
         updatedAt:      DateTime.now(),
       ));
-      debugPrint('[Msg] Local message updated with status: sent');
+      await db.outboxDao.setState(op.opId, OutboxState.sent, attempts: 0);
+    });
+    debugPrint('[Msg] Local message updated with status: sent');
 
-      await db.conversationsDao.updateLastMessage(
-        conversationId,
-        plaintext.length > 50 ? '${plaintext.substring(0, 50)}…' : plaintext,
-        serverCreated,
-      );
+    await db.conversationsDao.updateLastMessage(
+      conversationId,
+      plaintext.length > 50 ? '${plaintext.substring(0, 50)}…' : plaintext,
+      serverCreated,
+    );
 
-      debugPrint('[Msg] Creating receipts for serverId: ${record.id}');
-      await _createReceipts(record.id, conversationId, myId);
-    } catch (e) {
-      debugPrint('[Msg] ERROR upload failed: $e');
-      await db.messagesDao.updateMessageStatus(localId, 'failed');
-    }
+    debugPrint('[Msg] Creating receipts for serverId: ${record.id}');
+    await _createReceipts(record.id, conversationId, myId);
+    return OpSendOutcome.sent;
   }
 
   /// Drain-ack: stamp the message row (`serverId` + `status='sent'`) and
@@ -1191,20 +1253,45 @@ class MessageRepositoryImpl implements MessageRepository {
       if (msg.decryptedBody == null) return;
     }
 
-    // Resolve reply preview (plaintext) from the referenced local/DB row.
-    String? replyPreview = msg.replyPreview;
-
-    // Re-upload with the SAME localId - no new entry created.
-    await _drainOutbox(
-      localId:        localId,
-      conversationId: msg.conversationId,
-      myId:           myId,
-      plaintext:      msg.decryptedBody ?? '',
-      replyToLocalId: null,
-      replyPreview:   replyPreview,
-      createdAt:      msg.createdAt,
-    );
+    // Task 3: route through the outbox (SINGLE send path — the old direct
+    // `_drainOutbox` call could race the worker's drain and double-create).
+    // Reset the existing op, or enqueue one for pre-outbox legacy rows.
+    final ops = await db.outboxDao.forConversation(msg.conversationId);
+    OutboxTableData? op;
+    for (final o in ops) {
+      if (o.ref == localId) {
+        op = o;
+        break;
+      }
+    }
+    if (op == null) {
+      final enqueuedAt = DateTime.now();
+      await db.transaction(() async {
+        await db.outboxDao.enqueue(OutboxTableCompanion.insert(
+          opId:           generateOpId(),
+          kind:           'text_send',
+          ref:            localId,
+          conversationId: msg.conversationId,
+          seq:            await db.outboxDao.nextSeq(msg.conversationId),
+          createdAt:      enqueuedAt,
+        ));
+      });
+    } else {
+      await db.outboxDao.clearRetry(op.opId);
+      await db.outboxDao.setState(op.opId, OutboxState.queued);
+    }
+    await outboxWorker.drain();
   }
+
+  /// Task 4 banner Retry: re-queue a terminal op (clears its retry
+  /// metadata) and drain — delegates to [outboxWorker.retryOp].
+  @override
+  Future<void> retryOp(String opId) => outboxWorker.retryOp(opId);
+
+  /// Task 4 banner Discard: remove the op + every `dependsOn` dependent
+  /// (and their message rows), then drain — see [outboxWorker.discardOp].
+  @override
+  Future<void> discardOp(String opId) => outboxWorker.discardOp(opId);
 
   // ── Mark read ─────────────────────────────────────────────────
 

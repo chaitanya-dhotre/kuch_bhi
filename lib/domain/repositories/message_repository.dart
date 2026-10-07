@@ -112,6 +112,16 @@ abstract class MessageRepository {
   /// Does NOT create a new message entry.
   Future<void> retryMessage(String localId);
 
+  /// Re-queue one outbox op (typically `failedTerminal`): clears its retry
+  /// metadata back to NULL/0, unsticks the message row, drains. Task 4's
+  /// terminal banner Retry action.
+  Future<void> retryOp(String opId);
+
+  /// Discard one outbox op: cascades to every op that (transitively)
+  /// `dependsOn` it and deletes their local message rows, then drains.
+  /// Task 4's terminal banner Discard action.
+  Future<void> discardOp(String opId);
+
   /// Fetch older messages (pagination).
   Future<void> loadMoreMessages(String conversationId, int offset);
 
