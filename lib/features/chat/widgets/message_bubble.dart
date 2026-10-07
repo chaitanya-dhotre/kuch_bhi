@@ -4,7 +4,12 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/emoji_utils.dart';
+import '../../../data/local/database/app_database.dart' show OutboxTableData;
+import '../../../data/local/database/tables/outbox_table.dart';
 import '../../../domain/entities/message.dart';
+import '../../../infrastructure/repositories/message_repository_impl.dart'
+    show messageRepositoryProvider;
+import '../providers/outbox_status_provider.dart';
 import 'link_preview_card.dart';
 import 'document_message_bubble.dart';
 import 'image_message_bubble.dart';
@@ -70,6 +75,22 @@ class MessageBubble extends ConsumerWidget {
     if (message.type == 'system') {
       return _SystemMessageBubble(body: body);
     }
+
+    // ── Terminal-failure lookup (Task 4) ───────────────────────────────
+    // One shared outbox stream per conversation; find THIS message's op.
+    // A `failedTerminal` row = stuck message → visible banner below.
+    OutboxTableData? failedOp;
+    final outboxRows =
+        ref.watch(outboxStatusProvider(message.conversationId)).value ??
+            const <OutboxTableData>[];
+    for (final row in outboxRows) {
+      if (row.ref == message.localId &&
+          row.state == OutboxState.failedTerminal) {
+        failedOp = row;
+        break;
+      }
+    }
+    final terminalOp = failedOp; // effectively final → promotable in closures
 
     final bubble = GestureDetector(
       onLongPress: () => showMessageMenu(
@@ -253,6 +274,20 @@ class MessageBubble extends ConsumerWidget {
           // ── Reactions ────────────────────────────────────────
           if (message.serverId != null)
             ReactionBar(messageServerId: message.serverId!, isMine: isMine),
+
+          // ── Terminal-failure banner (spec: stuck message VISIBLE) ──
+          // Keyed by message localId; Retry/Discard wire straight to the
+          // real repo (Task 3 retryOp/discardOp — discard cascades).
+          if (terminalOp != null)
+            TerminalFailureBanner(
+              key: ValueKey('terminal-banner-${message.localId}'),
+              isMine:     isMine,
+              errorClass: terminalOp.errorClass,
+              onRetry: () =>
+                  ref.read(messageRepositoryProvider).retryOp(terminalOp.opId),
+              onDiscard: () =>
+                  ref.read(messageRepositoryProvider).discardOp(terminalOp.opId),
+            ),
         ],
       ),
     );
@@ -261,6 +296,109 @@ class MessageBubble extends ConsumerWidget {
       isMine:  isMine,
       onReply: onReply ?? () {},
       child:   bubble,
+    );
+  }
+}
+
+// ── Terminal-failure banner (Task 4) ──────────────────────────────────────
+//
+// Spec §5.2: a `failedTerminal` op must be VISIBLE under its message —
+// error-class text + Retry (re-queue) + Discard (cascade delete). Warm Pop
+// token law: `t.error` text on `t.error` @8% bg, radius `radiusSm`,
+// system fonts, no new colors (grep gate 11).
+
+class TerminalFailureBanner extends StatelessWidget {
+  const TerminalFailureBanner({
+    super.key,
+    required this.isMine,
+    required this.errorClass,
+    required this.onRetry,
+    required this.onDiscard,
+  });
+
+  final bool isMine;
+  final String? errorClass;
+  final VoidCallback onRetry;
+  final VoidCallback onDiscard;
+
+  @override
+  Widget build(BuildContext context) {
+    final err = context.t.error;
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: EdgeInsets.only(
+          left:   isMine ? 64 : 12,
+          right:  isMine ? 12 : 64,
+          top:    2,
+          bottom: 2,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: err.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 15, color: err),
+                const SizedBox(width: 6),
+                Text(
+                  'Failed to send',
+                  style: TextStyle(
+                    color: err,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600, // plan floor: ≥w600 12px
+                  ),
+                ),
+              ],
+            ),
+            if (errorClass != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, left: 21),
+                child: Text(
+                  errorClass!,
+                  style: TextStyle(color: err, fontSize: 11),
+                ),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  onPressed: onRetry,
+                  style: TextButton.styleFrom(
+                    foregroundColor: err,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 36),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: const Text('Retry'),
+                ),
+                TextButton(
+                  onPressed: onDiscard,
+                  style: TextButton.styleFrom(
+                    foregroundColor: err,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 36),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: const Text('Discard'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

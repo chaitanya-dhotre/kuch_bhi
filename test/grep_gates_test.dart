@@ -172,6 +172,23 @@ void main() {
           isFalse, reason: '$f must use Warm Pop tokens');
     }
   });
+
+  // Gate 11 (Task 4): terminal-failure banner + its status provider ride
+  // Warm Pop tokens only — raw Color(0x / Colors.* in the banner path is a
+  // spec violation (screens may not hardcode color).
+  test('terminal banner + outbox status provider carry no raw colors', () {
+    final files = [
+      'lib/features/chat/providers/outbox_status_provider.dart',
+      'lib/features/chat/widgets/message_bubble.dart',
+    ];
+    for (final f in files) {
+      final src = File(f).readAsStringSync();
+      expect(src.contains('AppColors'), isFalse, reason: f);
+      expect(RegExp(r'Color\(0x').hasMatch(src), isFalse, reason: f);
+      expect(RegExp(r'Colors\.(purple|indigo|red|white|grey)').hasMatch(src),
+          isFalse, reason: f);
+    }
+  });
 }
 
 const _bannedPurpleHexes = [

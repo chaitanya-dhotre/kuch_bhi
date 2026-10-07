@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/core/theme/tokens.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
+import 'package:kuch_bhi/features/chat/providers/outbox_status_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 
 Message _msg(String senderId) => Message(
@@ -35,6 +36,13 @@ String _senderIdOnBannedColor() {
 Future<Text> _pumpSenderLabel(WidgetTester tester, ThemeData theme) async {
   await tester.pumpWidget(
     ProviderScope(
+      // Task 4: the bubble now watches the outbox stream. This label unit
+      // test has no DB — feed it an empty outbox so the provider body
+      // never constructs a (second) AppDatabase (drift warns loudly).
+      overrides: [
+        outboxStatusProvider
+            .overrideWith((ref, convId) => Stream.value(const [])),
+      ],
       child: MaterialApp(
         theme: theme,
         home: Scaffold(
