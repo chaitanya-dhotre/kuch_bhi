@@ -6882,6 +6882,716 @@ class OutboxTableCompanion extends UpdateCompanion<OutboxTableData> {
   }
 }
 
+class $MediaBlobTableTable extends MediaBlobTable
+    with TableInfo<$MediaBlobTableTable, MediaBlobTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MediaBlobTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _blobIdMeta = const VerificationMeta('blobId');
+  @override
+  late final GeneratedColumn<String> blobId = GeneratedColumn<String>(
+    'blob_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _messageIdMeta = const VerificationMeta(
+    'messageId',
+  );
+  @override
+  late final GeneratedColumn<String> messageId = GeneratedColumn<String>(
+    'message_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _remoteRefMeta = const VerificationMeta(
+    'remoteRef',
+  );
+  @override
+  late final GeneratedColumn<String> remoteRef = GeneratedColumn<String>(
+    'remote_ref',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _expectedSizeMeta = const VerificationMeta(
+    'expectedSize',
+  );
+  @override
+  late final GeneratedColumn<int> expectedSize = GeneratedColumn<int>(
+    'expected_size',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _expectedHashMeta = const VerificationMeta(
+    'expectedHash',
+  );
+  @override
+  late final GeneratedColumn<String> expectedHash = GeneratedColumn<String>(
+    'expected_hash',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _localPathMeta = const VerificationMeta(
+    'localPath',
+  );
+  @override
+  late final GeneratedColumn<String> localPath = GeneratedColumn<String>(
+    'local_path',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _bytesMeta = const VerificationMeta('bytes');
+  @override
+  late final GeneratedColumn<int> bytes = GeneratedColumn<int>(
+    'bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastAccessMeta = const VerificationMeta(
+    'lastAccess',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastAccess = GeneratedColumn<DateTime>(
+    'last_access',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<BlobState, String> state =
+      GeneratedColumn<String>(
+        'state',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('queued'),
+      ).withConverter<BlobState>($MediaBlobTableTable.$converterstate);
+  static const VerificationMeta _errorClassMeta = const VerificationMeta(
+    'errorClass',
+  );
+  @override
+  late final GeneratedColumn<String> errorClass = GeneratedColumn<String>(
+    'error_class',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _uploadPendingMeta = const VerificationMeta(
+    'uploadPending',
+  );
+  @override
+  late final GeneratedColumn<bool> uploadPending = GeneratedColumn<bool>(
+    'upload_pending',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("upload_pending" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    blobId,
+    messageId,
+    remoteRef,
+    expectedSize,
+    expectedHash,
+    localPath,
+    bytes,
+    lastAccess,
+    state,
+    errorClass,
+    uploadPending,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'media_blob_table';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MediaBlobTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('blob_id')) {
+      context.handle(
+        _blobIdMeta,
+        blobId.isAcceptableOrUnknown(data['blob_id']!, _blobIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_blobIdMeta);
+    }
+    if (data.containsKey('message_id')) {
+      context.handle(
+        _messageIdMeta,
+        messageId.isAcceptableOrUnknown(data['message_id']!, _messageIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_messageIdMeta);
+    }
+    if (data.containsKey('remote_ref')) {
+      context.handle(
+        _remoteRefMeta,
+        remoteRef.isAcceptableOrUnknown(data['remote_ref']!, _remoteRefMeta),
+      );
+    }
+    if (data.containsKey('expected_size')) {
+      context.handle(
+        _expectedSizeMeta,
+        expectedSize.isAcceptableOrUnknown(
+          data['expected_size']!,
+          _expectedSizeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('expected_hash')) {
+      context.handle(
+        _expectedHashMeta,
+        expectedHash.isAcceptableOrUnknown(
+          data['expected_hash']!,
+          _expectedHashMeta,
+        ),
+      );
+    }
+    if (data.containsKey('local_path')) {
+      context.handle(
+        _localPathMeta,
+        localPath.isAcceptableOrUnknown(data['local_path']!, _localPathMeta),
+      );
+    }
+    if (data.containsKey('bytes')) {
+      context.handle(
+        _bytesMeta,
+        bytes.isAcceptableOrUnknown(data['bytes']!, _bytesMeta),
+      );
+    }
+    if (data.containsKey('last_access')) {
+      context.handle(
+        _lastAccessMeta,
+        lastAccess.isAcceptableOrUnknown(data['last_access']!, _lastAccessMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_lastAccessMeta);
+    }
+    if (data.containsKey('error_class')) {
+      context.handle(
+        _errorClassMeta,
+        errorClass.isAcceptableOrUnknown(data['error_class']!, _errorClassMeta),
+      );
+    }
+    if (data.containsKey('upload_pending')) {
+      context.handle(
+        _uploadPendingMeta,
+        uploadPending.isAcceptableOrUnknown(
+          data['upload_pending']!,
+          _uploadPendingMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {blobId};
+  @override
+  MediaBlobTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MediaBlobTableData(
+      blobId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}blob_id'],
+      )!,
+      messageId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}message_id'],
+      )!,
+      remoteRef: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}remote_ref'],
+      ),
+      expectedSize: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}expected_size'],
+      ),
+      expectedHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}expected_hash'],
+      ),
+      localPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_path'],
+      ),
+      bytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}bytes'],
+      )!,
+      lastAccess: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_access'],
+      )!,
+      state: $MediaBlobTableTable.$converterstate.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}state'],
+        )!,
+      ),
+      errorClass: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_class'],
+      ),
+      uploadPending: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}upload_pending'],
+      )!,
+    );
+  }
+
+  @override
+  $MediaBlobTableTable createAlias(String alias) {
+    return $MediaBlobTableTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<BlobState, String, String> $converterstate =
+      const EnumNameConverter<BlobState>(BlobState.values);
+}
+
+class MediaBlobTableData extends DataClass
+    implements Insertable<MediaBlobTableData> {
+  /// Blob identity — `'<messageServerId>_<f|t>'` (full / thumb variant);
+  /// see `mediaBlobId()` in the MediaBlobStore.
+  final String blobId;
+
+  /// Server id of the owning message — joins `messages_table.server_id`
+  /// for the starred/pinned protection predicate and resolves the
+  /// conversation id for the E2E key.
+  final String messageId;
+
+  /// Remote reference stamped at record-lookup time: `'<recordId>/<file>'`.
+  final String? remoteRef;
+
+  /// Expected downloaded (ciphertext) size — verify stage; null = unknown.
+  final int? expectedSize;
+
+  /// Expected sha256 (lowercase hex) of the downloaded bytes — verify
+  /// stage; null = unknown.
+  final String? expectedHash;
+
+  /// Absolute path of the decrypted file (app-private dir).
+  final String? localPath;
+
+  /// Decrypted file size in bytes (eviction accounting for `ready` rows).
+  final int bytes;
+  final DateTime lastAccess;
+  final BlobState state;
+
+  /// Set iff `state = failed` — one of spec §9's error classes:
+  /// `'dead_link' | 'expired' | 'verify' | 'decrypt'`.
+  final String? errorClass;
+
+  /// Outgoing-upload latch (spec §5.3): a blob whose only copy feeds a
+  /// pending upload is protected from eviction. Derived protection input
+  /// — NOT a `protected` flag.
+  final bool uploadPending;
+  const MediaBlobTableData({
+    required this.blobId,
+    required this.messageId,
+    this.remoteRef,
+    this.expectedSize,
+    this.expectedHash,
+    this.localPath,
+    required this.bytes,
+    required this.lastAccess,
+    required this.state,
+    this.errorClass,
+    required this.uploadPending,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['blob_id'] = Variable<String>(blobId);
+    map['message_id'] = Variable<String>(messageId);
+    if (!nullToAbsent || remoteRef != null) {
+      map['remote_ref'] = Variable<String>(remoteRef);
+    }
+    if (!nullToAbsent || expectedSize != null) {
+      map['expected_size'] = Variable<int>(expectedSize);
+    }
+    if (!nullToAbsent || expectedHash != null) {
+      map['expected_hash'] = Variable<String>(expectedHash);
+    }
+    if (!nullToAbsent || localPath != null) {
+      map['local_path'] = Variable<String>(localPath);
+    }
+    map['bytes'] = Variable<int>(bytes);
+    map['last_access'] = Variable<DateTime>(lastAccess);
+    {
+      map['state'] = Variable<String>(
+        $MediaBlobTableTable.$converterstate.toSql(state),
+      );
+    }
+    if (!nullToAbsent || errorClass != null) {
+      map['error_class'] = Variable<String>(errorClass);
+    }
+    map['upload_pending'] = Variable<bool>(uploadPending);
+    return map;
+  }
+
+  MediaBlobTableCompanion toCompanion(bool nullToAbsent) {
+    return MediaBlobTableCompanion(
+      blobId: Value(blobId),
+      messageId: Value(messageId),
+      remoteRef: remoteRef == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteRef),
+      expectedSize: expectedSize == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expectedSize),
+      expectedHash: expectedHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expectedHash),
+      localPath: localPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(localPath),
+      bytes: Value(bytes),
+      lastAccess: Value(lastAccess),
+      state: Value(state),
+      errorClass: errorClass == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorClass),
+      uploadPending: Value(uploadPending),
+    );
+  }
+
+  factory MediaBlobTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MediaBlobTableData(
+      blobId: serializer.fromJson<String>(json['blobId']),
+      messageId: serializer.fromJson<String>(json['messageId']),
+      remoteRef: serializer.fromJson<String?>(json['remoteRef']),
+      expectedSize: serializer.fromJson<int?>(json['expectedSize']),
+      expectedHash: serializer.fromJson<String?>(json['expectedHash']),
+      localPath: serializer.fromJson<String?>(json['localPath']),
+      bytes: serializer.fromJson<int>(json['bytes']),
+      lastAccess: serializer.fromJson<DateTime>(json['lastAccess']),
+      state: $MediaBlobTableTable.$converterstate.fromJson(
+        serializer.fromJson<String>(json['state']),
+      ),
+      errorClass: serializer.fromJson<String?>(json['errorClass']),
+      uploadPending: serializer.fromJson<bool>(json['uploadPending']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'blobId': serializer.toJson<String>(blobId),
+      'messageId': serializer.toJson<String>(messageId),
+      'remoteRef': serializer.toJson<String?>(remoteRef),
+      'expectedSize': serializer.toJson<int?>(expectedSize),
+      'expectedHash': serializer.toJson<String?>(expectedHash),
+      'localPath': serializer.toJson<String?>(localPath),
+      'bytes': serializer.toJson<int>(bytes),
+      'lastAccess': serializer.toJson<DateTime>(lastAccess),
+      'state': serializer.toJson<String>(
+        $MediaBlobTableTable.$converterstate.toJson(state),
+      ),
+      'errorClass': serializer.toJson<String?>(errorClass),
+      'uploadPending': serializer.toJson<bool>(uploadPending),
+    };
+  }
+
+  MediaBlobTableData copyWith({
+    String? blobId,
+    String? messageId,
+    Value<String?> remoteRef = const Value.absent(),
+    Value<int?> expectedSize = const Value.absent(),
+    Value<String?> expectedHash = const Value.absent(),
+    Value<String?> localPath = const Value.absent(),
+    int? bytes,
+    DateTime? lastAccess,
+    BlobState? state,
+    Value<String?> errorClass = const Value.absent(),
+    bool? uploadPending,
+  }) => MediaBlobTableData(
+    blobId: blobId ?? this.blobId,
+    messageId: messageId ?? this.messageId,
+    remoteRef: remoteRef.present ? remoteRef.value : this.remoteRef,
+    expectedSize: expectedSize.present ? expectedSize.value : this.expectedSize,
+    expectedHash: expectedHash.present ? expectedHash.value : this.expectedHash,
+    localPath: localPath.present ? localPath.value : this.localPath,
+    bytes: bytes ?? this.bytes,
+    lastAccess: lastAccess ?? this.lastAccess,
+    state: state ?? this.state,
+    errorClass: errorClass.present ? errorClass.value : this.errorClass,
+    uploadPending: uploadPending ?? this.uploadPending,
+  );
+  MediaBlobTableData copyWithCompanion(MediaBlobTableCompanion data) {
+    return MediaBlobTableData(
+      blobId: data.blobId.present ? data.blobId.value : this.blobId,
+      messageId: data.messageId.present ? data.messageId.value : this.messageId,
+      remoteRef: data.remoteRef.present ? data.remoteRef.value : this.remoteRef,
+      expectedSize: data.expectedSize.present
+          ? data.expectedSize.value
+          : this.expectedSize,
+      expectedHash: data.expectedHash.present
+          ? data.expectedHash.value
+          : this.expectedHash,
+      localPath: data.localPath.present ? data.localPath.value : this.localPath,
+      bytes: data.bytes.present ? data.bytes.value : this.bytes,
+      lastAccess: data.lastAccess.present
+          ? data.lastAccess.value
+          : this.lastAccess,
+      state: data.state.present ? data.state.value : this.state,
+      errorClass: data.errorClass.present
+          ? data.errorClass.value
+          : this.errorClass,
+      uploadPending: data.uploadPending.present
+          ? data.uploadPending.value
+          : this.uploadPending,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MediaBlobTableData(')
+          ..write('blobId: $blobId, ')
+          ..write('messageId: $messageId, ')
+          ..write('remoteRef: $remoteRef, ')
+          ..write('expectedSize: $expectedSize, ')
+          ..write('expectedHash: $expectedHash, ')
+          ..write('localPath: $localPath, ')
+          ..write('bytes: $bytes, ')
+          ..write('lastAccess: $lastAccess, ')
+          ..write('state: $state, ')
+          ..write('errorClass: $errorClass, ')
+          ..write('uploadPending: $uploadPending')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    blobId,
+    messageId,
+    remoteRef,
+    expectedSize,
+    expectedHash,
+    localPath,
+    bytes,
+    lastAccess,
+    state,
+    errorClass,
+    uploadPending,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MediaBlobTableData &&
+          other.blobId == this.blobId &&
+          other.messageId == this.messageId &&
+          other.remoteRef == this.remoteRef &&
+          other.expectedSize == this.expectedSize &&
+          other.expectedHash == this.expectedHash &&
+          other.localPath == this.localPath &&
+          other.bytes == this.bytes &&
+          other.lastAccess == this.lastAccess &&
+          other.state == this.state &&
+          other.errorClass == this.errorClass &&
+          other.uploadPending == this.uploadPending);
+}
+
+class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
+  final Value<String> blobId;
+  final Value<String> messageId;
+  final Value<String?> remoteRef;
+  final Value<int?> expectedSize;
+  final Value<String?> expectedHash;
+  final Value<String?> localPath;
+  final Value<int> bytes;
+  final Value<DateTime> lastAccess;
+  final Value<BlobState> state;
+  final Value<String?> errorClass;
+  final Value<bool> uploadPending;
+  final Value<int> rowid;
+  const MediaBlobTableCompanion({
+    this.blobId = const Value.absent(),
+    this.messageId = const Value.absent(),
+    this.remoteRef = const Value.absent(),
+    this.expectedSize = const Value.absent(),
+    this.expectedHash = const Value.absent(),
+    this.localPath = const Value.absent(),
+    this.bytes = const Value.absent(),
+    this.lastAccess = const Value.absent(),
+    this.state = const Value.absent(),
+    this.errorClass = const Value.absent(),
+    this.uploadPending = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MediaBlobTableCompanion.insert({
+    required String blobId,
+    required String messageId,
+    this.remoteRef = const Value.absent(),
+    this.expectedSize = const Value.absent(),
+    this.expectedHash = const Value.absent(),
+    this.localPath = const Value.absent(),
+    this.bytes = const Value.absent(),
+    required DateTime lastAccess,
+    this.state = const Value.absent(),
+    this.errorClass = const Value.absent(),
+    this.uploadPending = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : blobId = Value(blobId),
+       messageId = Value(messageId),
+       lastAccess = Value(lastAccess);
+  static Insertable<MediaBlobTableData> custom({
+    Expression<String>? blobId,
+    Expression<String>? messageId,
+    Expression<String>? remoteRef,
+    Expression<int>? expectedSize,
+    Expression<String>? expectedHash,
+    Expression<String>? localPath,
+    Expression<int>? bytes,
+    Expression<DateTime>? lastAccess,
+    Expression<String>? state,
+    Expression<String>? errorClass,
+    Expression<bool>? uploadPending,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (blobId != null) 'blob_id': blobId,
+      if (messageId != null) 'message_id': messageId,
+      if (remoteRef != null) 'remote_ref': remoteRef,
+      if (expectedSize != null) 'expected_size': expectedSize,
+      if (expectedHash != null) 'expected_hash': expectedHash,
+      if (localPath != null) 'local_path': localPath,
+      if (bytes != null) 'bytes': bytes,
+      if (lastAccess != null) 'last_access': lastAccess,
+      if (state != null) 'state': state,
+      if (errorClass != null) 'error_class': errorClass,
+      if (uploadPending != null) 'upload_pending': uploadPending,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MediaBlobTableCompanion copyWith({
+    Value<String>? blobId,
+    Value<String>? messageId,
+    Value<String?>? remoteRef,
+    Value<int?>? expectedSize,
+    Value<String?>? expectedHash,
+    Value<String?>? localPath,
+    Value<int>? bytes,
+    Value<DateTime>? lastAccess,
+    Value<BlobState>? state,
+    Value<String?>? errorClass,
+    Value<bool>? uploadPending,
+    Value<int>? rowid,
+  }) {
+    return MediaBlobTableCompanion(
+      blobId: blobId ?? this.blobId,
+      messageId: messageId ?? this.messageId,
+      remoteRef: remoteRef ?? this.remoteRef,
+      expectedSize: expectedSize ?? this.expectedSize,
+      expectedHash: expectedHash ?? this.expectedHash,
+      localPath: localPath ?? this.localPath,
+      bytes: bytes ?? this.bytes,
+      lastAccess: lastAccess ?? this.lastAccess,
+      state: state ?? this.state,
+      errorClass: errorClass ?? this.errorClass,
+      uploadPending: uploadPending ?? this.uploadPending,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (blobId.present) {
+      map['blob_id'] = Variable<String>(blobId.value);
+    }
+    if (messageId.present) {
+      map['message_id'] = Variable<String>(messageId.value);
+    }
+    if (remoteRef.present) {
+      map['remote_ref'] = Variable<String>(remoteRef.value);
+    }
+    if (expectedSize.present) {
+      map['expected_size'] = Variable<int>(expectedSize.value);
+    }
+    if (expectedHash.present) {
+      map['expected_hash'] = Variable<String>(expectedHash.value);
+    }
+    if (localPath.present) {
+      map['local_path'] = Variable<String>(localPath.value);
+    }
+    if (bytes.present) {
+      map['bytes'] = Variable<int>(bytes.value);
+    }
+    if (lastAccess.present) {
+      map['last_access'] = Variable<DateTime>(lastAccess.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(
+        $MediaBlobTableTable.$converterstate.toSql(state.value),
+      );
+    }
+    if (errorClass.present) {
+      map['error_class'] = Variable<String>(errorClass.value);
+    }
+    if (uploadPending.present) {
+      map['upload_pending'] = Variable<bool>(uploadPending.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MediaBlobTableCompanion(')
+          ..write('blobId: $blobId, ')
+          ..write('messageId: $messageId, ')
+          ..write('remoteRef: $remoteRef, ')
+          ..write('expectedSize: $expectedSize, ')
+          ..write('expectedHash: $expectedHash, ')
+          ..write('localPath: $localPath, ')
+          ..write('bytes: $bytes, ')
+          ..write('lastAccess: $lastAccess, ')
+          ..write('state: $state, ')
+          ..write('errorClass: $errorClass, ')
+          ..write('uploadPending: $uploadPending, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -6907,6 +7617,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $MessageDraftsTableTable messageDraftsTable =
       $MessageDraftsTableTable(this);
   late final $OutboxTableTable outboxTable = $OutboxTableTable(this);
+  late final $MediaBlobTableTable mediaBlobTable = $MediaBlobTableTable(this);
   late final Index idxMessagesServerId = Index(
     'idx_messages_server_id',
     'CREATE UNIQUE INDEX idx_messages_server_id ON messages_table (server_id)',
@@ -6919,6 +7630,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final FriendsDao friendsDao = FriendsDao(this as AppDatabase);
   late final SettingsDao settingsDao = SettingsDao(this as AppDatabase);
   late final OutboxDao outboxDao = OutboxDao(this as AppDatabase);
+  late final MediaBlobDao mediaBlobDao = MediaBlobDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6936,6 +7648,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     appSettingsTable,
     messageDraftsTable,
     outboxTable,
+    mediaBlobTable,
     idxMessagesServerId,
   ];
 }
@@ -10407,6 +11120,337 @@ typedef $$OutboxTableTableProcessedTableManager =
       OutboxTableData,
       PrefetchHooks Function()
     >;
+typedef $$MediaBlobTableTableCreateCompanionBuilder =
+    MediaBlobTableCompanion Function({
+      required String blobId,
+      required String messageId,
+      Value<String?> remoteRef,
+      Value<int?> expectedSize,
+      Value<String?> expectedHash,
+      Value<String?> localPath,
+      Value<int> bytes,
+      required DateTime lastAccess,
+      Value<BlobState> state,
+      Value<String?> errorClass,
+      Value<bool> uploadPending,
+      Value<int> rowid,
+    });
+typedef $$MediaBlobTableTableUpdateCompanionBuilder =
+    MediaBlobTableCompanion Function({
+      Value<String> blobId,
+      Value<String> messageId,
+      Value<String?> remoteRef,
+      Value<int?> expectedSize,
+      Value<String?> expectedHash,
+      Value<String?> localPath,
+      Value<int> bytes,
+      Value<DateTime> lastAccess,
+      Value<BlobState> state,
+      Value<String?> errorClass,
+      Value<bool> uploadPending,
+      Value<int> rowid,
+    });
+
+class $$MediaBlobTableTableFilterComposer
+    extends Composer<_$AppDatabase, $MediaBlobTableTable> {
+  $$MediaBlobTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get blobId => $composableBuilder(
+    column: $table.blobId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get messageId => $composableBuilder(
+    column: $table.messageId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get remoteRef => $composableBuilder(
+    column: $table.remoteRef,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get expectedSize => $composableBuilder(
+    column: $table.expectedSize,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get expectedHash => $composableBuilder(
+    column: $table.expectedHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localPath => $composableBuilder(
+    column: $table.localPath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastAccess => $composableBuilder(
+    column: $table.lastAccess,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<BlobState, BlobState, String> get state =>
+      $composableBuilder(
+        column: $table.state,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
+  ColumnFilters<String> get errorClass => $composableBuilder(
+    column: $table.errorClass,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get uploadPending => $composableBuilder(
+    column: $table.uploadPending,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$MediaBlobTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $MediaBlobTableTable> {
+  $$MediaBlobTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get blobId => $composableBuilder(
+    column: $table.blobId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get messageId => $composableBuilder(
+    column: $table.messageId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get remoteRef => $composableBuilder(
+    column: $table.remoteRef,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get expectedSize => $composableBuilder(
+    column: $table.expectedSize,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get expectedHash => $composableBuilder(
+    column: $table.expectedHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localPath => $composableBuilder(
+    column: $table.localPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastAccess => $composableBuilder(
+    column: $table.lastAccess,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorClass => $composableBuilder(
+    column: $table.errorClass,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get uploadPending => $composableBuilder(
+    column: $table.uploadPending,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MediaBlobTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $MediaBlobTableTable> {
+  $$MediaBlobTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get blobId =>
+      $composableBuilder(column: $table.blobId, builder: (column) => column);
+
+  GeneratedColumn<String> get messageId =>
+      $composableBuilder(column: $table.messageId, builder: (column) => column);
+
+  GeneratedColumn<String> get remoteRef =>
+      $composableBuilder(column: $table.remoteRef, builder: (column) => column);
+
+  GeneratedColumn<int> get expectedSize => $composableBuilder(
+    column: $table.expectedSize,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get expectedHash => $composableBuilder(
+    column: $table.expectedHash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get localPath =>
+      $composableBuilder(column: $table.localPath, builder: (column) => column);
+
+  GeneratedColumn<int> get bytes =>
+      $composableBuilder(column: $table.bytes, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastAccess => $composableBuilder(
+    column: $table.lastAccess,
+    builder: (column) => column,
+  );
+
+  GeneratedColumnWithTypeConverter<BlobState, String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<String> get errorClass => $composableBuilder(
+    column: $table.errorClass,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get uploadPending => $composableBuilder(
+    column: $table.uploadPending,
+    builder: (column) => column,
+  );
+}
+
+class $$MediaBlobTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $MediaBlobTableTable,
+          MediaBlobTableData,
+          $$MediaBlobTableTableFilterComposer,
+          $$MediaBlobTableTableOrderingComposer,
+          $$MediaBlobTableTableAnnotationComposer,
+          $$MediaBlobTableTableCreateCompanionBuilder,
+          $$MediaBlobTableTableUpdateCompanionBuilder,
+          (
+            MediaBlobTableData,
+            BaseReferences<
+              _$AppDatabase,
+              $MediaBlobTableTable,
+              MediaBlobTableData
+            >,
+          ),
+          MediaBlobTableData,
+          PrefetchHooks Function()
+        > {
+  $$MediaBlobTableTableTableManager(
+    _$AppDatabase db,
+    $MediaBlobTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MediaBlobTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MediaBlobTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MediaBlobTableTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> blobId = const Value.absent(),
+                Value<String> messageId = const Value.absent(),
+                Value<String?> remoteRef = const Value.absent(),
+                Value<int?> expectedSize = const Value.absent(),
+                Value<String?> expectedHash = const Value.absent(),
+                Value<String?> localPath = const Value.absent(),
+                Value<int> bytes = const Value.absent(),
+                Value<DateTime> lastAccess = const Value.absent(),
+                Value<BlobState> state = const Value.absent(),
+                Value<String?> errorClass = const Value.absent(),
+                Value<bool> uploadPending = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MediaBlobTableCompanion(
+                blobId: blobId,
+                messageId: messageId,
+                remoteRef: remoteRef,
+                expectedSize: expectedSize,
+                expectedHash: expectedHash,
+                localPath: localPath,
+                bytes: bytes,
+                lastAccess: lastAccess,
+                state: state,
+                errorClass: errorClass,
+                uploadPending: uploadPending,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String blobId,
+                required String messageId,
+                Value<String?> remoteRef = const Value.absent(),
+                Value<int?> expectedSize = const Value.absent(),
+                Value<String?> expectedHash = const Value.absent(),
+                Value<String?> localPath = const Value.absent(),
+                Value<int> bytes = const Value.absent(),
+                required DateTime lastAccess,
+                Value<BlobState> state = const Value.absent(),
+                Value<String?> errorClass = const Value.absent(),
+                Value<bool> uploadPending = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MediaBlobTableCompanion.insert(
+                blobId: blobId,
+                messageId: messageId,
+                remoteRef: remoteRef,
+                expectedSize: expectedSize,
+                expectedHash: expectedHash,
+                localPath: localPath,
+                bytes: bytes,
+                lastAccess: lastAccess,
+                state: state,
+                errorClass: errorClass,
+                uploadPending: uploadPending,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$MediaBlobTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $MediaBlobTableTable,
+      MediaBlobTableData,
+      $$MediaBlobTableTableFilterComposer,
+      $$MediaBlobTableTableOrderingComposer,
+      $$MediaBlobTableTableAnnotationComposer,
+      $$MediaBlobTableTableCreateCompanionBuilder,
+      $$MediaBlobTableTableUpdateCompanionBuilder,
+      (
+        MediaBlobTableData,
+        BaseReferences<_$AppDatabase, $MediaBlobTableTable, MediaBlobTableData>,
+      ),
+      MediaBlobTableData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -10438,4 +11482,6 @@ class $AppDatabaseManager {
       $$MessageDraftsTableTableTableManager(_db, _db.messageDraftsTable);
   $$OutboxTableTableTableManager get outboxTable =>
       $$OutboxTableTableTableManager(_db, _db.outboxTable);
+  $$MediaBlobTableTableTableManager get mediaBlobTable =>
+      $$MediaBlobTableTableTableManager(_db, _db.mediaBlobTable);
 }

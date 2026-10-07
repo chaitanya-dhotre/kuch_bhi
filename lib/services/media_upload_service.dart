@@ -8,7 +8,6 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:mime/mime.dart';
-import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pocketbase/pocketbase.dart';
 import 'package:video_compress/video_compress.dart';
@@ -362,110 +361,11 @@ class MediaUploadService {
   }
 
   // ── Download + decrypt (viewer path) ──────────────────────────────────
-
-  /// Fetches the media record for [messageServerId], downloads the encrypted
-  /// file (or thumbnail), decrypts it off the UI isolate, caches the clear
-  /// bytes on disk, and returns the local file + metadata.
-  ///
-  /// Legacy plaintext media (empty IV) is downloaded and cached as-is, so
-  /// existing chats keep working.
-  Future<LocalMediaFile?> getDecryptedMedia(
-    String messageServerId,
-    List<int> convKey, {
-    bool thumb = false,
-  }) async {
-    try {
-      // Cleartext cache lives in app cache dir, keyed by MESSAGE id +
-      // variant (`<serverId>_f_` / `<serverId>_t_`). Fast path: when the
-      // file is already on disk, return it with ZERO network — the old
-      // record.id-based cache did a server round-trip on every tap before
-      // even checking the disk.
-      final cacheDir = await getTemporaryDirectory();
-      final mediaCache = Directory('${cacheDir.path}/media_clear');
-      if (!await mediaCache.exists()) await mediaCache.create(recursive: true);
-      final prefix = '${messageServerId}_${thumb ? 't' : 'f'}_';
-      await for (final entity in mediaCache.list()) {
-        if (entity is File && p.basename(entity.path).startsWith(prefix)) {
-          return LocalMediaFile(
-            file:     entity,
-            fileName: p.basename(entity.path),
-          );
-        }
-      }
-
-      final record = await _pb.collection('message_media').getFirstListItem(
-        'message_id="$messageServerId"',
-      );
-
-      String? readFile(dynamic data) {
-        if (data is String) return data;
-        if (data is List && data.isNotEmpty) return data.first.toString();
-        return null;
-      }
-
-      final storedName =
-          readFile(record.data[thumb ? 'thumbnail' : 'file']);
-      if (storedName == null || storedName.isEmpty) return null;
-
-      final iv = record
-          .getStringValue(thumb ? 'thumb_iv' : 'file_iv');
-
-      // Strip the .enc suffix for the local file so viewers/open-external
-      // get a sensible extension.
-      final localName = storedName.endsWith('.enc')
-          ? storedName.substring(0, storedName.length - 4)
-          : storedName;
-      final localFile =
-          File('${mediaCache.path}/$prefix$localName');
-
-      if (!await localFile.exists()) {
-        final url =
-            '${_pb.baseUrl}/api/files/message_media/${record.id}/$storedName';
-        final resp = await http.get(
-          Uri.parse(url),
-          headers: {'Authorization': _pb.authStore.token},
-        );
-        if (resp.statusCode != 200) {
-          debugPrint('[Media] download failed ${resp.statusCode} for $url');
-          return null;
-        }
-        List<int> clear;
-        if (iv.isEmpty) {
-          // Legacy plaintext upload.
-          clear = resp.bodyBytes;
-        } else {
-          final dec = await _encryption.decryptBytes(
-            resp.bodyBytes, iv, convKey);
-          if (dec == null) {
-            debugPrint('[Media] decrypt failed for ${record.id} (thumb=$thumb)');
-            return null;
-          }
-          clear = dec;
-        }
-        await localFile.writeAsBytes(clear, flush: true);
-      }
-
-      final expiresRaw = record.data['expires_at']?.toString() ?? '';
-      int? asInt(dynamic v) =>
-          v == null ? null : int.tryParse(v.toString());
-      return LocalMediaFile(
-        file:            localFile,
-        width:           asInt(record.data['image_width']) ??
-                         asInt(record.data['video_width']),
-        height:          asInt(record.data['image_height']) ??
-                         asInt(record.data['video_height']),
-        durationSeconds: asInt(record.data['duration_seconds']),
-        expiresAt:       expiresRaw.isEmpty
-            ? null
-            : DateTime.tryParse(expiresRaw)?.toLocal(),
-        mimeType:        record.data['mime_type']?.toString(),
-        fileName:        record.getStringValue('file_name'),
-      );
-    } catch (e) {
-      debugPrint('[Media] getDecryptedMedia error: $e');
-      return null;
-    }
-  }
+  // MOVED (Task 5): getDecryptedMedia's download+verify+decrypt body now
+  // lives in `infrastructure/media/media_blob_store.dart` — MediaBlobStore
+  // is the SOLE writer of blob files (spec §4). Callers re-pointed:
+  // MessageRepositoryImpl.getDecryptedMedia + mediaFileProvider →
+  // MediaBlobStore.requestBlob.
 
   /// Returns the expires_at DateTime for a media record, or null.
   Future<DateTime?> getMediaExpiry(String messageServerId) async {

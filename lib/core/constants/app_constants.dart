@@ -42,3 +42,13 @@ class AppConstants {
   // --- Online Status ---
   static const int onlineThresholdMinutes = 5;
 }
+
+/// Media blob cache hard cap (spec §9) — eviction target: `evictIfNeeded`
+/// shrinks the `ready` total back under this figure, LRU-first, skipping
+/// the derived-protected set. Tunable via this ONE constant.
+const int kMediaCacheMaxBytes = 300 * 1024 * 1024;
+
+/// Watermark (spec §9): once the `ready` total crosses 85% of
+/// [kMediaCacheMaxBytes], a DEFERRED (never write-path-awaited)
+/// `evictIfNeeded()` is scheduled after the blob write completes.
+const double kMediaCacheWatermark = 0.85;

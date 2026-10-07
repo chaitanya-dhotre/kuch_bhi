@@ -7,6 +7,8 @@ import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
 import '../../../domain/entities/user.dart';
+import '../../../infrastructure/media/media_blob_store.dart'
+    show mediaBlobId;
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/media_upload_service.dart';
 
@@ -23,6 +25,10 @@ class MediaRef {
   final String conversationId;
   final String serverId;
   final bool thumb;
+
+  /// Blob identity passed to `MediaBlobStore.requestBlob` — the single
+  /// store entry (spec §9). Format shared with [mediaBlobId].
+  String get blobId => mediaBlobId(serverId, thumb: thumb);
 
   @override
   bool operator ==(Object other) =>
@@ -46,17 +52,24 @@ class MediaRef {
 /// the initial fetch, and when it comes back empty wait (bounded) for the
 /// media record to land, then retry once. The future completes with the
 /// media, or with null after the timeout (bubble keeps its placeholder).
+///
+/// Task 5 re-point: the fetch now goes through
+/// `MediaBlobStore.requestBlob(r.blobId, reason)` — the single blob entry
+/// (spec §9). The wait/retry shape above is unchanged (behavior-preserving
+/// wiring); a queued blob (offline / media row not landed) returns null
+/// exactly like the old network failure did.
 final mediaFileProvider =
     FutureProvider.family<LocalMediaFile?, MediaRef>((ref, r) async {
   final repo = ref.read(messageRepositoryProvider);
+  // Single store instance — built by the repo (key-resolution closure).
+  final store = (repo as MessageRepositoryImpl).mediaBlobStore;
 
   // Subscribe BEFORE the first fetch so a media row landing mid-fetch
   // can't slip between "fetch returned null" and "now wait for an event".
   final mediaArrived =
       repo.mediaChanges.where((id) => id == r.serverId).first;
 
-  final result = await repo.getDecryptedMedia(
-      r.conversationId, r.serverId, thumb: r.thumb);
+  final result = await store.requestBlob(r.blobId, 'mediaFileProvider');
   if (result != null) return result;
 
   try {
@@ -65,8 +78,7 @@ final mediaFileProvider =
     // No media event in time (failed/cancelled upload) — fall through to
     // one final attempt, then give up like the old behaviour.
   }
-  return await repo.getDecryptedMedia(
-      r.conversationId, r.serverId, thumb: r.thumb);
+  return await store.requestBlob(r.blobId, 'mediaFileProvider');
 });
 
 // ── Messages (reactive Drift stream) ─────────────────────────────────────

@@ -18,12 +18,14 @@ import 'tables/reactions_table.dart';
 import 'tables/app_settings_table.dart';
 import 'tables/message_drafts_table.dart';
 import 'tables/outbox_table.dart';
+import 'tables/media_blob_table.dart';
 import 'daos/users_dao.dart';
 import 'daos/conversations_dao.dart';
 import 'daos/messages_dao.dart';
 import 'daos/friends_dao.dart';
 import 'daos/settings_dao.dart';
 import 'daos/outbox_dao.dart';
+import 'daos/media_blob_dao.dart';
 
 part 'app_database.g.dart';
 
@@ -41,6 +43,7 @@ part 'app_database.g.dart';
     AppSettingsTable,
     MessageDraftsTable,
     OutboxTable,
+    MediaBlobTable,
   ],
   daos: [
     UsersDao,
@@ -49,6 +52,7 @@ part 'app_database.g.dart';
     FriendsDao,
     SettingsDao,
     OutboxDao,
+    MediaBlobDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -59,7 +63,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -93,6 +97,10 @@ class AppDatabase extends _$AppDatabase {
           if (from < 7) {
             // Offline-first: the Drift table IS the outbox queue (spec §5.2).
             await m.createTable(outboxTable);
+          }
+          if (from < 8) {
+            // MediaBlobStore FSM rows (spec §5.3 / §9) — sole writer.
+            await m.createTable(mediaBlobTable);
           }
         },
       );

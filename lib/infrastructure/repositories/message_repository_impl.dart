@@ -27,6 +27,7 @@ import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../offline/outbox_worker.dart';
+import '../media/media_blob_store.dart';
 import '../../services/encryption_service.dart';
 import '../../services/media_upload_service.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
@@ -67,6 +68,15 @@ class MessageRepositoryImpl implements MessageRepository {
       messages: db.messagesDao,
       settings: db.settingsDao,
       send: sendOutboxOp,
+    );
+    // Task 5: blob FSM + janitor/eviction kick (construction-time
+    // maintenance — OutboxWorker precedent).
+    mediaBlobStore = MediaBlobStore(
+      dao: db.mediaBlobDao,
+      messages: db.messagesDao,
+      pbClient: pbClient,
+      encryption: encryption,
+      resolveKey: (convId) async => _getConvKey(convId, await _myId()),
     );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
@@ -168,6 +178,12 @@ class MessageRepositoryImpl implements MessageRepository {
   /// Task 3: drain FSM + connectivity/auth hooks. Exposed for tests and
   /// for [retryOp]/[discardOp] delegation (Task 4 banner routes here).
   late final OutboxWorker outboxWorker;
+
+  /// Task 5: MediaBlobStore is the SOLE writer of blob rows + files
+  /// (spec §4). Built here (same precedent as [outboxWorker]) so the
+  /// store's key resolution reuses [_getConvKey]; exposed for the
+  /// mediaFileProvider re-point (chat_provider.dart).
+  late final MediaBlobStore mediaBlobStore;
 
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
@@ -1772,11 +1788,15 @@ class MessageRepositoryImpl implements MessageRepository {
     String messageServerId, {
     bool thumb = false,
   }) async {
+    // Task 5 re-point (call-site only): the download+decrypt body moved
+    // verbatim into MediaBlobStore.requestBlob — the store resolves the
+    // conversation key itself (via the resolveKey closure built in our
+    // constructor) and owns every blob file write (spec §4 single writer).
     try {
-      final myId = await _myId();
-      final key = await _getConvKey(conversationId, myId);
-      return mediaUploadService.getDecryptedMedia(
-        messageServerId, key, thumb: thumb);
+      return await mediaBlobStore.requestBlob(
+        mediaBlobId(messageServerId, thumb: thumb),
+        'repo.getDecryptedMedia',
+      );
     } on MissingKeyException catch (e) {
       debugPrint('[Media] key not ready for decrypt: $e');
       return null;

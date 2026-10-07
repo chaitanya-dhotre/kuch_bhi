@@ -480,3 +480,242 @@ AS-BUILT wiring location:
   → seam → resume → re-send 200 → sent) + `handleAuthStoreChange: empty
   token does NOT resume; non-empty does`. Suite **93 pass**, analyze **0
   errors** (88 legacy).
+
+## Task 4
+
+Terminal-failure UI — stuck-message banner + retry/discard. Commit
+`[Offline P1] Terminal-failure banner — retry/discard UI` = `4878a59`
+(own hash cannot appear in its body). Files: `lib/features/chat/providers/
+outbox_status_provider.dart` (NEW), `lib/features/chat/widgets/
+message_bubble.dart` (lookup + slot + `TerminalFailureBanner`),
+`test/offline/terminal_banner_test.dart` (NEW, 8/8), gate 11 in
+`test/grep_gates_test.dart`, hermetic override in
+`test/message_bubble_sender_test.dart`. Full suite **102 pass**;
+analyze **0 errors** (88 legacy, unchanged). Step 5 device proof =
+**DEFERRED-DEVICE** (controller collects at batch checkpoint).
+
+### AS-BUILT API (consumed by tasks 5+)
+
+```dart
+// lib/features/chat/providers/outbox_status_provider.dart
+final outboxStatusProvider =
+    StreamProvider.family<List<OutboxTableData>, String>(
+        (ref, conversationId) {
+  final db = ref.read(appDatabaseProvider);
+  return (db.select(db.outboxTable)
+        ..where((t) => t.conversationId.equals(conversationId)))
+      .watch();
+});
+// Non-autoDispose family (mirrors messagesProvider): one shared drift
+// watch per conversation, ever. AsyncError (DB open fail) → bubbles read
+// `.value ?? const []` → no banner, never a crash.
+// Row class is OutboxTableData (from app_database.dart), NOT OutboxRow.
+```
+
+### Bubble wiring points (message_bubble.dart)
+
+- Lookup: in `MessageBubble.build` after the system-bubble early-return —
+  `ref.watch(outboxStatusProvider(message.conversationId)).value ?? []`,
+  find `row.ref == message.localId && row.state == OutboxState.failedTerminal`.
+  NOT gated on `message.status` — `_markIdCollision` leaves the message
+  `pending` (only the op goes failedTerminal), so a status gate would hide
+  the `id_collision` class from the spec's "must be VISIBLE" rule.
+- Slot: last child of the bubble Column (after ReactionBar), widget
+  **`TerminalFailureBanner`** (public, same file), key
+  **`ValueKey('terminal-banner-${message.localId}')`** at the call site.
+- Banner: `Container` margin matches bubble insets (L64/R12 mine) ·
+  `color: context.t.error.withValues(alpha: 0.08)` ·
+  `borderRadius: WarmPopTokens.radiusSm` · title `'Failed to send'`
+  (w600/13, t.error) · error-class line = raw `errorClass` string (e.g.
+  `dead_link`) · TextButtons `Retry`/`Discard` (foregroundColor t.error,
+  min 36px tall). System fonts, no new colors — grep gate 11 bans
+  `Color(0x` / `Colors.*` in provider + bubble files.
+- Actions (REAL repo, tested against a mocktail-free fake):
+  `onRetry → ref.read(messageRepositoryProvider).retryOp(terminalOp.opId)`;
+  `onDiscard → …discardOp(terminalOp.opId)` (Task 3 cascade). No confirm
+  dialog (brief taps Discard directly).
+
+### Corrections vs brief (reality rule)
+
+1. Brief's "seeded in DB, provider overridden by Stream.value" split into
+   TWO tests: widget tests override the family with `Stream.value([...])`
+   (brief snippet), plus one provider-body test that seeds a real
+   `AppDatabase.test()` and asserts `outboxStatusProvider('c1').future`
+   filters by conversation (both seams covered).
+2. `message_bubble_sender_test.dart` edited (+7 lines): bubble now always
+   watches the outbox stream → bare ProviderScope constructed a 2nd
+   production AppDatabase across its two testWidgets → drift's
+   "multiple databases" WARNING spam. Fix = feed
+   `outboxStatusProvider.overrideWith(… Stream.value(const []))` (hermetic,
+   provider body never runs). Suite output pristine again; precedent:
+   char_harness sets `dontWarnAboutMultipleDatabases`.
+3. Banner widget is PUBLIC (`TerminalFailureBanner`) so tests can locate
+   it and future screens can reuse it; the localId key stays at the
+   MessageBubble call site.
+4. Family is non-autoDispose (brief silent): matches `messagesProvider`
+   lifecycle; one drift outbox watch per conversation ever-opened.
+
+## Task 5
+
+MediaBlobStore — requestBlob entry, blob FSM, startup janitor, deferred
+eviction. TDD: 5 named tests RED (`UnimplementedError` at the 4 entry
+points) → GREEN. Full suite **107 pass**; analyze **0 errors** (88
+legacy, unchanged — the `baseUrl` deprecation info MOVED with the moved
+code, net neutral). Files: `lib/data/local/database/tables/
+media_blob_table.dart` (NEW), `daos/media_blob_dao.dart` (+.g.dart, NEW),
+`lib/infrastructure/media/media_blob_store.dart` (NEW),
+`app_database.dart` (schemaVersion 8), `app_constants.dart` (constants),
+`chat_provider.dart` (provider re-point),
+`message_repository_impl.dart` (store construction + re-point),
+`media_upload_service.dart` (getDecryptedMedia MOVED out),
+`test/offline/media_blob_store_test.dart` (NEW, 5/5).
+NOTE: this commit also carries handoff's uncommitted **Task 4** section
+(+75 lines) — Task 4's commit didn't include it.
+
+### AS-BUILT API (consumed by tasks 6+)
+
+```dart
+// lib/data/local/database/tables/media_blob_table.dart
+enum BlobState { queued, downloading, ready, failed, evicted } // textEnum → .name
+class MediaBlobTable {
+  blobId PK · messageId · remoteRef? · expectedSize? · expectedHash? ·
+  localPath? · bytes(default 0) · lastAccess · state(default queued) ·
+  errorClass? · uploadPending(default false)
+  // NO protected column (spec §5.3) — protection derived at eviction time.
+}
+
+// lib/data/local/database/daos/media_blob_dao.dart  (db.mediaBlobDao)
+Future<void> insert(Insertable<MediaBlobTableData> row); // insertOrIgnore —
+    // concurrent first-request race safe
+Future<MediaBlobTableData?> byId(String blobId);
+Future<void> setState(String blobId, BlobState state,
+    {String? errorClass, String? remoteRef, String? localPath,
+     int? bytes, DateTime? lastAccess});   // only-provided writes (OutboxDao pattern)
+Future<void> resetDownloadingToQueued();   // janitor
+Future<List<MediaBlobTableData>> byState(BlobState state);
+Future<List<MediaBlobTableData>> readyLru();      // ready ORDER BY last_access ASC
+Future<int> readyTotalBytes();                    // SUM(bytes) WHERE ready
+
+// lib/infrastructure/media/media_blob_store.dart
+String mediaBlobId(String serverId, {required bool thumb});
+    // '<serverId>_f' | '<serverId>_t' — same identity as the legacy
+    // media_clear prefix '<serverId>_<f|t>_' + fileName
+class MediaBlobStore {
+  MediaBlobStore({
+    required MediaBlobDao dao, required MessagesDao messages,
+    required PocketBaseClient pbClient, required EncryptionService encryption,
+    required Future<List<int>> Function(String convId) resolveKey,
+    Future<Directory> Function()? cacheDir,  // default getTemporaryDirectory
+    http.Client? httpClient,                 // default http.Client()
+  }); // ctor KICKS janitor+evict (spec §9 app start) + connectivity listener
+  late final Future<void> ready;   // maintenance completion (await in tests)
+  Future<LocalMediaFile?> requestBlob(String blobId, String reason); // SINGLE entry
+  Future<void> janitor();
+  Future<void> evictIfNeeded();
+  Future<void> onConnectivityRestored(); // drains queued; awaitable (test seam)
+  void dispose();                        // cancel conn sub + close OWNED client
+}
+// Files (app-private, moved convention): <cacheDir>/media_clear/
+//   ready     : '<serverId>_<f|t>_<name>'  (byte-identical legacy prefix rule)
+//   in-flight : '<blobId>.part'            (janitor deletes orphans)
+```
+
+Constants (`lib/core/constants/app_constants.dart`, top-level):
+`const int kMediaCacheMaxBytes = 300 * 1024 * 1024;`
+`const double kMediaCacheWatermark = 0.85;`
+
+### requestBlob switch + pipeline
+
+row absent → insert queued (messageId = blobId minus `_f`/`_t` suffix) →
+pipeline. `failed` → return null (TERMINAL — zero network, test 4 pins
+fileHits unchanged). Anything else → coalesce via `_inflight[blobId]`
+(concurrent callers share ONE pipeline) or start pipeline:
+1. `downloading`.
+2. fast path — prefix scan of mediaCache; hit → `ready` + touch
+   lastAccess + zero network (moved body).
+3. record lookup `message_media` by `message_id` (moved SDK call).
+   **404 → queued** (upload race #18: record not landed yet — NOT
+   dead_link; the provider's mediaArrived retry must still succeed).
+4. download via injected `_httpClient` (moved `http.get` seam) →
+   non-200 → classify: 404 `dead_link` · 401/403 `expired` · 5xx/other
+   → queued.
+5. write `<blobId>.part` → verify (expectedSize length, expectedHash =
+   sha256-hex lowercase of DOWNLOADED bytes; null = unknown = pass) →
+   mismatch `failed(verify)` + temp deleted.
+6. decrypt: `iv` empty = legacy plaintext (moved); else message row →
+   `resolveKey(conversationId)` (MissingKey → outer catch → queued) →
+   `encryption.decryptBytes` → null `failed(decrypt)` (moved).
+7. write final file (moved `writeAsBytes(clear, flush: true)`) → delete
+   `.part` → `ready` (bytes/localPath/lastAccess/remoteRef) → watermark
+   probe: if SUM > kMediaCacheMaxBytes·kMediaCacheWatermark →
+   `unawaited(evictIfNeeded())` (NEVER awaited by the write path).
+8. outer catch (moved `[Media] getDecryptedMedia error: $e` line) →
+   queued — offline/network/unknown never produce a failed class.
+
+### janitor / eviction triggers
+
+- App start = ctor kick `janitor(); evictIfNeeded();` → exposed as
+  `ready` (OutboxWorker stale-recovery precedent; no bootstrap edit —
+  brief's file list has none). Janitor: `downloading → queued` + delete
+  `<mediaCache>/*.part` (silent return when cacheDir unresolvable —
+  keeps the buildRepo suite output pristine; dir resolution uses
+  path_provider which has no test handler).
+- `evictIfNeeded`: while SUM(ready bytes) > kMediaCacheMaxBytes → walk
+  readyLru() (lastAccess ASC) → skip protected (`uploadPending` OR
+  `message.isStarred` OR `message.isPinned`, computed per row AT eviction
+  time via `messages.getMessageByServerId`) → delete file (row SKIPPED
+  if delete fails — never lie with `evicted`) → state `evicted`, metadata
+  (bytes/localPath/lastAccess/errorClass) kept.
+- Watermark = post-write TRIGGER only; eviction TARGET = the max
+  (matches brief test postcondition `total ≤ kMediaCacheMaxBytes`).
+
+### Call-site rewires
+
+- `mediaFileProvider` → `store.requestBlob(r.blobId, 'mediaFileProvider')`
+  (both the initial fetch and the post-mediaArrived retry; wait/retry
+  shape byte-identical). `MediaRef.blobId` getter added.
+- `MessageRepositoryImpl.getDecryptedMedia` → `store.requestBlob(
+  mediaBlobId(serverId, thumb: …), 'repo.getDecryptedMedia')`; its
+  `MissingKeyException` catch kept (store swallows MissingKey into
+  queued internally — belt and braces).
+- Store is constructed INSIDE the repo ctor: `resolveKey: (convId) async
+  => _getConvKey(convId, await _myId())`; exposed as
+  `MessageRepositoryImpl.mediaBlobStore` (outboxWorker precedent —
+  breaks the repo↔store DI cycle without touching `_getConvKey`).
+- `MediaUploadService.getDecryptedMedia` DELETED (moved). `LocalMediaFile`
+  + `getMediaExpiry`/`getVoiceExpiry` stay put.
+
+### Corrections vs brief (reality rule)
+
+1. **errorClass column ADDED** to media_blob_table — spec §5.3's column
+   list omits it but §9 says `failed` carries `error_class` and the brief
+   pins it in Produces; test 4 asserts the stored value.
+2. **blobId format** (brief pins only the signature): `'<serverId>_f' |
+   '<serverId>_t'`. messageId = suffix-stripped; conversationId for the
+   key = `messages.getMessageByServerId` (a blob whose message row is
+   missing queues — no production caller lacks the row: bubbles/starred
+   render from message rows; caller-supplied conversationId became
+   internal because requestBlob's signature is fixed).
+3. **Moved-body seams (guard 5 ledger)**: (a) `http.get` →
+   `_httpClient.get` (MockClient download seam — brief test 1 requires
+   it); (b) `getTemporaryDirectory()` → `_cacheDir()` (test temp dirs;
+   default = same function); (c) the moved big try/catch + its debugPrint
+   line remain, but status/verify/decrypt failures branch BEFORE it —
+   the swallow-all catch can no longer mint an error class; (d) NEW
+   `.part` + verify stages between download and decrypt (janitor's
+   contract); (e) decrypt branch gained the lazy resolveKey lookup (the
+   moved code received `convKey` as a parameter). Fast-path scan,
+   readFile, `.enc` strip, URL+auth headers, legacy iv-empty branch,
+   `writeAsBytes(clear, flush)`, metadata construction: verbatim.
+4. **Eviction semantics**: target = max (hard cap), watermark = trigger
+   for scheduling the deferred pass. App-start passes run unconditionally.
+5. **Own connectivity listener** (second subscription beside
+   OutboxWorker's — separate domains; EventChannel mocked in harness,
+   inert). `onConnectivityRestored()` returns `Future<void>` (brief
+   silent) so test 1 can await the drain and observe downloading→ready.
+6. **Spec §11 session-epoch abort for in-flight downloads NOT built** —
+   no T5 test/brief step; flag for the logout/epoch task.
+7. Test correction vs self: `lastAccess` DateTime equality must compare
+   `millisecondsSinceEpoch` (drift returns local time, seed was UTC —
+   Dart `==` also compares the `isUtc` flag).
+
