@@ -340,6 +340,7 @@ Present: verification doc + test list → **STOP for user PASS** → commit `tes
 - Modify: `lib/data/local/database/app_database.dart` (register table, **schemaVersion 7**, migration `m.createTable(outbox)`)
 - Create: `lib/core/utils/op_id.dart`
 - Modify: `lib/infrastructure/repositories/message_repository_impl.dart` (`sendMessage` → enqueue-only; interim `handleDrainAck`)
+- Modify: `test/offline/char_harness.dart` (FakeSecureStorage: fail loudly on unoverridden members)
 - Test: `test/offline/outbox_core_test.dart`
 
 **Interfaces:**
@@ -413,6 +414,30 @@ void main() {
 }
 ```
 
+Carry-in tests (user PASS-gate conditions for Task 2 — add to the same file):
+
+```dart
+  test('duplicate-id counts as success ONLY when the error field is id', () async {
+    // Scripted create retry: PB returns 400 validation_not_unique on FIELD id
+    // → treated as already-sent (then ownership GET verifies, below).
+    // Scripted 400 validation_not_unique on a DIFFERENT field (e.g. 'iv')
+    // → NOT success; op stays failed/queued per error class — an unrelated
+    // unique-constraint failure must never be counted as delivered.
+  });
+
+  test('triple delivery: drain-ack + SSE echo + timeout-retry → exactly one row', () async {
+    // 1) create with id=opId → 200; ack path
+    // 2) SSE echo of the same record id → idempotent upsert, no second row
+    // 3) timeout-retry → 400 validation_not_unique(id) → ownership GET:
+    //    a) record with our sender_id+conversation_id → success (no re-create)
+    //    b) ownership GET 404 or 403 (foreign record / hidden by view rule)
+    //       → outbox state failedTerminal, errorClass 'id_collision' —
+    //       NEVER retried, NEVER counted as success
+    //    c) record exists but sender_id/conversation mismatch → failedTerminal
+    // All three paths end with exactly ONE local message row.
+  });
+```
+
 - [ ] **Step 2: Run → verify RED** (op_id undefined, outboxDao undefined, countForConversation missing).
 
 - [ ] **Step 3: Implement**
@@ -430,6 +455,9 @@ String generateOpId() =>
   - DB: register, bump `schemaVersion` to 7, in `onUpgrade` `if (from < 7) await m.createTable(outbox);` — run `dart run build_runner build --delete-conflicting-outputs`.
   - `sendMessage` refactor: keep signature; body = encrypt (existing code) + single `db.transaction` { insert message row (status pending, decryptedBody = plaintext — kept until Task 9 per spec interim) + `outboxDao.enqueue(kind: text_send, ref: localId, seq: nextSeq, state: queued)` } + kick `OutboxWorker` drain hook if constructed (Task 3 owns worker — here: call the existing connectivity retry method as the interim drain kick, renamed `_drainOutbox` stub that performs the OLD network send moved verbatim from sendMessage — behavior-preserving, guard 5).
   - `handleDrainAck(opId, {serverId, senderId, conversationId})`: txn { update message `serverId/status=sent` + `outboxDao.setState(opId, sent)` } with duplicate-id safety left to Task 6 boundary (interim comment: `// INTERIM: absorbed by IngestBoundary in Task 6`).
+  - **Duplicate-error parsing (carry-in):** on create-retry 400 `validation_not_unique`, inspect the error body and proceed as already-sent ONLY when the offending field is `id` (PB error body carries the field name under `data.*`); any other field → not-success (map via error class, not the dup path).
+  - **Ownership GET failure (carry-in):** after a confirmed id-dup, GET the record by id; `404`/`403` (view rule hides foreign records) or sender/conversation mismatch → `outbox.setState(opId, failedTerminal, errorClass: 'id_collision', lastError: …)` — terminal, never retried.
+  - **FakeSecureStorage hardening (carry-in):** add `@override dynamic noSuchMethod(Invocation i) => throw UnimplementedError('FakeSecureStorage.${i.memberName} — override before use (handoff.md lists all 17)');` so ANY non-overridden member fails loudly instead of hitting real storage — no defaults, no flaky tests.
 
 - [ ] **Step 4: GREEN** — `flutter test test/offline/outbox_core_test.dart` → PASS; full suite green; analyze 0.
 
