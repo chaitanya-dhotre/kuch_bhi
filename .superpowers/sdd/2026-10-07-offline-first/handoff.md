@@ -719,3 +719,57 @@ fileHits unchanged). Anything else → coalesce via `_inflight[blobId]`
    `millisecondsSinceEpoch` (drift returns local time, seed was UTC —
    Dart `==` also compares the `isUtc` flag).
 
+### Fix round 1/5 — review I1 (epoch guards) + I2 (non-vacuous eviction test)
+
+**I1 — spec §11 write gates (AS-BUILT wiring):**
+
+```dart
+// MediaBlobStore ctor — NEW required seam (repo ctor wires it):
+required int Function() epoch,
+// message_repository_impl.dart ctor, alongside resolveKey:
+epoch: () => _sessionEpoch,   // the repo's live counter (bumped on logout)
+```
+
+- Gate helper `_stillValid(epochAtStart, what)` wraps the repo's
+  `sessionStillValid` (core/utils/session_epoch.dart — Review C1
+  precedent): `epochAtStart == _epoch() && pb.authStore.isValid`; on
+  false → debugPrint + caller ABORTS (no throw). Epoch captured at each
+  operation's entry: requestBlob, _runPipeline, janitor,
+  onConnectivityRestored, evictIfNeeded.
+- Guard sits IMMEDIATELY before EVERY dao write AND file write: row
+  create; downloading/fast-path-ready/record-404/missing-file/queued/
+  failed/ready transitions (helpers `_fail`/`_safeQueued` take
+  epochAtStart and check internally); mediaCache dir create; `.part`
+  write; cleartext final write; `_deleteQuietly(epochAtStart, …)` for
+  every temp delete (pipeline + janitor); janitor's per-iteration temp
+  sweep check; evict's file delete + `evicted` state (separate checks);
+  connectivity drain re-checks before EACH requestBlob start.
+- `row!` → null-safe bail (`row == null` after insert/re-read = wipe
+  mid-request → return null).
+- Test: `spec §11 epoch guard: pipeline, janitor and evict all drop
+  writes after a session bump (no post-logout repopulation)` — mutable
+  `epoch` holder via `_store(epoch: …)`; gated download bumped mid-flight
+  (state stays downloading, NO file/.part), janitor bumped between entry
+  capture and sweep (orphan survives), evict bumped during size probe
+  (file + ready state survive). Mutation A (gate forced true) → test
+  FAILS (proved non-vacuous), reverted.
+
+**I2 — eviction test 3 resized (b/c now visited while over cap):**
+
+- Seed order/bytes: E 0.5MiB uploadPending(t0, skip) → D 1KiB real
+  file(t1, evict) → **B 100MiB starred(t2, SKIP while total 311.001MiB
+  > cap)** → M 0.5MiB(t3, evict AFTER B skip) → **C 50MiB pinned(t4,
+  SKIP while total 310.5MiB > cap)** → T 160MiB(t5, evict AFTER C skip
+  → 150.5MiB ≤ cap). Final total = E+B+C = 150.5MiB.
+- Positive post-skip eviction asserts (`mid_f`, `tail_f` evicted) make
+  the loop's continuation past b/c load-bearing. Mutation B (join broken
+  to uploadPending-only) → starred assert FAILS (`ready` vs `evicted`),
+  reverted.
+- Test name now says 311MB (controller-authorized resize; brief's 301MB
+  figure replaced).
+
+Suite after fix round: **108 pass** (6th epoch test added); analyze
+**0 errors** (88 legacy). Ledger additions to correction 3: guard lines
+inserted INSIDE the moved fast-path block (cache-dir create + fast-path
+ready write) per I1's "every file/dao write" mandate.
+

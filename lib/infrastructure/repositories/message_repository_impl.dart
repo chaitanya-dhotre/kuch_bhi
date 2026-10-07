@@ -77,6 +77,9 @@ class MessageRepositoryImpl implements MessageRepository {
       pbClient: pbClient,
       encryption: encryption,
       resolveKey: (convId) async => _getConvKey(convId, await _myId()),
+      // Spec §11 (fix I1): live session epoch — same counter the repo's
+      // own write guards read (logout/account switch bumps it).
+      epoch: () => _sessionEpoch,
     );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();

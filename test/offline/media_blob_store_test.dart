@@ -125,11 +125,14 @@ Future<String> _sha256Hex(List<int> bytes) async {
 
 /// Builds the store under test: harness DB + injected MockClient +
 /// injected temp parent dir (app-private convention: `<parent>/media_clear`).
+/// [epoch] defaults to a constant session (no §11 bump); the epoch test
+/// injects a mutable holder.
 MediaBlobStore _store(
   CharHarness h, {
   required http.Client client,
   required Future<Directory> Function() cacheDir,
   Future<List<int>> Function(String convId)? resolveKey,
+  int Function()? epoch,
 }) {
   final store = MediaBlobStore(
     dao: h.db.mediaBlobDao,
@@ -137,6 +140,7 @@ MediaBlobStore _store(
     pbClient: h.pbClient,
     encryption: h.encryption,
     resolveKey: resolveKey ?? (_) async => fixtureGroupKey,
+    epoch: epoch ?? (() => 0),
     cacheDir: cacheDir,
     httpClient: client,
   );
@@ -270,7 +274,7 @@ void main() {
   });
 
   test(
-      'eviction: seed 301.5MB of ready blobs → evictIfNeeded deletes only LRU unprotected; protected = uploadPending OR starred(message) OR pinned(message) survive; total after ≤ kMediaCacheMaxBytes; state becomes evicted (metadata kept)',
+      'eviction: seed 311MB of ready blobs → evictIfNeeded deletes only LRU unprotected; protected = uploadPending OR starred(message) OR pinned(message) survive (each VISITED while total still over cap); total after ≤ kMediaCacheMaxBytes; state becomes evicted (metadata kept)',
       () async {
     final h = charHarness();
     addTearDown(h.close);
@@ -281,6 +285,17 @@ void main() {
     final base = DateTime.utc(2026, 1, 1);
     DateTime at(int hours) => base.add(Duration(hours: hours));
 
+    // I2 (fix round 1): sizes + ages are chosen so b (starred) and c
+    // (pinned) are EXAMINED while the running total is STILL over
+    // kMediaCacheMaxBytes, and a non-protected eviction lands AFTER each
+    // skip — a broken _isProtected join would evict b/c and FAIL here.
+    //   t0 E  0.5MiB uploadPending → SKIP (protected)
+    //   t1 D  1KiB REAL file       → evict (file-delete proof)
+    //   t2 B  100MiB starred       → SKIP while total = 311.001MiB > cap
+    //   t3 M  0.5MiB               → evict AFTER the B skip (still > cap)
+    //   t4 C  50MiB pinned         → SKIP while total = 310.5MiB > cap
+    //   t5 T  160MiB               → evict AFTER the C skip → 150.5 ≤ cap
+
     // E — uploadPending, OLDEST → protected, must be SKIPPED by LRU.
     await _seedBlob(h.db, blobId: 'up1_f', state: BlobState.ready,
         bytes: 512 * 1024, lastAccess: at(0), uploadPending: true);
@@ -289,21 +304,24 @@ void main() {
       ..writeAsStringSync('x' * 1024);
     await _seedBlob(h.db, blobId: 'd1_f', state: BlobState.ready,
         bytes: 1024, lastAccess: at(1), localPath: dFile.path);
-    // A — 200MB, unprotected → evicted (metadata kept).
-    await _seedBlob(h.db, blobId: 'a1_f', state: BlobState.ready,
-        bytes: 200 * 1024 * 1024, lastAccess: at(2));
-    // B — starred message → protected.
+    // B — starred message → protected, visited while over cap.
     await _seedMessage(h.db, serverId: 'b1', starred: true);
     await _seedBlob(h.db, blobId: 'b1_f', messageId: 'b1',
         state: BlobState.ready,
         bytes: 100 * 1024 * 1024,
-        lastAccess: at(3));
-    // C — pinned message → protected.
+        lastAccess: at(2));
+    // M — small unprotected row BETWEEN b and c: evicted after the B skip.
+    await _seedBlob(h.db, blobId: 'mid_f', state: BlobState.ready,
+        bytes: 512 * 1024, lastAccess: at(3));
+    // C — pinned message → protected, visited while over cap.
     await _seedMessage(h.db, serverId: 'c1', pinned: true);
     await _seedBlob(h.db, blobId: 'c1_f', messageId: 'c1',
         state: BlobState.ready,
-        bytes: 1024 * 1024,
+        bytes: 50 * 1024 * 1024,
         lastAccess: at(4));
+    // T — big unprotected tail: evicted after the C skip, lands ≤ cap.
+    await _seedBlob(h.db, blobId: 'tail_f', state: BlobState.ready,
+        bytes: 160 * 1024 * 1024, lastAccess: at(5));
 
     final store = _store(
       h,
@@ -321,24 +339,30 @@ void main() {
     expect(await stateOf('up1_f'), BlobState.ready,
         reason: 'uploadPending protected despite being LRU-oldest');
     expect(await stateOf('b1_f'), BlobState.ready,
-        reason: 'starred(message) protected');
+        reason: 'starred(message) protected — loop still OVER cap here '
+            '(a broken join would have evicted it)');
     expect(await stateOf('c1_f'), BlobState.ready,
-        reason: 'pinned(message) protected');
+        reason: 'pinned(message) protected — loop still OVER cap here '
+            '(a broken join would have evicted it)');
     expect(await stateOf('d1_f'), BlobState.evicted,
-        reason: 'LRU unprotected evicted');
-    expect(await stateOf('a1_f'), BlobState.evicted,
-        reason: 'next LRU unprotected evicted');
+        reason: 'LRU unprotected evicted + file deleted');
+    expect(await stateOf('mid_f'), BlobState.evicted,
+        reason: 'non-protected evicted AFTER the starred skip '
+            '(proves the loop passed b while over cap)');
+    expect(await stateOf('tail_f'), BlobState.evicted,
+        reason: 'non-protected evicted AFTER the pinned skip '
+            '(proves the loop passed c while over cap)');
     expect(dFile.existsSync(), isFalse,
         reason: 'evicted row deletes its file');
 
     // Metadata kept on evicted rows (spec §9).
-    final a = await h.db.mediaBlobDao.byId('a1_f');
-    expect(a, isNotNull);
-    expect(a!.bytes, 200 * 1024 * 1024);
+    final t = await h.db.mediaBlobDao.byId('tail_f');
+    expect(t, isNotNull);
+    expect(t!.bytes, 160 * 1024 * 1024);
     // Compare the INSTANT — drift hands DateTime back in local time while
     // the seed was UTC (Dart DateTime == also compares the utc flag).
-    expect(a.lastAccess.millisecondsSinceEpoch,
-        at(2).millisecondsSinceEpoch);
+    expect(t.lastAccess.millisecondsSinceEpoch,
+        at(5).millisecondsSinceEpoch);
   });
 
   test(
@@ -478,5 +502,82 @@ void main() {
     expect(content, isNot(equals(cipher)),
         reason: 'must NOT be ciphertext');
     expect(row.bytes, magic.length);
+  });
+
+  test(
+      'spec §11 epoch guard: pipeline, janitor and evict all drop writes after a session bump (no post-logout repopulation)',
+      () async {
+    final gate = Completer<void>();
+    final served = utf8.encode('clear-epoch-fixture');
+    final mock = MockClient((req) async {
+      if (req.url.path.contains('/api/collections/')) {
+        return _recordList(_mediaRecord(id: 'mrec_srv1', messageId: 'srv1'));
+      }
+      if (req.url.path.contains('/api/files/')) {
+        if (!gate.isCompleted) await gate.future; // hold mid-download
+        return http.Response.bytes(served, 200);
+      }
+      return http.Response('{}', 404);
+    });
+    final h = charHarness(clientFactory: () => mock);
+    addTearDown(h.close);
+    final parent = await _tempParent('t6');
+
+    var epoch = 0; // mutable holder — bump = logout / account switch
+    final store = _store(
+      h,
+      client: mock,
+      cacheDir: () async => parent,
+      epoch: () => epoch,
+    );
+    // Drain the ctor maintenance kick FIRST — its janitor reset must not
+    // race the pipeline's downloading write below.
+    await store.ready;
+
+    // ── Pipeline: bump lands while the download is gated mid-flight ──
+    await _seedBlob(h.db,
+        blobId: 'srv1_f', expectedHash: await _sha256Hex(served));
+    final fetch = store.requestBlob('srv1_f', 'test');
+    expect(await _awaitState(h.db, 'srv1_f', BlobState.downloading), isTrue,
+        reason: 'pipeline must be mid-flight before the bump');
+    epoch = 1; // session ends
+    gate.complete();
+    expect(await fetch, isNull,
+        reason: 'aborted pipeline returns null, no throw');
+    final row = await h.db.mediaBlobDao.byId('srv1_f');
+    expect(row!.state, BlobState.downloading,
+        reason: 'no FSM write after the bump (guard before temp/ready)');
+    final mediaCache = Directory('${parent.path}/media_clear')
+      ..createSync(recursive: true);
+    expect(File('${mediaCache.path}/srv1_f_blob.bin').existsSync(), isFalse,
+        reason: 'NO cleartext file written after the bump');
+    expect(File('${mediaCache.path}/srv1_f.part').existsSync(), isFalse,
+        reason: 'NO temp file written after the bump');
+
+    // ── Janitor: bump lands between the entry capture and the temp
+    // sweep (janitor suspends on the dao reset; the per-iteration §11
+    // re-check must drop the orphan delete) ──
+    final orphan =
+        File('${mediaCache.path}/srv1_f.part')..writeAsStringSync('partial');
+    final jan = store.janitor(); // captures epoch=1
+    epoch = 2;
+    await jan;
+    expect(orphan.existsSync(), isTrue,
+        reason: 'janitor temp delete dropped after the bump');
+
+    // ── Evict: bump lands while the size probe is in flight ──
+    final bigFile = File('${mediaCache.path}/ev1_f_big.bin')
+      ..writeAsStringSync('B');
+    await _seedBlob(h.db, blobId: 'ev1_f', state: BlobState.ready,
+        bytes: 310 * 1024 * 1024,
+        lastAccess: DateTime.utc(2026, 1, 2),
+        localPath: bigFile.path);
+    final ev = store.evictIfNeeded(); // captures epoch=2
+    epoch = 3;
+    await ev;
+    expect(bigFile.existsSync(), isTrue,
+        reason: 'evict file delete dropped after the bump');
+    expect((await h.db.mediaBlobDao.byId('ev1_f'))!.state, BlobState.ready,
+        reason: 'evicted state write dropped after the bump');
   });
 }

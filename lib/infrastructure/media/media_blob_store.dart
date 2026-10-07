@@ -11,6 +11,7 @@ import 'package:pocketbase/pocketbase.dart' show ClientException, PocketBase;
 
 import '../../core/constants/app_constants.dart';
 import '../../core/network/pocketbase_client.dart';
+import '../../core/utils/session_epoch.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/daos/media_blob_dao.dart';
 import '../../data/local/database/daos/messages_dao.dart';
@@ -36,6 +37,11 @@ String mediaBlobId(String serverId, {required bool thumb}) =>
 /// `queued` (auto-resume on reconnect — failed ≠ offline); `failed`
 /// carries `error_class` ∈ {dead_link, expired, verify, decrypt} and is
 /// terminal; `evicted` = bytes dropped, metadata retained.
+///
+/// Spec §11 (fix round 1/I1): EVERY dao write and file write is gated by
+/// [sessionStillValid] against the injected [epoch] seam — in-flight work
+/// from a logged-out session aborts silently instead of repopulating the
+/// logout wipe.
 class MediaBlobStore {
   MediaBlobStore({
     required this.dao,
@@ -43,9 +49,11 @@ class MediaBlobStore {
     required this.pbClient,
     required this.encryption,
     required Future<List<int>> Function(String conversationId) resolveKey,
+    required int Function() epoch,
     Future<Directory> Function()? cacheDir,
     http.Client? httpClient,
   })  : _resolveKey = resolveKey,
+        _epoch = epoch,
         _cacheDir = cacheDir ?? getTemporaryDirectory,
         _httpClient = httpClient ?? http.Client(),
         _ownsHttpClient = httpClient == null {
@@ -67,6 +75,11 @@ class MediaBlobStore {
   final EncryptionService encryption;
   final Future<List<int>> Function(String conversationId) _resolveKey;
 
+  /// Session-epoch seam (spec §11): the repo's live `_sessionEpoch`
+  /// counter; bumped on every auth identity change / logout. Tests inject
+  /// a mutable holder.
+  final int Function() _epoch;
+
   /// App-private parent dir (moved convention: `getTemporaryDirectory()` —
   /// the store then uses `<parent>/media_clear` exactly like the moved
   /// code). Tests inject a temp-dir factory.
@@ -85,28 +98,54 @@ class MediaBlobStore {
 
   PocketBase get _pb => pbClient.pb;
 
+  // ── Spec §11 write gate ─────────────────────────────────────────────────
+
+  /// true ⇒ the session that captured [epochAtStart] is still current and
+  /// the caller may write; false ⇒ ABORT silently (log, no throw).
+  /// Repo precedent: `sessionStillValid` guards at
+  /// message_repository_impl.dart (Review C1) — an async op spanning a
+  /// logout must never repopulate the wiped store.
+  bool _stillValid(int epochAtStart, String what) {
+    if (sessionStillValid(
+      epochAtStart: epochAtStart,
+      currentEpoch: _epoch(),
+      authValid: _pb.authStore.isValid,
+    )) {
+      return true;
+    }
+    debugPrint('[Media] $what skipped — session ended mid-flight '
+        '(spec §11)');
+    return false;
+  }
+
   // ── Entry point (spec §9 SINGLE entry) ──────────────────────────────────
 
   /// State check inside → download / restore / no-op as needed.
-  /// Returns the decrypted file, or null (offline, failed terminal, or
-  /// the `message_media` record has not landed yet — upload race #18).
+  /// Returns the decrypted file, or null (offline, failed terminal, the
+  /// `message_media` record has not landed yet — upload race #18, or the
+  /// session ended mid-request).
   Future<LocalMediaFile?> requestBlob(String blobId, String reason) async {
+    final epochAtStart = _epoch();
     var row = await dao.byId(blobId);
     if (row == null) {
       // First request: derive the message id from the blob id and create
       // the row (`'srv1_f'` → message `'srv1'`).
       final serverId = _parseBlobId(blobId).$1;
+      if (!_stillValid(epochAtStart, 'blob row create')) return null;
       await dao.insert(MediaBlobTableCompanion.insert(
         blobId: blobId,
         messageId: serverId,
         lastAccess: DateTime.now(),
       ));
       row = await dao.byId(blobId);
+      // Row gone = the logout wipe deleted it mid-request (spec §11) —
+      // abort instead of the old `row!` NPE.
+      if (row == null) return null;
     }
 
     // Terminal (spec §9): `failed` is NEVER auto-retried — only an
     // explicit future policy layer can move it.
-    if (row!.state == BlobState.failed) return null;
+    if (row.state == BlobState.failed) return null;
 
     // Coalesce: an in-flight pipeline (whatever state the row shows —
     // including a stale `downloading` whose process-local future is gone)
@@ -129,19 +168,29 @@ class MediaBlobStore {
 
   Future<LocalMediaFile?> _runPipeline(MediaBlobTableData row) async {
     final blobId = row.blobId;
+    // Spec §11: capture BEFORE the first state write; every later write in
+    // this pipeline re-checks against this capture.
+    final epochAtStart = _epoch();
     final (serverId, thumb) = _parseBlobId(blobId);
     final prefix = '${serverId}_${thumb ? 't' : 'f'}_';
+    if (!_stillValid(epochAtStart, 'downloading write')) return null;
     await dao.setState(blobId, BlobState.downloading);
     try {
       // ── Cleartext cache + fast path — MOVED VERBATIM from
       // MediaUploadService.getDecryptedMedia (guard 5: body unchanged
-      // except the two `getTemporaryDirectory`/`http.get` seams, ledgered
-      // in the handoff). ──
+      // except the two `getTemporaryDirectory`/`http.get` seams and the
+      // §11 epoch gates, ledgered in the handoff). ──
       final cacheDir = await _cacheDir();
       final mediaCache = Directory('${cacheDir.path}/media_clear');
-      if (!await mediaCache.exists()) await mediaCache.create(recursive: true);
+      if (!await mediaCache.exists()) {
+        if (!_stillValid(epochAtStart, 'cache dir create')) return null;
+        await mediaCache.create(recursive: true);
+      }
       await for (final entity in mediaCache.list()) {
         if (entity is File && p.basename(entity.path).startsWith(prefix)) {
+          if (!_stillValid(epochAtStart, 'fast-path ready write')) {
+            return null;
+          }
           await dao.setState(
             blobId,
             BlobState.ready,
@@ -161,6 +210,9 @@ class MediaBlobStore {
       // mediaArrived retry can succeed — this is NOT dead_link. ──
       final record = await _lookupRecord(serverId);
       if (record == null) {
+        if (!_stillValid(epochAtStart, 'record-404 queue write')) {
+          return null;
+        }
         await dao.setState(blobId, BlobState.queued);
         return null;
       }
@@ -174,6 +226,9 @@ class MediaBlobStore {
       final storedName =
           readFile(record.data[thumb ? 'thumbnail' : 'file']);
       if (storedName == null || storedName.isEmpty) {
+        if (!_stillValid(epochAtStart, 'missing-file queue write')) {
+          return null;
+        }
         await dao.setState(blobId, BlobState.queued);
         return null;
       }
@@ -203,11 +258,11 @@ class MediaBlobStore {
           // expired (access revoked / retention); 5xx + rest → transient →
           // queued (offline ≠ failed).
           if (resp.statusCode == 404) {
-            await _fail(blobId, 'dead_link');
+            await _fail(epochAtStart, blobId, 'dead_link');
           } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-            await _fail(blobId, 'expired');
+            await _fail(epochAtStart, blobId, 'expired');
           } else {
-            await _safeQueued(blobId);
+            await _safeQueued(epochAtStart, blobId);
           }
           return null;
         }
@@ -215,12 +270,13 @@ class MediaBlobStore {
         // NEW crash artifact: a kill between download and commit leaves
         // ONLY this file — the startup janitor deletes it (spec §9).
         final part = File('${mediaCache.path}/$blobId.part');
+        if (!_stillValid(epochAtStart, 'temp write')) return null;
         await part.writeAsBytes(resp.bodyBytes, flush: true);
 
         // NEW verify stage (spec §9: download → size/hash verify → decrypt).
         if (!_verifySync(resp.bodyBytes, row)) {
-          await _fail(blobId, 'verify');
-          await _deleteQuietly(part);
+          await _fail(epochAtStart, blobId, 'verify');
+          await _deleteQuietly(epochAtStart, part);
           return null;
         }
 
@@ -233,8 +289,8 @@ class MediaBlobStore {
         } else {
           final msg = await messages.getMessageByServerId(serverId);
           if (msg == null) {
-            await _safeQueued(blobId);
-            await _deleteQuietly(part);
+            await _safeQueued(epochAtStart, blobId);
+            await _deleteQuietly(epochAtStart, part);
             return null;
           }
           final convKey = await _resolveKey(msg.conversationId);
@@ -244,15 +300,16 @@ class MediaBlobStore {
             // MOVED diagnostic (record.id → record.id, same message).
             debugPrint(
                 '[Media] decrypt failed for ${record.id} (thumb=$thumb)');
-            await _fail(blobId, 'decrypt');
-            await _deleteQuietly(part);
+            await _fail(epochAtStart, blobId, 'decrypt');
+            await _deleteQuietly(epochAtStart, part);
             return null;
           }
           clear = dec;
         }
         // MOVED write: decrypted bytes land ONLY at the final path.
+        if (!_stillValid(epochAtStart, 'cleartext write')) return null;
         await localFile.writeAsBytes(clear, flush: true);
-        await _deleteQuietly(part);
+        await _deleteQuietly(epochAtStart, part);
       }
 
       // ── Metadata return — MOVED. ──
@@ -274,6 +331,7 @@ class MediaBlobStore {
         fileName: record.getStringValue('file_name'),
       );
 
+      if (!_stillValid(epochAtStart, 'ready write')) return null;
       await dao.setState(
         blobId,
         BlobState.ready,
@@ -291,7 +349,7 @@ class MediaBlobStore {
       debugPrint('[Media] getDecryptedMedia error: $e');
       // Offline / missing key / transient transport → queued (auto-resume
       // on reconnect; the catch NEVER produces a failed class).
-      await _safeQueued(blobId);
+      await _safeQueued(epochAtStart, blobId);
       return null;
     }
   }
@@ -334,8 +392,11 @@ class MediaBlobStore {
 
   /// Stale `downloading` rows → `queued` (process died mid-pipeline);
   /// orphan `.part` temp files deleted. Construction-time kick exposes
-  /// its completion as [ready].
+  /// its completion as [ready]. Spec §11: epoch captured at entry, every
+  /// write re-checked against it.
   Future<void> janitor() async {
+    final epochAtStart = _epoch();
+    if (!_stillValid(epochAtStart, 'janitor reset')) return;
     await dao.resetDownloadingToQueued();
     final Directory cacheDir;
     try {
@@ -350,7 +411,10 @@ class MediaBlobStore {
       if (!await mediaCache.exists()) return;
       await for (final entity in mediaCache.list()) {
         if (entity is File && entity.path.endsWith('.part')) {
-          await _deleteQuietly(entity);
+          // Per-iteration §11 re-check — a logout mid-sweep stops the
+          // remaining deletes.
+          if (!_stillValid(epochAtStart, 'janitor temp delete')) return;
+          await _deleteQuietly(epochAtStart, entity);
         }
       }
     } catch (e) {
@@ -365,7 +429,10 @@ class MediaBlobStore {
   /// deleted, state → `evicted`, metadata retained. Protected is the
   /// DERIVED predicate (spec §5.3, computed here — no column):
   /// `upload_pending ∨ message.starred ∨ message.pinned`.
+  /// Spec §11: epoch captured at entry; re-checked before EACH file
+  /// delete and EACH `evicted` state write.
   Future<void> evictIfNeeded() async {
+    final epochAtStart = _epoch();
     var total = await dao.readyTotalBytes();
     if (total <= kMediaCacheMaxBytes) return;
     final candidates = await dao.readyLru(); // oldest lastAccess first
@@ -373,6 +440,7 @@ class MediaBlobStore {
       if (total <= kMediaCacheMaxBytes) break;
       if (await _isProtected(row)) continue;
       if (row.localPath != null && row.localPath!.isNotEmpty) {
+        if (!_stillValid(epochAtStart, 'evict file delete')) return;
         final file = File(row.localPath!);
         try {
           if (await file.exists()) await file.delete();
@@ -385,6 +453,7 @@ class MediaBlobStore {
       }
       // Metadata kept (bytes/localPath/lastAccess untouched — setState
       // writes only what it is handed).
+      if (!_stillValid(epochAtStart, 'evicted state write')) return;
       await dao.setState(row.blobId, BlobState.evicted);
       total -= row.bytes;
     }
@@ -403,11 +472,14 @@ class MediaBlobStore {
 
   /// Connectivity restored: drain every `queued` row through the single
   /// entry (auto-resume — failed ≠ offline). Returns the drain future so
-  /// tests can observe `downloading → ready`.
+  /// tests can observe `downloading → ready`. Spec §11: epoch captured at
+  /// entry — a logout mid-drain stops the REMAINING requestBlob starts.
   Future<void> onConnectivityRestored() async {
+    final epochAtStart = _epoch();
     debugPrint('[Media] Connectivity restored. Draining queued blobs.');
     final queued = await dao.byState(BlobState.queued);
     for (final row in queued) {
+      if (!_stillValid(epochAtStart, 'connectivity drain')) return;
       await requestBlob(row.blobId, 'connectivity-restored');
     }
   }
@@ -427,10 +499,14 @@ class MediaBlobStore {
     }
   }
 
-  Future<void> _fail(String blobId, String errorClass) =>
-      dao.setState(blobId, BlobState.failed, errorClass: errorClass);
+  Future<void> _fail(
+      int epochAtStart, String blobId, String errorClass) async {
+    if (!_stillValid(epochAtStart, 'failed write')) return;
+    await dao.setState(blobId, BlobState.failed, errorClass: errorClass);
+  }
 
-  Future<void> _safeQueued(String blobId) async {
+  Future<void> _safeQueued(int epochAtStart, String blobId) async {
+    if (!_stillValid(epochAtStart, 'queued write')) return;
     try {
       await dao.setState(blobId, BlobState.queued);
     } catch (_) {
@@ -438,7 +514,8 @@ class MediaBlobStore {
     }
   }
 
-  Future<void> _deleteQuietly(File file) async {
+  Future<void> _deleteQuietly(int epochAtStart, File file) async {
+    if (!_stillValid(epochAtStart, 'temp delete')) return;
     try {
       if (await file.exists()) await file.delete();
     } catch (_) {
