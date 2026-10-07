@@ -17,11 +17,13 @@ import 'tables/friend_requests_table.dart';
 import 'tables/reactions_table.dart';
 import 'tables/app_settings_table.dart';
 import 'tables/message_drafts_table.dart';
+import 'tables/outbox_table.dart';
 import 'daos/users_dao.dart';
 import 'daos/conversations_dao.dart';
 import 'daos/messages_dao.dart';
 import 'daos/friends_dao.dart';
 import 'daos/settings_dao.dart';
+import 'daos/outbox_dao.dart';
 
 part 'app_database.g.dart';
 
@@ -38,6 +40,7 @@ part 'app_database.g.dart';
     ReactionsTable,
     AppSettingsTable,
     MessageDraftsTable,
+    OutboxTable,
   ],
   daos: [
     UsersDao,
@@ -45,6 +48,7 @@ part 'app_database.g.dart';
     MessagesDao,
     FriendsDao,
     SettingsDao,
+    OutboxDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -55,7 +59,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -85,6 +89,10 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(
                 'CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_server_id '
                 'ON messages_table (server_id)');
+          }
+          if (from < 7) {
+            // Offline-first: the Drift table IS the outbox queue (spec §5.2).
+            await m.createTable(outboxTable);
           }
         },
       );

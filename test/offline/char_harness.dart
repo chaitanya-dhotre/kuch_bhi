@@ -68,7 +68,13 @@ void _prepareTestRuntime() {
 /// repo calls them (self-heal invalidation, group-key cache write); without
 /// overrides they hit the `FlutterSecureStorage` platform channel and throw
 /// MissingPluginException in tests.
-class FakeSecureStorage extends SecureStorageService {
+///
+/// `implements` (NOT `extends`) + [noSuchMethod] is deliberate: noSuchMethod
+/// forwarders only exist for members the class does not implement — with
+/// `extends` the concrete base impls would keep running (verified: Dart
+/// dispatches inherited methods directly). Now ANY of the 17 non-overridden
+/// members throws [UnimplementedError] instead of reaching real storage.
+class FakeSecureStorage implements SecureStorageService {
   FakeSecureStorage({this.userId = 'u_test', this.secrets = const {}});
   final String userId;
   final Map<String, String> secrets;
@@ -104,6 +110,11 @@ class FakeSecureStorage extends SecureStorageService {
   Future<String?> getPrivateKey() async => null; // DM path unused in tests
   @override
   Future<String?> getLocalPublicKey() async => null;
+
+  @override
+  dynamic noSuchMethod(Invocation i) => throw UnimplementedError(
+      'FakeSecureStorage.${i.memberName} — override before use '
+      '(handoff.md lists all 17)');
 }
 
 class CharHarness {

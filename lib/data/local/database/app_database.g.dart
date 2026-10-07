@@ -6146,6 +6146,742 @@ class MessageDraftsTableCompanion
   }
 }
 
+class $OutboxTableTable extends OutboxTable
+    with TableInfo<$OutboxTableTable, OutboxTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OutboxTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _opIdMeta = const VerificationMeta('opId');
+  @override
+  late final GeneratedColumn<String> opId = GeneratedColumn<String>(
+    'op_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _refMeta = const VerificationMeta('ref');
+  @override
+  late final GeneratedColumn<String> ref = GeneratedColumn<String>(
+    'ref',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _conversationIdMeta = const VerificationMeta(
+    'conversationId',
+  );
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+    'conversation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seqMeta = const VerificationMeta('seq');
+  @override
+  late final GeneratedColumn<int> seq = GeneratedColumn<int>(
+    'seq',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<OutboxState, String> state =
+      GeneratedColumn<String>(
+        'state',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('queued'),
+      ).withConverter<OutboxState>($OutboxTableTable.$converterstate);
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _nextAttemptAtMeta = const VerificationMeta(
+    'nextAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> nextAttemptAt =
+      GeneratedColumn<DateTime>(
+        'next_attempt_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _errorClassMeta = const VerificationMeta(
+    'errorClass',
+  );
+  @override
+  late final GeneratedColumn<String> errorClass = GeneratedColumn<String>(
+    'error_class',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _dependsOnMeta = const VerificationMeta(
+    'dependsOn',
+  );
+  @override
+  late final GeneratedColumn<String> dependsOn = GeneratedColumn<String>(
+    'depends_on',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    opId,
+    kind,
+    ref,
+    conversationId,
+    seq,
+    state,
+    attempts,
+    nextAttemptAt,
+    createdAt,
+    lastError,
+    errorClass,
+    dependsOn,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'outbox_table';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<OutboxTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('op_id')) {
+      context.handle(
+        _opIdMeta,
+        opId.isAcceptableOrUnknown(data['op_id']!, _opIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_opIdMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('ref')) {
+      context.handle(
+        _refMeta,
+        ref.isAcceptableOrUnknown(data['ref']!, _refMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_refMeta);
+    }
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+        _conversationIdMeta,
+        conversationId.isAcceptableOrUnknown(
+          data['conversation_id']!,
+          _conversationIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_conversationIdMeta);
+    }
+    if (data.containsKey('seq')) {
+      context.handle(
+        _seqMeta,
+        seq.isAcceptableOrUnknown(data['seq']!, _seqMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_seqMeta);
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('next_attempt_at')) {
+      context.handle(
+        _nextAttemptAtMeta,
+        nextAttemptAt.isAcceptableOrUnknown(
+          data['next_attempt_at']!,
+          _nextAttemptAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('error_class')) {
+      context.handle(
+        _errorClassMeta,
+        errorClass.isAcceptableOrUnknown(data['error_class']!, _errorClassMeta),
+      );
+    }
+    if (data.containsKey('depends_on')) {
+      context.handle(
+        _dependsOnMeta,
+        dependsOn.isAcceptableOrUnknown(data['depends_on']!, _dependsOnMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {opId};
+  @override
+  OutboxTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return OutboxTableData(
+      opId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      ref: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ref'],
+      )!,
+      conversationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}conversation_id'],
+      )!,
+      seq: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}seq'],
+      )!,
+      state: $OutboxTableTable.$converterstate.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}state'],
+        )!,
+      ),
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}next_attempt_at'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      errorClass: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_class'],
+      ),
+      dependsOn: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}depends_on'],
+      ),
+    );
+  }
+
+  @override
+  $OutboxTableTable createAlias(String alias) {
+    return $OutboxTableTable(attachedDatabase, alias);
+  }
+
+  static JsonTypeConverter2<OutboxState, String, String> $converterstate =
+      const EnumNameConverter<OutboxState>(OutboxState.values);
+}
+
+class OutboxTableData extends DataClass implements Insertable<OutboxTableData> {
+  /// Client-generated op id — also the future server record id.
+  final String opId;
+
+  /// 'text_send' | 'media_upload' | 'reaction' | 'pin' | 'star' | 'delete' | …
+  final String kind;
+
+  /// Local message/blob id this op acts on.
+  final String ref;
+  final String conversationId;
+
+  /// Monotonic per-conversation FIFO order.
+  final int seq;
+  final OutboxState state;
+  final int attempts;
+
+  /// Backoff deadline for transient failures (null = due immediately).
+  final DateTime? nextAttemptAt;
+  final DateTime createdAt;
+  final String? lastError;
+
+  /// 'id_collision' | 'dead_link' | 'forbidden' | … (spec §6 error classes).
+  final String? errorClass;
+
+  /// op_id of a prerequisite op (e.g. `message_send` → its `media_upload`).
+  final String? dependsOn;
+  const OutboxTableData({
+    required this.opId,
+    required this.kind,
+    required this.ref,
+    required this.conversationId,
+    required this.seq,
+    required this.state,
+    required this.attempts,
+    this.nextAttemptAt,
+    required this.createdAt,
+    this.lastError,
+    this.errorClass,
+    this.dependsOn,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['op_id'] = Variable<String>(opId);
+    map['kind'] = Variable<String>(kind);
+    map['ref'] = Variable<String>(ref);
+    map['conversation_id'] = Variable<String>(conversationId);
+    map['seq'] = Variable<int>(seq);
+    {
+      map['state'] = Variable<String>(
+        $OutboxTableTable.$converterstate.toSql(state),
+      );
+    }
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || nextAttemptAt != null) {
+      map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    if (!nullToAbsent || errorClass != null) {
+      map['error_class'] = Variable<String>(errorClass);
+    }
+    if (!nullToAbsent || dependsOn != null) {
+      map['depends_on'] = Variable<String>(dependsOn);
+    }
+    return map;
+  }
+
+  OutboxTableCompanion toCompanion(bool nullToAbsent) {
+    return OutboxTableCompanion(
+      opId: Value(opId),
+      kind: Value(kind),
+      ref: Value(ref),
+      conversationId: Value(conversationId),
+      seq: Value(seq),
+      state: Value(state),
+      attempts: Value(attempts),
+      nextAttemptAt: nextAttemptAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextAttemptAt),
+      createdAt: Value(createdAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      errorClass: errorClass == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorClass),
+      dependsOn: dependsOn == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dependsOn),
+    );
+  }
+
+  factory OutboxTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return OutboxTableData(
+      opId: serializer.fromJson<String>(json['opId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      ref: serializer.fromJson<String>(json['ref']),
+      conversationId: serializer.fromJson<String>(json['conversationId']),
+      seq: serializer.fromJson<int>(json['seq']),
+      state: $OutboxTableTable.$converterstate.fromJson(
+        serializer.fromJson<String>(json['state']),
+      ),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAt: serializer.fromJson<DateTime?>(json['nextAttemptAt']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      errorClass: serializer.fromJson<String?>(json['errorClass']),
+      dependsOn: serializer.fromJson<String?>(json['dependsOn']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'opId': serializer.toJson<String>(opId),
+      'kind': serializer.toJson<String>(kind),
+      'ref': serializer.toJson<String>(ref),
+      'conversationId': serializer.toJson<String>(conversationId),
+      'seq': serializer.toJson<int>(seq),
+      'state': serializer.toJson<String>(
+        $OutboxTableTable.$converterstate.toJson(state),
+      ),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAt': serializer.toJson<DateTime?>(nextAttemptAt),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'lastError': serializer.toJson<String?>(lastError),
+      'errorClass': serializer.toJson<String?>(errorClass),
+      'dependsOn': serializer.toJson<String?>(dependsOn),
+    };
+  }
+
+  OutboxTableData copyWith({
+    String? opId,
+    String? kind,
+    String? ref,
+    String? conversationId,
+    int? seq,
+    OutboxState? state,
+    int? attempts,
+    Value<DateTime?> nextAttemptAt = const Value.absent(),
+    DateTime? createdAt,
+    Value<String?> lastError = const Value.absent(),
+    Value<String?> errorClass = const Value.absent(),
+    Value<String?> dependsOn = const Value.absent(),
+  }) => OutboxTableData(
+    opId: opId ?? this.opId,
+    kind: kind ?? this.kind,
+    ref: ref ?? this.ref,
+    conversationId: conversationId ?? this.conversationId,
+    seq: seq ?? this.seq,
+    state: state ?? this.state,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAt: nextAttemptAt.present
+        ? nextAttemptAt.value
+        : this.nextAttemptAt,
+    createdAt: createdAt ?? this.createdAt,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    errorClass: errorClass.present ? errorClass.value : this.errorClass,
+    dependsOn: dependsOn.present ? dependsOn.value : this.dependsOn,
+  );
+  OutboxTableData copyWithCompanion(OutboxTableCompanion data) {
+    return OutboxTableData(
+      opId: data.opId.present ? data.opId.value : this.opId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      ref: data.ref.present ? data.ref.value : this.ref,
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      seq: data.seq.present ? data.seq.value : this.seq,
+      state: data.state.present ? data.state.value : this.state,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAt: data.nextAttemptAt.present
+          ? data.nextAttemptAt.value
+          : this.nextAttemptAt,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      errorClass: data.errorClass.present
+          ? data.errorClass.value
+          : this.errorClass,
+      dependsOn: data.dependsOn.present ? data.dependsOn.value : this.dependsOn,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxTableData(')
+          ..write('opId: $opId, ')
+          ..write('kind: $kind, ')
+          ..write('ref: $ref, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('seq: $seq, ')
+          ..write('state: $state, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('errorClass: $errorClass, ')
+          ..write('dependsOn: $dependsOn')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    opId,
+    kind,
+    ref,
+    conversationId,
+    seq,
+    state,
+    attempts,
+    nextAttemptAt,
+    createdAt,
+    lastError,
+    errorClass,
+    dependsOn,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is OutboxTableData &&
+          other.opId == this.opId &&
+          other.kind == this.kind &&
+          other.ref == this.ref &&
+          other.conversationId == this.conversationId &&
+          other.seq == this.seq &&
+          other.state == this.state &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAt == this.nextAttemptAt &&
+          other.createdAt == this.createdAt &&
+          other.lastError == this.lastError &&
+          other.errorClass == this.errorClass &&
+          other.dependsOn == this.dependsOn);
+}
+
+class OutboxTableCompanion extends UpdateCompanion<OutboxTableData> {
+  final Value<String> opId;
+  final Value<String> kind;
+  final Value<String> ref;
+  final Value<String> conversationId;
+  final Value<int> seq;
+  final Value<OutboxState> state;
+  final Value<int> attempts;
+  final Value<DateTime?> nextAttemptAt;
+  final Value<DateTime> createdAt;
+  final Value<String?> lastError;
+  final Value<String?> errorClass;
+  final Value<String?> dependsOn;
+  final Value<int> rowid;
+  const OutboxTableCompanion({
+    this.opId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.ref = const Value.absent(),
+    this.conversationId = const Value.absent(),
+    this.seq = const Value.absent(),
+    this.state = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.errorClass = const Value.absent(),
+    this.dependsOn = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  OutboxTableCompanion.insert({
+    required String opId,
+    required String kind,
+    required String ref,
+    required String conversationId,
+    required int seq,
+    this.state = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    required DateTime createdAt,
+    this.lastError = const Value.absent(),
+    this.errorClass = const Value.absent(),
+    this.dependsOn = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : opId = Value(opId),
+       kind = Value(kind),
+       ref = Value(ref),
+       conversationId = Value(conversationId),
+       seq = Value(seq),
+       createdAt = Value(createdAt);
+  static Insertable<OutboxTableData> custom({
+    Expression<String>? opId,
+    Expression<String>? kind,
+    Expression<String>? ref,
+    Expression<String>? conversationId,
+    Expression<int>? seq,
+    Expression<String>? state,
+    Expression<int>? attempts,
+    Expression<DateTime>? nextAttemptAt,
+    Expression<DateTime>? createdAt,
+    Expression<String>? lastError,
+    Expression<String>? errorClass,
+    Expression<String>? dependsOn,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (opId != null) 'op_id': opId,
+      if (kind != null) 'kind': kind,
+      if (ref != null) 'ref': ref,
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (seq != null) 'seq': seq,
+      if (state != null) 'state': state,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+      if (createdAt != null) 'created_at': createdAt,
+      if (lastError != null) 'last_error': lastError,
+      if (errorClass != null) 'error_class': errorClass,
+      if (dependsOn != null) 'depends_on': dependsOn,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  OutboxTableCompanion copyWith({
+    Value<String>? opId,
+    Value<String>? kind,
+    Value<String>? ref,
+    Value<String>? conversationId,
+    Value<int>? seq,
+    Value<OutboxState>? state,
+    Value<int>? attempts,
+    Value<DateTime?>? nextAttemptAt,
+    Value<DateTime>? createdAt,
+    Value<String?>? lastError,
+    Value<String?>? errorClass,
+    Value<String?>? dependsOn,
+    Value<int>? rowid,
+  }) {
+    return OutboxTableCompanion(
+      opId: opId ?? this.opId,
+      kind: kind ?? this.kind,
+      ref: ref ?? this.ref,
+      conversationId: conversationId ?? this.conversationId,
+      seq: seq ?? this.seq,
+      state: state ?? this.state,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      createdAt: createdAt ?? this.createdAt,
+      lastError: lastError ?? this.lastError,
+      errorClass: errorClass ?? this.errorClass,
+      dependsOn: dependsOn ?? this.dependsOn,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (opId.present) {
+      map['op_id'] = Variable<String>(opId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (ref.present) {
+      map['ref'] = Variable<String>(ref.value);
+    }
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (seq.present) {
+      map['seq'] = Variable<int>(seq.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(
+        $OutboxTableTable.$converterstate.toSql(state.value),
+      );
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextAttemptAt.present) {
+      map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (errorClass.present) {
+      map['error_class'] = Variable<String>(errorClass.value);
+    }
+    if (dependsOn.present) {
+      map['depends_on'] = Variable<String>(dependsOn.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxTableCompanion(')
+          ..write('opId: $opId, ')
+          ..write('kind: $kind, ')
+          ..write('ref: $ref, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('seq: $seq, ')
+          ..write('state: $state, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('errorClass: $errorClass, ')
+          ..write('dependsOn: $dependsOn, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -6170,6 +6906,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $MessageDraftsTableTable messageDraftsTable =
       $MessageDraftsTableTable(this);
+  late final $OutboxTableTable outboxTable = $OutboxTableTable(this);
   late final Index idxMessagesServerId = Index(
     'idx_messages_server_id',
     'CREATE UNIQUE INDEX idx_messages_server_id ON messages_table (server_id)',
@@ -6181,6 +6918,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final MessagesDao messagesDao = MessagesDao(this as AppDatabase);
   late final FriendsDao friendsDao = FriendsDao(this as AppDatabase);
   late final SettingsDao settingsDao = SettingsDao(this as AppDatabase);
+  late final OutboxDao outboxDao = OutboxDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6197,6 +6935,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     reactionsTable,
     appSettingsTable,
     messageDraftsTable,
+    outboxTable,
     idxMessagesServerId,
   ];
 }
@@ -9328,6 +10067,346 @@ typedef $$MessageDraftsTableTableProcessedTableManager =
       MessageDraftsTableData,
       PrefetchHooks Function()
     >;
+typedef $$OutboxTableTableCreateCompanionBuilder =
+    OutboxTableCompanion Function({
+      required String opId,
+      required String kind,
+      required String ref,
+      required String conversationId,
+      required int seq,
+      Value<OutboxState> state,
+      Value<int> attempts,
+      Value<DateTime?> nextAttemptAt,
+      required DateTime createdAt,
+      Value<String?> lastError,
+      Value<String?> errorClass,
+      Value<String?> dependsOn,
+      Value<int> rowid,
+    });
+typedef $$OutboxTableTableUpdateCompanionBuilder =
+    OutboxTableCompanion Function({
+      Value<String> opId,
+      Value<String> kind,
+      Value<String> ref,
+      Value<String> conversationId,
+      Value<int> seq,
+      Value<OutboxState> state,
+      Value<int> attempts,
+      Value<DateTime?> nextAttemptAt,
+      Value<DateTime> createdAt,
+      Value<String?> lastError,
+      Value<String?> errorClass,
+      Value<String?> dependsOn,
+      Value<int> rowid,
+    });
+
+class $$OutboxTableTableFilterComposer
+    extends Composer<_$AppDatabase, $OutboxTableTable> {
+  $$OutboxTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get opId => $composableBuilder(
+    column: $table.opId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ref => $composableBuilder(
+    column: $table.ref,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seq => $composableBuilder(
+    column: $table.seq,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<OutboxState, OutboxState, String> get state =>
+      $composableBuilder(
+        column: $table.state,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorClass => $composableBuilder(
+    column: $table.errorClass,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dependsOn => $composableBuilder(
+    column: $table.dependsOn,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$OutboxTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $OutboxTableTable> {
+  $$OutboxTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get opId => $composableBuilder(
+    column: $table.opId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ref => $composableBuilder(
+    column: $table.ref,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seq => $composableBuilder(
+    column: $table.seq,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorClass => $composableBuilder(
+    column: $table.errorClass,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dependsOn => $composableBuilder(
+    column: $table.dependsOn,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$OutboxTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $OutboxTableTable> {
+  $$OutboxTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get opId =>
+      $composableBuilder(column: $table.opId, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get ref =>
+      $composableBuilder(column: $table.ref, builder: (column) => column);
+
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get seq =>
+      $composableBuilder(column: $table.seq, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<OutboxState, String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<String> get errorClass => $composableBuilder(
+    column: $table.errorClass,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get dependsOn =>
+      $composableBuilder(column: $table.dependsOn, builder: (column) => column);
+}
+
+class $$OutboxTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $OutboxTableTable,
+          OutboxTableData,
+          $$OutboxTableTableFilterComposer,
+          $$OutboxTableTableOrderingComposer,
+          $$OutboxTableTableAnnotationComposer,
+          $$OutboxTableTableCreateCompanionBuilder,
+          $$OutboxTableTableUpdateCompanionBuilder,
+          (
+            OutboxTableData,
+            BaseReferences<_$AppDatabase, $OutboxTableTable, OutboxTableData>,
+          ),
+          OutboxTableData,
+          PrefetchHooks Function()
+        > {
+  $$OutboxTableTableTableManager(_$AppDatabase db, $OutboxTableTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$OutboxTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$OutboxTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$OutboxTableTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> opId = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> ref = const Value.absent(),
+                Value<String> conversationId = const Value.absent(),
+                Value<int> seq = const Value.absent(),
+                Value<OutboxState> state = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<DateTime?> nextAttemptAt = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<String?> errorClass = const Value.absent(),
+                Value<String?> dependsOn = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxTableCompanion(
+                opId: opId,
+                kind: kind,
+                ref: ref,
+                conversationId: conversationId,
+                seq: seq,
+                state: state,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                createdAt: createdAt,
+                lastError: lastError,
+                errorClass: errorClass,
+                dependsOn: dependsOn,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String opId,
+                required String kind,
+                required String ref,
+                required String conversationId,
+                required int seq,
+                Value<OutboxState> state = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<DateTime?> nextAttemptAt = const Value.absent(),
+                required DateTime createdAt,
+                Value<String?> lastError = const Value.absent(),
+                Value<String?> errorClass = const Value.absent(),
+                Value<String?> dependsOn = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxTableCompanion.insert(
+                opId: opId,
+                kind: kind,
+                ref: ref,
+                conversationId: conversationId,
+                seq: seq,
+                state: state,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                createdAt: createdAt,
+                lastError: lastError,
+                errorClass: errorClass,
+                dependsOn: dependsOn,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$OutboxTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $OutboxTableTable,
+      OutboxTableData,
+      $$OutboxTableTableFilterComposer,
+      $$OutboxTableTableOrderingComposer,
+      $$OutboxTableTableAnnotationComposer,
+      $$OutboxTableTableCreateCompanionBuilder,
+      $$OutboxTableTableUpdateCompanionBuilder,
+      (
+        OutboxTableData,
+        BaseReferences<_$AppDatabase, $OutboxTableTable, OutboxTableData>,
+      ),
+      OutboxTableData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -9357,4 +10436,6 @@ class $AppDatabaseManager {
       $$AppSettingsTableTableTableManager(_db, _db.appSettingsTable);
   $$MessageDraftsTableTableTableManager get messageDraftsTable =>
       $$MessageDraftsTableTableTableManager(_db, _db.messageDraftsTable);
+  $$OutboxTableTableTableManager get outboxTable =>
+      $$OutboxTableTableTableManager(_db, _db.outboxTable);
 }

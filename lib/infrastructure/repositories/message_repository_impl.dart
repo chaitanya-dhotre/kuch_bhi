@@ -14,11 +14,13 @@ import '../../core/constants/app_constants.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
+import '../../core/utils/op_id.dart';
 import '../../core/utils/realtime_gate.dart';
 import '../../core/utils/session_epoch.dart';
 import '../../core/utils/sync_cursor.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
+import '../../data/local/database/tables/outbox_table.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/group_invite.dart';
 import '../../domain/entities/message.dart';
@@ -29,6 +31,25 @@ import '../../services/encryption_service.dart';
 import '../../services/media_upload_service.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../services/fcm_service.dart';
+
+/// PocketBase duplicate-create parser — ENTRY POINT for the spec §5.2
+/// already-sent path. True ONLY when [error] is HTTP 400
+/// `validation_not_unique` on FIELD `id` (the exact shape Task 1 pinned
+/// against the live server: docs/offline-phase0-verification.md §(c)2,
+/// `{"data":{"id":{"code":"validation_not_unique",…}},…,"status":400}`).
+/// A uniqueness failure on ANY other field (e.g. `iv`) is not a duplicate
+/// send and must never be counted as delivered — it maps through the
+/// normal error class instead (Task 3).
+///
+/// INTERIM: absorbed by IngestBoundary in Task 6.
+bool isDuplicateIdError(ClientException error) {
+  if (error.statusCode != 400) return false;
+  final data = error.response['data'];
+  if (data is! Map) return false;
+  final fieldError = data['id'];
+  if (fieldError is! Map) return false;
+  return fieldError['code'] == 'validation_not_unique';
+}
 
 class MessageRepositoryImpl implements MessageRepository {
   MessageRepositoryImpl({
@@ -637,29 +658,48 @@ class MessageRepositoryImpl implements MessageRepository {
     final expiresAt = await _computeExpiry(conversationId, now);
 
     debugPrint('[Msg] Sending message - localId: $localId, convId: $conversationId');
-
-    // ── Step 1: Optimistic insert to Drift ────────────────────
-    // Drift stream auto-emits IMMEDIATELY — message appears NOW.
     debugPrint('[Msg] OPTIMISTIC INSERT — localId: $localId, convId: $conversationId, senderId: $myId');
-    await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-      localId:        localId,
-      conversationId: conversationId,
-      senderId:       myId,
-      type:           'text',
-      encryptedBody:  '__pending__',
-      iv:             '',
-      decryptedBody:  Value(plaintext),
-      replyToId:      Value(replyToLocalId),
-      replyPreview:   Value(replyPreview),
-      status:         Value('pending'),
-      expiresAt:      Value(expiresAt),
-      createdAt:      now,
-      updatedAt:      now,
-    ));
+
+    // ── Atomic enqueue (spec §5.2): message row + outbox op in ONE
+    // Drift transaction — a kill between them is impossible by
+    // construction (ghost message / lost send cannot happen). The body
+    // stays plaintext-cached in `decryptedBody` (interim — Task 9 drops
+    // the column per spec); encryption runs on the drain path with the
+    // EXISTING `EncryptionService.encryptMessage` code, now behind
+    // [_drainOutbox]. ─────────────────────────────────────────────
+    await db.transaction(() async {
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:        localId,
+        conversationId: conversationId,
+        senderId:       myId,
+        type:           'text',
+        encryptedBody:  '__pending__',
+        iv:             '',
+        decryptedBody:  Value(plaintext),
+        replyToId:      Value(replyToLocalId),
+        replyPreview:   Value(replyPreview),
+        status:         Value('pending'),
+        expiresAt:      Value(expiresAt),
+        createdAt:      now,
+        updatedAt:      now,
+      ));
+      await db.outboxDao.enqueue(OutboxTableCompanion.insert(
+        opId:           generateOpId(),
+        kind:           'text_send',
+        ref:            localId,
+        conversationId: conversationId,
+        seq:            await db.outboxDao.nextSeq(conversationId),
+        createdAt:      now,
+      ));
+    });
     debugPrint('[Msg] OPTIMISTIC INSERT DONE — myId: $myId, convId: $conversationId');
 
-    // ── Step 2: Upload in background (does NOT block UI) ──────
-    _uploadMessage(
+    // ── INTERIM drain kick (Task 3 swaps in OutboxWorker.drain() —
+    // the worker is not constructed yet): the OLD network send, moved
+    // verbatim out of sendMessage behind [_drainOutbox] (renamed from
+    // `_uploadMessage`; body unchanged, guard 5). Fire-and-forget,
+    // exactly as the pre-outbox send was. ─────────────────────────
+    _drainOutbox(
       localId:        localId,
       conversationId: conversationId,
       myId:           myId,
@@ -670,7 +710,14 @@ class MessageRepositoryImpl implements MessageRepository {
     );
   }
 
-  Future<void> _uploadMessage({
+  /// INTERIM outbox drain (Task 3's OutboxWorker replaces this stub):
+  /// performs the OLD network send — `_uploadMessage` renamed, body
+  /// moved VERBATIM from the pre-outbox send path (guard 5: no edits to
+  /// the moved code while I'm in here). It encrypts with the existing
+  /// `EncryptionService` path, creates the server record, then stamps
+  /// the local row — the interim stand-in until the worker drives
+  /// [handleDrainAck] per op.
+  Future<void> _drainOutbox({
     required String   localId,
     required String   conversationId,
     required String   myId,
@@ -777,6 +824,97 @@ class MessageRepositoryImpl implements MessageRepository {
       await db.messagesDao.updateMessageStatus(localId, 'failed');
     }
   }
+
+  /// Drain-ack: stamp the message row (`serverId` + `status='sent'`) and
+  /// the outbox state in ONE transaction (dual-truth rule — spec §5.1/§7:
+  /// `messages.status` only ever mutates alongside the matching
+  /// `outbox.state`). [senderId]/[conversationId] guard the update to OUR
+  /// row in OUR conversation; the outbox `ref` resolves the local row.
+  ///
+  /// // INTERIM: absorbed by IngestBoundary in Task 6
+  /// (Task 6 replaces this body with `boundary.commit(batch, source)` —
+  /// duplicate-id safety lives there, not here).
+  Future<void> handleDrainAck(
+    String opId, {
+    required String serverId,
+    required String senderId,
+    required String conversationId,
+  }) async {
+    final op = await db.outboxDao.byId(opId);
+    // INTERIM: absorbed by IngestBoundary in Task 6
+    await db.transaction(() async {
+      if (op != null) {
+        await (db.update(db.messagesTable)
+              ..where((t) =>
+                  t.localId.equals(op.ref) &
+                  t.senderId.equals(senderId) &
+                  t.conversationId.equals(conversationId)))
+            .write(MessagesTableCompanion(
+          serverId: Value(serverId),
+          status: const Value('sent'),
+          updatedAt: Value(DateTime.now()),
+        ));
+      }
+      await db.outboxDao.setState(opId, OutboxState.sent);
+    });
+  }
+
+  /// Spec §5.2 ownership check for a CONFIRMED duplicate-id create —
+  /// call ONLY after [isDuplicateIdError] said the 400 was
+  /// `validation_not_unique` on FIELD `id`. Fetches the server record at
+  /// [opId] and verifies it is ours (`sender_id` matches the session,
+  /// `conversation_id` matches the op):
+  ///  - match → already-sent: [handleDrainAck], return `true`
+  ///    (the timeout-retry must NOT re-create);
+  ///  - `404`/`403` (view rule hides foreign records) or field mismatch →
+  ///    `outbox.state = failedTerminal`, `errorClass = 'id_collision'`,
+  ///    return `false` — terminal: never retried, never counted success.
+  ///
+  /// INTERIM: absorbed by IngestBoundary in Task 6.
+  Future<bool> resolveDuplicateSend({
+    required String opId,
+    required String senderId,
+    required String conversationId,
+  }) async {
+    try {
+      final rec = await _pb.collection('messages').getOne(opId);
+      final owned = rec.getStringValue('sender_id') == senderId &&
+          rec.getStringValue('conversation_id') == conversationId;
+      if (owned) {
+        await handleDrainAck(
+          opId,
+          serverId: opId,
+          senderId: senderId,
+          conversationId: conversationId,
+        );
+        return true;
+      }
+      await _markIdCollision(
+        opId,
+        'id $opId owned by sender=${rec.getStringValue('sender_id')} '
+        'conversation=${rec.getStringValue('conversation_id')}',
+      );
+      return false;
+    } on ClientException catch (e) {
+      if (e.statusCode == 404 || e.statusCode == 403) {
+        await _markIdCollision(
+            opId, 'ownership GET HTTP ${e.statusCode} for id $opId');
+        return false;
+      }
+      rethrow; // transient GET failure — not a collision verdict
+    }
+  }
+
+  /// Terminal id-collision verdict (spec §5.2): the op is NEVER retried
+  /// and NEVER counted as delivered.
+  Future<void> _markIdCollision(String opId, String why) =>
+      db.outboxDao.setState(
+        opId,
+        OutboxState.failedTerminal,
+        lastError: why,
+        errorClass: 'id_collision',
+      );
+
   // ── Send media message ───────────────────────────────────────
 
   @override
@@ -1057,7 +1195,7 @@ class MessageRepositoryImpl implements MessageRepository {
     String? replyPreview = msg.replyPreview;
 
     // Re-upload with the SAME localId - no new entry created.
-    await _uploadMessage(
+    await _drainOutbox(
       localId:        localId,
       conversationId: msg.conversationId,
       myId:           myId,

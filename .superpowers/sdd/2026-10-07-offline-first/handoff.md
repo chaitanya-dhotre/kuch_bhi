@@ -140,3 +140,136 @@ Task 2 (brief's literal rule: schema paste with normal auth — impossible,
 - `flutter test` (full) → **All tests passed (73)**
 - `flutter analyze` → **0 errors** (88 legacy warnings/info, none in
   test/offline/ or pocketbase_client.dart)
+
+## Task 2
+
+Outbox core — table, FSM data layer, id generator, atomic enqueue,
+interim ack. Commit subject `[Offline P1] Outbox table + FSM data
+layer + atomic enqueue` (SHA omitted — a commit cannot contain its
+own hash). Tests: `test/offline/outbox_core_test.dart`
+6/6; full suite **79 pass**; analyze **0 errors** (88 legacy, unchanged).
+
+### AS-BUILT API (consumed by tasks 3–12)
+
+```dart
+// lib/core/utils/op_id.dart
+String generateOpId();          // 15-char [a-z0-9], Random.secure —
+                                // becomes the PocketBase record id
+
+// lib/data/local/database/tables/outbox_table.dart
+enum OutboxState { queued, sending, sent, failedTerminal }
+//  Stored via drift textEnum → EnumNameConverter → enum .name, so the
+//  SQL value is 'failedTerminal' (spec prose writes failed_terminal —
+//  same state, snake vs camel spelling). Default SQL 'queued'.
+class OutboxTable {
+  opId text PK · kind text · ref text · conversationId text · seq int ·
+  state text default 'queued' (OutboxState) · attempts int default 0 ·
+  nextAttemptAt dateTime? · createdAt dateTime · lastError text? ·
+  errorClass text? · dependsOn text?
+}
+
+// lib/data/local/database/daos/outbox_dao.dart  (db.outboxDao)
+Future<void>              enqueue(OutboxTableCompanion row); // joins caller txn
+Future<OutboxTableData?>  byId(String opId);
+Future<List<OutboxTableData>> due(DateTime now);   // queued & (nextAttemptAt
+    // null | <= now), ORDER BY conversationId, seq
+Future<void>              setState(String opId, OutboxState state,
+                            {int? attempts, DateTime? nextAttemptAt,
+                             String? lastError, String? errorClass});
+                          // only provided optionals are written
+Future<int>               nextSeq(String conversationId); // max+1, call INSIDE txn
+Future<List<OutboxTableData>> all();               // ORDER BY conversationId, seq
+Future<List<OutboxTableData>> forConversation(String id);
+
+// lib/data/local/database/daos/messages_dao.dart
+Future<int> countForConversation(String conversationId); // unfiltered count
+
+// lib/infrastructure/repositories/message_repository_impl.dart
+bool isDuplicateIdError(ClientException error);   // TOP-LEVEL function —
+    // parser ENTRY POINT: true only for HTTP 400 + data.id.code ==
+    // validation_not_unique (Task 1's pinned body). Any other field
+    // (e.g. data.iv) → false → never counted delivered.
+Future<void> handleDrainAck(String opId,
+    {required String serverId, required String senderId,
+     required String conversationId});
+    // INTERIM: body = txn { message(ref→localId, WHERE sender+conv match)
+    // .serverId/status=sent; outbox.setState(sent) } — absorbed by
+    // IngestBoundary in Task 6 (boundary.commit(batch, source)).
+Future<bool> resolveDuplicateSend({required String opId,
+    required String senderId, required String conversationId});
+    // Call ONLY after isDuplicateIdError. GET record by opId:
+    //   ours → handleDrainAck (no re-create) → true
+    //   404/403 or sender/conversation mismatch → setState(failedTerminal,
+    //   errorClass: 'id_collision') → false (never retried, never success)
+    //   other ClientException → rethrow (transient, not a verdict).
+    // INTERIM: absorbed by IngestBoundary in Task 6.
+```
+
+### sendMessage new flow
+
+1. pre-work unchanged (`_myId`, `_assertCanSend`, localId, expiry).
+2. **ONE `db.transaction`**: messagesDao.upsertMessage (same companion as
+   before: encryptedBody `'__pending__'`, status pending,
+   decryptedBody=plaintext — kept until Task 9) **+**
+   `outboxDao.enqueue(kind: 'text_send', ref: localId, seq: nextSeq,
+   opId: generateOpId(), state default queued)`.
+3. AFTER the txn: fire-and-forget `_drainOutbox(...)` — the interim
+   drain kick. Task 3 replaces this with OutboxWorker.drain().
+
+`_drainOutbox` = `_uploadMessage` **renamed**, body byte-identical
+(guard 5). `retryMessage` now calls `_drainOutbox` too (call-site rename
+only). Encryption (`_getConvKey` + `encryptMessage`) runs INSIDE the
+drain, i.e. after the txn — see correction 4.
+
+### Corrections vs brief (reality rule)
+
+1. **Row class is `OutboxTableData`, not `OutboxRow`** — drift names
+   data classes `<TableClassName>Data` (same as MessagesTableData).
+   All dao signatures use OutboxTableData.
+2. **Enum column query API**: `t.state.equalsValue(OutboxState.queued)`
+   (NOT `.equals(OutboxState.queued)`) — GeneratedColumnWithTypeConverter
+   extends GeneratedColumn<S=String>, so `.equals` takes the SQL type;
+   `equalsValue` maps the Dart value through EnumNameConverter.
+3. **`bumpSeq` (brief bullet) shipped as `nextSeq(String)`** only —
+   the parenthetical signature is what the brief's own test calls.
+4. **"encrypt (existing code)" interpreted as: encryption stays inside
+   the moved network send**, not hoisted into the enqueue txn. Reasons:
+   (a) hoisting would edit the moved code or double-encrypt (the retry
+   path still encrypts internally); (b) encrypt-before-insert would
+   LOSE the message row on MissingKeyException (keyless offline send —
+   old code inserts first, then keeps the row pending); (c) the brief's
+   outbox schema has no payload column to hold ciphertext. Spec §5.2's
+   "encrypt inside the txn" lands when the worker/payload path exists
+   (Task 3/9) — flagged, not silently ignored.
+5. **Interim drain kick = direct `_drainOutbox(...)` call**, not
+   `retryPendingMessages()` — the pre-outbox sendMessage called the send
+   directly; a retryPendingMessages kick would change timing and could
+   fan out other pending rows. `_uploadMessage` renamed per the brief's
+   "renamed `_drainOutbox`".
+6. **FakeSecureStorage: `extends` → `implements`** is REQUIRED for the
+   brief's noSuchMethod line to work — verified empirically: noSuchMethod
+   forwarders only exist for UNimplemented members, so with `extends` the
+   17 concrete base impls kept running (real FlutterSecureStorage).
+   With `implements`, all 17 route to noSuchMethod → UnimplementedError
+   with the brief's message. Full 8-member overrides unchanged.
+7. **Brief test snippets didn't compile as written** —
+   `MessagesTableCompanion.insert` requires `iv` AND `updatedAt`
+   (non-null, no default). Added `iv: ''` / `updatedAt: DateTime.now()`
+   to the atomic test and the `_seedOp` helper.
+8. **Interim gap (intentional)**: the old network send does NOT
+   transition outbox rows — after a successful interim send the outbox
+   row stays `queued` (drain has no opId). Task 3's worker owns FSM
+   transitions; Task 6 rewires acks through IngestBoundary. Tests drive
+   handleDrainAck/resolveDuplicateSend directly (the interim entries).
+9. **Triple-delivery test drives the REAL fetch echo**: warm
+   `repo.watchMessages` → production `_fetchAndCacheMessages` →
+   `_cacheMessagesBatch` (delete+reinsert keyed by serverId) — completion
+   signaled by the first post-batch HTTP request. `_seedOp` sets
+   decryptedBody because `isGroupRowVisible` hides null-body group rows
+   AND undecryptable rows trigger the key-invalidating self-heal
+   (deletes group_key_g1 mid-test).
+10. **`handleDrainAck` filters the message update** by
+    `localId=op.ref & senderId & conversationId` (uses the required
+    params as ownership guards); op==null → only setState (no-op).
+11. Migration `if (from < 7) m.createTable(outboxTable)`; `AppDatabase.test()`
+    exercises onCreate only (same as v1–v6 — no upgrade-path test exists).

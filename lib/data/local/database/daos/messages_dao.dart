@@ -42,6 +42,16 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<void> upsertMessage(MessagesTableCompanion msg) =>
       into(messagesTable).insertOnConflictUpdate(msg);
 
+  /// Total rows for a conversation (unfiltered) — pins the outbox core
+  /// invariants "rollback leaves 0 / echo leaves exactly 1" in tests.
+  Future<int> countForConversation(String conversationId) async {
+    final cnt = countAll();
+    final q = selectOnly(messagesTable)
+      ..addColumns([cnt])
+      ..where(messagesTable.conversationId.equals(conversationId));
+    return (await q.getSingle()).read(cnt) ?? 0;
+  }
+
   /// True when any cached row exists for the conversation (warm vs cold
   /// fetch decision — cold fetches the latest page, warm fetches only the
   /// cursor delta).
