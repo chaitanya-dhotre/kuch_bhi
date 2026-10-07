@@ -8,6 +8,11 @@ import '../../data/local/secure_storage/secure_storage_service.dart';
 class PocketBaseClient {
   PocketBaseClient._(this._pb);
 
+  /// Test seam: inject a PocketBase built with a MockClient
+  /// (pocketbase's httpClientFactory exists "primarily for unit tests").
+  @visibleForTesting
+  PocketBaseClient.forTest(this._pb);
+
   final PocketBase _pb;
 
   PocketBase get pb => _pb;
