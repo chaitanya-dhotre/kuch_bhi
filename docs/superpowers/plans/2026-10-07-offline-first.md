@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-07-offline-first-design.md` (binding authority — policy tables live there; this plan implements them).
 
+## Execution protocol (user law, 2026-10-07 — overrides defaults)
+
+1. **Task 1 alone first** — it holds the custom-ID STOP gate; Plan B would redesign outbox+ingest, so NO later task starts until Task 1's result is seen.
+2. **Strictly sequential** — never parallel; each subagent builds on the previous task's REAL code.
+3. **Handoff note per task** — implementer records signatures/paths AS BUILT (not as planned) and commits them to `.superpowers/sdd/2026-10-07-offline-first/handoff.md`; the next implementer reads that file, not the plan's guesses.
+4. **Reviewers get spec section + diff** — "matches spec" beats "looks fine"; name the spec § in every review dispatch.
+5. **Weighted review:** FULL implementer+reviewer pass for Tasks **2, 3, 6, 7, 8** (data-loss/race risk); lighter review OK for Tasks **4, 10, 12**. Others: standard.
+6. **Whole-branch review at the end** — cross-task problems (duplicated writer path, leftover bypass) show up only here.
+
 ## Global Constraints (from spec — verbatim values)
 
 - No server/PocketBase changes. Custom-id = spec Plan A; if verification fails, STOP and report to user (Plan B is a redesign, not an inline fallback).
