@@ -456,3 +456,27 @@ Future<void> deleteByLocalId(String localId); // discard cascade hard-delete
 11. **Discard does not touch conversation last-message preview** —
     if the discarded op's message was the last preview, the preview can
     go stale until the next sync (known gap, banner UX may want it).
+
+### Fix round 1/5 — production unpause path (CRITICAL) + minors 2/7
+
+AS-BUILT wiring location:
+
+- **Seam:** `MessageRepositoryImpl.handleAuthStoreChange(String token)`
+  (`message_repository_impl.dart`, right below the `_sessionEpoch` field;
+  `@visibleForTesting`) → non-empty token ⇒ `outboxWorker.onAuthResumed()`.
+- **Call site:** FIRST statement inside the `pb.authStore.onChange` listener
+  (ctor, before the `shouldReconnectRealtime` same-session early-return) —
+  every token save (login, refresh, rotation) releases the `401` pause;
+  empty token (logout/clear) does NOT resume here (signOut wipe owns it).
+- **Belt-and-braces:** `OutboxWorker._clearAuthPauseIfSet()` — a successful
+  authenticated send clears a stale `outbox_pause='auth'` (only that value)
+  written while the send was in flight (`_processOne` success branch).
+- **Minor 2:** `_resetQueued`/`_resumeRequested` flags now clear only AFTER
+  their awaited write succeeds (`_pass`) — a throw keeps the flag.
+- **Minor 7:** `onAuthPaused` is now `Future<void>` (awaits the settings
+  write — brief said `void`; review overrides). `onAuthResumed` stays `void`.
+- **Tests:** `401 pause round-trips via authStore token save (production
+  unpause path)` (full chain: real 401 → pause → `authStore.save` → listener
+  → seam → resume → re-send 200 → sent) + `handleAuthStoreChange: empty
+  token does NOT resume; non-empty does`. Suite **93 pass**, analyze **0
+  errors** (88 legacy).

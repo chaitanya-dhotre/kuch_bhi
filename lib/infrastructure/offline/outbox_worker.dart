@@ -197,9 +197,12 @@ class OutboxWorker {
   /// External auth-state hook: [paused] true writes [kOutboxPauseAuth]
   /// under [kOutboxPauseKey]; false clears it (no drain — see
   /// [onAuthResumed] for the drain-on-reauth hook).
-  void onAuthPaused(bool paused) {
-    unawaited(_settings.setSetting(kOutboxPauseKey, paused ? kOutboxPauseAuth : ''));
-  }
+  ///
+  /// AWAITS the settings write (fix R1 minor): callers that await this are
+  /// guaranteed the write landed before any concurrent drain's `_isPaused`
+  /// read can observe it.
+  Future<void> onAuthPaused(bool paused) =>
+      _settings.setSetting(kOutboxPauseKey, paused ? kOutboxPauseAuth : '');
 
   /// Re-auth succeeded: clear the global pause, then drain.
   void onAuthResumed() {
@@ -241,13 +244,15 @@ class OutboxWorker {
 
   Future<void> _pass() async {
     await _ready;
+    // Fix R1 minor: flags are cleared only AFTER their write succeeds — a
+    // throw keeps the flag so the next pass retries the reset/resume.
     if (_resetQueued) {
-      _resetQueued = false;
       await _outbox.clearRetryQueued();
+      _resetQueued = false;
     }
     if (_resumeRequested) {
-      _resumeRequested = false;
       await _settings.setSetting(kOutboxPauseKey, '');
+      _resumeRequested = false;
     }
     if (await _isPaused()) return;
 
@@ -297,14 +302,32 @@ class OutboxWorker {
       final outcome = await _send(op);
       final cur = await _outbox.byId(op.opId);
       if (cur == null) return; // discarded/removed by the sender
-      if (cur.state != OutboxState.sending) return; // sender moved it itself
       if (outcome == OpSendOutcome.sent) {
-        await _outbox.setState(op.opId, OutboxState.sent, attempts: 0);
-      } else {
+        if (cur.state == OutboxState.sending) {
+          await _outbox.setState(op.opId, OutboxState.sent, attempts: 0);
+        }
+        // Fix R1 belt-and-braces: this round-trip was AUTHENTICATED — an
+        // auth pause written while it was in flight is already obsolete.
+        await _clearAuthPauseIfSet();
+        return;
+      }
+      if (cur.state == OutboxState.sending) {
+        // deferred: sender-written verdicts (terminal etc.) are left alone.
         await _outbox.setState(op.opId, OutboxState.queued);
       }
     } catch (e) {
       await _applyFailure(op, e);
+    }
+  }
+
+  /// Fix R1 belt-and-braces: a successful authenticated send clears a
+  /// stale `outbox_pause='auth'` (only the auth value — never other
+  /// reasons a future caller may write).
+  Future<void> _clearAuthPauseIfSet() async {
+    final pause = await _settings.getSetting(kOutboxPauseKey);
+    if (pause == kOutboxPauseAuth) {
+      await _settings.setSetting(kOutboxPauseKey, '');
+      debugPrint('[Outbox] Auth pause cleared after successful send.');
     }
   }
 

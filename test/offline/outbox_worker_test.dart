@@ -629,4 +629,81 @@ void main() {
     expect(await h.db.outboxDao.byId('op_d'), isNull);
     expect(await h.db.messagesDao.getMessageByLocalId('l_d'), isNull);
   });
+
+  // ── Fix R1: production unpause path (authStore seam) ───────────────────
+  test('401 pause round-trips via authStore token save (production unpause path)', () async {
+    final h = charHarness(clientFactory: _clientFactory((req, nth) {
+      if (nth == 1) return _err(401);
+      final body = jsonDecode(req.body) as Map<String, dynamic>;
+      return http.Response(
+          jsonEncode(_recordJson(body['id'] as String)), 200,
+          headers: _jsonHeaders);
+    }));
+    addTearDown(h.close);
+    await seedConversationAndKey(h);
+    final repo = buildRepo(h);
+
+    await _seed(h, localId: 'l_auth', opId: 'op_auth', seq: 1);
+
+    // 1) Real 401-from-send → pause written by the production FSM path.
+    await repo.outboxWorker.drain();
+    expect(await h.db.settingsDao.getSetting('outbox_pause'), 'auth');
+    expect((await h.db.outboxDao.byId('op_auth'))!.state, OutboxState.queued,
+        reason: 'queue untouched, waiting for re-auth');
+    expect((await h.db.messagesDao.getMessageByLocalId('l_auth'))!.status,
+        'pending');
+
+    // 2) Token save (login/refresh/rotation) → onChange listener →
+    //    handleAuthStoreChange → onAuthResumed BEFORE the same-session
+    //    early-return. Save a DIFFERENT but structurally valid JWT so
+    //    sessionStillValid/authStore.isValid stay true for the re-send.
+    h.pbClient.pb.authStore.save(_validJwt(4102444801), null);
+    await Future<void>.delayed(const Duration(milliseconds: 20)); // stream + async listener
+    await repo.outboxWorker.drain();
+
+    expect(
+      await h.db.settingsDao.getSetting('outbox_pause'),
+      anyOf(isNull, isEmpty),
+      reason: 'production seam cleared the 401 pause',
+    );
+    final row = (await h.db.outboxDao.byId('op_auth'))!;
+    expect(row.state, OutboxState.sent,
+        reason: 'queued op sends after re-auth');
+    final msg = (await h.db.messagesDao.getMessageByLocalId('l_auth'))!;
+    expect(msg.serverId, isNotNull);
+    expect(msg.status, 'sent');
+  });
+
+  test('handleAuthStoreChange: empty token does NOT resume; non-empty does', () async {
+    final h = charHarness(clientFactory: _clientFactory((req, nth) => _err(404)));
+    addTearDown(h.close);
+    await seedConversationAndKey(h);
+    final repo = buildRepo(h);
+
+    await h.db.settingsDao.setSetting('outbox_pause', 'auth');
+
+    // Logout/clear event (empty token) must NOT unpause via this seam —
+    // the signOut wipe owns that path.
+    repo.handleAuthStoreChange('');
+    await Future<void>.delayed(Duration.zero);
+    expect(await h.db.settingsDao.getSetting('outbox_pause'), 'auth',
+        reason: 'empty token leaves the pause in place');
+
+    // Any non-empty token save resumes (drain clears the key).
+    repo.handleAuthStoreChange('any-session-token');
+    await repo.outboxWorker.drain();
+    expect(await h.db.settingsDao.getSetting('outbox_pause'),
+        anyOf(isNull, isEmpty),
+        reason: 'non-empty token releases the pause');
+  });
+}
+
+/// Structurally valid JWT (3 parts, exp in the future) — same recipe as
+/// char_harness's private `_fakeJwt`, with a distinct payload so a
+/// rotation `save` carries a genuinely different token string.
+String _validJwt(int expSeconds) {
+  String enc(Map<String, Object> m) =>
+      base64Url.encode(utf8.encode(jsonEncode(m)));
+  return '${enc(<String, Object>{'alg': 'HS256', 'typ': 'JWT'})}.'
+      '${enc(<String, Object>{'exp': expSeconds})}.sig';
 }

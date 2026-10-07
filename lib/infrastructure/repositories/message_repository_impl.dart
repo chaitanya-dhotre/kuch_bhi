@@ -86,6 +86,10 @@ class MessageRepositoryImpl implements MessageRepository {
     // Re-subscribe ONLY on identity change (login/logout/account switch) —
     // token-string churn from authRefresh must not rebuild the SSE client.
     _pb.authStore.onChange.listen((event) async {
+      // Fix R1: outbox unpause seam runs FIRST — before the same-session
+      // early-return below — so every token save (login, refresh, rotation)
+      // releases an outbox 401 pause (spec §6 resume-on-reauth).
+      handleAuthStoreChange(event.token);
       final authenticated = event.token.isNotEmpty;
       String? userId;
       if (authenticated) {
@@ -137,6 +141,23 @@ class MessageRepositoryImpl implements MessageRepository {
   /// INSERTs into the signOut-wiped tables would repopulate the next
   /// account's data (review C1, spec D5).
   int _sessionEpoch = 0;
+
+  /// Fix R1 — PRODUCTION unpause path for the outbox's 401 pause.
+  /// Invoked from the `authStore.onChange` listener for EVERY token save —
+  /// login AND refresh/rotation — BEFORE the same-session early-return, so
+  /// an expired-token pause (spec §6: "pause until re-auth succeeds") is
+  /// always released on re-auth. Empty token (logout/clear) does NOT
+  /// resume here — the signOut wipe owns that path. Resume on an
+  /// already-unpaused outbox is a no-op, so rotation noise is harmless.
+  ///
+  /// Extracted from the inline listener so tests can drive the seam
+  /// directly (`repo.handleAuthStoreChange(token)`).
+  @visibleForTesting
+  void handleAuthStoreChange(String token) {
+    if (token.isNotEmpty) {
+      outboxWorker.onAuthResumed();
+    }
+  }
 
   final PocketBaseClient     pbClient;
   final AppDatabase          db;
