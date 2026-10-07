@@ -48,9 +48,17 @@ Overridden (all non-final in `SecureStorageService`): `read`, `write`,
 `delete` (tombstone `_overrides[key] = null`), `getCurrentUserId`,
 `getAuthToken`, `getPbAuthStore`, `getPrivateKey`, `getLocalPublicKey`.
 `put(key, value)` / `removeKey(key)` helpers seed/tombstone the map.
-NOT overridden (DM-path only, untested here): `getContactEncryptionKey`,
-`saveContactEncryptionKey`, `readAll`. Any later test that walks DM
-derivation must add those overrides (base impl hits the platform channel).
+
+**NOT overridden — later DM/session-path tests MUST extend the fake or
+they hit the real `FlutterSecureStorage` platform channel →
+MissingPluginException:** `saveAuthToken`, `deleteAuthToken`,
+`saveCurrentUserId`, `savePbAuthStore`, `deletePbAuthStore`,
+`savePrivateKey`, `saveLocalPublicKey`, `getLegacyPrivateKey`,
+`getLegacyLocalPublicKey`, `saveContactEncryptionKey`,
+`getContactEncryptionKey`, `readAll`, `clearAllContactKeys`,
+`clearAllConversationKeys`, `clearAll`, `clearSession`, `deleteKeyPair`.
+(The brief's fake omitted `write`/`delete` too — added after the first
+RED: the repo calls both on the group-key path.)
 
 ### Field-name / value corrections vs brief (tests pinned to REALITY)
 
@@ -88,9 +96,9 @@ Doc: `docs/offline-phase0-verification.md`.
 - (b) `GET /api/collections/messages` with normal user token → **403**
   ("The authorized record is not allowed…"). Collections API is
   superuser-gated; superuser NOT attempted (absolute constraint). Intent
-  (no id restriction) closed behaviorally by (c): custom-id create
-  succeeded, so no schema pattern/field restriction and no rule-level id
-  rejection exists on the create path.
+  closed for the tested format ONLY by (c): acceptance of 15-char
+  `[a-z0-9]` ids proven (create 200 / dup 400 / fetch round-trip); other
+  id formats were not tried and are not claimed.
 - (c) PASS 3/3 with normal user auth only:
   1. create `id=chq0ct7x0char01` (15-char [a-z0-9]) → **HTTP 200**, id echoed;
   2. same id again → **HTTP 400**
@@ -105,6 +113,26 @@ Doc: `docs/offline-phase0-verification.md`.
 **STOP gate:** controller must accept (b)'s behavioral substitution before
 Task 2 (brief's literal rule: schema paste with normal auth — impossible,
 403).
+
+### Fix round 1 deltas (read_paths re-pointed at production)
+
+- `test/offline/read_paths_char_test.dart` now exercises ONLY production:
+  (1) real `MessageBubble` (null body → renders `🔒 Encrypted`,
+  message_bubble.dart `_TextBubble`); (2) real `HomeScreen` →
+  `_ConversationTile` → `ChatTile` with a null-body last message (real
+  `_bumpConversationForIncoming` writes preview `'New message'`,
+  message_repository_impl.dart:2968); (3) real
+  `repo.searchMessages(conversationId, query)` over seeded DB rows.
+  Smoke-break (wrong placeholder assert) verified RED → reverted.
+- `fetchListClient({EncryptResult? enc, required String conversationId})`
+  — `enc` now OPTIONAL: omitted/`null` → empty `encrypted_body`/`iv`
+  (decrypt yields null = null-body row). Existing callers unchanged.
+- **Widget-test rule:** real async (`compute()` decrypt, DB I/O) inside
+  `testWidgets` must be wrapped in `tester.runAsync(...)`; and any test
+  that listens to drift streams must unmount (`pumpWidget(const
+  SizedBox())`) + `pump(1ms)` before ending, else the testWidgets
+  pending-timer invariant trips on drift's `markAsClosed` `Timer.run`
+  (stream_queries.dart:154).
 
 ### Test results (Task 1 exit state)
 

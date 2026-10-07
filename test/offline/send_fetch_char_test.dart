@@ -12,13 +12,15 @@ import 'char_harness.dart'; // buildRepo + seedConversationAndKey live here
 /// A MockClient answering the ONLY URL the cold path hits
 /// (`…/collections/messages/records`) with a PocketBase list envelope whose
 /// single record carries the fields `_cacheMessagesBatch` reads.
+/// [enc] null → empty ciphertext/iv (decrypt yields null — the null-body /
+/// decrypt-not-ready row shape; read_paths_char_test's preview test uses it).
 ///
 /// CORRECTION vs the brief: `/api/realtime` hangs (never completes) instead
 /// of falling into the 404 branch. The repo constructor schedules a 500ms
 /// SSE reconnect; pocketbase's SseClient RETRIES a 404 forever on
 /// 200–2000ms timers, which would keep firing after the test ends.
 MockClient fetchListClient({
-  required EncryptResult enc,
+  EncryptResult? enc,
   required String conversationId,
 }) =>
     MockClient((req) async {
@@ -38,7 +40,8 @@ MockClient fetchListClient({
             'updated': '2026-10-07T10:00:00.000Z',
             'fields': {},
             'conversation_id': conversationId, 'sender_id': 'u_peer',
-            'type': 'text', 'encrypted_body': enc.ciphertext, 'iv': enc.iv,
+            'type': 'text', 'encrypted_body': enc?.ciphertext ?? '',
+            'iv': enc?.iv ?? '',
             'reply_to_id': '', 'reply_preview': '',
             'is_deleted_for_everyone': false, 'is_deleted_for_me': false,
             'is_pinned': false, 'is_starred': false,

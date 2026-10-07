@@ -7,11 +7,14 @@ Auth: normal user login only (`shreysaw76@gmail.com` test account).
 
 ## Verdict
 
-**PLAN_A_PASS (functional)** — client-supplied custom ids flow through the
-SDK, the server accepts them, enforces uniqueness with a typed error, and
-ownership fields round-trip. Caveat: the literal schema read in (b) is
-denied to normal users (403); the "no id restriction" question was closed
-behaviorally by (c) instead. See (b).
+**PLAN_A_PASS (functional)** — the server **accepts 15-char `[a-z0-9]`
+ids** (the format PocketBase itself generates) end-to-end: create 200
+with the id echoed, duplicate create 400 with a typed id error, fetch-by-id
+round-trips ownership fields. This is an acceptance proof for that format
+only — other id formats (other lengths/charsets) were not tried and are
+not claimed. Caveat: the literal schema read in (b) is denied to normal
+users (403); the id question was closed behaviorally by (c) instead.
+See (b).
 
 ---
 
@@ -59,12 +62,14 @@ The collections-management API is superuser-gated server-side, so the
 `createRule` string cannot be pasted with normal-user auth (would require
 elevated rights → not attempted per the absolute constraint).
 
-Field-level-id-restriction question, closed behaviorally instead: if the
-schema carried an id pattern / length / format restriction, the (c)
-create with a custom 15-char `[a-z0-9]` id would have failed validation.
-It returned HTTP 200 (below). Likewise, if `createRule` rejected
-client-supplied ids, create #1 would have been 403. It was not. Server-side
-uniqueness on `id` is proven by the typed duplicate error in (c).
+What (c) actually proves: **the server accepts 15-char `[a-z0-9]` ids on
+the create path** — its create returned HTTP 200 (below). It does NOT
+prove absence of restrictions on other formats: longer/shorter ids,
+uppercase, or other charsets were not tried, so a pattern restriction on
+those would remain unknown. (A `createRule` that rejected client-supplied
+ids outright would also have 403'd create #1; it did not.) Server-side
+uniqueness on `id` for this format is proven by the typed duplicate error
+in (c).
 
 ## (c) Authenticated create / duplicate / fetch-by-id
 
@@ -113,10 +118,11 @@ Sender: `teb3elavw531hwx` (the test account).
 
 ## Gate ruling
 
-- (a) PASS, (c) PASS 3/3 → Plan A's mechanism works end-to-end with normal
-  user auth.
+- (a) PASS, (c) PASS 3/3 → the server accepts 15-char `[a-z0-9]` ids
+  end-to-end with normal user auth (acceptance proof for that format;
+  other formats not tested, not claimed).
 - (b) literal schema paste impossible without superuser (403; not
-  attempted); its intent — "no field-level id restriction" — is proven by
-  (c) create #1 succeeding and the duplicate failing with a typed id error.
+  attempted); its intent is closed only for the tested format: create #1
+  succeeded and the duplicate failed with a typed id error.
 - Per the brief's stop rule this doc is the report artifact: the caller
   must decide acceptance of (b)'s evidence substitution before Task 2.
