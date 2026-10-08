@@ -22,6 +22,12 @@ import 'char_harness.dart'; // buildRepo + seedConversationAndKey live here
 MockClient alwaysCommitClient({
   EncryptResult? enc,
   required String conversationId,
+  // Fix R1 mutation hook: when it returns true, `messages/records` answers
+  // a valid EMPTY PocketBase list envelope (200) instead of the record —
+  // used to prove the phase-2 predicate is load-bearing on the re-fetch
+  // path (the parallel repair pass alone must NOT satisfy it: repair
+  // writes body+state but never bumps `updatedAt`).
+  bool Function()? refuseRecords,
 }) =>
     MockClient((req) async {
       if (req.url.path.startsWith('/api/realtime')) {
@@ -29,6 +35,16 @@ MockClient alwaysCommitClient({
       }
       if (!req.url.path.contains('/collections/messages/records')) {
         return http.Response('{"message":"unhandled"}', 404);
+      }
+      if (refuseRecords?.call() ?? false) {
+        return http.Response(
+          jsonEncode({
+            'page': 1, 'perPage': 40, 'totalItems': 0, 'totalPages': 1,
+            'items': <dynamic>[],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
       }
       return http.Response(
         jsonEncode({
@@ -62,9 +78,15 @@ void main() {
     final enc =
         await pre.encryption.encryptMessage('always commit', fixtureGroupKey);
 
+    // Fix-R1 mutation (`refuseRecords`): armed true only for the RED run,
+    // after the phase-1 asserts — see task-7-report fix R1. GREEN keeps it
+    // false (client always returns the record).
+    final neuterReFetch = false;
     final h = charHarness(
-        clientFactory: () =>
-            alwaysCommitClient(enc: enc, conversationId: 'g1'));
+        clientFactory: () => alwaysCommitClient(
+            enc: enc,
+            conversationId: 'g1',
+            refuseRecords: () => neuterReFetch));
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: false); // group_key_g1 absent
     final repo = buildRepo(h);
@@ -92,15 +114,32 @@ void main() {
     expect(DateTime.parse(cursor!), DateTime.utc(2026, 10, 7, 10),
         reason: 'cursor = newest server stamp in the committed batch');
 
+    // Fix R1: baseline for the phase-2 predicate. Only the fetch companion
+    // bumps `updatedAt` (`DateTime.now()` in message_repository_impl.dart
+    // `_companionFromRecord`); the parallel `_repairUndecrypted` pass
+    // writes body+state only (cacheDecryptedBody) — never updatedAt.
+    final phase1Done = DateTime.now();
+    // Fix R1 caveat: drift persists DateTime as unix SECONDS (drift-2.28.2
+    // mapping.dart — `millisecondsSinceEpoch ~/ 1000`), so a fetch bump in
+    // the SAME wall-clock second as phase1Done compares equal under `>`.
+    // Cross the second boundary before the warm kick so the GREEN re-fetch
+    // writes a strictly-greater updatedAt; RED (no re-fetch write — repair
+    // never touches updatedAt) stays <= baseline either way.
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+
     // ── Phase 2 — key arrives: the next fetch re-upserts the SAME row.
     h.storage.put('group_key_g1', base64.encode(fixtureGroupKey));
     unawaited(repo.watchMessages('g1').first); // warm kick → background re-fetch
+    // Phase-2 proof must ride the re-fetch (updatedAt bump), never repair.
     final healed = await h.db.messagesDao
         .watchMessages('g1')
         .firstWhere((rows) =>
             rows.isNotEmpty &&
             rows.every((r) =>
-                r.decryptState == 'ready' && r.decryptedBody != null));
+                r.decryptState == 'ready' &&
+                r.decryptedBody != null &&
+                r.updatedAt.millisecondsSinceEpoch >
+                    phase1Done.millisecondsSinceEpoch));
     expect(healed, hasLength(1),
         reason: 'id-based upsert — same server id, no duplicate row');
     expect(healed.first.decryptedBody, 'always commit');
