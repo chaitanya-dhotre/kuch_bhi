@@ -780,7 +780,9 @@ IngestBoundary extraction — single entry, txn+cursor, tombstones. Commit
 subject `[Offline P3] IngestBoundary — single entry, cursor+ack in one txn
 (behavior-preserving)` (own hash cannot appear in its body). Files:
 `lib/infrastructure/ingest/{ingest_batch,ingest_boundary}.dart` (NEW),
-`message_repository_impl.dart` (three call sites rewired),
+`message_repository_impl.dart` (SEVEN write sites rewired — reviewer
+count: SSE pin/delete, drain-ack body, fetch batch, self-heal,
+`_syncDeletedForMe`, `_syncStarredMessages`, `_cacheMsgInner`),
 `test/offline/ingest_boundary_test.dart` (NEW, 4/4 — brief test 5 is the
 char-test regression run). Full suite **112 pass**; analyze **0 errors**
 (88 legacy, unchanged).
@@ -818,26 +820,28 @@ class IngestBoundary {
 // authValid: () => _pb.authStore.isValid).
 ```
 
-### commit sequence (ONE Drift transaction)
+### commit sequence (ONE Drift transaction — 3 phases, fix round 1/I2)
 
-1. entry: `sessionStillValid(epoch captured at commit entry, authValid)` —
-   invalid ⇒ return, nothing written.
-2. txn opens; drainAck payload present ⇒ `outboxDao.byId(ack.opId)` INSIDE
-   the txn (carry-in 1) ⇒ `setState(sent)`.
-3. `onBeforeWrite?.call()` ⇒ epoch re-check ⇒ invalid ⇒ `_EpochAbort`
-   thrown inside the txn ⇒ EVERYTHING rolls back (incl. the state flip) ⇒
-   caught + logged, silent.
-4. drainAck message stamp — Task 2 WHERE/SET byte-identical
-   (`localId=op.ref & senderId & conversationId` → serverId/status
-   `'sent'`/updatedAt).
-5. upserts: `deleteByServerIds` + one `db.batch` insert
-   `DoUpdate(target: localId)` — fetch mechanics moved verbatim.
-6. tombstones: `UPDATE messages SET is_deleted_for_everyone=1,
-   updated_at=now WHERE server_id=?` — idempotent; unknown id = no-op.
-7. cursorAdvance: monotonic (`write iff to.isAfter(current)`) into
-   `settings.sync_cursor_<convId>` (UTC ISO).
+1. entry (outside txn): `sessionStillValid(epoch captured at commit
+   entry, authValid)` — invalid ⇒ return, nothing written.
+2. **Phase 1 — ack writes + cursor, ALL before the single re-check:**
+   drainAck payload present ⇒ `outboxDao.byId(ack.opId)` INSIDE the txn
+   (carry-in 1) ⇒ `setState(sent)` ⇒ drainAck message stamp — Task 2
+   WHERE/SET byte-identical (`localId=op.ref & senderId &
+   conversationId` → serverId/status `'sent'`/updatedAt) ⇒
+   `_advanceCursor` (monotonic `write iff to.isAfter(current)` into
+   `settings.sync_cursor_<convId>`, UTC ISO). Ledgered order (I2): the
+   three dual-truth concerns sit pre-check so ONE abort covers them all.
+3. **Phase 2 — `onBeforeWrite?.call()` ⇒ epoch re-check** ⇒ invalid ⇒
+   `_EpochAbort` thrown inside the txn ⇒ EVERYTHING from phase 1 rolls
+   back (state flip + stamp + cursor) ⇒ caught + logged, silent; phase 3
+   never runs.
+4. **Phase 3 — batch body:** upserts `deleteByServerIds` + one `db.batch`
+   insert `DoUpdate(target: localId)` (fetch mechanics moved verbatim);
+   tombstones `UPDATE messages SET is_deleted_for_everyone=1,
+   updated_at=now WHERE server_id=?` (idempotent; unknown id = no-op).
 
-### Call sites rewired
+### Call sites rewired (SEVEN write sites — reviewer enumeration)
 
 1. **SSE handler** pin/delete fast-path write → `commit(batch, sse)`
    (the fast-path WRITE is gone, behavior kept — spec §4 "no SSE fast
@@ -933,3 +937,39 @@ class IngestBoundary {
 Test 5: `send_fetch_char_test.dart` **3/3 VERBATIM** (file untouched —
 char test 3 `… SKIPS cache` still pinned for Task 7). Full offline dir
 **44 pass**; full suite **112 pass**; analyze **0 errors** (88 legacy).
+
+### Fix round 1/5 — review I1 + I2 + doc count
+
+**I1 — SSE pin/delete companion wiped `expiresAt`:** the boundary's
+delete-then-insert rebuilds the row from the companion, and the SSE
+pin/delete companion carried 18/19 columns — a disappearing message lost
+its expiry on any SSE pin/delete toggle. AS-BUILT fix:
+`MessageRepositoryImpl.ssePinDeleteCompanion({existing, serverPinned,
+serverDeleted})` (`@visibleForTesting`) — the handler now calls this
+single builder, which carries ALL 19 columns incl.
+`expiresAt: Value(existing.expiresAt)` (the handler's `existing` read was
+already there). Test `I1: SSE pin/delete companion preserves expiresAt
+through the boundary` drives the PRODUCTION builder (a test-side copy
+would not bite); mutation check: drop the column → `Actual: <null>` FAIL,
+restore → GREEN.
+
+**I2 — t4 rollback proof made complete:** commit reordered to 3 phases
+(see sequence above): ack read + `setState(sent)` + message stamp +
+`_advanceCursor` all execute BEFORE the hook/re-check; upserts/tombstones
+after. Revised t4 batch now carries BOTH `ack` and `cursorAdvance`;
+post-failure asserts all three — op `queued`, message unstamped
+(`serverId` null, `status` pending), cursor **NULL** — i.e. a sequential
+(non-txn) implementation would persist all three and FAIL the test.
+Control commit asserts all three land together (op `sent`, stamp,
+cursor == delta). Entry-level epoch check untouched; spec §7's
+"re-checked before write" preserved (phase-3 upserts sit behind the
+re-check; phase-1 writes are protected by the same abort's rollback).
+
+**Doc — call-site count:** intro said "three call sites" (the brief's
+plan phrase); actual rewire = SEVEN write sites: SSE pin/delete, drain-ack
+body, fetch batch, self-heal, `_syncDeletedForMe`, `_syncStarredMessages`,
+`_cacheMsgInner`. Corrected in intro + section header.
+
+Tests after fix round: `ingest_boundary_test.dart` **5/5** (4 brief +
+I1); char 3/3 verbatim; full suite **113 pass**; analyze **0 errors**
+(88 legacy, unchanged).

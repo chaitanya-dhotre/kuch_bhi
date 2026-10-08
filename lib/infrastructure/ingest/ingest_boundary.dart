@@ -77,21 +77,27 @@ class IngestBoundary {
   }
 
   /// Single entry for network-sourced record writes (spec §7): one Drift
-  /// transaction per batch. Epoch checked at entry, re-checked immediately
-  /// before the write (the [onBeforeWrite] hook sits between the two —
-  /// the brief's injected "mid-commit" point). A commit whose epoch went
-  /// stale writes NOTHING and returns silently; real write errors
-  /// propagate to the caller's existing catch handling.
+  /// transaction per batch, in three phases —
+  ///   1. drain-ack writes + cursor advance,
+  ///   2. [onBeforeWrite] hook + the single epoch re-check,
+  ///   3. message upserts + tombstones.
+  /// Epoch is checked at entry (outside the txn) and re-checked in phase 2.
+  /// Phase-1 writes sit BEFORE that check deliberately (fix round 1/I2):
+  /// all three dual-truth concerns — `outbox.state`, `messages.status`,
+  /// sync cursor — are then covered by ONE abort: an invalid epoch or a
+  /// hook failure rolls the whole txn back, so none of them can survive
+  /// alone. A commit whose epoch went stale writes NOTHING and returns
+  /// silently; real write errors propagate to the caller's existing catch
+  /// handling.
   Future<void> commit(IngestBatch batch, IngestSource source) async {
     final epochAtStart = _epoch();
     if (!_stillValid(epochAtStart, 'commit($source) at entry')) return;
     try {
       await _db.transaction(() async {
-        // ── Drain ack (Task 2 semantics, carry-in 1): the op read joins
-        // the txn, and the state flip lands in the same atomic unit as the
-        // message stamp below. Order inside the txn is state-flip → status
-        // write (T2's message-first order swapped — LEDGERED seam: only
-        // observable through failure, where the swap is what makes the
+        // ── Phase 1a — drain ack (Task 2 semantics, carry-in 1): the op
+        // read joins the txn; state flip → message stamp (T2's
+        // message-first order swapped — LEDGERED seam: only observable
+        // under injected failure, where the swap is what makes the
         // rollback proof non-vacuous; the pair still lands or aborts
         // together, which is all spec §5.1/§7 requires).
         final ack = batch.ack;
@@ -102,17 +108,9 @@ class IngestBoundary {
         if (ack != null) {
           await _db.outboxDao.setState(ack.opId, OutboxState.sent);
         }
-
-        // Injected hook + epoch re-check — immediately before the writes.
-        onBeforeWrite?.call();
-        if (!_stillValid(epochAtStart, 'commit($source) before write')) {
-          // Thrown inside the txn ⇒ everything above (incl. a drain-ack
-          // state flip) rolls back; caught below, never surfaced.
-          throw const _EpochAbort('epoch moved between entry and write');
-        }
-
-        // ── Drain-ack message stamp — byte-identical WHERE/SET to Task 2's
-        // interim body (localId=op.ref guarded by sender+conversation).
+        // ── Phase 1b — Drain-ack message stamp — byte-identical WHERE/SET
+        // to Task 2's interim body (localId=op.ref guarded by
+        // sender+conversation).
         if (ack != null && op != null) {
           await (_db.update(_db.messagesTable)
                 ..where((t) =>
@@ -125,13 +123,24 @@ class IngestBoundary {
             updatedAt: Value(DateTime.now()),
           ));
         }
+        // ── Phase 1c — cursor advance in the SAME txn as the batch
+        // (spec §7), before the re-check so the abort covers it too.
+        await _advanceCursor(batch.cursorAdvance);
 
-        // ── Message upserts (by server id). Delete-then-insert mechanics
-        // moved verbatim from `_cacheMessagesBatch`: clearing prior cache
-        // rows + FCM placeholders first means ONE collision cannot abort
-        // the whole batch; companions carry preserved flags and a stable
-        // localId, so re-committing the same batch is an idempotent upsert
-        // (SSE echo + fetch converge on one row set).
+        // ── Phase 2 — injected hook + the single epoch re-check (spec §7).
+        // Everything written above rolls back if this aborts; the writes
+        // below never run — one check guards the whole atomic unit.
+        onBeforeWrite?.call();
+        if (!_stillValid(epochAtStart, 'commit($source) before write')) {
+          throw const _EpochAbort('epoch moved between entry and write');
+        }
+
+        // ── Phase 3a — Message upserts (by server id). Delete-then-insert
+        // mechanics moved verbatim from `_cacheMessagesBatch`: clearing
+        // prior cache rows + FCM placeholders first means ONE collision
+        // cannot abort the whole batch; companions carry preserved flags
+        // and a stable localId, so re-committing the same batch is an
+        // idempotent upsert (SSE echo + fetch converge on one row set).
         if (batch.upserts.isNotEmpty) {
           final serverIds = <String>[
             for (final u in batch.upserts)
@@ -148,9 +157,9 @@ class IngestBoundary {
           });
         }
 
-        // ── Tombstones (spec §7): idempotent flag upsert by server id —
-        // a repeat (SSE echo of the same delete) rewrites the same values;
-        // an unknown id is a no-op.
+        // ── Phase 3b — Tombstones (spec §7): idempotent flag upsert by
+        // server id — a repeat (SSE echo of the same delete) rewrites the
+        // same values; an unknown id is a no-op.
         for (final id in batch.tombstones) {
           await (_db.update(_db.messagesTable)
                 ..where((t) => t.serverId.equals(id)))
@@ -159,25 +168,25 @@ class IngestBoundary {
             updatedAt: Value(DateTime.now()),
           ));
         }
-
-        // ── Cursor advance in the SAME txn as the batch (spec §7).
-        // Monotonic: equal = no-op, older = never rewinds (a stale batch
-        // cannot move the cursor back; only data-backed advances move it
-        // forward — no skip by construction).
-        final delta = batch.cursorAdvance;
-        if (delta != null) {
-          final key = 'sync_cursor_${delta.conversationId}';
-          final raw = await _db.settingsDao.getSetting(key);
-          final current =
-              raw == null || raw.isEmpty ? null : DateTime.tryParse(raw);
-          if (current == null || delta.to.isAfter(current)) {
-            await _db.settingsDao
-                .setSetting(key, delta.to.toUtc().toIso8601String());
-          }
-        }
       });
     } on _EpochAbort catch (e) {
       debugPrint('[Ingest] commit($source) aborted — $e');
+    }
+  }
+
+  /// Monotonic cursor advance: equal = no-op, older = never rewinds (a
+  /// stale batch cannot move the cursor back; only data-backed advances
+  /// move it forward — no skip by construction). Writes the same
+  /// `sync_cursor_<conv>` key `_writeCursor` used to (UTC ISO).
+  Future<void> _advanceCursor(CursorDelta? delta) async {
+    if (delta == null) return;
+    final key = 'sync_cursor_${delta.conversationId}';
+    final raw = await _db.settingsDao.getSetting(key);
+    final current =
+        raw == null || raw.isEmpty ? null : DateTime.tryParse(raw);
+    if (current == null || delta.to.isAfter(current)) {
+      await _db.settingsDao
+          .setSetting(key, delta.to.toUtc().toIso8601String());
     }
   }
 }

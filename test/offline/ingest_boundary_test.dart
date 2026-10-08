@@ -166,8 +166,8 @@ void main() {
   });
 
   test(
-      'drainAck: outbox.state + messages.status update in the SAME '
-      'transaction (failure at status write → op stays queued)', () async {
+      'drainAck: outbox.state + messages.status + cursor update in the SAME '
+      'transaction (failure at status write → all rolled back)', () async {
     final h = charHarness();
     addTearDown(h.close);
     final b = _boundary(h.db);
@@ -196,6 +196,7 @@ void main() {
       ));
     });
 
+    final cursorTo = DateTime.utc(2026, 1, 5);
     final batch = IngestBatch(
       ack: OutboxAck(
         opId: opId,
@@ -203,12 +204,13 @@ void main() {
         senderId: 'u_test',
         conversationId: 'g1',
       ),
+      cursorAdvance: CursorDelta(conversationId: 'g1', to: cursorTo),
     );
 
-    // Inject a failure at the status-write stage INSIDE the txn (after the
-    // outbox setState(sent) flip). Without same-transaction coupling the
-    // flip would persist as `sent` while the message row stays unstamped;
-    // the rollback must leave the op QUEUED.
+    // Fix round 1/I2: all three concerns (outbox state flip, message
+    // status stamp, cursor advance) execute BEFORE the injected failure —
+    // a sequential (non-txn) implementation would persist all three; the
+    // rollback must leave every one of them unchanged.
     b.onBeforeWrite =
         () => throw StateError('injected status-write failure');
     await expectLater(
@@ -219,20 +221,76 @@ void main() {
 
     var op = await h.db.outboxDao.byId(opId);
     expect(op!.state, OutboxState.queued,
-        reason: 'setState(sent) rolled back with the failed status write');
+        reason: 'setState(sent) executed in-txn then rolled back');
     var msg = await h.db.messagesDao.getMessageByLocalId('l_ack');
-    expect(msg!.serverId, isNull, reason: 'no partial stamp survives');
+    expect(msg!.serverId, isNull,
+        reason: 'message stamp executed in-txn then rolled back');
     expect(msg.status, 'pending');
+    expect(await _cursor(h.db, 'g1'), isNull,
+        reason: 'cursor advance executed in-txn then rolled back');
 
-    // Control: identical batch without the injected failure lands BOTH
-    // writes together (dual-truth rule — spec §5.1/§7).
+    // Control: identical batch without the injected failure lands ALL
+    // THREE writes together (dual-truth rule — spec §5.1/§7).
     await b.commit(batch, IngestSource.drainAck);
     op = await h.db.outboxDao.byId(opId);
     expect(op!.state, OutboxState.sent);
     msg = await h.db.messagesDao.getMessageByLocalId('l_ack');
     expect(msg!.serverId, opId);
     expect(msg.status, 'sent');
+    final cursor = await _cursor(h.db, 'g1');
+    expect(cursor, isNotNull);
+    expect(cursor!.millisecondsSinceEpoch, cursorTo.millisecondsSinceEpoch,
+        reason: 'cursor advanced with the ack batch');
     expect(await h.db.messagesDao.countForConversation('g1'), 1,
         reason: 'ack stamps the existing row — never a second one');
+  });
+
+  test('I1: SSE pin/delete companion preserves expiresAt through the boundary',
+      () async {
+    final h = charHarness();
+    addTearDown(h.close);
+    await seedConversationAndKey(h);
+    final repo = buildRepo(h);
+
+    // Disappearing-message row: expiresAt is load-bearing (row auto-hide).
+    final expiresAt = DateTime.utc(2026, 2, 1);
+    await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId: 'l_exp',
+      serverId: Value('srvE'),
+      conversationId: 'g1',
+      senderId: 'u_peer',
+      type: 'text',
+      encryptedBody: 'ct',
+      iv: 'iv',
+      decryptedBody: Value('plain'),
+      expiresAt: Value(expiresAt),
+      createdAt: DateTime.utc(2026, 1, 2),
+      updatedAt: DateTime.utc(2026, 1, 2),
+    ));
+    final existing = (await h.db.messagesDao.getMessageByServerId('srvE'))!;
+    expect(existing.expiresAt, isNotNull, reason: 'seeded expiry present');
+
+    // SSE pin toggle → the PRODUCTION companion (repo seam) → boundary.
+    await repo.ingestBoundary.commit(
+      IngestBatch(upserts: [
+        MessageUpsert(repo.ssePinDeleteCompanion(
+          existing: existing,
+          serverPinned: true,
+          serverDeleted: false,
+        )),
+      ]),
+      IngestSource.sse,
+    );
+
+    final after = (await h.db.messagesDao.getMessageByServerId('srvE'))!;
+    expect(after.isPinned, isTrue, reason: 'server pin applied');
+    expect(after.expiresAt, isNotNull,
+        reason: 'I1: delete-then-insert rebuilds from the companion — a '
+            'missing expiresAt column would reset it to NULL');
+    expect(after.expiresAt!.millisecondsSinceEpoch,
+        expiresAt.millisecondsSinceEpoch,
+        reason: 'expiry preserved across the SSE pin upsert');
+    expect(await h.db.messagesDao.countForConversation('g1'), 1,
+        reason: 'still exactly one row');
   });
 }

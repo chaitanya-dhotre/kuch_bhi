@@ -315,6 +315,42 @@ class MessageRepositoryImpl implements MessageRepository {
     await _subMedia();
   }
 
+  /// SSE pin/delete sync companion (Task 6 review I1): the FULL row built
+  /// from [existing] with the server's pin/delete flags. Every one of the
+  /// messages table's 19 columns must be carried EXPLICITLY — the
+  /// boundary's delete-then-insert rebuilds the row from this companion,
+  /// so an omitted column resets to its default (I1: a missing
+  /// `expiresAt` wiped the expiry of a disappearing message on an SSE pin
+  /// toggle). Extracted so `ingest_boundary_test` pins the production
+  /// column set, not a test-side copy.
+  @visibleForTesting
+  MessagesTableCompanion ssePinDeleteCompanion({
+    required MessagesTableData existing,
+    required bool serverPinned,
+    required bool serverDeleted,
+  }) =>
+      MessagesTableCompanion.insert(
+        localId:              existing.localId,
+        serverId:             Value(existing.serverId),
+        conversationId:       existing.conversationId,
+        senderId:             existing.senderId,
+        type:                 existing.type,
+        encryptedBody:        existing.encryptedBody,
+        iv:                   existing.iv,
+        decryptedBody:        Value(existing.decryptedBody),
+        replyToId:            Value(existing.replyToId),
+        replyPreview:         Value(existing.replyPreview),
+        isPinned:             Value(serverPinned),
+        isStarred:            Value(existing.isStarred),
+        isDeletedForMe:       Value(existing.isDeletedForMe),
+        isDeletedForEveryone: Value(serverDeleted),
+        expiresAt:            Value(existing.expiresAt), // I1 — never drop
+        mediaId:              Value(existing.mediaId),
+        status:               Value(existing.status),
+        createdAt:            existing.createdAt,
+        updatedAt:            DateTime.now(),
+      );
+
   Future<void> _subMessages() async {
     // Messages subscription — handles incoming messages from all conversations
     await _pb.collection('messages').subscribe('*', (event) async {
@@ -338,25 +374,10 @@ class MessageRepositoryImpl implements MessageRepository {
               serverDeleted != existing.isDeletedForEveryone) {
             await ingestBoundary.commit(
               IngestBatch(upserts: [
-                MessageUpsert(MessagesTableCompanion.insert(
-                  localId:              existing.localId,
-                  serverId:             Value(existing.serverId),
-                  conversationId:       existing.conversationId,
-                  senderId:             existing.senderId,
-                  type:                 existing.type,
-                  encryptedBody:        existing.encryptedBody,
-                  iv:                   existing.iv,
-                  decryptedBody:        Value(existing.decryptedBody),
-                  replyToId:            Value(existing.replyToId),
-                  replyPreview:         Value(existing.replyPreview),
-                  isPinned:             Value(serverPinned),
-                  isStarred:            Value(existing.isStarred),
-                  isDeletedForMe:       Value(existing.isDeletedForMe),
-                  isDeletedForEveryone: Value(serverDeleted),
-                  mediaId:              Value(existing.mediaId),
-                  status:               Value(existing.status),
-                  createdAt:            existing.createdAt,
-                  updatedAt:            DateTime.now(),
+                MessageUpsert(ssePinDeleteCompanion(
+                  existing: existing,
+                  serverPinned: serverPinned,
+                  serverDeleted: serverDeleted,
                 )),
               ]),
               IngestSource.sse,
