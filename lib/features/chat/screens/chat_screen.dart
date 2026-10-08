@@ -12,6 +12,7 @@ import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/presence_service.dart';
 import '../../../services/fcm_service.dart';
 import '../providers/chat_provider.dart';
+import '../providers/message_body_provider.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_input.dart';
 import '../widgets/pinned_message_banner.dart';
@@ -35,6 +36,101 @@ class _DateItem extends _ChatItem {
   final DateTime date;
 }
 
+// ── In-conversation search (Task 9: spec §5.1/§19.1) ─────────────────────
+//
+// Decrypt-on-query with a 200ms debounce and a per-keystroke cancel token:
+// typing a new character bumps the generation, so any in-flight scan aborts
+// at its next checkpoint and only the LAST query's results ever land.
+// Bodies resolve through the caller-supplied [resolveBody] (production wires
+// `messageBodyProvider(id).future` — the provider's own reads); match sets
+// live ONLY in this controller (ephemeral) — never in the DB, never written
+// back to the shared body cache (search must not rebuild a plaintext store).
+
+typedef ConversationBodyResolver = Future<String?> Function(String messageId);
+
+class ConversationSearchController {
+  ConversationSearchController({
+    required this.resolveBody,
+    this.debounce = const Duration(milliseconds: 200),
+  });
+
+  /// Provider read seam — production: `(id) => ref.read(messageBodyProvider(id).future)`.
+  final ConversationBodyResolver resolveBody;
+
+  /// Brief-pinned debounce between keystroke and scan start.
+  final Duration debounce;
+
+  /// Called on the main isolate with the matching flat-list indices
+  /// (chat screen maps them to `_matchItemIndices`).
+  void Function(List<int> matchIndices)? onResults;
+
+  /// Instrumented cancel token (brief test 4): incremented every time an
+  /// in-flight scan observes that a newer keystroke superseded it.
+  @visibleForTesting
+  int cancelCount = 0;
+
+  /// Last COMPLETED query's matches — only ever the newest generation's.
+  List<int> lastMatches = const [];
+
+  int _generation = 0;
+  Timer? _debounceTimer;
+
+  /// Schedules a scan of [candidates] (`(flatIndex, messageId)` pairs)
+  /// for [query]. ANY new keystroke bumps the generation first — an
+  /// in-flight scan observes the mismatch at its next checkpoint and
+  /// aborts (incrementing [cancelCount]) without applying; only the
+  /// newest generation ever calls [onResults].
+  void setQuery(String query, {required List<(int, String)> candidates}) {
+    final generation = ++_generation; // cancel token: supersede in-flight
+    _debounceTimer?.cancel();
+    if (query.isEmpty) {
+      lastMatches = const [];
+      _debounceTimer = null;
+      onResults?.call(const []);
+      return;
+    }
+    _debounceTimer = Timer(debounce, () {
+      _debounceTimer = null;
+      unawaited(_scan(query, candidates, generation));
+    });
+  }
+
+  Future<void> _scan(
+    String query,
+    List<(int, String)> candidates,
+    int generation,
+  ) async {
+    final needle = query.toLowerCase();
+    final matches = <int>[];
+    for (final (index, messageId) in candidates) {
+      if (generation != _generation) {
+        cancelCount++; // instrumented abort (brief test 4)
+        return;
+      }
+      final body = await resolveBody(messageId);
+      if (generation != _generation) {
+        cancelCount++; // superseded while awaiting the body
+        return;
+      }
+      if (body != null && body.toLowerCase().contains(needle)) {
+        matches.add(index);
+      }
+    }
+    if (generation != _generation) {
+      cancelCount++;
+      return;
+    }
+    lastMatches = matches;
+    onResults?.call(matches); // ephemeral — nothing persisted anywhere
+  }
+
+  void dispose() {
+    _generation++;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+  }
+}
+
 // ── Chat screen ───────────────────────────────────────────────────────────
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -52,7 +148,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool  _loadingMore  = false;
   int   _offset       = 40;
   bool  _searchActive = false;
-  String _searchQuery = '';
 
   // Match navigation
   List<int>   _matchItemIndices = []; // indices into _items (the flat list)
@@ -68,6 +163,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   ProviderSubscription<AsyncValue<List<Message>>>? _markReadSub;
 
+  /// T9 in-conversation search: 200ms debounce + per-keystroke cancel;
+  /// bodies resolve through the provider (its own reads only).
+  late final ConversationSearchController _search;
+
   // Collapses the rapid messages-stream burst (rowCount 1→N during a backfill,
   // plus the per-message re-emits) into a SINGLE server round-trip. Without
   // this, every emit called `markConversationRead` — which writes a `read_at`
@@ -81,6 +180,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   void initState() {
     super.initState();
+    _search = ConversationSearchController(
+      resolveBody: (id) => ref.read(messageBodyProvider(id).future),
+    );
+    _search.onResults = (matches) {
+      if (!mounted) return;
+      setState(() {
+        _matchItemIndices = matches;
+        _matchIndex = 0;
+      });
+      if (matches.isNotEmpty) _scrollToMatch(0);
+    };
     FcmService.activeConversationId = _cid;
     WidgetsBinding.instance.addObserver(this);
     _scrollCtrl.addListener(_onScroll);
@@ -111,6 +221,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (FcmService.activeConversationId == _cid) {
       FcmService.activeConversationId = null;
     }
+    _search.dispose();
     _markReadSub?.close();
     _markReadDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -178,25 +289,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   void _onSearchChanged(String q, List<Message> messages) {
     setState(() {
-      _searchQuery = q;
       _matchIndex  = 0;
     });
-    if (q.isNotEmpty) {
-      // Build a list of flat-item indices for matching messages
-      _matchItemIndices = [];
-      for (int i = 0; i < _items.length; i++) {
-        final item = _items[i];
-        if (item is _MsgItem &&
-            (item.msg.decryptedBody ?? '')
-                .toLowerCase()
-                .contains(q.toLowerCase())) {
-          _matchItemIndices.add(i);
-        }
-      }
-      _scrollToMatch(0);
-    } else {
-      _matchItemIndices = [];
-    }
+    // T9: debounced, cancellable decrypt-on-query over RESOLVED bodies —
+    // results arrive via the controller's onResults (ephemeral index list).
+    final candidates = <(int, String)>[
+      for (var i = 0; i < _items.length; i++)
+        if (_items[i] is _MsgItem) (i, (_items[i] as _MsgItem).msg.localId),
+    ];
+    _search.setQuery(q, candidates: candidates);
   }
 
   /// Scrolls the reversed ListView to bring item at [flatIndex] into view.
@@ -458,8 +559,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                             });
                           }
 
-                          final isMatch   = _searchQuery.isNotEmpty &&
-                              (msg.decryptedBody ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
+                          final isMatch   = _matchItemIndices.contains(i);
                           final isCurrent = _matchItemIndices.isNotEmpty &&
                               _matchIndex < _matchItemIndices.length &&
                               _items[_matchItemIndices[_matchIndex]] == item;
@@ -671,7 +771,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           icon: const Icon(Icons.close),
           onPressed: () => setState(() {
             _searchActive       = false;
-            _searchQuery        = '';
             _matchItemIndices   = [];
             _searchCtrl.clear();
           }),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 
@@ -67,7 +68,9 @@ void main() {
     final rows = await h.db.messagesDao.watchMessages('g1').first;
     expect(rows, hasLength(1), reason: 'optimistic row exists pre-ack');
     expect(rows.first.status, 'pending');
-    expect(rows.first.decryptedBody, 'hello'); // Task 9 drops this column by design
+    expect(bodyCache.get(rows.first.localId), 'hello',
+        reason: 'Task 9 dropped the column BY DESIGN — the enqueue lands '
+            'plaintext in the session body cache (spec §5.1) instead');
     // send is still pending on purpose — never awaited here
   });
 
@@ -110,6 +113,7 @@ void main() {
     expect(cached, hasLength(1),
         reason: 'CHAR Task 7: always-commit — row lands without the key');
     expect(cached.first.decryptState, 'key_missing');
-    expect(cached.first.decryptedBody, isNull);
+    expect(bodyCache.get(cached.first.localId), isNull,
+        reason: 'T9: keyless rows never populate the session cache');
   });
 }

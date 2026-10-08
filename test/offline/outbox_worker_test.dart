@@ -15,6 +15,7 @@ import 'dart:math';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kuch_bhi/data/local/database/app_database.dart';
@@ -82,12 +83,15 @@ Future<void> _seed(
           type: 'text',
           encryptedBody: 'x',
           iv: '',
-          decryptedBody: Value('seeded $localId'),
           status: Value(msgStatus),
           serverId: Value(serverId),
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
         ));
+        // T9: the real sender reads plaintext from the session cache (the
+        // column it used to read is gone) — seed it exactly like the old
+        // decryptedBody column value did.
+        bodyCache.put(localId, 'seeded $localId');
       }
       await h.db.outboxDao.enqueue(OutboxTableCompanion.insert(
         opId: opId,

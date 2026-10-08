@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:kuch_bhi/core/network/pocketbase_client.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/core/widgets/chat_tile.dart';
@@ -18,6 +19,7 @@ import 'package:kuch_bhi/features/auth/providers/encryption_sync_provider.dart';
 import 'package:kuch_bhi/features/friend_requests/providers/friend_request_provider.dart';
 import 'package:kuch_bhi/features/home/providers/friends_provider.dart';
 import 'package:kuch_bhi/features/home/screens/home_screen.dart';
+import 'package:kuch_bhi/features/chat/providers/message_body_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
 
@@ -56,14 +58,21 @@ class _EmptyFriendships extends FriendshipsNotifier {
 
 void main() {
   // ── 1. Bubble: REAL MessageBubble, null-body text message ───────────────
-  // Production behavior pinned: message_bubble.dart `_TextBubble` renders
-  // `message.decryptedBody ?? '🔒 Encrypted'` and the build-time body is
-  // `decryptedBody ?? ''` (so no emoji-only path, no empty Text).
+  // Task 9 (brief test 5): same user-visible contract as the pinned
+  // baseline — renders without throwing, NEVER an empty text — but the
+  // surface is now the keyed placeholder widget (spec §8): the provider
+  // resolves null (no body available) → skeleton + 🔒, never blank.
   testWidgets(
-      'char: real MessageBubble renders null-body text as fallback, '
+      'char: real MessageBubble renders null-body text as placeholder, '
       'no exception, no empty text', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
+        // Provider body stubbed to a resolved-null (hermetic — no repo/DB
+        // in this label-level test; the real key_missing resolution path
+        // is pinned by placeholder_ui_test T9.1).
+        overrides: [
+          messageBodyProvider.overrideWith((ref, id) async => null),
+        ],
         child: MaterialApp(
           theme: warmPopLight(),
           home: Scaffold(
@@ -79,21 +88,28 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
     expect(tester.takeException(), isNull,
         reason: 'null-body bubble must render without throwing');
-    expect(find.text('🔒 Encrypted'), findsOneWidget,
-        reason: 'production fallback in _TextBubble (message_bubble.dart)');
+    expect(find.byKey(const ValueKey('body-placeholder-l1')), findsOneWidget,
+        reason: 'placeholder law (spec §8): keyed skeleton + lock while the '
+            'body is unresolved — production no longer prints a raw '
+            "'🔒 Encrypted' string nor a blank");
     expect(find.text(''), findsNothing,
         reason: 'production never displays an empty text bubble');
   });
 
   // ── 2. Preview: REAL HomeScreen → _ConversationTile → ChatTile ──────────
-  // Null-body last message flows through the production preview computation
-  // (`_bumpConversationForIncoming` → previewText null → 'New message',
-  // message_repository_impl.dart:2968) into the conversation-list entity,
-  // then the real _ConversationTile feeds the real ChatTile subtitle.
+  // Null-body last message flows through the production preview path
+  // (cold fetch → preview bump → conversation row → _ConversationTile →
+  // ChatTile subtitle). Task 9 (brief test 5): the tile's TEXT preview
+  // now resolves the last message body through messageBodyProvider —
+  // unresolved → keyed placeholder widget (spec §8 conversation-list
+  // previews), NEVER a blank; the stored preview column itself is
+  // unchanged ('New message' — asserted below).
   testWidgets(
-      'char: null-body last message reaches ChatTile via real preview path',
+      'char: null-body last message reaches ChatTile via real preview path '
+      'as a placeholder',
       (tester) async {
     // Real async (compute()/isolate decrypt, DB I/O) must run OUTSIDE the
     // testWidgets FakeAsync zone — awaiting it in the body hangs.
@@ -102,21 +118,25 @@ void main() {
     late final MessageRepositoryImpl repo;
     late final List<Message> coldRows;
     late final ConversationsTableData conv;
+    late final String lastLocalId;
     await tester.runAsync(() async {
       await seedConversationAndKey(h2, withKey: true);
       repo = buildRepo(h2);
       // Cold fetch through the REAL repo: caches the null-body row (empty
-      // ciphertext/iv → decrypt null → decryptedBody stays null) and runs
+      // ciphertext/iv → decrypt null → decrypt_state 'pending') and runs
       // the production preview bump for it.
       coldRows = await repo.watchMessages('g1').first;
       conv = (await h2.db.conversationsDao.getConversationById('g1'))!;
+      final daoRows = await h2.db.messagesDao.watchMessages('g1').first;
+      lastLocalId = daoRows.first.localId;
     });
 
     expect(coldRows, isEmpty,
-        reason: 'null-body row hidden from chat stream (group cutoff)');
+        reason: 'null-body row hidden from chat stream (group cutoff / state)');
     expect(conv.lastMessagePreview, 'New message',
-        reason: 'production preview computation for a null decryptedBody '
-            '(message_repository_impl.dart:2968)');
+        reason: 'production preview computation for a null body '
+            '(message_repository_impl.dart — preview bump) is unchanged');
+    expect(lastLocalId, isNotEmpty);
 
     await tester.pumpWidget(ProviderScope(
       overrides: [
@@ -133,15 +153,25 @@ void main() {
         home: const HomeScreen(),
       ),
     ));
-    // Let conversationsProvider's Drift stream resolve into AsyncData.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pump(const Duration(milliseconds: 100));
+    // Let conversationsProvider's Drift stream resolve into AsyncData, and
+    // the preview's body provider run its 50ms coalescing window + the
+    // empty-ciphertext runFor (resolves null → placeholder). Two-queue
+    // drain (see placeholder_ui_test._drain): fake pumps + real yields.
+    for (var i = 0; i < 8; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 60));
+    }
 
     expect(tester.takeException(), isNull);
     expect(find.byType(ChatTile), findsOneWidget);
-    expect(find.text('New message'), findsOneWidget,
-        reason: 'real _ConversationTile feeds production preview to ChatTile');
+    expect(find.byKey(ValueKey('body-placeholder-$lastLocalId')),
+        findsOneWidget,
+        reason: 'conversation-list preview renders the keyed placeholder '
+            'while the last body is unresolved (spec §8) — fills when the '
+            'provider emits (placeholder_ui_test T9.2 pins the fill)');
+    expect(find.text(''), findsNothing,
+        reason: 'preview never renders an empty Text');
 
     // Drift schedules a Timer.run (0ms) when a query stream closes
     // (stream_queries.dart markAsClosed). Unmounting here — before the
@@ -152,7 +182,11 @@ void main() {
   });
 
   // ── 3. Search: REAL repo.searchMessages over seeded rows ────────────────
-  test('char: repo.searchMessages filters null-body rows without throwing',
+  // Task 9: search resolves bodies ephemerally (bodyCache / DecryptPass
+  // machinery) — no decrypted_body column exists to filter on. Rows are
+  // seeded the way production sees them post-drop: ciphertext (or none)
+  // at rest, plaintext ONLY in the session cache.
+  test('char: repo.searchMessages filters bodyless rows without throwing',
       () async {
     final h = charHarness(
         clientFactory: () =>
@@ -160,7 +194,7 @@ void main() {
     addTearDown(h.close);
     await seedConversationAndKey(h);
 
-    Future<void> row(String localId, String? body, DateTime at) =>
+    Future<void> row(String localId, DateTime at) =>
         h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
               localId: localId,
               conversationId: 'g1',
@@ -168,22 +202,24 @@ void main() {
               type: 'text',
               encryptedBody: 'x',
               iv: 'y',
-              decryptedBody: Value(body),
               status: const Value('sent'),
               createdAt: at,
               updatedAt: at,
             ));
 
-    await row('l_alpha', 'alpha', DateTime(2026, 10, 7, 10));
-    await row('l_null', null, DateTime(2026, 10, 7, 11));
-    await row('l_beta', 'beta', DateTime(2026, 10, 7, 12));
+    await row('l_alpha', DateTime(2026, 10, 7, 10));
+    await row('l_null', DateTime(2026, 10, 7, 11)); // no body anywhere
+    await row('l_beta', DateTime(2026, 10, 7, 12));
+    // Resolved bodies live in the session cache (the only plaintext home).
+    bodyCache.put('l_alpha', 'alpha');
+    bodyCache.put('l_beta', 'beta');
 
     final repo = buildRepo(h);
     final hits = await repo.searchMessages('g1', 'a');
 
     expect(hits.map((m) => m.localId).toList(), ['l_beta', 'l_alpha'],
-        reason: 'ACTUAL behavior: createdAt DESC, null-body row skipped '
-            '((row.decryptedBody ?? "") never matches a non-empty needle), '
-            'no throw');
+        reason: 'ACTUAL behavior preserved: createdAt DESC, bodyless row '
+            'skipped (no resolved body never matches a non-empty needle), '
+            'no throw, nothing written back to the DB');
   });
 }

@@ -34,7 +34,6 @@ MessagesTableCompanion _row({
       type: 'text',
       encryptedBody: 'ct',
       iv: 'iv',
-      decryptedBody: Value('plain'),
       replyToId: const Value(null),
       replyPreview: const Value(null),
       expiresAt: const Value(null),
@@ -182,7 +181,6 @@ void main() {
         type: 'text',
         encryptedBody: 'x',
         iv: '',
-        decryptedBody: Value('seeded'),
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ));
@@ -262,7 +260,6 @@ void main() {
       type: 'text',
       encryptedBody: 'ct',
       iv: 'iv',
-      decryptedBody: Value('plain'),
       expiresAt: Value(expiresAt),
       createdAt: DateTime.utc(2026, 1, 2),
       updatedAt: DateTime.utc(2026, 1, 2),

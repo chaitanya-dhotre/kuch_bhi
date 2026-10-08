@@ -1,17 +1,28 @@
 /// Group-history visibility (spec D1): a row is visible only from this
-/// member's join time onward, and undecryptable non-media rows are hidden
-/// entirely — ciphertext must never reach a bubble.
+/// member's join time onward, and non-media rows whose body cannot resolve
+/// yet are hidden entirely — ciphertext must never reach a bubble.
+///
+/// T9 (column dropped): the gate is now `decryptState`, the row-level
+/// projection of the same rule —
+///  - `ready` (spec §5.1: "a body read WILL succeed") → visible; the body
+///    itself arrives via `messageBodyProvider` (placeholder while it
+///    resolves — never a blank);
+///  - `pending` / `key_missing` / `failed` → hidden, exactly as a
+///    null/empty `decryptedBody` row was hidden pre-drop;
+///  - media rows are exempt (their body is optional).
+///
+/// Own optimistic rows carry the column default `ready` (enqueue never
+/// writes state) — they stay visible, same as the plaintext they held.
 bool isGroupRowVisible({
   required DateTime createdAt,
   required DateTime? memberJoinedAt,
-  required String? decryptedBody,
+  required String decryptState,
   required String type,
 }) {
-  if (memberJoinedAt != null && createdAt.isBefore(memberJoinedAt)) return false;
-  const mediaTypes = {'image', 'video', 'voice', 'document', 'file'};
-  if (!mediaTypes.contains(type) &&
-      (decryptedBody == null || decryptedBody.isEmpty)) {
+  if (memberJoinedAt != null && createdAt.isBefore(memberJoinedAt)) {
     return false;
   }
+  const mediaTypes = {'image', 'video', 'voice', 'document', 'file'};
+  if (!mediaTypes.contains(type) && decryptState != 'ready') return false;
   return true;
 }

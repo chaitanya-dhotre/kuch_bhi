@@ -25,9 +25,10 @@ class MessagesTable extends Table {
   /// AES IV, base64 encoded.
   TextColumn get iv => text()();
 
-  /// Decrypted plaintext — cached after first decryption to avoid
-  /// re-decrypting on every rebuild. Never sent to server.
-  TextColumn get decryptedBody => text().nullable()();
+  // T9 (spec §3 / schema v10): the `decryptedBody` plaintext column is
+  // DROPPED — bodies decrypt on read into the in-memory body cache via
+  // `messageBodyProvider`; the DB stores ciphertext + decrypt_state +
+  // key_id only. No plaintext body store exists anywhere.
 
   TextColumn get replyToId => text().nullable()();
   TextColumn get replyPreview => text().nullable()();

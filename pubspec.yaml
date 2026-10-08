@@ -94,6 +94,10 @@ dev_dependencies:
   drift_dev: ^2.22.1
   riverpod_generator: ^2.6.1
   riverpod_lint: ^2.6.1
+  # T9 migration test pre-seeds a REAL v9 sqlite file (raw ALTER/DROP proof
+  # through the production onUpgrade path) — package:sqlite3 was already in
+  # the graph as drift's transitive dep; promoted to direct dev use.
+  sqlite3: ^2.9.4
 
 flutter:
   uses-material-design: true

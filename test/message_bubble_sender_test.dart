@@ -8,6 +8,7 @@ import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/core/theme/tokens.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
 import 'package:kuch_bhi/features/chat/providers/outbox_status_provider.dart';
+import 'package:kuch_bhi/features/chat/providers/message_body_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 
 Message _msg(String senderId) => Message(
@@ -42,6 +43,10 @@ Future<Text> _pumpSenderLabel(WidgetTester tester, ThemeData theme) async {
       overrides: [
         outboxStatusProvider
             .overrideWith((ref, convId) => Stream.value(const [])),
+        // T9: the bubble now resolves its body through messageBodyProvider
+        // — stub it hermetically (label test has no repo/DB; also keeps
+        // the coalescer's 50ms timer out of the fake clock).
+        messageBodyProvider.overrideWith((ref, id) async => 'hello group'),
       ],
       child: MaterialApp(
         theme: theme,

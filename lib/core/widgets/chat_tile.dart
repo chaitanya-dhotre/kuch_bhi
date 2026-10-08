@@ -11,6 +11,7 @@ class ChatTile extends StatelessWidget {
       {super.key,
       required this.title,
       required this.subtitle,
+      this.subtitleWidget,
       this.avatarUrl,
       this.time,
       this.unreadCount = 0,
@@ -20,6 +21,11 @@ class ChatTile extends StatelessWidget {
       this.onLongPress});
   final String title;
   final String subtitle;
+
+  /// T9: when provided, renders INSTEAD of the [subtitle] string — the
+  /// conversation list feeds it `ConversationPreviewText` (provider-driven
+  /// placeholder → fill). String callers (friends tiles, tests) unchanged.
+  final Widget? subtitleWidget;
   final String? avatarUrl;
   final String? time;
   final int unreadCount;
@@ -80,13 +86,14 @@ class ChatTile extends StatelessWidget {
             subtitle: Row(
               children: [
                 Expanded(
-                  child: Text(subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                          color: subtitleColor ?? t.inkSoft)),
+                  child: subtitleWidget ??
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w400,
+                              color: subtitleColor ?? t.inkSoft)),
                 ),
                 if (unreadCount > 0) AppBadge(count: unreadCount),
               ],

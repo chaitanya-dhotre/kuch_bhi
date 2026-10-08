@@ -21,6 +21,7 @@ import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../providers/conversations_provider.dart';
 import '../providers/friends_provider.dart';
 import '../../home/screens/add_friend_screen.dart';
+import '../../chat/widgets/message_body_text.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -334,15 +335,23 @@ class _FriendsTile extends StatelessWidget {
   }
 }
 
-class _ConversationTile extends StatelessWidget {
+class _ConversationTile extends ConsumerWidget {
   const _ConversationTile({required this.conv});
   final Conversation conv;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fallback = conv.lastMessagePreview ?? 'Tap to open chat';
     return ChatTile(
       title: conv.displayName,
-      subtitle: conv.lastMessagePreview ?? 'Tap to open chat',
+      // Kept for the non-widget call paths / badge math; the visible
+      // subtitle is the provider-driven preview below (spec §8: preview
+      // shows a placeholder until the last body emits, never a blank).
+      subtitle: fallback,
+      subtitleWidget: ConversationPreviewText(
+        conversation: conv,
+        fallback: fallback,
+      ),
       time: conv.lastMessageAt != null ? _formatTime(conv.lastMessageAt!) : null,
       unreadCount: conv.unreadCount,
       avatarUrl: conv.isGroup ? conv.iconUrl : conv.avatarUrl,

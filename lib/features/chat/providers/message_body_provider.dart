@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/decrypt/decrypt_pass.dart';
+import '../../../data/local/database/app_database.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 
 /// DecryptPass owned by the repository (T5/T6 ctor pattern) so its epoch
@@ -16,6 +18,13 @@ import '../../../infrastructure/repositories/message_repository_impl.dart';
 /// bodyCoalescerProvider → …`), and un-annotated top-level inference
 /// rejects that cycle ("circularity found during type inference").
 final Provider<DecryptPass> decryptPassProvider = Provider<DecryptPass>((ref) {
+  // T9 carry-in: arm the drain-stamp → invalidation bridge HERE (not in
+  // messageBodyProvider): every null-resolving body read funnels through
+  // the coalescer's `ref.read(decryptPassProvider)`, so a provider that
+  // could ever be sitting on a placeholder has this wire set — while test
+  // containers that OVERRIDE decryptPassProvider (T8 suite) never run
+  // this body and never force the repo/provider into their scope.
+  ref.read(drainStampWireProvider);
   final pass =
       (ref.read(messageRepositoryProvider) as MessageRepositoryImpl)
           .decryptPass;
@@ -101,6 +110,51 @@ final bodyCoalescerProvider = Provider<BodyCoalescer>((ref) {
   );
   ref.onDispose(coalescer.dispose);
   return coalescer;
+});
+
+/// T9 carry-in bridge: the repo fires [MessageRepositoryImpl.onBodyStamped]
+/// after the drain/upload writes REAL ciphertext for a row (the optimistic
+/// `__pending__` marker is gone) — watchers of that id re-resolve instead
+/// of sitting on a stale null (row streams never invalidate the family).
+/// Same shape as `decryptPassProvider`'s `onApplied` wiring: one instance
+/// per container, alive-guarded, last-writer-wins (ledgered with T8's).
+// Explicit `Provider<void>`: without it top-level inference reports
+// "circularity found during type inference" (same trap as T8's
+// decryptPassProvider — comment there is load-bearing).
+final Provider<void> drainStampWireProvider = Provider<void>((ref) {
+  final repo =
+      (ref.read(messageRepositoryProvider) as MessageRepositoryImpl);
+  var alive = true;
+  ref.onDispose(() => alive = false);
+  void handler(String messageId) {
+    if (alive) ref.invalidate(messageBodyProvider(messageId));
+  }
+
+  repo.onBodyStamped = handler;
+  ref.onDispose(() {
+    if (identical(repo.onBodyStamped, handler)) repo.onBodyStamped = null;
+  });
+});
+
+/// Newest visible message row for a conversation — the conversation-list
+/// preview's POINTER into [messageBodyProvider] (T9: previews render a
+/// placeholder until the body emits, spec §8). Media/system/no-row cases
+/// fall back to the stored `lastMessagePreview` string at the widget layer.
+final conversationLastMessageProvider =
+    StreamProvider.autoDispose.family<MessagesTableData?, String>((ref, convId) {
+  final db = ref.read(appDatabaseProvider);
+  return (db.select(db.messagesTable)
+        ..where((t) =>
+            t.conversationId.equals(convId) &
+            t.isDeletedForEveryone.equals(false) &
+            t.isDeletedForMe.equals(false))
+        ..orderBy([
+          (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          (t) => OrderingTerm(expression: t.serverId, mode: OrderingMode.desc),
+          (t) => OrderingTerm(expression: t.localId, mode: OrderingMode.desc),
+        ])
+        ..limit(1))
+      .watchSingleOrNull();
 });
 
 /// THE body read path (spec §5.1): cache hit → text; miss → joins the

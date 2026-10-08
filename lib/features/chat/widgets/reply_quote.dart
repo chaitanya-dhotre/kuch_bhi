@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../core/decrypt/body_cache.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/local/database/app_database.dart';
@@ -147,13 +149,18 @@ class ReplyQuote extends ConsumerWidget {
       case 'video':
         label = 'Video';
       case 'voice':
+        // T9: row bodies live in the session cache (column dropped).
+        final origBody =
+            original == null ? null : bodyCache.get(original.localId);
         final dur = _stripEmoji(
-            original?.decryptedBody ?? (_fallbackType == 'voice' ? preview : ''));
+            origBody ?? (_fallbackType == 'voice' ? preview : ''));
         label = dur.isNotEmpty && dur != 'Voice message'
             ? 'Voice message · $dur'
             : 'Voice message';
       case 'document':
-        final doc = _stripEmoji(original?.decryptedBody ?? preview);
+        final doc = _stripEmoji(
+            (original == null ? null : bodyCache.get(original.localId)) ??
+                preview);
         label = doc.isNotEmpty ? doc : 'Document';
       default:
         label = preview;

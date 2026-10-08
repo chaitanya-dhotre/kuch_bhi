@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/emoji_utils.dart';
 import '../../../data/local/database/app_database.dart' show OutboxTableData;
@@ -9,7 +10,9 @@ import '../../../data/local/database/tables/outbox_table.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
+import '../providers/message_body_provider.dart';
 import '../providers/outbox_status_provider.dart';
+import 'message_body_text.dart';
 import 'link_preview_card.dart';
 import 'document_message_bubble.dart';
 import 'image_message_bubble.dart';
@@ -66,14 +69,21 @@ class MessageBubble extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final body      = message.decryptedBody ?? '';
+    // T9 (spec §5.1): THE body read goes through messageBodyProvider —
+    // cache-resident text resolves synchronously (no frame of placeholder
+    // for own-sent), a miss watches the family and rebuilds when it emits.
+    // `resolved` stays null while unresolved → branch to the placeholder-
+    // rendering surfaces below (never ciphertext, never a blank).
+    final String? resolved = bodyCache.get(message.localId) ??
+        ref.watch(messageBodyProvider(message.localId)).valueOrNull;
+    final body      = resolved ?? '';
     final emojiOnly = isEmojiOnly(body) && message.type == 'text';
     final isDark    = Theme.of(context).brightness == Brightness.dark;
     final url       = extractFirstUrl(body);
 
     // ── System / info bubbles — no reply, no long-press, no sender meta ─
     if (message.type == 'system') {
-      return _SystemMessageBubble(body: body);
+      return _SystemMessageBubble(messageId: message.localId);
     }
 
     // ── Terminal-failure lookup (Task 4) ───────────────────────────────
@@ -166,7 +176,7 @@ class MessageBubble extends ConsumerWidget {
                   conversationId: message.conversationId,
                   serverId:     message.serverId!,
                   isMine:       isMine,
-                  durationText: message.decryptedBody,
+                  durationText: resolved,
                   status:       message.status,
                   createdAt:    message.createdAt,
                 ),
@@ -425,9 +435,9 @@ class _EmojiOnlyBubble extends StatelessWidget {
           crossAxisAlignment:
               isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            Text(
-              message.decryptedBody ?? '',
-              style: const TextStyle(fontSize: 40),
+            MessageBodyText(
+              messageId: message.localId,
+              styleContext: 'emoji',
             ),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -509,12 +519,9 @@ class _TextBubble extends StatelessWidget {
                 ),
               )
             else
-              Text(
-                message.decryptedBody ?? '🔒 Encrypted',
-                style: TextStyle(
-                  color:    isMine ? context.t.onAccent : context.t.ink,
-                  fontSize: 15,
-                ),
+              MessageBodyText(
+                messageId: message.localId,
+                styleContext: isMine ? 'bubble.mine' : 'bubble',
               ),
 
             // Link preview
@@ -594,15 +601,11 @@ class _TickIndicator extends StatelessWidget {
 // always grey, no sender colour metadata, no bubbles, no long-press.
 
 class _SystemMessageBubble extends StatelessWidget {
-  const _SystemMessageBubble({required this.body});
-  final String body;
+  const _SystemMessageBubble({required this.messageId});
+  final String messageId;
 
   @override
   Widget build(BuildContext context) {
-    final dimmed = Theme.of(context)
-        .colorScheme
-        .onSurface
-        .withValues(alpha: 0.55);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Center(
@@ -615,13 +618,19 @@ class _SystemMessageBubble extends StatelessWidget {
                 .withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Text(
-            body,
-            textAlign: TextAlign.center,
+          // T9: system bodies ride the same placeholder law — cache-resident
+          // local emits paint instantly; an unresolved id shows the keyed
+          // placeholder inside the pill (never a blank narrative row).
+          child: MessageBodyText(
+            messageId: messageId,
+            styleContext: 'system',
             style: TextStyle(
               fontSize:    12,
               fontStyle:   FontStyle.italic,
-              color:       dimmed,
+              color:       Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.55),
               fontWeight:  FontWeight.w500,
             ),
           ),

@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/decrypt/body_cache.dart';
 import 'migrations/dedup_sql.dart';
 import 'tables/users_table.dart';
 import 'tables/conversations_table.dart';
@@ -62,8 +64,14 @@ class AppDatabase extends _$AppDatabase {
   /// channels, no persistence.
   AppDatabase.test() : super(NativeDatabase.memory());
 
+  /// Test-only: run the REAL migration strategy (onCreate/onUpgrade) against
+  /// a caller-owned executor — Task 9's migration proof opens a pre-seeded
+  /// v9 file here so the 9→10 path is exercised, not just code-inspected.
+  @visibleForTesting
+  AppDatabase.forExecutor(super.executor);
+
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -108,6 +116,31 @@ class AppDatabase extends _$AppDatabase {
             // read as decryptable; key_id nullable — Task 8 wires it.
             await m.addColumn(messagesTable, messagesTable.decryptState);
             await m.addColumn(messagesTable, messagesTable.keyId);
+          }
+          if (from < 10) {
+            // Task 9 (spec §3): no plaintext at rest — the decrypted_body
+            // column is DROPPED. Before dropping, seed the SESSION body
+            // cache for in-flight optimistic rows (`__pending__` / empty
+            // ciphertext whose ONLY body copy is the column): without this
+            // the upgrade would orphan queued sends (their plaintext dies
+            // with the column and the drain reads the cache). Memory-only
+            // — wiped on backgrounding/logout like every other body.
+            final inFlight = await customSelect(
+              'SELECT local_id, decrypted_body FROM messages_table '
+              'WHERE decrypted_body IS NOT NULL AND '
+              "(encrypted_body = '' OR encrypted_body = '__pending__')",
+              readsFrom: {messagesTable},
+            ).get();
+            for (final r in inFlight) {
+              final plain = r.read<String?>('decrypted_body');
+              if (plain != null) {
+                bodyCache.put(r.read<String>('local_id'), plain);
+              }
+            }
+            // The getter is gone from the table class (fresh installs
+            // never create it) — drop by literal on existing installs.
+            await customStatement(
+                'ALTER TABLE messages_table DROP COLUMN decrypted_body');
           }
         },
       );

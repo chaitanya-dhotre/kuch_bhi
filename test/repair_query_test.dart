@@ -2,6 +2,9 @@ import 'package:drift/drift.dart' hide isNull;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/data/local/database/app_database.dart';
 
+// T9: the plaintext column is gone — `decrypted` now maps to the row's
+// decrypt_state (null ⇒ stuck 'key_missing' = repair target, body ⇒
+// 'ready' = skipped). Same five-row matrix as before.
 MessagesTableCompanion _row(String localId, {String? serverId,
     String type = 'text', String enc = 'enc', String? decrypted}) =>
     MessagesTableCompanion.insert(
@@ -12,7 +15,7 @@ MessagesTableCompanion _row(String localId, {String? serverId,
       type: type,
       encryptedBody: enc,
       iv: 'iv',
-      decryptedBody: Value(decrypted),
+      decryptState: Value(decrypted == null ? 'key_missing' : 'ready'),
       createdAt: DateTime(2026, 10, 5),
       updatedAt: DateTime(2026, 10, 5),
     );

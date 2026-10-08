@@ -2187,17 +2187,6 @@ class $MessagesTableTable extends MessagesTable
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _decryptedBodyMeta = const VerificationMeta(
-    'decryptedBody',
-  );
-  @override
-  late final GeneratedColumn<String> decryptedBody = GeneratedColumn<String>(
-    'decrypted_body',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-  );
   static const VerificationMeta _replyToIdMeta = const VerificationMeta(
     'replyToId',
   );
@@ -2363,7 +2352,6 @@ class $MessagesTableTable extends MessagesTable
     type,
     encryptedBody,
     iv,
-    decryptedBody,
     replyToId,
     replyPreview,
     isDeletedForEveryone,
@@ -2446,15 +2434,6 @@ class $MessagesTableTable extends MessagesTable
       context.handle(_ivMeta, iv.isAcceptableOrUnknown(data['iv']!, _ivMeta));
     } else if (isInserting) {
       context.missing(_ivMeta);
-    }
-    if (data.containsKey('decrypted_body')) {
-      context.handle(
-        _decryptedBodyMeta,
-        decryptedBody.isAcceptableOrUnknown(
-          data['decrypted_body']!,
-          _decryptedBodyMeta,
-        ),
-      );
     }
     if (data.containsKey('reply_to_id')) {
       context.handle(
@@ -2587,10 +2566,6 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.string,
         data['${effectivePrefix}iv'],
       )!,
-      decryptedBody: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}decrypted_body'],
-      ),
       replyToId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}reply_to_id'],
@@ -2670,10 +2645,6 @@ class MessagesTableData extends DataClass
 
   /// AES IV, base64 encoded.
   final String iv;
-
-  /// Decrypted plaintext — cached after first decryption to avoid
-  /// re-decrypting on every rebuild. Never sent to server.
-  final String? decryptedBody;
   final String? replyToId;
   final String? replyPreview;
   final bool isDeletedForEveryone;
@@ -2710,7 +2681,6 @@ class MessagesTableData extends DataClass
     required this.type,
     required this.encryptedBody,
     required this.iv,
-    this.decryptedBody,
     this.replyToId,
     this.replyPreview,
     required this.isDeletedForEveryone,
@@ -2737,9 +2707,6 @@ class MessagesTableData extends DataClass
     map['type'] = Variable<String>(type);
     map['encrypted_body'] = Variable<String>(encryptedBody);
     map['iv'] = Variable<String>(iv);
-    if (!nullToAbsent || decryptedBody != null) {
-      map['decrypted_body'] = Variable<String>(decryptedBody);
-    }
     if (!nullToAbsent || replyToId != null) {
       map['reply_to_id'] = Variable<String>(replyToId);
     }
@@ -2777,9 +2744,6 @@ class MessagesTableData extends DataClass
       type: Value(type),
       encryptedBody: Value(encryptedBody),
       iv: Value(iv),
-      decryptedBody: decryptedBody == null && nullToAbsent
-          ? const Value.absent()
-          : Value(decryptedBody),
       replyToId: replyToId == null && nullToAbsent
           ? const Value.absent()
           : Value(replyToId),
@@ -2819,7 +2783,6 @@ class MessagesTableData extends DataClass
       type: serializer.fromJson<String>(json['type']),
       encryptedBody: serializer.fromJson<String>(json['encryptedBody']),
       iv: serializer.fromJson<String>(json['iv']),
-      decryptedBody: serializer.fromJson<String?>(json['decryptedBody']),
       replyToId: serializer.fromJson<String?>(json['replyToId']),
       replyPreview: serializer.fromJson<String?>(json['replyPreview']),
       isDeletedForEveryone: serializer.fromJson<bool>(
@@ -2848,7 +2811,6 @@ class MessagesTableData extends DataClass
       'type': serializer.toJson<String>(type),
       'encryptedBody': serializer.toJson<String>(encryptedBody),
       'iv': serializer.toJson<String>(iv),
-      'decryptedBody': serializer.toJson<String?>(decryptedBody),
       'replyToId': serializer.toJson<String?>(replyToId),
       'replyPreview': serializer.toJson<String?>(replyPreview),
       'isDeletedForEveryone': serializer.toJson<bool>(isDeletedForEveryone),
@@ -2873,7 +2835,6 @@ class MessagesTableData extends DataClass
     String? type,
     String? encryptedBody,
     String? iv,
-    Value<String?> decryptedBody = const Value.absent(),
     Value<String?> replyToId = const Value.absent(),
     Value<String?> replyPreview = const Value.absent(),
     bool? isDeletedForEveryone,
@@ -2895,9 +2856,6 @@ class MessagesTableData extends DataClass
     type: type ?? this.type,
     encryptedBody: encryptedBody ?? this.encryptedBody,
     iv: iv ?? this.iv,
-    decryptedBody: decryptedBody.present
-        ? decryptedBody.value
-        : this.decryptedBody,
     replyToId: replyToId.present ? replyToId.value : this.replyToId,
     replyPreview: replyPreview.present ? replyPreview.value : this.replyPreview,
     isDeletedForEveryone: isDeletedForEveryone ?? this.isDeletedForEveryone,
@@ -2925,9 +2883,6 @@ class MessagesTableData extends DataClass
           ? data.encryptedBody.value
           : this.encryptedBody,
       iv: data.iv.present ? data.iv.value : this.iv,
-      decryptedBody: data.decryptedBody.present
-          ? data.decryptedBody.value
-          : this.decryptedBody,
       replyToId: data.replyToId.present ? data.replyToId.value : this.replyToId,
       replyPreview: data.replyPreview.present
           ? data.replyPreview.value
@@ -2962,7 +2917,6 @@ class MessagesTableData extends DataClass
           ..write('type: $type, ')
           ..write('encryptedBody: $encryptedBody, ')
           ..write('iv: $iv, ')
-          ..write('decryptedBody: $decryptedBody, ')
           ..write('replyToId: $replyToId, ')
           ..write('replyPreview: $replyPreview, ')
           ..write('isDeletedForEveryone: $isDeletedForEveryone, ')
@@ -2981,7 +2935,7 @@ class MessagesTableData extends DataClass
   }
 
   @override
-  int get hashCode => Object.hashAll([
+  int get hashCode => Object.hash(
     localId,
     serverId,
     conversationId,
@@ -2989,7 +2943,6 @@ class MessagesTableData extends DataClass
     type,
     encryptedBody,
     iv,
-    decryptedBody,
     replyToId,
     replyPreview,
     isDeletedForEveryone,
@@ -3003,7 +2956,7 @@ class MessagesTableData extends DataClass
     keyId,
     createdAt,
     updatedAt,
-  ]);
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3015,7 +2968,6 @@ class MessagesTableData extends DataClass
           other.type == this.type &&
           other.encryptedBody == this.encryptedBody &&
           other.iv == this.iv &&
-          other.decryptedBody == this.decryptedBody &&
           other.replyToId == this.replyToId &&
           other.replyPreview == this.replyPreview &&
           other.isDeletedForEveryone == this.isDeletedForEveryone &&
@@ -3039,7 +2991,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
   final Value<String> type;
   final Value<String> encryptedBody;
   final Value<String> iv;
-  final Value<String?> decryptedBody;
   final Value<String?> replyToId;
   final Value<String?> replyPreview;
   final Value<bool> isDeletedForEveryone;
@@ -3062,7 +3013,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.type = const Value.absent(),
     this.encryptedBody = const Value.absent(),
     this.iv = const Value.absent(),
-    this.decryptedBody = const Value.absent(),
     this.replyToId = const Value.absent(),
     this.replyPreview = const Value.absent(),
     this.isDeletedForEveryone = const Value.absent(),
@@ -3086,7 +3036,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     required String type,
     required String encryptedBody,
     required String iv,
-    this.decryptedBody = const Value.absent(),
     this.replyToId = const Value.absent(),
     this.replyPreview = const Value.absent(),
     this.isDeletedForEveryone = const Value.absent(),
@@ -3117,7 +3066,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Expression<String>? type,
     Expression<String>? encryptedBody,
     Expression<String>? iv,
-    Expression<String>? decryptedBody,
     Expression<String>? replyToId,
     Expression<String>? replyPreview,
     Expression<bool>? isDeletedForEveryone,
@@ -3141,7 +3089,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       if (type != null) 'type': type,
       if (encryptedBody != null) 'encrypted_body': encryptedBody,
       if (iv != null) 'iv': iv,
-      if (decryptedBody != null) 'decrypted_body': decryptedBody,
       if (replyToId != null) 'reply_to_id': replyToId,
       if (replyPreview != null) 'reply_preview': replyPreview,
       if (isDeletedForEveryone != null)
@@ -3168,7 +3115,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Value<String>? type,
     Value<String>? encryptedBody,
     Value<String>? iv,
-    Value<String?>? decryptedBody,
     Value<String?>? replyToId,
     Value<String?>? replyPreview,
     Value<bool>? isDeletedForEveryone,
@@ -3192,7 +3138,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       type: type ?? this.type,
       encryptedBody: encryptedBody ?? this.encryptedBody,
       iv: iv ?? this.iv,
-      decryptedBody: decryptedBody ?? this.decryptedBody,
       replyToId: replyToId ?? this.replyToId,
       replyPreview: replyPreview ?? this.replyPreview,
       isDeletedForEveryone: isDeletedForEveryone ?? this.isDeletedForEveryone,
@@ -3233,9 +3178,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     }
     if (iv.present) {
       map['iv'] = Variable<String>(iv.value);
-    }
-    if (decryptedBody.present) {
-      map['decrypted_body'] = Variable<String>(decryptedBody.value);
     }
     if (replyToId.present) {
       map['reply_to_id'] = Variable<String>(replyToId.value);
@@ -3294,7 +3236,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
           ..write('type: $type, ')
           ..write('encryptedBody: $encryptedBody, ')
           ..write('iv: $iv, ')
-          ..write('decryptedBody: $decryptedBody, ')
           ..write('replyToId: $replyToId, ')
           ..write('replyPreview: $replyPreview, ')
           ..write('isDeletedForEveryone: $isDeletedForEveryone, ')
@@ -8788,7 +8729,6 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       required String type,
       required String encryptedBody,
       required String iv,
-      Value<String?> decryptedBody,
       Value<String?> replyToId,
       Value<String?> replyPreview,
       Value<bool> isDeletedForEveryone,
@@ -8813,7 +8753,6 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<String> type,
       Value<String> encryptedBody,
       Value<String> iv,
-      Value<String?> decryptedBody,
       Value<String?> replyToId,
       Value<String?> replyPreview,
       Value<bool> isDeletedForEveryone,
@@ -8871,11 +8810,6 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<String> get iv => $composableBuilder(
     column: $table.iv,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get decryptedBody => $composableBuilder(
-    column: $table.decryptedBody,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8989,11 +8923,6 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get decryptedBody => $composableBuilder(
-    column: $table.decryptedBody,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<String> get replyToId => $composableBuilder(
     column: $table.replyToId,
     builder: (column) => ColumnOrderings(column),
@@ -9094,11 +9023,6 @@ class $$MessagesTableTableAnnotationComposer
   GeneratedColumn<String> get iv =>
       $composableBuilder(column: $table.iv, builder: (column) => column);
 
-  GeneratedColumn<String> get decryptedBody => $composableBuilder(
-    column: $table.decryptedBody,
-    builder: (column) => column,
-  );
-
   GeneratedColumn<String> get replyToId =>
       $composableBuilder(column: $table.replyToId, builder: (column) => column);
 
@@ -9189,7 +9113,6 @@ class $$MessagesTableTableTableManager
                 Value<String> type = const Value.absent(),
                 Value<String> encryptedBody = const Value.absent(),
                 Value<String> iv = const Value.absent(),
-                Value<String?> decryptedBody = const Value.absent(),
                 Value<String?> replyToId = const Value.absent(),
                 Value<String?> replyPreview = const Value.absent(),
                 Value<bool> isDeletedForEveryone = const Value.absent(),
@@ -9212,7 +9135,6 @@ class $$MessagesTableTableTableManager
                 type: type,
                 encryptedBody: encryptedBody,
                 iv: iv,
-                decryptedBody: decryptedBody,
                 replyToId: replyToId,
                 replyPreview: replyPreview,
                 isDeletedForEveryone: isDeletedForEveryone,
@@ -9237,7 +9159,6 @@ class $$MessagesTableTableTableManager
                 required String type,
                 required String encryptedBody,
                 required String iv,
-                Value<String?> decryptedBody = const Value.absent(),
                 Value<String?> replyToId = const Value.absent(),
                 Value<String?> replyPreview = const Value.absent(),
                 Value<bool> isDeletedForEveryone = const Value.absent(),
@@ -9260,7 +9181,6 @@ class $$MessagesTableTableTableManager
                 type: type,
                 encryptedBody: encryptedBody,
                 iv: iv,
-                decryptedBody: decryptedBody,
                 replyToId: replyToId,
                 replyPreview: replyPreview,
                 isDeletedForEveryone: isDeletedForEveryone,

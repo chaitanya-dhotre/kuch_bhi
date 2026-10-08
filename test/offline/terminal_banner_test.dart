@@ -13,6 +13,7 @@ import 'package:kuch_bhi/data/local/database/tables/outbox_table.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
 import 'package:kuch_bhi/domain/repositories/message_repository.dart';
 import 'package:kuch_bhi/features/chat/providers/outbox_status_provider.dart';
+import 'package:kuch_bhi/features/chat/providers/message_body_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
@@ -77,6 +78,10 @@ Future<FakeMessageRepository> _pump(
         outboxStatusProvider
             .overrideWith((ref, convId) => Stream.value(rows)),
         messageRepositoryProvider.overrideWithValue(fake),
+        // T9: bubble bodies ride messageBodyProvider — stub the resolved
+        // body hermetically (no repo/DB in this banner test; keeps the
+        // coalescer timer out of the fake clock).
+        messageBodyProvider.overrideWith((ref, id) async => 'stuck message'),
       ],
       child: MaterialApp(
         theme: warmPopLight(),

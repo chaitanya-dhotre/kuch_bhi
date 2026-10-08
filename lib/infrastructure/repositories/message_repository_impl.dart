@@ -226,6 +226,17 @@ class MessageRepositoryImpl implements MessageRepository {
   /// `decryptPassProvider` (chat_provider / mediaFileProvider precedent).
   late final DecryptPass decryptPass;
 
+  /// T9 carry-in (brief): fired AFTER a write lands REAL ciphertext for a
+  /// message the drain/upload just stamped (`_sendTextOp` dual-truth txn,
+  /// media upload stamp). `messageBodyProvider` values do not re-run on
+  /// row-stream emissions, so watchers of that id must be invalidated
+  /// explicitly or a bubble that resolved null while the row was
+  /// `__pending__` stays at the placeholder forever. Wired by
+  /// `decryptPassProvider`'s build — every null-resolving body read
+  /// funnels through it (T8 `onApplied` bridge pattern — alive-guarded,
+  /// last-writer-wins across containers, ledgered like T8's).
+  void Function(String messageId)? onBodyStamped;
+
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
 
@@ -355,7 +366,6 @@ class MessageRepositoryImpl implements MessageRepository {
         type:                 existing.type,
         encryptedBody:        existing.encryptedBody,
         iv:                   existing.iv,
-        decryptedBody:        Value(existing.decryptedBody),
         replyToId:            Value(existing.replyToId),
         replyPreview:         Value(existing.replyPreview),
         isPinned:             Value(serverPinned),
@@ -757,7 +767,7 @@ class MessageRepositoryImpl implements MessageRepository {
             isGroupRowVisible(
               createdAt:      r.createdAt,
               memberJoinedAt: joinedAt,
-              decryptedBody:  r.decryptedBody,
+              decryptState:   r.decryptState,
               type:           r.type,
             ))
           _rowToMessage(r, myId),
@@ -787,11 +797,12 @@ class MessageRepositoryImpl implements MessageRepository {
 
     // ── Atomic enqueue (spec §5.2): message row + outbox op in ONE
     // Drift transaction — a kill between them is impossible by
-    // construction (ghost message / lost send cannot happen). The body
-    // stays plaintext-cached in `decryptedBody` (interim — Task 9 drops
-    // the column per spec); encryption runs on the drain path with the
-    // EXISTING `EncryptionService.encryptMessage` code, now behind
-    // [sendOutboxOp]. ─────────────────────────────────────────────
+    // construction (ghost message / lost send cannot happen). T9 (column
+    // dropped): the row carries ONLY ciphertext state (`__pending__` —
+    // encryption still runs on the drain path behind [sendOutboxOp]);
+    // the plaintext lands in the SESSION body cache (spec §5.1: "the
+    // main isolate immediately decrypts it into the body cache") — the
+    // own-sent bubble resolves from there with zero async gap.
     await db.transaction(() async {
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
@@ -800,7 +811,6 @@ class MessageRepositoryImpl implements MessageRepository {
         type:           'text',
         encryptedBody:  '__pending__',
         iv:             '',
-        decryptedBody:  Value(plaintext),
         replyToId:      Value(replyToLocalId),
         replyPreview:   Value(replyPreview),
         status:         Value('pending'),
@@ -817,6 +827,10 @@ class MessageRepositoryImpl implements MessageRepository {
         createdAt:      now,
       ));
     });
+    // T9 carry-in (spec §5.1): own-sent bodies resolve instantly from the
+    // cache — the provider never sees this id as unresolvable while the
+    // row is optimistic.
+    bodyCache.put(localId, plaintext);
     debugPrint('[Msg] OPTIMISTIC INSERT DONE — myId: $myId, convId: $conversationId');
 
     // ── Drain kick (Task 3): the OutboxWorker drains the queued op —
@@ -869,7 +883,12 @@ class MessageRepositoryImpl implements MessageRepository {
       await db.outboxDao.deleteOp(op.opId);
       return OpSendOutcome.deferred;
     }
-    final plaintext = msg.decryptedBody;
+    // T9 (column dropped): plaintext for the drain comes from the session
+    // body cache — enqueue put it there (spec §5.1); a cache miss (app
+    // backgrounded/killed between enqueue and drain) defers like the old
+    // null-body guard did. Relocating encryption to enqueue time (the T2
+    // forward-carry) is the durable fix — ledgered, out of T9 scope.
+    final plaintext = bodyCache.get(localId);
     if (plaintext == null) {
       return OpSendOutcome.deferred; // nothing to send yet
     }
@@ -981,7 +1000,6 @@ class MessageRepositoryImpl implements MessageRepository {
         type:           'text',
         encryptedBody:  encrypted.ciphertext,
         iv:             encrypted.iv,
-        decryptedBody:  Value(plaintext),
         replyToId:      Value(replyServerId),
         // Keep the local plaintext reply preview for display.
         replyPreview:   Value(replyPreview),
@@ -993,6 +1011,10 @@ class MessageRepositoryImpl implements MessageRepository {
       ));
       await db.outboxDao.setState(op.opId, OutboxState.sent, attempts: 0);
     });
+    // T9 carry-in: the ciphertext write + status flip must re-resolve any
+    // bubble still watching this id (row streams never invalidate
+    // messageBodyProvider) — wired in message_body_provider.dart.
+    onBodyStamped?.call(localId);
     debugPrint('[Msg] Local message updated with status: sent');
 
     await db.conversationsDao.updateLastMessage(
@@ -1119,11 +1141,12 @@ class MessageRepositoryImpl implements MessageRepository {
       type:           mediaType,
       encryptedBody:  '',
       iv:             '',
-      decryptedBody:  Value(durationText),
       status:         Value('pending'),
       createdAt:      now,
       updatedAt:      now,
     ));
+    // T9: duration stub is a body — session cache, never the dropped column.
+    if (durationText != null) bodyCache.put(localId, durationText);
 
     // Step 2: Upload in background
     unawaited(_uploadMediaMessage(
@@ -1258,12 +1281,13 @@ class MessageRepositoryImpl implements MessageRepository {
         type:           mediaType,
         encryptedBody:  encrypted.ciphertext,
         iv:             encrypted.iv,
-        decryptedBody:  Value(durationText),
         mediaId:        Value(mediaId),
         status:         Value('sent'),
         createdAt:      createdAt,
         updatedAt:      DateTime.now(),
       ));
+      if (durationText != null) bodyCache.put(localId, durationText);
+      onBodyStamped?.call(localId);
 
       final preview = switch (mediaType) {
         'voice'    => '🎤 Voice message${durationText != null ? ' ($durationText)' : ''}',
@@ -1323,7 +1347,7 @@ class MessageRepositoryImpl implements MessageRepository {
     }
 
     for (final msg in pending) {
-      if (msg.decryptedBody == null && msg.mediaId == null) continue;
+      if (bodyCache.get(msg.localId) == null && msg.mediaId == null) continue;
       // Repair ghost messages whose senderId was lost to an early auth race:
       // adopt the now-known id instead of destroying the user's message.
       if (msg.senderId.isEmpty) {
@@ -1363,7 +1387,7 @@ class MessageRepositoryImpl implements MessageRepository {
     if (msg.type != 'text') {
       // Media temp files may be gone after a restart; only text is safely
       // re-uploadable from Drift. Leave media as-is for now.
-      if (msg.decryptedBody == null) return;
+      if (bodyCache.get(msg.localId) == null) return;
     }
 
     // Task 3: route through the outbox (SINGLE send path — the old direct
@@ -1594,7 +1618,6 @@ class MessageRepositoryImpl implements MessageRepository {
         type:                 msg.type,
         encryptedBody:        msg.encryptedBody,
         iv:                   msg.iv,
-        decryptedBody:        Value(msg.decryptedBody),
         isDeletedForEveryone: Value(true),
         status:               Value(msg.status),
         createdAt:            msg.createdAt,
@@ -1609,7 +1632,6 @@ class MessageRepositoryImpl implements MessageRepository {
         type:           msg.type,
         encryptedBody:  msg.encryptedBody,
         iv:             msg.iv,
-        decryptedBody:  Value(msg.decryptedBody),
         isDeletedForMe: Value(true),
         status:         Value(msg.status),
         createdAt:      msg.createdAt,
@@ -1647,7 +1669,6 @@ class MessageRepositoryImpl implements MessageRepository {
       type:           msg.type,
       encryptedBody:  msg.encryptedBody,
       iv:             msg.iv,
-      decryptedBody:  Value(msg.decryptedBody),
       isStarred:      Value(nextStarred),
       status:         Value(msg.status),
       createdAt:      msg.createdAt,
@@ -1663,7 +1684,7 @@ class MessageRepositoryImpl implements MessageRepository {
               'user_id':         myId,
               'message_id':      msg.serverId,
               'conversation_id': msg.conversationId,
-              'message_preview': msg.decryptedBody ?? '',
+              'message_preview': bodyCache.get(msg.localId) ?? '',
               'sender_id':       msg.senderId,
             });
           } else {
@@ -1705,7 +1726,6 @@ class MessageRepositoryImpl implements MessageRepository {
       encryptedBody:   msg.encryptedBody,
       iv:             msg.iv,
       isPinned:       Value(pin),
-      decryptedBody:  Value(msg.decryptedBody),
       status:         Value(msg.status),
       createdAt:      msg.createdAt,
       updatedAt:      DateTime.now(),
@@ -1991,12 +2011,31 @@ class MessageRepositoryImpl implements MessageRepository {
           ]))
         .get();
 
+    if (rows.isEmpty) return [];
+    // T9 / spec §5.1: decrypt-on-query — metadata prefilter (above), then
+    // resolve candidates through the DecryptPass machinery: cache hits are
+    // free, misses coalesce into ONE runFor batch. The match set stays
+    // EPHEMERAL (this return value): search never writes the DB, and the
+    // only plaintext it produces lands in the session cache via
+    // DecryptPass's own apply — never a search-owned store (spec §19.1).
+    final missing = <String>[
+      for (final r in rows)
+        if (bodyCache.get(r.localId) == null &&
+            r.encryptedBody.isNotEmpty &&
+            r.encryptedBody != '__pending__')
+          r.localId,
+    ];
+    if (missing.isNotEmpty) await decryptPass.runFor(missing);
     final myId = await _myId();
     final needle = trimmed.toLowerCase();
-    return rows
-        .where((row) => (row.decryptedBody ?? '').toLowerCase().contains(needle))
-        .map((r) => _rowToMessage(r, myId))
-        .toList();
+    final hits = <Message>[];
+    for (final r in rows) {
+      final body = bodyCache.get(r.localId);
+      if (body != null && body.toLowerCase().contains(needle)) {
+        hits.add(_rowToMessage(r, myId));
+      }
+    }
+    return hits;
   }
 
   @override
@@ -2972,6 +3011,17 @@ class MessageRepositoryImpl implements MessageRepository {
         authValid: _pb.authStore.isValid)) {
       return;
     }
+    // T9 (spec §3): decrypt-at-write plaintext lands ONLY in the session
+    // body cache — same instant the column write used to occupy, so the
+    // row's stream emission sees a resident body for entity hydration and
+    // provider cache hits. Put BEFORE the commit so no stream consumer
+    // can map the row before the cache is warm; an aborted commit leaves
+    // at worst an orphan cache entry (LRU-bounded, never at rest).
+    for (final c in companions) {
+      final sid = c.serverId.value;
+      final body = sid == null ? null : decrypted[sid];
+      if (body != null) bodyCache.put(c.localId.value, body);
+    }
     // Sole writer (Task 6): upserts + the cursor delta land in ONE
     // boundary transaction (spec §7). The delete-then-insert mechanics
     // (clear prior cache + FCM bg placeholders so ONE collision cannot
@@ -3004,15 +3054,15 @@ class MessageRepositoryImpl implements MessageRepository {
               r.getStringValue('encrypted_body'),
               r.getStringValue('iv'), freshKey);
           if (body != null) {
+            final healed = _companionFromRecord(r,
+                existing: existingById[r.id],
+                decrypted: body,
+                myId: myId,
+                // Fresh key just decrypted it — decryptable (spec §5.1).
+                decryptState: 'ready');
+            bodyCache.put(healed.localId.value, body);
             await ingestBoundary.commit(
-              IngestBatch(upserts: [
-                MessageUpsert(_companionFromRecord(r,
-                    existing: existingById[r.id],
-                    decrypted: body,
-                    myId: myId,
-                    // Fresh key just decrypted it — decryptable (spec §5.1).
-                    decryptState: 'ready')),
-              ]),
+              IngestBatch(upserts: [MessageUpsert(healed)]),
               IngestSource.fetch,
             );
           }
@@ -3130,7 +3180,6 @@ class MessageRepositoryImpl implements MessageRepository {
                 type:                 row.type,
                 encryptedBody:        row.encryptedBody,
                 iv:                   row.iv,
-                decryptedBody:        Value(row.decryptedBody),
                 replyToId:            Value(row.replyToId),
                 replyPreview:         Value(row.replyPreview),
                 isDeletedForMe:       Value(true),
@@ -3183,7 +3232,6 @@ class MessageRepositoryImpl implements MessageRepository {
                 type:                 row.type,
                 encryptedBody:        row.encryptedBody,
                 iv:                   row.iv,
-                decryptedBody:        Value(row.decryptedBody),
                 replyToId:            Value(row.replyToId),
                 replyPreview:         Value(row.replyPreview),
                 isDeletedForMe:       Value(row.isDeletedForMe),
@@ -3292,21 +3340,23 @@ class MessageRepositoryImpl implements MessageRepository {
         authValid: _pb.authStore.isValid)) {
       return; // session ended mid-decrypt — do not resurrect wiped rows
     }
+    // T9 (spec §3): decrypt-at-write plaintext → session cache only, pre-
+    // commit (see the same pattern in _cacheMessagesBatch).
+    final single = _companionFromRecord(
+      r,
+      existing: existing,
+      decrypted: decrypted,
+      decryptedReplyPreview: replyPreview,
+      forcedStatus: forcedStatus,
+      myId: myId,
+      decryptState: _ingestDecryptState(
+          decrypted: decrypted, keyMissing: key == null),
+    );
+    if (decrypted != null) bodyCache.put(single.localId.value, decrypted);
     // Sole writer (Task 6): the boundary re-checks its own entry epoch for
     // the commit window; the guard above covers the decrypt window.
     await ingestBoundary.commit(
-      IngestBatch(upserts: [
-        MessageUpsert(_companionFromRecord(
-          r,
-          existing: existing,
-          decrypted: decrypted,
-          decryptedReplyPreview: replyPreview,
-          forcedStatus: forcedStatus,
-          myId: myId,
-          decryptState: _ingestDecryptState(
-              decrypted: decrypted, keyMissing: key == null),
-        )),
-      ]),
+      IngestBatch(upserts: [MessageUpsert(single)]),
       source,
     );
     if (!isMine) {
@@ -3365,9 +3415,6 @@ class MessageRepositoryImpl implements MessageRepository {
       type:                 localType,
       encryptedBody:        encBody,
       iv:                   iv,
-      // Never wipe an already-decrypted body with null (e.g. when a later
-      // cache pass runs with the key unavailable).
-      decryptedBody:        Value(decrypted ?? existing?.decryptedBody),
       replyToId:            Value(r.getStringValue('reply_to_id').isEmpty
           ? null : r.getStringValue('reply_to_id')),
       replyPreview:         Value(decryptedReplyPreview ?? existing?.replyPreview),
@@ -3485,11 +3532,13 @@ class MessageRepositoryImpl implements MessageRepository {
         type:              'system',
         encryptedBody:     '',
         iv:                '',
-        decryptedBody:     Value(body),
         status:            const Value('sent'),
         createdAt:         now,
         updatedAt:         now,
       ));
+      // T9: local system text lives in the session cache (the server echo
+      // re-lands it as ciphertext later — provider path then applies).
+      bodyCache.put(id, body);
       debugPrint('[SysMsg] local emit → "$body" in $convId');
 
       // (2) push to PB so every group member sees it too
@@ -3538,11 +3587,13 @@ class MessageRepositoryImpl implements MessageRepository {
       type:              'system',
       encryptedBody:     '',
       iv:                '',
-      decryptedBody:     Value(body),
       status:            const Value('sent'),
       createdAt:         now,
       updatedAt:         now,
     ));
+    // T9: session cache is this local-only row's only body home (no
+    // ciphertext will ever arrive for it).
+    bodyCache.put(id, body);
     debugPrint('[SysMsg] local-only emit → "$body" in $convId');
   }
 
@@ -4149,7 +4200,7 @@ class MessageRepositoryImpl implements MessageRepository {
   Message _rowToMessage(MessagesTableData r, String myId) => Message(
     localId: r.localId, serverId: r.serverId,
     conversationId: r.conversationId, senderId: r.senderId,
-    type: r.type, decryptedBody: r.decryptedBody,
+    type: r.type, decryptedBody: bodyCache.get(r.localId),
     replyToId: r.replyToId,
     replyPreview: r.replyPreview,
     isDeletedForEveryone: r.isDeletedForEveryone,

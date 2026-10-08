@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:kuch_bhi/core/utils/op_id.dart';
+import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:kuch_bhi/data/local/database/app_database.dart';
 import 'package:kuch_bhi/data/local/database/tables/outbox_table.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
@@ -95,12 +95,10 @@ Future<void> _seedOp(
         type: 'text',
         encryptedBody: 'x',
         iv: '',
-        // decryptedBody REQUIRED: a null body would be (a) hidden by
-        // isGroupRowVisible in the entity stream and (b) a
-        // getUndecryptableRows candidate whose self-heal DELETES the
-        // seeded group_key_g1 mid-test (message_repository_impl.dart
-        // repair path).
-        decryptedBody: Value('seeded'),
+        // T9: no plaintext column — decrypt_state defaults 'ready' so the
+        // row stays visible / out of the repair query (same protection the
+        // old decryptedBody seed gave: never a getUndecryptableRows
+        // candidate that would DELETE group_key_g1 mid-test).
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ));
@@ -179,7 +177,9 @@ void main() {
     final rows = await h.db.messagesDao.watchMessages('g1').first;
     expect(rows, hasLength(1));
     expect(rows.first.status, 'pending');
-    expect(rows.first.decryptedBody, 'queued msg');
+    expect(bodyCache.get(rows.first.localId), 'queued msg',
+        reason: 'T9: own-sent plaintext lives in the session cache '
+            '(enqueue put — spec §5.1), not a DB column');
     expect((await h.db.outboxDao.all()).map((r) => r.kind), ['text_send'],
         reason: 'outbox row exists before any network I/O');
     // `send` intentionally never awaited

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 
@@ -104,7 +105,7 @@ void main() {
         reason: 'always-commit: ciphertext lands without the key (:2484 fix)');
     expect(cached.first.decryptState, 'key_missing',
         reason: 'spec §5.1/§7 — attempted, key unavailable');
-    expect(cached.first.decryptedBody, isNull,
+    expect(bodyCache.get(cached.first.localId), isNull,
         reason: 'no key → no plaintext; ciphertext preserved verbatim');
     expect(cached.first.encryptedBody, enc.ciphertext);
 
@@ -137,12 +138,12 @@ void main() {
             rows.isNotEmpty &&
             rows.every((r) =>
                 r.decryptState == 'ready' &&
-                r.decryptedBody != null &&
+                bodyCache.get(r.localId) != null &&
                 r.updatedAt.millisecondsSinceEpoch >
                     phase1Done.millisecondsSinceEpoch));
     expect(healed, hasLength(1),
         reason: 'id-based upsert — same server id, no duplicate row');
-    expect(healed.first.decryptedBody, 'always commit');
+    expect(bodyCache.get(healed.first.localId), 'always commit');
     expect(healed.first.serverId, 'srv1');
   });
 }

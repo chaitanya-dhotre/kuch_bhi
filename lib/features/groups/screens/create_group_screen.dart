@@ -5,6 +5,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
+
+import '../../../core/decrypt/body_cache.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -292,11 +294,14 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           type:              'system',
           encryptedBody:     sysRes.ciphertext,
           iv:                sysRes.iv,
-          decryptedBody:     Value('$myName created the group "$groupName"'),
           status:            const Value('sent'),
           createdAt:         DateTime.now(),
           updatedAt:         DateTime.now(),
         ));
+        // T9: system narrative is a body — session cache (spec §3: the
+        // dropped column never carries it; ciphertext is on the row too).
+        bodyCache.put('sys_${sysRec.id}',
+            '$myName created the group "$groupName"');
       } catch (e) {
         debugPrint('[Group] create-group system message emit failed: $e');
       }
