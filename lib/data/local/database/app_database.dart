@@ -63,7 +63,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -101,6 +101,13 @@ class AppDatabase extends _$AppDatabase {
           if (from < 8) {
             // MediaBlobStore FSM rows (spec §5.3 / §9) — sole writer.
             await m.createTable(mediaBlobTable);
+          }
+          if (from < 9) {
+            // Always-commit policy (Task 7, spec §5.1): decrypt_state
+            // defaults 'ready' so legacy rows (they carry decrypted_body)
+            // read as decryptable; key_id nullable — Task 8 wires it.
+            await m.addColumn(messagesTable, messagesTable.decryptState);
+            await m.addColumn(messagesTable, messagesTable.keyId);
           }
         },
       );

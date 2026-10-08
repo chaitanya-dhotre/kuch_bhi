@@ -347,6 +347,11 @@ class MessageRepositoryImpl implements MessageRepository {
         expiresAt:            Value(existing.expiresAt), // I1 — never drop
         mediaId:              Value(existing.mediaId),
         status:               Value(existing.status),
+        // Task 7: full-row rebuild via the boundary — carry decrypt_state /
+        // key_id like every other preserved column (omission would reset a
+        // key_missing row to the column default 'ready').
+        decryptState:         Value(existing.decryptState),
+        keyId:                Value(existing.keyId),
         createdAt:            existing.createdAt,
         updatedAt:            DateTime.now(),
       );
@@ -409,8 +414,9 @@ class MessageRepositoryImpl implements MessageRepository {
         }
         // Cache even if we can't decrypt yet — a later fetch/reconcile will
         // decrypt once the key is available. Message is never lost.
-        await _cacheMsg(r, myId, key ?? const <int>[],
-            source: IngestSource.sse);
+        // Task 7: pass the NULL key through (was: `key ?? const <int>[]`)
+        // so the row lands decrypt_state='key_missing', not 'pending'.
+        await _cacheMsg(r, myId, key, source: IngestSource.sse);
         // Acknowledge delivery so the sender's tick advances — narrative
         // 'system' rows carry no ticks, skip them.
         if (r.getStringValue('type') != 'system') {
@@ -607,6 +613,12 @@ class MessageRepositoryImpl implements MessageRepository {
         if (active != null && !_subscribed) {
           // SSE is down — re-fetch messages + receipts for the on-screen chat.
           await _fetchAndCacheMessages(active);
+          // Task 7: the fetch cursor now advances PAST key_missing rows, so
+          // the poll's old implicit heal ("re-deliver the same window until
+          // the key lands") is gone — run the bounded repair pass instead
+          // (one indexed query; no-op without stuck rows, decrypts once the
+          // key has arrived while the chat stays open).
+          await _repairUndecrypted(active);
           await _reconcileReceiptsForConversation(active, myId);
         }
         // Only reconcile the conversation list server-side when SSE is down;
@@ -1907,8 +1919,9 @@ class MessageRepositoryImpl implements MessageRepository {
             if (res.items.isEmpty) break;
             // Cache every row even when key is null — _cacheMsg stores the
             // ciphertext and a later chat-open re-decrypts. Never drop history.
+            // Task 7: null key passes through so rows land key_missing.
             for (final r in res.items) {
-              await _cacheMsg(r, myId, key ?? const <int>[]);
+              await _cacheMsg(r, myId, key);
               downloaded++;
               if (msgTotal > 0) {
                 onProgress?.call(HistorySyncProgress(
@@ -2786,53 +2799,53 @@ class MessageRepositoryImpl implements MessageRepository {
         return;
       }
       if (all.isNotEmpty) {
-        // Key unavailable (joiner awaiting rotation, DM peer key missing):
-        // do NOT cache rows and do NOT advance the cursor — the next open
-        // retries the same window, exactly like the old fetch behaviour.
+        // Task 7 always-commit (the :2484 fix, spec §7): a missing key no
+        // longer skips the cache — rows land with decrypt_state='key_missing'
+        // and the cursor advances WITH them (same boundary txn), so the
+        // window can neither be lost nor double-fetched; key arrival heals
+        // via _repairUndecrypted / the batch self-heal.
         List<int>? key;
         try {
           key = await _getConvKey(conversationId, myId);
         } on MissingKeyException catch (e) {
-          debugPrint('[Msg] key not ready during fetch — skipping cache: $e');
+          debugPrint(
+              '[Msg] key not ready during fetch — committing ciphertext: $e');
           key = null;
         }
-        if (key != null) {
-          // Review I2: only advance the cursor when the whole delta present
-          // at fetch start landed (offset shifts during multi-page
-          // catch-up would otherwise skip rows forever). Cold fetches
-          // (cursor == null) commit to newest-40 by design — older history
-          // is loadMoreMessages' job, nothing is being skipped.
-          // Task 6: the delta rides the SAME commit as the batch (spec §7)
-          // — an aborted commit holds rows AND cursor back together.
-          final advance = cursor == null ||
-              shouldAdvanceCursor(
-                  fetched: all.length, totalAtStart: totalAtStart);
-          final newest =
-              DateTime.tryParse(all.first.getStringValue('created'));
-          await _cacheMessagesBatch(
-            all,
-            key,
-            myId,
-            cursorAdvance: (newest != null && advance)
-                ? CursorDelta(conversationId: conversationId, to: newest)
-                : null,
-          );
-          // Review C1 (hardening): the batch aborts WITHOUT writing when the
-          // session ended mid-flight — the cursor lives in that same txn,
-          // so it cannot advance past unwritten rows (spec §7). The
-          // early-return keeps the trailing sync passes out of the wiped
-          // session.
-          if (!sessionStillValid(
-              epochAtStart: epoch,
-              currentEpoch: _sessionEpoch,
-              authValid: _pb.authStore.isValid)) {
-            debugPrint('[Msg] cursor held back — batch aborted (session)');
-            return;
-          }
-          if (!advance) {
-            debugPrint('[Msg] cursor held back (partial catch-up '
-                '${all.length}/$totalAtStart)');
-          }
+        // Review I2: only advance the cursor when the whole delta present
+        // at fetch start landed (offset shifts during multi-page
+        // catch-up would otherwise skip rows forever). Cold fetches
+        // (cursor == null) commit to newest-40 by design — older history
+        // is loadMoreMessages' job, nothing is being skipped.
+        // Task 6: the delta rides the SAME commit as the batch (spec §7)
+        // — an aborted commit holds rows AND cursor back together.
+        final advance = cursor == null ||
+            shouldAdvanceCursor(
+                fetched: all.length, totalAtStart: totalAtStart);
+        final newest = DateTime.tryParse(all.first.getStringValue('created'));
+        await _cacheMessagesBatch(
+          all,
+          key,
+          myId,
+          cursorAdvance: (newest != null && advance)
+              ? CursorDelta(conversationId: conversationId, to: newest)
+              : null,
+        );
+        // Review C1 (hardening): the batch aborts WITHOUT writing when the
+        // session ended mid-flight — the cursor lives in that same txn,
+        // so it cannot advance past unwritten rows (spec §7). The
+        // early-return keeps the trailing sync passes out of the wiped
+        // session.
+        if (!sessionStillValid(
+            epochAtStart: epoch,
+            currentEpoch: _sessionEpoch,
+            authValid: _pb.authStore.isValid)) {
+          debugPrint('[Msg] cursor held back — batch aborted (session)');
+          return;
+        }
+        if (!advance) {
+          debugPrint('[Msg] cursor held back (partial catch-up '
+              '${all.length}/$totalAtStart)');
         }
       }
 
@@ -2847,12 +2860,15 @@ class MessageRepositoryImpl implements MessageRepository {
 
   /// Batched cache: one existing-rows query, one decryptBatch hop, one
   /// boundary commit. [records] must be one conversation, sorted
-  /// `-created`. Decrypt misses self-heal per-row (groups only) exactly
+  /// `-created`. [key] null = the key lookup threw (Task 7 always-commit):
+  /// no decrypt attempt, every row commits `decrypt_state='key_missing'`,
+  /// and the key-invalidating self-heal is skipped — there is no key to
+  /// invalidate. Decrypt misses self-heal per-row (groups only) exactly
   /// like the single-row path. [cursorAdvance] rides the SAME commit as
   /// the upserts (spec §7 — Task 6).
   Future<void> _cacheMessagesBatch(
     List<RecordModel> records,
-    List<int> key,
+    List<int>? key,
     String myId, {
     CursorDelta? cursorAdvance,
   }) async {
@@ -2866,24 +2882,34 @@ class MessageRepositoryImpl implements MessageRepository {
         .getMessagesByServerIds([for (final r in records) r.id]);
     final existingById = {for (final e in existing) e.serverId!: e};
 
-    final decrypted = await encryption.decryptBatch(key, [
-      for (final r in records)
-        {
-          'id':         r.id,
-          'ciphertext': r.getStringValue('encrypted_body'),
-          'iv':         r.getStringValue('iv'),
-        },
-    ]);
+    // Task 7: keyless batches skip the decrypt hop entirely — the
+    // ciphertext still lands (key_missing), nothing is attempted, so no
+    // miss can be mistaken for a stale key below.
+    final Map<String, String?> decrypted;
+    if (key == null) {
+      decrypted = const {};
+    } else {
+      decrypted = await encryption.decryptBatch(key, [
+        for (final r in records)
+          {
+            'id':         r.id,
+            'ciphertext': r.getStringValue('encrypted_body'),
+            'iv':         r.getStringValue('iv'),
+          },
+      ]);
+    }
 
     final companions = <MessagesTableCompanion>[];
     final failedDecrypts = <RecordModel>[];
     for (final r in records) {
       final e = existingById[r.id];
       var body = decrypted[r.id];
-      // Only genuine decrypt misses count. A row with empty ciphertext/iv
-      // (never happens server-side today) would otherwise trigger the
-      // key-invalidating self-heal — and its network refetch — on EVERY fetch.
-      if (body == null &&
+      // Only genuine decrypt misses count (key WAS present): a row with
+      // empty ciphertext/iv (never happens server-side today) would
+      // otherwise trigger the key-invalidating self-heal — and its network
+      // refetch — on EVERY fetch; a keyless batch attempted nothing.
+      if (key != null &&
+          body == null &&
           r.getStringValue('encrypted_body').isNotEmpty &&
           r.getStringValue('iv').isNotEmpty) {
         failedDecrypts.add(r);
@@ -2894,9 +2920,11 @@ class MessageRepositoryImpl implements MessageRepository {
       if (rawReply.isNotEmpty) {
         final idx = rawReply.indexOf(':');
         if (idx > 0 && r.getStringValue('encrypted_body') != '__pending__') {
-          preview = await encryption.decryptMessage(
-                  rawReply.substring(idx + 1),
-                  rawReply.substring(0, idx), key) ?? '🔒';
+          preview = key == null
+              ? '🔒' // no key — encrypted preview stays sealed
+              : await encryption.decryptMessage(rawReply.substring(idx + 1),
+                          rawReply.substring(0, idx), key) ??
+                      '🔒';
         } else {
           preview = rawReply; // legacy plaintext
         }
@@ -2910,7 +2938,9 @@ class MessageRepositoryImpl implements MessageRepository {
 
       companions.add(_companionFromRecord(r,
           existing: e, decrypted: body,
-          decryptedReplyPreview: preview, forcedStatus: forced, myId: myId));
+          decryptedReplyPreview: preview, forcedStatus: forced, myId: myId,
+          decryptState: _ingestDecryptState(
+              decrypted: body, keyMissing: key == null)));
     }
 
     // Review C1: decrypt awaited across the gap above — re-check before
@@ -2961,7 +2991,9 @@ class MessageRepositoryImpl implements MessageRepository {
                 MessageUpsert(_companionFromRecord(r,
                     existing: existingById[r.id],
                     decrypted: body,
-                    myId: myId)),
+                    myId: myId,
+                    // Fresh key just decrypted it — decryptable (spec §5.1).
+                    decryptState: 'ready')),
               ]),
               IngestSource.fetch,
             );
@@ -3067,7 +3099,9 @@ class MessageRepositoryImpl implements MessageRepository {
           // now carries replyToId/replyPreview/expiresAt too — the
           // boundary's delete-then-insert rebuilds the row from the
           // companion, so every column the old conflict-update preserved
-          // implicitly must be explicit here (lossless move).
+          // implicitly must be explicit here (lossless move). Task 7:
+          // decryptState/keyId are the same class of column (omission
+          // would reset a key_missing row to the default 'ready').
           await ingestBoundary.commit(
             IngestBatch(upserts: [
               MessageUpsert(MessagesTableCompanion.insert(
@@ -3088,6 +3122,8 @@ class MessageRepositoryImpl implements MessageRepository {
                 expiresAt:            Value(row.expiresAt),
                 mediaId:              Value(row.mediaId),
                 status:               Value(row.status),
+                decryptState:         Value(row.decryptState),
+                keyId:                Value(row.keyId),
                 createdAt:            row.createdAt,
                 updatedAt:            DateTime.now(),
               )),
@@ -3117,7 +3153,8 @@ class MessageRepositoryImpl implements MessageRepository {
       for (final row in rows) {
         if (row.serverId != null && starredIds.contains(row.serverId)) {
           // Task 6: fetch-loop record write → boundary commit (companion
-          // completed with reply/expires columns — see _syncDeletedForMe).
+          // completed with reply/expires columns — see _syncDeletedForMe;
+          // Task 7 adds decryptState/keyId for the same rebuild reason).
           await ingestBoundary.commit(
             IngestBatch(upserts: [
               MessageUpsert(MessagesTableCompanion.insert(
@@ -3138,6 +3175,8 @@ class MessageRepositoryImpl implements MessageRepository {
                 expiresAt:            Value(row.expiresAt),
                 mediaId:              Value(row.mediaId),
                 status:               Value(row.status),
+                decryptState:         Value(row.decryptState),
+                keyId:                Value(row.keyId),
                 createdAt:            row.createdAt,
                 updatedAt:            DateTime.now(),
               )),
@@ -3157,7 +3196,7 @@ class MessageRepositoryImpl implements MessageRepository {
   /// "no existing row" and insert duplicates (two bubbles for one message).
   final Map<String, Future<void>> _cacheInFlight = {};
 
-  Future<void> _cacheMsg(RecordModel r, String myId, List<int> key,
+  Future<void> _cacheMsg(RecordModel r, String myId, List<int>? key,
       {IngestSource source = IngestSource.fetch}) {
     final pending = _cacheInFlight[r.id];
     // Swallow the previous op's error so the chain always continues.
@@ -3171,14 +3210,18 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Future<void> _cacheMsgInner(
-      RecordModel r, String myId, List<int> key, IngestSource source) async {
+      RecordModel r, String myId, List<int>? key, IngestSource source) async {
     final epoch = _sessionEpoch;
     // Note: isDeletedForEveryone is already synchronized automatically on fresh install
     // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
     final encBody = r.getStringValue('encrypted_body');
     final iv      = r.getStringValue('iv');
     String? decrypted;
-    if (encBody.isNotEmpty && iv.isNotEmpty && encBody != '__pending__') {
+    // Task 7: null key (the callers' MissingKeyException catch) means no
+    // attempt — the ciphertext lands key_missing, no self-heal (there is
+    // no cached key to invalidate and _getConvKey would just throw again).
+    if (key != null &&
+        encBody.isNotEmpty && iv.isNotEmpty && encBody != '__pending__') {
       decrypted = await encryption.decryptMessage(encBody, iv, key);
       if (decrypted == null) {
         final convId = r.getStringValue('conversation_id');
@@ -3204,7 +3247,9 @@ class MessageRepositoryImpl implements MessageRepository {
       if (idx > 0 && encBody != '__pending__') {
         final rIv = rawReply.substring(0, idx);
         final rCt = rawReply.substring(idx + 1);
-        replyPreview = await encryption.decryptMessage(rCt, rIv, key) ?? '🔒';
+        replyPreview = key == null
+            ? '🔒' // no key — encrypted preview stays sealed
+            : await encryption.decryptMessage(rCt, rIv, key) ?? '🔒';
       } else {
         replyPreview = rawReply; // legacy plaintext
       }
@@ -3240,6 +3285,8 @@ class MessageRepositoryImpl implements MessageRepository {
           decryptedReplyPreview: replyPreview,
           forcedStatus: forcedStatus,
           myId: myId,
+          decryptState: _ingestDecryptState(
+              decrypted: decrypted, keyMissing: key == null),
         )),
       ]),
       source,
@@ -3251,6 +3298,18 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// Task 7 (spec §5.1/§7): `decrypt_state` at ingest time —
+  /// decrypt-at-write success ⇒ `'ready'`; key lookup threw (no attempt)
+  /// ⇒ `'key_missing'`; key present but the ciphertext missed ⇒
+  /// `'pending'` (committed, not decryptable yet — the retry/terminal
+  /// split is DecryptPass's, Task 8; `'failed'` is never written here).
+  String _ingestDecryptState(
+      {required String? decrypted, required bool keyMissing}) {
+    if (decrypted != null) return 'ready';
+    if (keyMissing) return 'key_missing';
+    return 'pending';
+  }
+
   /// Shared row-builder for the single and batched cache paths. Preserves
   /// locally-known flags from [existing].
   MessagesTableCompanion _companionFromRecord(
@@ -3260,6 +3319,7 @@ class MessageRepositoryImpl implements MessageRepository {
     String? decryptedReplyPreview,
     String? forcedStatus,
     required String myId,
+    required String decryptState,
   }) {
     final encBody = r.getStringValue('encrypted_body');
     final iv      = r.getStringValue('iv');
@@ -3300,6 +3360,10 @@ class MessageRepositoryImpl implements MessageRepository {
       isDeletedForEveryone: Value(r.getBoolValue('is_deleted_for_everyone')),
       mediaId:              Value(rawMediaId.isEmpty ? null : rawMediaId),
       status:               Value(status),
+      // Task 7: state is computed by the caller from the key/decrypt
+      // outcome; key_id preserved (nothing writes it until Task 8).
+      decryptState:         Value(decryptState),
+      keyId:                Value(existing?.keyId),
       expiresAt:            Value(_computeExpirySync(convId, createdAt)),
       createdAt:            createdAt,
       updatedAt:            DateTime.now(),

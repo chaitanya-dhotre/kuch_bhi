@@ -30,6 +30,10 @@ class _EpochAbort implements Exception {
 ///   epoch captured at entry, re-checked immediately before the write; an
 ///   invalid epoch aborts the WHOLE commit (silent, logged) — a logout
 ///   mid-commit never repopulates the wiped store.
+/// * **Always-commit (Task 7, spec §7):** commit never consults keys —
+///   a batch whose companions carry `decryptState='key_missing'` rows
+///   lands exactly like any other, cursor included. Key resolution is a
+///   reader/repair concern (DecryptPass, Task 8), never a commit gate.
 ///
 /// The repo keeps fetch/SSE orchestration (network, decrypt, flag
 /// preservation) and hands the boundary fully-built companions — the

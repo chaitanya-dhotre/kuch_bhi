@@ -47,6 +47,20 @@ class MessagesTable extends Table {
   /// 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   TextColumn get status => text().withDefault(const Constant('pending'))();
 
+  /// Decrypt lifecycle (spec §5.1, schema v9 / Task 7):
+  /// 'pending' = committed, decrypt not yet attempted ·
+  /// 'key_missing' = attempted, key unavailable (retried on key arrival) ·
+  /// 'ready' = decryptable (key resolves) · 'failed' = terminal bad MAC.
+  /// Default 'ready': legacy pre-v9 rows carry `decryptedBody`, so they
+  /// read as decryptable without a backfill.
+  TextColumn get decryptState =>
+      text().withDefault(const Constant('ready'))();
+
+  /// Key/epoch reference so a later reader knows which key the ciphertext
+  /// needs after rotation (spec §5.1). Nullable — Task 8 wires population;
+  /// Task 7 only preserves it across re-caches.
+  TextColumn get keyId => text().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

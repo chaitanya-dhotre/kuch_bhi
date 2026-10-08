@@ -190,9 +190,16 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<void> deleteByLocalId(String localId) =>
       (delete(messagesTable)..where((t) => t.localId.equals(localId))).go();
 
+  /// Repair/self-heal success lands plaintext together with the state
+  /// flip (Task 7): a `key_missing`/`pending` row that just decrypted
+  /// reads `decrypt_state='ready'` — otherwise the state would lag the
+  /// body until the next full re-cache.
   Future<void> cacheDecryptedBody(String localId, String decrypted) =>
       (update(messagesTable)..where((t) => t.localId.equals(localId))).write(
-        MessagesTableCompanion(decryptedBody: Value(decrypted)),
+        MessagesTableCompanion(
+          decryptedBody: Value(decrypted),
+          decryptState:  const Value('ready'),
+        ),
       );
 
   /// Get pending messages for retry.

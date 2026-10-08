@@ -973,3 +973,196 @@ body, fetch batch, self-heal, `_syncDeletedForMe`, `_syncStarredMessages`,
 Tests after fix round: `ingest_boundary_test.dart` **5/5** (4 brief +
 I1); char 3/3 verbatim; full suite **113 pass**; analyze **0 errors**
 (88 legacy, unchanged).
+
+## Task 7
+
+Cache-policy flip — always-commit ciphertext, the :2484 fix (spec §7).
+Commit subject `[Offline P4] Always-commit ciphertext — fetch no longer
+skips on missing key` (own hash cannot appear in its body). Files:
+`tables/messages_table.dart` + `app_database.dart` (+`app_database.g.dart`,
+build_runner), `daos/messages_dao.dart`, `ingest_boundary.dart` (doc only),
+`message_repository_impl.dart`, `test/offline/send_fetch_char_test.dart`
+(test 3 flip only), `test/offline/always_commit_test.dart` (NEW).
+Full suite **114 pass**; analyze **0 errors** (88 legacy, unchanged).
+
+### AS-BUILT (consumed by tasks 8-9)
+
+**Schema v9** (`schemaVersion => 9`; `if (from < 9)` AFTER `from < 8`):
+
+```dart
+// messages_table.dart
+TextColumn get decryptState => text().withDefault(const Constant('ready'))();
+TextColumn get keyId        => text().nullable()();
+```
+
+- `decryptState` default `'ready'` ⇒ migration `m.addColumn` marks every
+  legacy row decryptable (they carry `decryptedBody`) with NO backfill.
+- `keyId` nullable, NOTHING writes it at Task 7 — `_companionFromRecord`
+  carries `Value(existing?.keyId)` (preserve only). Populate = Task 8.
+- Same-migration limitation as v1-v8: `AppDatabase.test()` exercises
+  onCreate only; the 8→9 upgrade path runs first in production.
+
+**decrypt_state write sites (spec §5.1 semantics, Task 7 scope):**
+
+```dart
+// message_repository_impl.dart (private method)
+String _ingestDecryptState({required String? decrypted, required bool keyMissing});
+// decrypt-at-write success ⇒ 'ready' · key lookup threw (no attempt)
+//   ⇒ 'key_missing' · key present but ciphertext missed ⇒ 'pending'
+// 'failed' (terminal bad MAC) is NEVER written here — Task 8's verdict.
+```
+
+1. `_companionFromRecord(..., {required String decryptState})` — now
+   REQUIRES the state; call sites pass `_ingestDecryptState(...)`.
+   Batch path: `keyMissing: key == null` per row. `_cacheMsgInner` (SSE/
+   loadMore/single/history): same. Batch self-heal success ⇒ literal
+   `'ready'`.
+2. `messages_dao.cacheDecryptedBody` — now ALSO writes
+   `decryptState='ready'` (key-arrival repair must not leave the state at
+   `key_missing` beside a resident body). This is THE heal write for
+   `_repairUndecrypted`.
+3. Rebuild-from-existing companions CARRY the state (omission ⇒ column
+   default `'ready'` would clobber a `key_missing` row through the
+   boundary's delete-then-insert): `ssePinDeleteCompanion`,
+   `_syncDeletedForMe`, `_syncStarredMessages` — each gained
+   `decryptState: Value(row/existing.decryptState)` + `keyId: …`.
+4. NOT touched (default applies): create-side optimistic/drain-stamp
+   upserts (plaintext body ⇒ `'ready'` correct, spec §5.1 "own sent =
+   ready"), system-row emits, local toggle upserts (insertOnConflictUpdate
+   with the column ABSENT ⇒ preserved on conflict, default only on fresh
+   insert of an existing row — impossible for a toggle).
+
+**Fetch path (the delete):** `_fetchAndCacheMessages` — the
+`if (key != null)` wrapper around the cache call is GONE. Key lookup
+still try/caught; `key = null` now flows into `_cacheMessagesBatch(all,
+key, myId, cursorAdvance: …)` unconditionally ⇒ rows + cursor land in
+ONE boundary txn (Task 6 structure untouched; `IngestSource.fetch`).
+Log line changed: `committing ciphertext` (was `skipping cache`).
+
+**`_cacheMessagesBatch(records, List<int>? key, …)` — null-key behavior:**
+- decrypt hop SKIPPED (`decrypted = const {}`) — no attempt ⇒ `failedDecrypts`
+  stays empty ⇒ the key-invalidating self-heal does NOT run on a keyless
+  fetch (there is no key to invalidate; `_getConvKey` would just throw).
+- encrypted reply preview sealed as `'🔒'` without an attempt (same
+  rendering as today's empty-key SSE path).
+- conversation bump preview falls back to `'New message'` (same as SSE).
+
+**Cursor behavior:** unchanged mechanics (Task 6 monotonic `_advanceCursor`
+inside the txn) — only WHEN it advances changed: a keyless fetch now
+advances it WITH its rows (spec §7). Consequence ledgered below (poll heal).
+
+**`_cacheMsg`/`_cacheMsgInner`: `List<int>? key`** — SSE handler and
+history-sync now pass the NULL key through instead of `key ?? const
+<int>[]` (sentinel was indistinguishable from a real key). loadMore /
+fetchAndCacheSingleMessage pass non-null keys (they throw-and-skip before
+the call — unchanged). Null key ⇒ no decrypt attempt, no single-row
+self-heal, state `key_missing`.
+
+**`ingest_boundary.dart`:** doc-only — class doc gained the always-commit
+bullet ("commit never consults keys… cursor included; key resolution is a
+reader/repair concern — DecryptPass, Task 8"). Zero code change: the
+boundary was already key-agnostic; state rides the companion.
+
+### Char test 3 flip (same commit, tests 1-2 byte-untouched)
+
+`send_fetch_char_test.dart` test 3: title → `'…key MISSING still caches
+(always-commit — Task 7 flipped)'`. TWO assertions now:
+1. `repo.watchMessages('g1').first` ⇒ **`isEmpty` KEPT** — reason string
+   changed to cite Task 9: `isGroupRowVisible` (group_visibility.dart)
+   still hides undecryptable non-media rows, so the repo READ stream stays
+   empty at Task 7. The read path is Task 9's domain (plan: read-path char
+   tests keep their expectations until then).
+2. NEW: `h2.db.messagesDao.watchMessages('g1')` ⇒ `hasLength(1)`,
+   `decryptState=='key_missing'`, `decryptedBody` null — the cache-layer
+   flip (the defect was "skips CACHE", so the cache is what must bite).
+
+### Downstream adaptations (in-scope per dispatch: policy owns them)
+
+- **Poll fallback repair kick** (`_startPollFallback`, SSE-down branch):
+  `await _repairUndecrypted(active)` added after each poll fetch. WHY:
+  pre-flip a keyless fetch never wrote the cursor, so every 5s poll
+  re-delivered the same window and healed it once the key landed; post-flip
+  the cursor is past those rows, so the poll's implicit heal is GONE.
+  Restores while-open key-arrival healing (one indexed query; no-op when
+  no stuck rows). SSE-up-while-open behavior is UNCHANGED (it never healed
+  there — pre-flip required a reopen too; reopen still heals via the
+  `_messagesStream` repair call).
+- **`cacheDecryptedBody` state flip** (above) — without it, a repaired
+  row keeps `key_missing` beside its body until the next full re-cache.
+
+### Corrections vs brief (reality rule)
+
+1. **`ingest_boundary.dart` "modify" = DOC ONLY.** The brief's parenthetical
+   ("commit never consults keys; rows land with decrypt_state='key_missing'
+   when key lookup throws") describes repo-side behavior — the boundary
+   receives fully-built companions and never sees keys (Task 6 contract).
+   Forcing a code change there would have been fake work; the policy note
+   landed as a class-doc bullet.
+2. **Char test 3 does NOT flip to `rows isNotEmpty` at the repo stream.**
+   `isGroupRowVisible` hides undecryptable group rows (design D1:
+   "ciphertext must never reach a bubble"), so a repo-level flip would be
+   UNREACHABLE without a read-path edit Task 9 owns. Flip = cache-layer
+   assertion (DB stream) + kept-empty repo assertion with a Task 9 reason.
+   ⇒ **Device proof (brief Step 5) would show an EMPTY list for a group
+   with a missing key at Task 7** — the placeholder capture is only
+   reachable after Task 9 (or on a DM, where null-body rows render 🔒).
+   Step 5 was DEFERRED-DEVICE by controller anyway; this nuance is for
+   the deferred run.
+3. **`keyMissing` detect = `key == null`, not empty-key sentinel.** The
+   old `key ?? const <int>[]` pattern made "lookup threw" unrepresentable
+   downstream; nullable params make the state derivation honest.
+4. **state for "key present, decrypt missed" = `'pending'`** (spec §7
+   "rows commit as pending (or key_missing when the key lookup throws)"),
+   NOT `'failed'` — terminal bad-MAC is Task 8's DecryptPass verdict.
+   Media rows with empty ciphertext + key present also land `'pending'`
+   (nothing attempted; `getUndecryptableRows` excludes media today —
+   Task 8 input).
+5. **Edge ledgered: body-present + `key_missing`.** A re-fetch with the
+   key gone over an already-decrypted row preserves `decryptedBody`
+   (`decrypted ?? existing?.decryptedBody`) but writes state
+   `key_missing` (literal brief rule). Harmless at T7 (no state readers);
+   Task 8 should treat state as authoritative, body column as interim.
+
+### Concerns / carry-forward (ledger)
+
+- **FCM bg insert lies about state (NEW symptom of the v9 default):**
+  `fcm_service.dart:498 upsertMessageByServerId` writes a ciphertext-only
+  row with NO decryptState ⇒ fresh insert defaults `'ready'` with null
+  body (conflict path preserves — column absent from the companion).
+  Not touched: FCM is outside this brief's files and already ledgered for
+  the spec §4 two-gate / Tasks 11-12 audit. Recommended one-liner when
+  that audit lands: `decryptState: Value('pending')` (committed, never
+  attempted — bg isolate has no key material).
+- **`getUndecryptableRows` filters `decryptedBody.isNull()`** — must
+  migrate to `decrypt_state IN ('pending','key_missing')` when Task 9
+  drops the column (works unchanged until then; includes key_missing rows
+  today ⇒ repair heals them).
+- **Remaining key-skip sites (NOT the :2484 defect, unchanged by design):**
+  `loadMoreMessages` and `fetchAndCacheSingleMessage` still swallow
+  `MissingKeyException` BEFORE caching (their whole loop is skipped);
+  only the cold/warm `_fetchAndCacheMessages` path always-commits per the
+  brief. Pagination/backfill never-loses-window is unchanged (no cursor
+  advance there either).
+- **T9 forward-carry (Task 2 ruling re-check):** outbound encryption point
+  UNCHANGED — `sendMessage` still enqueues plaintext `decryptedBody`
+  (spec interim), drain encrypts. Nothing in Task 7 touches send. What
+  makes T9's column drop need care: (a) `cacheDecryptedBody` now writes
+  body+state (drop = delete body half, keep state flip); (b)
+  `getUndecryptableRows` filter (above); (c) `_companionFromRecord` still
+  computes `decryptedBody` (T9 removes the field, keeps decryptState);
+  (d) read-path surfaces keyed on `decryptedBody` (`isGroupRowVisible`,
+  search, previews) — pre-existing T9 scope, unchanged here.
+
+### Tests
+
+`test/offline/always_commit_test.dart` 1/1 (TDD: RED proven — pre-fix
+run failed `Expected: an object with length of <1> Actual: []` at the
+cache assertion with log `key not ready during fetch — skipping cache`):
+fetch with NO key ⇒ 1 row `key_missing`, ciphertext byte-identical,
+cursor `sync_cursor_g1 == 2026-10-07T10:00:00Z` (newest server stamp);
+key seeded ⇒ warm re-fetch ⇒ SAME 1 row (`serverId srv1`), state
+`ready`, body decrypted — id-based upsert, no duplicates (predicate wait
+on the drift stream; a missing re-fetch would time out, a duplicate would
+make length 2 — non-vacuous both ways).
+Char 3/3 (test 3 flipped, tests 1-2 byte-untouched); full offline dir
+**46 pass**; full suite **114 pass**; analyze **0 errors** (88 legacy).

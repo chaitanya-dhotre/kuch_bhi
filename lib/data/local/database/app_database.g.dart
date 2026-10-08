@@ -2311,6 +2311,27 @@ class $MessagesTableTable extends MessagesTable
     requiredDuringInsert: false,
     defaultValue: const Constant('pending'),
   );
+  static const VerificationMeta _decryptStateMeta = const VerificationMeta(
+    'decryptState',
+  );
+  @override
+  late final GeneratedColumn<String> decryptState = GeneratedColumn<String>(
+    'decrypt_state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('ready'),
+  );
+  static const VerificationMeta _keyIdMeta = const VerificationMeta('keyId');
+  @override
+  late final GeneratedColumn<String> keyId = GeneratedColumn<String>(
+    'key_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -2352,6 +2373,8 @@ class $MessagesTableTable extends MessagesTable
     expiresAt,
     mediaId,
     status,
+    decryptState,
+    keyId,
     createdAt,
     updatedAt,
   ];
@@ -2496,6 +2519,21 @@ class $MessagesTableTable extends MessagesTable
         status.isAcceptableOrUnknown(data['status']!, _statusMeta),
       );
     }
+    if (data.containsKey('decrypt_state')) {
+      context.handle(
+        _decryptStateMeta,
+        decryptState.isAcceptableOrUnknown(
+          data['decrypt_state']!,
+          _decryptStateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('key_id')) {
+      context.handle(
+        _keyIdMeta,
+        keyId.isAcceptableOrUnknown(data['key_id']!, _keyIdMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -2589,6 +2627,14 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.string,
         data['${effectivePrefix}status'],
       )!,
+      decryptState: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}decrypt_state'],
+      )!,
+      keyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key_id'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -2641,6 +2687,19 @@ class MessagesTableData extends DataClass
 
   /// 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
   final String status;
+
+  /// Decrypt lifecycle (spec §5.1, schema v9 / Task 7):
+  /// 'pending' = committed, decrypt not yet attempted ·
+  /// 'key_missing' = attempted, key unavailable (retried on key arrival) ·
+  /// 'ready' = decryptable (key resolves) · 'failed' = terminal bad MAC.
+  /// Default 'ready': legacy pre-v9 rows carry `decryptedBody`, so they
+  /// read as decryptable without a backfill.
+  final String decryptState;
+
+  /// Key/epoch reference so a later reader knows which key the ciphertext
+  /// needs after rotation (spec §5.1). Nullable — Task 8 wires population;
+  /// Task 7 only preserves it across re-caches.
+  final String? keyId;
   final DateTime createdAt;
   final DateTime updatedAt;
   const MessagesTableData({
@@ -2661,6 +2720,8 @@ class MessagesTableData extends DataClass
     this.expiresAt,
     this.mediaId,
     required this.status,
+    required this.decryptState,
+    this.keyId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -2696,6 +2757,10 @@ class MessagesTableData extends DataClass
       map['media_id'] = Variable<String>(mediaId);
     }
     map['status'] = Variable<String>(status);
+    map['decrypt_state'] = Variable<String>(decryptState);
+    if (!nullToAbsent || keyId != null) {
+      map['key_id'] = Variable<String>(keyId);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -2732,6 +2797,10 @@ class MessagesTableData extends DataClass
           ? const Value.absent()
           : Value(mediaId),
       status: Value(status),
+      decryptState: Value(decryptState),
+      keyId: keyId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(keyId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -2762,6 +2831,8 @@ class MessagesTableData extends DataClass
       expiresAt: serializer.fromJson<DateTime?>(json['expiresAt']),
       mediaId: serializer.fromJson<String?>(json['mediaId']),
       status: serializer.fromJson<String>(json['status']),
+      decryptState: serializer.fromJson<String>(json['decryptState']),
+      keyId: serializer.fromJson<String?>(json['keyId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -2787,6 +2858,8 @@ class MessagesTableData extends DataClass
       'expiresAt': serializer.toJson<DateTime?>(expiresAt),
       'mediaId': serializer.toJson<String?>(mediaId),
       'status': serializer.toJson<String>(status),
+      'decryptState': serializer.toJson<String>(decryptState),
+      'keyId': serializer.toJson<String?>(keyId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -2810,6 +2883,8 @@ class MessagesTableData extends DataClass
     Value<DateTime?> expiresAt = const Value.absent(),
     Value<String?> mediaId = const Value.absent(),
     String? status,
+    String? decryptState,
+    Value<String?> keyId = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => MessagesTableData(
@@ -2832,6 +2907,8 @@ class MessagesTableData extends DataClass
     expiresAt: expiresAt.present ? expiresAt.value : this.expiresAt,
     mediaId: mediaId.present ? mediaId.value : this.mediaId,
     status: status ?? this.status,
+    decryptState: decryptState ?? this.decryptState,
+    keyId: keyId.present ? keyId.value : this.keyId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -2866,6 +2943,10 @@ class MessagesTableData extends DataClass
       expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
       mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
       status: data.status.present ? data.status.value : this.status,
+      decryptState: data.decryptState.present
+          ? data.decryptState.value
+          : this.decryptState,
+      keyId: data.keyId.present ? data.keyId.value : this.keyId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -2891,6 +2972,8 @@ class MessagesTableData extends DataClass
           ..write('expiresAt: $expiresAt, ')
           ..write('mediaId: $mediaId, ')
           ..write('status: $status, ')
+          ..write('decryptState: $decryptState, ')
+          ..write('keyId: $keyId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -2898,7 +2981,7 @@ class MessagesTableData extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     localId,
     serverId,
     conversationId,
@@ -2916,9 +2999,11 @@ class MessagesTableData extends DataClass
     expiresAt,
     mediaId,
     status,
+    decryptState,
+    keyId,
     createdAt,
     updatedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2940,6 +3025,8 @@ class MessagesTableData extends DataClass
           other.expiresAt == this.expiresAt &&
           other.mediaId == this.mediaId &&
           other.status == this.status &&
+          other.decryptState == this.decryptState &&
+          other.keyId == this.keyId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -2962,6 +3049,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
   final Value<DateTime?> expiresAt;
   final Value<String?> mediaId;
   final Value<String> status;
+  final Value<String> decryptState;
+  final Value<String?> keyId;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -2983,6 +3072,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.expiresAt = const Value.absent(),
     this.mediaId = const Value.absent(),
     this.status = const Value.absent(),
+    this.decryptState = const Value.absent(),
+    this.keyId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -3005,6 +3096,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.expiresAt = const Value.absent(),
     this.mediaId = const Value.absent(),
     this.status = const Value.absent(),
+    this.decryptState = const Value.absent(),
+    this.keyId = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -3034,6 +3127,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Expression<DateTime>? expiresAt,
     Expression<String>? mediaId,
     Expression<String>? status,
+    Expression<String>? decryptState,
+    Expression<String>? keyId,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -3057,6 +3152,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       if (expiresAt != null) 'expires_at': expiresAt,
       if (mediaId != null) 'media_id': mediaId,
       if (status != null) 'status': status,
+      if (decryptState != null) 'decrypt_state': decryptState,
+      if (keyId != null) 'key_id': keyId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -3081,6 +3178,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Value<DateTime?>? expiresAt,
     Value<String?>? mediaId,
     Value<String>? status,
+    Value<String>? decryptState,
+    Value<String?>? keyId,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -3103,6 +3202,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       expiresAt: expiresAt ?? this.expiresAt,
       mediaId: mediaId ?? this.mediaId,
       status: status ?? this.status,
+      decryptState: decryptState ?? this.decryptState,
+      keyId: keyId ?? this.keyId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -3165,6 +3266,12 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
+    if (decryptState.present) {
+      map['decrypt_state'] = Variable<String>(decryptState.value);
+    }
+    if (keyId.present) {
+      map['key_id'] = Variable<String>(keyId.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3197,6 +3304,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
           ..write('expiresAt: $expiresAt, ')
           ..write('mediaId: $mediaId, ')
           ..write('status: $status, ')
+          ..write('decryptState: $decryptState, ')
+          ..write('keyId: $keyId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -8689,6 +8798,8 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       Value<DateTime?> expiresAt,
       Value<String?> mediaId,
       Value<String> status,
+      Value<String> decryptState,
+      Value<String?> keyId,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -8712,6 +8823,8 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<DateTime?> expiresAt,
       Value<String?> mediaId,
       Value<String> status,
+      Value<String> decryptState,
+      Value<String?> keyId,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -8808,6 +8921,16 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<String> get status => $composableBuilder(
     column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get decryptState => $composableBuilder(
+    column: $table.decryptState,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get keyId => $composableBuilder(
+    column: $table.keyId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8916,6 +9039,16 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get decryptState => $composableBuilder(
+    column: $table.decryptState,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get keyId => $composableBuilder(
+    column: $table.keyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -8999,6 +9132,14 @@ class $$MessagesTableTableAnnotationComposer
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
+  GeneratedColumn<String> get decryptState => $composableBuilder(
+    column: $table.decryptState,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get keyId =>
+      $composableBuilder(column: $table.keyId, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -9058,6 +9199,8 @@ class $$MessagesTableTableTableManager
                 Value<DateTime?> expiresAt = const Value.absent(),
                 Value<String?> mediaId = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String> decryptState = const Value.absent(),
+                Value<String?> keyId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -9079,6 +9222,8 @@ class $$MessagesTableTableTableManager
                 expiresAt: expiresAt,
                 mediaId: mediaId,
                 status: status,
+                decryptState: decryptState,
+                keyId: keyId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -9102,6 +9247,8 @@ class $$MessagesTableTableTableManager
                 Value<DateTime?> expiresAt = const Value.absent(),
                 Value<String?> mediaId = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String> decryptState = const Value.absent(),
+                Value<String?> keyId = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -9123,6 +9270,8 @@ class $$MessagesTableTableTableManager
                 expiresAt: expiresAt,
                 mediaId: mediaId,
                 status: status,
+                decryptState: decryptState,
+                keyId: keyId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

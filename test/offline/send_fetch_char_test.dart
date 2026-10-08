@@ -87,7 +87,7 @@ void main() {
         reason: 'ciphertext decrypted at cache-write, row visible');
   });
 
-  test('char: cold watchMessages with key MISSING skips cache (defect pinned — Task 7 flips)',
+  test('char: cold watchMessages with key MISSING still caches (always-commit — Task 7 flipped)',
       () async {
     final pre = charHarness();
     addTearDown(pre.close);
@@ -98,8 +98,18 @@ void main() {
     await seedConversationAndKey(h2, withKey: false); // group_key_g1 absent
     final repo = buildRepo(h2);
 
-    final rows = await repo.watchMessages('g1').first;
+    final rows = await repo.watchMessages('g1').first; // cold path awaits fetch
+    // Task 7 FLIP (was: `expect(rows, isEmpty, '…skips cache…')`): the
+    // :2484 defect is gone — ciphertext lands decrypt_state='key_missing'.
+    // The repo STREAM still yields [] for now: isGroupRowVisible keeps
+    // hiding undecryptable group rows (read path = Task 9's domain), so
+    // the cache assertion below is the always-commit contract.
     expect(rows, isEmpty,
-        reason: 'CHAR: pins the :2484 skip defect; Task 7 flips this expectation in its own commit');
+        reason: 'CHAR: read path unchanged at Task 7 — Task 9 flips this surface');
+    final cached = await h2.db.messagesDao.watchMessages('g1').first;
+    expect(cached, hasLength(1),
+        reason: 'CHAR Task 7: always-commit — row lands without the key');
+    expect(cached.first.decryptState, 'key_missing');
+    expect(cached.first.decryptedBody, isNull);
   });
 }
