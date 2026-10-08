@@ -10,6 +10,8 @@ import 'package:pocketbase/pocketbase.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/decrypt/body_cache.dart';
+import '../../core/decrypt/decrypt_pass.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
@@ -93,6 +95,14 @@ class MessageRepositoryImpl implements MessageRepository {
       epoch: () => _sessionEpoch,
       authValid: () => _pb.authStore.isValid,
     );
+    // Task 8: DecryptPass (spec §8) — same ctor pattern so its apply-step
+    // guard reads the repo's LIVE session epoch (dropped results after
+    // logout/account-switch never touch Drift or the body cache).
+    decryptPass = DecryptPass(
+      db: db,
+      enc: encryption,
+      epoch: () => _sessionEpoch,
+    );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
 
@@ -136,6 +146,9 @@ class MessageRepositoryImpl implements MessageRepository {
       _wasAuthenticated = authenticated;
       _realtimeUserId = userId;
       _sessionEpoch++; // in-flight work from the old session must not write
+      // Task 8 (spec §3/§11): the in-memory decrypt cache is session-scoped
+      // too — logout / account switch purges it alongside the epoch bump.
+      bodyCache.clear();
       _cutoffCache.clear(); // identity changed — group cutoffs are per-user
       if (authenticated) {
         debugPrint('[Msg] Auth identity changed — reconnecting subscriptions.');
@@ -207,6 +220,11 @@ class MessageRepositoryImpl implements MessageRepository {
   /// the interim drain-ack body all route here. Exposed for tests
   /// (outboxWorker/mediaBlobStore precedent).
   late final IngestBoundary ingestBoundary;
+
+  /// Task 8: batch decrypt orchestrator (spec §8) — constructed here so
+  /// its epoch seam reads [_sessionEpoch]; exposed for
+  /// `decryptPassProvider` (chat_provider / mediaFileProvider precedent).
+  late final DecryptPass decryptPass;
 
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();

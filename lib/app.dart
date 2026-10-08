@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/decrypt/body_cache.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'features/auth/providers/auth_provider.dart';
@@ -62,6 +63,10 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
         // App backgrounded or about to be killed.
         // goOffline() also clears current_chat and typing_in.
         presence.goOffline();
+        // Spec §3 / amendment 6: purge decrypted bodies from memory while
+        // backgrounded — `ready` rows safely re-decrypt on the next
+        // provider read (spec §8).
+        bodyCache.clear();
       case AppLifecycleState.detached:
         presence.goOffline();
       default:
