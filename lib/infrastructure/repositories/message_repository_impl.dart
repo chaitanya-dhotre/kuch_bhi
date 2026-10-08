@@ -28,6 +28,8 @@ import '../../domain/repositories/message_repository.dart';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../offline/outbox_worker.dart';
 import '../media/media_blob_store.dart';
+import '../ingest/ingest_batch.dart';
+import '../ingest/ingest_boundary.dart';
 import '../../services/encryption_service.dart';
 import '../../services/media_upload_service.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
@@ -42,7 +44,9 @@ import '../../services/fcm_service.dart';
 /// send and must never be counted as delivered — it maps through the
 /// normal error class instead (Task 3).
 ///
-/// INTERIM: absorbed by IngestBoundary in Task 6.
+/// Task 6 note: stays a TOP-LEVEL parse here (create-side ownership flow —
+/// see `resolveDuplicateSend`); only the ack WRITE after a verified
+/// duplicate rides IngestBoundary.
 bool isDuplicateIdError(ClientException error) {
   if (error.statusCode != 400) return false;
   final data = error.response['data'];
@@ -80,6 +84,14 @@ class MessageRepositoryImpl implements MessageRepository {
       // Spec §11 (fix I1): live session epoch — same counter the repo's
       // own write guards read (logout/account switch bumps it).
       epoch: () => _sessionEpoch,
+    );
+    // Task 6: IngestBoundary is the SOLE writer of network-sourced message
+    // records (spec §4/§7) — built like outboxWorker/mediaBlobStore so the
+    // epoch/auth seams read the repo's live session state.
+    ingestBoundary = IngestBoundary(
+      db: db,
+      epoch: () => _sessionEpoch,
+      authValid: () => _pb.authStore.isValid,
     );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
@@ -187,6 +199,14 @@ class MessageRepositoryImpl implements MessageRepository {
   /// store's key resolution reuses [_getConvKey]; exposed for the
   /// mediaFileProvider re-point (chat_provider.dart).
   late final MediaBlobStore mediaBlobStore;
+
+  /// Task 6: IngestBoundary is the SOLE writer of network-sourced message
+  /// records (spec §4/§7). The repo keeps fetch/SSE orchestration (network,
+  /// decrypt, flag preservation) and delegates every such record write to
+  /// `ingestBoundary.commit(batch, source)` — SSE handler, fetch loop and
+  /// the interim drain-ack body all route here. Exposed for tests
+  /// (outboxWorker/mediaBlobStore precedent).
+  late final IngestBoundary ingestBoundary;
 
   PocketBase get _pb => pbClient.pb;
   static const _uuid = Uuid();
@@ -307,6 +327,8 @@ class MessageRepositoryImpl implements MessageRepository {
 
       // Sync pin + delete-for-everyone state for ANY message (including our
       // own), so these reflect live across devices without reopening.
+      // Task 6: the former fast-path write is now an IngestBoundary commit
+      // (the SSE fast path is gone — spec §4: no third writer).
       try {
         final existing = await db.messagesDao.getMessageByServerId(r.id);
         if (existing != null) {
@@ -314,26 +336,31 @@ class MessageRepositoryImpl implements MessageRepository {
           final serverDeleted = r.getBoolValue('is_deleted_for_everyone');
           if (serverPinned != existing.isPinned ||
               serverDeleted != existing.isDeletedForEveryone) {
-            await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-              localId:              existing.localId,
-              serverId:             Value(existing.serverId),
-              conversationId:       existing.conversationId,
-              senderId:             existing.senderId,
-              type:                 existing.type,
-              encryptedBody:        existing.encryptedBody,
-              iv:                   existing.iv,
-              decryptedBody:        Value(existing.decryptedBody),
-              replyToId:            Value(existing.replyToId),
-              replyPreview:         Value(existing.replyPreview),
-              isPinned:             Value(serverPinned),
-              isStarred:            Value(existing.isStarred),
-              isDeletedForMe:       Value(existing.isDeletedForMe),
-              isDeletedForEveryone: Value(serverDeleted),
-              mediaId:              Value(existing.mediaId),
-              status:               Value(existing.status),
-              createdAt:            existing.createdAt,
-              updatedAt:            DateTime.now(),
-            ));
+            await ingestBoundary.commit(
+              IngestBatch(upserts: [
+                MessageUpsert(MessagesTableCompanion.insert(
+                  localId:              existing.localId,
+                  serverId:             Value(existing.serverId),
+                  conversationId:       existing.conversationId,
+                  senderId:             existing.senderId,
+                  type:                 existing.type,
+                  encryptedBody:        existing.encryptedBody,
+                  iv:                   existing.iv,
+                  decryptedBody:        Value(existing.decryptedBody),
+                  replyToId:            Value(existing.replyToId),
+                  replyPreview:         Value(existing.replyPreview),
+                  isPinned:             Value(serverPinned),
+                  isStarred:            Value(existing.isStarred),
+                  isDeletedForMe:       Value(existing.isDeletedForMe),
+                  isDeletedForEveryone: Value(serverDeleted),
+                  mediaId:              Value(existing.mediaId),
+                  status:               Value(existing.status),
+                  createdAt:            existing.createdAt,
+                  updatedAt:            DateTime.now(),
+                )),
+              ]),
+              IngestSource.sse,
+            );
           }
         }
       } catch (_) {}
@@ -361,7 +388,8 @@ class MessageRepositoryImpl implements MessageRepository {
         }
         // Cache even if we can't decrypt yet — a later fetch/reconcile will
         // decrypt once the key is available. Message is never lost.
-        await _cacheMsg(r, myId, key ?? const <int>[]);
+        await _cacheMsg(r, myId, key ?? const <int>[],
+            source: IngestSource.sse);
         // Acknowledge delivery so the sender's tick advances — narrative
         // 'system' rows carry no ticks, skip them.
         if (r.getStringValue('type') != 'system') {
@@ -933,33 +961,25 @@ class MessageRepositoryImpl implements MessageRepository {
   /// `outbox.state`). [senderId]/[conversationId] guard the update to OUR
   /// row in OUR conversation; the outbox `ref` resolves the local row.
   ///
-  /// // INTERIM: absorbed by IngestBoundary in Task 6
-  /// (Task 6 replaces this body with `boundary.commit(batch, source)` —
-  /// duplicate-id safety lives there, not here).
+  /// Task 6 (AS-BUILT): the body is now `ingestBoundary.commit(batch,
+  /// IngestSource.drainAck)` — the op read (`outbox.ref` → localId) joins
+  /// the boundary's transaction (carry-in 1), the epoch guard wraps the
+  /// commit (spec §7), and the signature stays for Task 7+ cleanup.
   Future<void> handleDrainAck(
     String opId, {
     required String serverId,
     required String senderId,
     required String conversationId,
-  }) async {
-    final op = await db.outboxDao.byId(opId);
-    // INTERIM: absorbed by IngestBoundary in Task 6
-    await db.transaction(() async {
-      if (op != null) {
-        await (db.update(db.messagesTable)
-              ..where((t) =>
-                  t.localId.equals(op.ref) &
-                  t.senderId.equals(senderId) &
-                  t.conversationId.equals(conversationId)))
-            .write(MessagesTableCompanion(
-          serverId: Value(serverId),
-          status: const Value('sent'),
-          updatedAt: Value(DateTime.now()),
-        ));
-      }
-      await db.outboxDao.setState(opId, OutboxState.sent);
-    });
-  }
+  }) =>
+      ingestBoundary.commit(
+        IngestBatch(ack: OutboxAck(
+          opId:           opId,
+          serverId:       serverId,
+          senderId:       senderId,
+          conversationId: conversationId,
+        )),
+        IngestSource.drainAck,
+      );
 
   /// Spec §5.2 ownership check for a CONFIRMED duplicate-id create —
   /// call ONLY after [isDuplicateIdError] said the 400 was
@@ -972,7 +992,9 @@ class MessageRepositoryImpl implements MessageRepository {
   ///    `outbox.state = failedTerminal`, `errorClass = 'id_collision'`,
   ///    return `false` — terminal: never retried, never counted success.
   ///
-  /// INTERIM: absorbed by IngestBoundary in Task 6.
+  /// Task 6 note: the ownership check stays HERE untouched (create-side,
+  /// carry-in 2) — only its success arm now lands via [handleDrainAck] →
+  /// `ingestBoundary.commit(batch, drainAck)`.
   Future<bool> resolveDuplicateSend({
     required String opId,
     required String senderId,
@@ -2687,9 +2709,9 @@ class MessageRepositoryImpl implements MessageRepository {
     return DateTime.tryParse(raw);
   }
 
-  Future<void> _writeCursor(String convId, DateTime at) =>
-      db.settingsDao.setSetting(
-          'sync_cursor_$convId', at.toUtc().toIso8601String());
+  // `_writeCursor` DELETED (Task 6): the cursor write moved into
+  // IngestBoundary.commit — it advances in the SAME transaction as the
+  // batch it belongs to (spec §7), never as a separate write.
 
   /// Incremental fetch: cursor delta on warm caches (pages until caught
   /// up), latest-40 only on cold. Batched cache = one existing-rows query,
@@ -2754,10 +2776,31 @@ class MessageRepositoryImpl implements MessageRepository {
           key = null;
         }
         if (key != null) {
-          await _cacheMessagesBatch(all, key, myId);
+          // Review I2: only advance the cursor when the whole delta present
+          // at fetch start landed (offset shifts during multi-page
+          // catch-up would otherwise skip rows forever). Cold fetches
+          // (cursor == null) commit to newest-40 by design — older history
+          // is loadMoreMessages' job, nothing is being skipped.
+          // Task 6: the delta rides the SAME commit as the batch (spec §7)
+          // — an aborted commit holds rows AND cursor back together.
+          final advance = cursor == null ||
+              shouldAdvanceCursor(
+                  fetched: all.length, totalAtStart: totalAtStart);
+          final newest =
+              DateTime.tryParse(all.first.getStringValue('created'));
+          await _cacheMessagesBatch(
+            all,
+            key,
+            myId,
+            cursorAdvance: (newest != null && advance)
+                ? CursorDelta(conversationId: conversationId, to: newest)
+                : null,
+          );
           // Review C1 (hardening): the batch aborts WITHOUT writing when the
-          // session ended mid-flight — advancing the cursor then would skip
-          // this whole delta forever on the next login.
+          // session ended mid-flight — the cursor lives in that same txn,
+          // so it cannot advance past unwritten rows (spec §7). The
+          // early-return keeps the trailing sync passes out of the wiped
+          // session.
           if (!sessionStillValid(
               epochAtStart: epoch,
               currentEpoch: _sessionEpoch,
@@ -2765,19 +2808,7 @@ class MessageRepositoryImpl implements MessageRepository {
             debugPrint('[Msg] cursor held back — batch aborted (session)');
             return;
           }
-          // Review I2: only advance the cursor when the whole delta present
-          // at fetch start landed (offset shifts during multi-page
-          // catch-up would otherwise skip rows forever). Cold fetches
-          // (cursor == null) commit to newest-40 by design — older history
-          // is loadMoreMessages' job, nothing is being skipped.
-          final advance = cursor == null ||
-              shouldAdvanceCursor(
-                  fetched: all.length, totalAtStart: totalAtStart);
-          final newest =
-              DateTime.tryParse(all.first.getStringValue('created'));
-          if (newest != null && advance) {
-            await _writeCursor(conversationId, newest);
-          } else if (!advance) {
+          if (!advance) {
             debugPrint('[Msg] cursor held back (partial catch-up '
                 '${all.length}/$totalAtStart)');
           }
@@ -2794,11 +2825,16 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   /// Batched cache: one existing-rows query, one decryptBatch hop, one
-  /// Drift batch insert. [records] must be one conversation, sorted
+  /// boundary commit. [records] must be one conversation, sorted
   /// `-created`. Decrypt misses self-heal per-row (groups only) exactly
-  /// like the single-row path.
+  /// like the single-row path. [cursorAdvance] rides the SAME commit as
+  /// the upserts (spec §7 — Task 6).
   Future<void> _cacheMessagesBatch(
-      List<RecordModel> records, List<int> key, String myId) async {
+    List<RecordModel> records,
+    List<int> key,
+    String myId, {
+    CursorDelta? cursorAdvance,
+  }) async {
     if (records.isEmpty) return;
     final epoch = _sessionEpoch;
     final convId = records.first.getStringValue('conversation_id');
@@ -2857,27 +2893,30 @@ class MessageRepositoryImpl implements MessageRepository {
     }
 
     // Review C1: decrypt awaited across the gap above — re-check before
-    // touching the (possibly wiped) tables.
+    // touching the (possibly wiped) tables. The boundary re-checks its own
+    // entry epoch too; this guard covers the DECRYPT window (epoch captured
+    // at function entry, before the isolate hop), which a commit-time
+    // capture would miss.
     if (!sessionStillValid(
         epochAtStart: epoch,
         currentEpoch: _sessionEpoch,
         authValid: _pb.authStore.isValid)) {
       return;
     }
-    // Clear any rows already holding these server ids (prior cache + FCM
-    // bg placeholders): ONE insert collision aborts the entire batch, which
-    // silently dropped whole fetches (no decrypt, no badge). Companions
-    // carry the preserved flags. NOTE: the onConflict targets localId only
-    // — a placeholder written between this delete and the batch would still
-    // abort (rare, ms window); the cursor not advancing recovers it.
-    await db.messagesDao.deleteByServerIds([for (final r in records) r.id]);
-    await db.batch((b) {
-      for (final c in companions) {
-        b.insert(db.messagesTable, c,
-            onConflict: DoUpdate((_) => c,
-                target: [db.messagesTable.localId]));
-      }
-    });
+    // Sole writer (Task 6): upserts + the cursor delta land in ONE
+    // boundary transaction (spec §7). The delete-then-insert mechanics
+    // (clear prior cache + FCM bg placeholders so ONE collision cannot
+    // abort the batch; companions carry preserved flags; onConflict targets
+    // localId — a placeholder written between the delete and the batch
+    // would still abort, rare ms window, cursor held with the txn now
+    // recovers it) moved into IngestBoundary.commit verbatim.
+    await ingestBoundary.commit(
+      IngestBatch(
+        upserts: [for (final c in companions) MessageUpsert(c)],
+        cursorAdvance: cursorAdvance,
+      ),
+      IngestSource.fetch,
+    );
 
     // Self-heal decrypt misses: invalidate the cached conv key (group row
     // cache, or ALL contact-key caches for a direct chat — covers stale
@@ -2896,10 +2935,15 @@ class MessageRepositoryImpl implements MessageRepository {
               r.getStringValue('encrypted_body'),
               r.getStringValue('iv'), freshKey);
           if (body != null) {
-            await db.messagesDao.upsertMessage(_companionFromRecord(r,
-                existing: existingById[r.id],
-                decrypted: body,
-                myId: myId));
+            await ingestBoundary.commit(
+              IngestBatch(upserts: [
+                MessageUpsert(_companionFromRecord(r,
+                    existing: existingById[r.id],
+                    decrypted: body,
+                    myId: myId)),
+              ]),
+              IngestSource.fetch,
+            );
           }
         }
       } catch (e) {
@@ -2998,24 +3042,37 @@ class MessageRepositoryImpl implements MessageRepository {
       final rows = await db.messagesDao.watchMessages(conversationId).first;
       for (final row in rows) {
         if (row.serverId != null && deletedIds.contains(row.serverId)) {
-          await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-            localId:              row.localId,
-            serverId:             Value(row.serverId),
-            conversationId:       row.conversationId,
-            senderId:             row.senderId,
-            type:                 row.type,
-            encryptedBody:        row.encryptedBody,
-            iv:                   row.iv,
-            decryptedBody:        Value(row.decryptedBody),
-            isDeletedForMe:       Value(true),
-            isDeletedForEveryone: Value(row.isDeletedForEveryone),
-            isStarred:            Value(row.isStarred),
-            isPinned:             Value(row.isPinned),
-            mediaId:              Value(row.mediaId),
-            status:               Value(row.status),
-            createdAt:            row.createdAt,
-            updatedAt:            DateTime.now(),
-          ));
+          // Task 6: fetch-loop record write → boundary commit. Companion
+          // now carries replyToId/replyPreview/expiresAt too — the
+          // boundary's delete-then-insert rebuilds the row from the
+          // companion, so every column the old conflict-update preserved
+          // implicitly must be explicit here (lossless move).
+          await ingestBoundary.commit(
+            IngestBatch(upserts: [
+              MessageUpsert(MessagesTableCompanion.insert(
+                localId:              row.localId,
+                serverId:             Value(row.serverId),
+                conversationId:       row.conversationId,
+                senderId:             row.senderId,
+                type:                 row.type,
+                encryptedBody:        row.encryptedBody,
+                iv:                   row.iv,
+                decryptedBody:        Value(row.decryptedBody),
+                replyToId:            Value(row.replyToId),
+                replyPreview:         Value(row.replyPreview),
+                isDeletedForMe:       Value(true),
+                isDeletedForEveryone: Value(row.isDeletedForEveryone),
+                isStarred:            Value(row.isStarred),
+                isPinned:             Value(row.isPinned),
+                expiresAt:            Value(row.expiresAt),
+                mediaId:              Value(row.mediaId),
+                status:               Value(row.status),
+                createdAt:            row.createdAt,
+                updatedAt:            DateTime.now(),
+              )),
+            ]),
+            IngestSource.fetch,
+          );
         }
       }
     } catch (e) {
@@ -3038,24 +3095,34 @@ class MessageRepositoryImpl implements MessageRepository {
       final rows = await db.messagesDao.watchMessages(conversationId).first;
       for (final row in rows) {
         if (row.serverId != null && starredIds.contains(row.serverId)) {
-          await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
-            localId:              row.localId,
-            serverId:             Value(row.serverId),
-            conversationId:       row.conversationId,
-            senderId:             row.senderId,
-            type:                 row.type,
-            encryptedBody:        row.encryptedBody,
-            iv:                   row.iv,
-            decryptedBody:        Value(row.decryptedBody),
-            isDeletedForMe:       Value(row.isDeletedForMe),
-            isDeletedForEveryone: Value(row.isDeletedForEveryone),
-            isStarred:            Value(true),
-            isPinned:             Value(row.isPinned),
-            mediaId:              Value(row.mediaId),
-            status:               Value(row.status),
-            createdAt:            row.createdAt,
-            updatedAt:            DateTime.now(),
-          ));
+          // Task 6: fetch-loop record write → boundary commit (companion
+          // completed with reply/expires columns — see _syncDeletedForMe).
+          await ingestBoundary.commit(
+            IngestBatch(upserts: [
+              MessageUpsert(MessagesTableCompanion.insert(
+                localId:              row.localId,
+                serverId:             Value(row.serverId),
+                conversationId:       row.conversationId,
+                senderId:             row.senderId,
+                type:                 row.type,
+                encryptedBody:        row.encryptedBody,
+                iv:                   row.iv,
+                decryptedBody:        Value(row.decryptedBody),
+                replyToId:            Value(row.replyToId),
+                replyPreview:         Value(row.replyPreview),
+                isDeletedForMe:       Value(row.isDeletedForMe),
+                isDeletedForEveryone: Value(row.isDeletedForEveryone),
+                isStarred:            Value(true),
+                isPinned:             Value(row.isPinned),
+                expiresAt:            Value(row.expiresAt),
+                mediaId:              Value(row.mediaId),
+                status:               Value(row.status),
+                createdAt:            row.createdAt,
+                updatedAt:            DateTime.now(),
+              )),
+            ]),
+            IngestSource.fetch,
+          );
         }
       }
     } catch (e) {
@@ -3069,19 +3136,21 @@ class MessageRepositoryImpl implements MessageRepository {
   /// "no existing row" and insert duplicates (two bubbles for one message).
   final Map<String, Future<void>> _cacheInFlight = {};
 
-  Future<void> _cacheMsg(RecordModel r, String myId, List<int> key) {
+  Future<void> _cacheMsg(RecordModel r, String myId, List<int> key,
+      {IngestSource source = IngestSource.fetch}) {
     final pending = _cacheInFlight[r.id];
     // Swallow the previous op's error so the chain always continues.
     final next = (pending ?? Future.value())
         .catchError((_) {})
-        .then((_) => _cacheMsgInner(r, myId, key));
+        .then((_) => _cacheMsgInner(r, myId, key, source));
     _cacheInFlight[r.id] = next.whenComplete(() {
       if (identical(_cacheInFlight[r.id], next)) _cacheInFlight.remove(r.id);
     });
     return next;
   }
 
-  Future<void> _cacheMsgInner(RecordModel r, String myId, List<int> key) async {
+  Future<void> _cacheMsgInner(
+      RecordModel r, String myId, List<int> key, IngestSource source) async {
     final epoch = _sessionEpoch;
     // Note: isDeletedForEveryone is already synchronized automatically on fresh install
     // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
@@ -3139,14 +3208,21 @@ class MessageRepositoryImpl implements MessageRepository {
         authValid: _pb.authStore.isValid)) {
       return; // session ended mid-decrypt — do not resurrect wiped rows
     }
-    await db.messagesDao.upsertMessage(_companionFromRecord(
-      r,
-      existing: existing,
-      decrypted: decrypted,
-      decryptedReplyPreview: replyPreview,
-      forcedStatus: forcedStatus,
-      myId: myId,
-    ));
+    // Sole writer (Task 6): the boundary re-checks its own entry epoch for
+    // the commit window; the guard above covers the decrypt window.
+    await ingestBoundary.commit(
+      IngestBatch(upserts: [
+        MessageUpsert(_companionFromRecord(
+          r,
+          existing: existing,
+          decrypted: decrypted,
+          decryptedReplyPreview: replyPreview,
+          forcedStatus: forcedStatus,
+          myId: myId,
+        )),
+      ]),
+      source,
+    );
     if (!isMine) {
       await _bumpConversationForIncoming(r,
           existing?.localId ?? _uuid.v4(),

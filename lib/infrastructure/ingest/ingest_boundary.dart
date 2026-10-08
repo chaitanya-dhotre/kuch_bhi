@@ -1,0 +1,183 @@
+import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+
+import '../../core/utils/session_epoch.dart';
+import '../../data/local/database/app_database.dart';
+import '../../data/local/database/tables/outbox_table.dart';
+import 'ingest_batch.dart';
+
+/// Session epoch moved between a commit's entry check and its write gate —
+/// thrown INSIDE the commit transaction so every prior write in it rolls
+/// back, then caught by [IngestBoundary.commit], logged and swallowed
+/// (spec §7 abort semantics: silent, never surfaced to the caller).
+class _EpochAbort implements Exception {
+  const _EpochAbort(this.what);
+  final String what;
+  @override
+  String toString() => 'IngestEpochAbort($what)';
+}
+
+/// IngestBoundary — SOLE writer of network-sourced message records
+/// (spec §4/§7). Every SSE, pull-fetch and drain-ack record write funnels
+/// through [commit]:
+///
+/// * **ONE transaction per batch** carrying the message upserts (by server
+///   id), tombstone flag flips, the per-conversation sync-cursor advance
+///   and the drain-ack `outbox.state` + `messages.status` dual-truth flip —
+///   atomically, so an SSE gap plus a pull fetch can neither skip nor
+///   double-apply.
+/// * **Session-epoch guard** (spec §7/§11, MediaBlobStore's pattern):
+///   epoch captured at entry, re-checked immediately before the write; an
+///   invalid epoch aborts the WHOLE commit (silent, logged) — a logout
+///   mid-commit never repopulates the wiped store.
+///
+/// The repo keeps fetch/SSE orchestration (network, decrypt, flag
+/// preservation) and hands the boundary fully-built companions — the
+/// boundary never parses records, never touches keys, never advances a
+/// cursor outside [IngestBatch.cursorAdvance].
+class IngestBoundary {
+  IngestBoundary({
+    required AppDatabase db,
+    required int Function() epoch,
+    required bool Function() authValid,
+  })  : _db = db,
+        _epoch = epoch,
+        _authValid = authValid;
+
+  final AppDatabase _db;
+
+  /// Session-epoch seam (spec §11): the repo's live `_sessionEpoch`
+  /// counter, bumped on logout/account switch. Tests inject a mutable
+  /// holder (same seam shape as MediaBlobStore's `epoch:`).
+  final int Function() _epoch;
+
+  /// `pb.authStore.isValid` in production — completes the
+  /// `sessionStillValid` triple (Review C1).
+  final bool Function() _authValid;
+
+  /// Test seam (Task 6 brief tests 3 + 4): invoked INSIDE the commit
+  /// transaction, after the entry epoch check and immediately before the
+  /// message-row/cursor writes. For a drain-ack batch it fires after the
+  /// in-txn `outbox.setState(sent)` flip — so a failure injected here must
+  /// roll that flip back (the same-transaction coupling proof). Null in
+  /// production.
+  @visibleForTesting
+  void Function()? onBeforeWrite;
+
+  bool _stillValid(int epochAtStart, String what) {
+    if (sessionStillValid(
+      epochAtStart: epochAtStart,
+      currentEpoch: _epoch(),
+      authValid: _authValid(),
+    )) {
+      return true;
+    }
+    debugPrint('[Ingest] $what dropped — session ended (spec §7 epoch guard)');
+    return false;
+  }
+
+  /// Single entry for network-sourced record writes (spec §7): one Drift
+  /// transaction per batch. Epoch checked at entry, re-checked immediately
+  /// before the write (the [onBeforeWrite] hook sits between the two —
+  /// the brief's injected "mid-commit" point). A commit whose epoch went
+  /// stale writes NOTHING and returns silently; real write errors
+  /// propagate to the caller's existing catch handling.
+  Future<void> commit(IngestBatch batch, IngestSource source) async {
+    final epochAtStart = _epoch();
+    if (!_stillValid(epochAtStart, 'commit($source) at entry')) return;
+    try {
+      await _db.transaction(() async {
+        // ── Drain ack (Task 2 semantics, carry-in 1): the op read joins
+        // the txn, and the state flip lands in the same atomic unit as the
+        // message stamp below. Order inside the txn is state-flip → status
+        // write (T2's message-first order swapped — LEDGERED seam: only
+        // observable through failure, where the swap is what makes the
+        // rollback proof non-vacuous; the pair still lands or aborts
+        // together, which is all spec §5.1/§7 requires).
+        final ack = batch.ack;
+        // final ⇒ null-check promotion stays valid inside the nested
+        // `..where((t) => ...)` closure below.
+        final OutboxTableData? op =
+            ack == null ? null : await _db.outboxDao.byId(ack.opId);
+        if (ack != null) {
+          await _db.outboxDao.setState(ack.opId, OutboxState.sent);
+        }
+
+        // Injected hook + epoch re-check — immediately before the writes.
+        onBeforeWrite?.call();
+        if (!_stillValid(epochAtStart, 'commit($source) before write')) {
+          // Thrown inside the txn ⇒ everything above (incl. a drain-ack
+          // state flip) rolls back; caught below, never surfaced.
+          throw const _EpochAbort('epoch moved between entry and write');
+        }
+
+        // ── Drain-ack message stamp — byte-identical WHERE/SET to Task 2's
+        // interim body (localId=op.ref guarded by sender+conversation).
+        if (ack != null && op != null) {
+          await (_db.update(_db.messagesTable)
+                ..where((t) =>
+                    t.localId.equals(op.ref) &
+                    t.senderId.equals(ack.senderId) &
+                    t.conversationId.equals(ack.conversationId)))
+              .write(MessagesTableCompanion(
+            serverId: Value(ack.serverId),
+            status: const Value('sent'),
+            updatedAt: Value(DateTime.now()),
+          ));
+        }
+
+        // ── Message upserts (by server id). Delete-then-insert mechanics
+        // moved verbatim from `_cacheMessagesBatch`: clearing prior cache
+        // rows + FCM placeholders first means ONE collision cannot abort
+        // the whole batch; companions carry preserved flags and a stable
+        // localId, so re-committing the same batch is an idempotent upsert
+        // (SSE echo + fetch converge on one row set).
+        if (batch.upserts.isNotEmpty) {
+          final serverIds = <String>[
+            for (final u in batch.upserts)
+              if (u.row.serverId.present && u.row.serverId.value != null)
+                u.row.serverId.value!,
+          ];
+          await _db.messagesDao.deleteByServerIds(serverIds);
+          await _db.batch((b) {
+            for (final u in batch.upserts) {
+              b.insert(_db.messagesTable, u.row,
+                  onConflict: DoUpdate((_) => u.row,
+                      target: [_db.messagesTable.localId]));
+            }
+          });
+        }
+
+        // ── Tombstones (spec §7): idempotent flag upsert by server id —
+        // a repeat (SSE echo of the same delete) rewrites the same values;
+        // an unknown id is a no-op.
+        for (final id in batch.tombstones) {
+          await (_db.update(_db.messagesTable)
+                ..where((t) => t.serverId.equals(id)))
+              .write(MessagesTableCompanion(
+            isDeletedForEveryone: const Value(true),
+            updatedAt: Value(DateTime.now()),
+          ));
+        }
+
+        // ── Cursor advance in the SAME txn as the batch (spec §7).
+        // Monotonic: equal = no-op, older = never rewinds (a stale batch
+        // cannot move the cursor back; only data-backed advances move it
+        // forward — no skip by construction).
+        final delta = batch.cursorAdvance;
+        if (delta != null) {
+          final key = 'sync_cursor_${delta.conversationId}';
+          final raw = await _db.settingsDao.getSetting(key);
+          final current =
+              raw == null || raw.isEmpty ? null : DateTime.tryParse(raw);
+          if (current == null || delta.to.isAfter(current)) {
+            await _db.settingsDao
+                .setSetting(key, delta.to.toUtc().toIso8601String());
+          }
+        }
+      });
+    } on _EpochAbort catch (e) {
+      debugPrint('[Ingest] commit($source) aborted — $e');
+    }
+  }
+}

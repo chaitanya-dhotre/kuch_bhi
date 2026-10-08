@@ -773,3 +773,163 @@ Suite after fix round: **108 pass** (6th epoch test added); analyze
 inserted INSIDE the moved fast-path block (cache-dir create + fast-path
 ready write) per I1's "every file/dao write" mandate.
 
+
+## Task 6
+
+IngestBoundary extraction — single entry, txn+cursor, tombstones. Commit
+subject `[Offline P3] IngestBoundary — single entry, cursor+ack in one txn
+(behavior-preserving)` (own hash cannot appear in its body). Files:
+`lib/infrastructure/ingest/{ingest_batch,ingest_boundary}.dart` (NEW),
+`message_repository_impl.dart` (three call sites rewired),
+`test/offline/ingest_boundary_test.dart` (NEW, 4/4 — brief test 5 is the
+char-test regression run). Full suite **112 pass**; analyze **0 errors**
+(88 legacy, unchanged).
+
+### AS-BUILT API (consumed by tasks 7+)
+
+```dart
+// lib/infrastructure/ingest/ingest_batch.dart
+enum IngestSource { sse, fetch, drainAck }   // metadata only — identical
+    // batches write identically regardless of source (test 1 pins this)
+class MessageUpsert { const MessageUpsert(MessagesTableCompanion row); }
+class CursorDelta { String conversationId; DateTime to; }  // server stamp;
+    // written as UTC ISO (moved from _writeCursor)
+class OutboxAck { String opId, serverId, senderId, conversationId; }
+class IngestBatch {
+  const IngestBatch({List<MessageUpsert> upserts = const [],
+      List<String> tombstones = const [], CursorDelta? cursorAdvance,
+      OutboxAck? ack});
+}
+
+// lib/infrastructure/ingest/ingest_boundary.dart
+class IngestBoundary {
+  IngestBoundary({required AppDatabase db, required int Function() epoch,
+      required bool Function() authValid});
+  @visibleForTesting void Function()? onBeforeWrite; // inside the txn:
+      // after the drain-ack state flip, immediately before message-row +
+      // cursor writes (brief tests 3/4 drive this hook)
+  Future<void> commit(IngestBatch batch, IngestSource source);
+  // epoch aborts throw _EpochAbort INSIDE the txn → full rollback →
+  // caught, logged `[Ingest] …`, silent return. Other errors propagate
+  // to callers' existing catch handling.
+}
+// Repo wiring: MessageRepositoryImpl.ingestBoundary (ctor, outboxWorker
+// precedent) = IngestBoundary(db, epoch: () => _sessionEpoch,
+// authValid: () => _pb.authStore.isValid).
+```
+
+### commit sequence (ONE Drift transaction)
+
+1. entry: `sessionStillValid(epoch captured at commit entry, authValid)` —
+   invalid ⇒ return, nothing written.
+2. txn opens; drainAck payload present ⇒ `outboxDao.byId(ack.opId)` INSIDE
+   the txn (carry-in 1) ⇒ `setState(sent)`.
+3. `onBeforeWrite?.call()` ⇒ epoch re-check ⇒ invalid ⇒ `_EpochAbort`
+   thrown inside the txn ⇒ EVERYTHING rolls back (incl. the state flip) ⇒
+   caught + logged, silent.
+4. drainAck message stamp — Task 2 WHERE/SET byte-identical
+   (`localId=op.ref & senderId & conversationId` → serverId/status
+   `'sent'`/updatedAt).
+5. upserts: `deleteByServerIds` + one `db.batch` insert
+   `DoUpdate(target: localId)` — fetch mechanics moved verbatim.
+6. tombstones: `UPDATE messages SET is_deleted_for_everyone=1,
+   updated_at=now WHERE server_id=?` — idempotent; unknown id = no-op.
+7. cursorAdvance: monotonic (`write iff to.isAfter(current)`) into
+   `settings.sync_cursor_<convId>` (UTC ISO).
+
+### Call sites rewired
+
+1. **SSE handler** pin/delete fast-path write → `commit(batch, sse)`
+   (the fast-path WRITE is gone, behavior kept — spec §4 "no SSE fast
+   path"). SSE `_cacheMsg` call passes `source: sse`.
+2. **`_cacheMsg`/`_cacheMsgInner`**: `_cacheMsg` gained
+   `{IngestSource source = IngestSource.fetch}`; inner upsert →
+   `commit(batch, source)`. loadMore / fetchAndCacheSingleMessage /
+   history-sync call sites keep the default `fetch`.
+3. **Fetch loop** (`_fetchAndCacheMessages`): `advance`/`newest` computed
+   BEFORE the batch; `cursorAdvance` passed into `_cacheMessagesBatch`;
+   `_writeCursor` DELETED (cursor rides the batch txn); post-commit
+   `sessionStillValid` early-return kept (still gates the trailing sync
+   passes).
+4. **`_cacheMessagesBatch(records, key, myId, {CursorDelta? cursorAdvance})`**:
+   delete+batch block → `commit`; self-heal per-row upserts → `commit`;
+   its pre-commit session check KEPT (covers the decrypt window — a
+   commit-time epoch capture would miss a mid-decrypt bump).
+5. **`_syncDeletedForMe` / `_syncStarredMessages`** upserts →
+   `commit(batch, fetch)`; companions completed with
+   `replyToId`/`replyPreview`/`expiresAt` (see correction 4).
+6. **`handleDrainAck`** body → `commit(IngestBatch(ack: …), drainAck)`;
+   signature kept (later cleanup commit deletes it).
+   `resolveDuplicateSend` + `isDuplicateIdError` untouched (carry-in 2 —
+   create-side ownership checks; comments updated only).
+
+### Corrections vs brief (reality rule)
+
+1. **IngestBatch has a 4th field `ack: OutboxAck?`** — brief's sketch is
+   3-field; the drain-ack message write cannot pre-resolve `op.ref`
+   (the read must JOIN the txn — carry-in 1), so the payload rides the
+   batch instead of being modeled as a pre-built MessageUpsert.
+2. **Drain-ack in-txn order swapped** (Task 2: message→state; now
+   state→message-stamp). Only observable under injected failure: it is
+   what makes brief test 4 NON-vacuous (setState executes, failure lands
+   at the status stage, rollback leaves op `queued` — without a txn the
+   flip would persist as `sent`). The pair still lands or aborts
+   together, which is all spec §5.1/§7 prescribes.
+3. **Cursor is monotonic** (`write iff to > current`). Old `_writeCursor`
+   overwrote unconditionally; production only ever advanced (incremental
+   filter `created >= cursor`), so the guard bites only on the
+   never-observed backward case — it pins test 1's "no skip".
+4. **ONE write mechanic for all upserts = the fetch path's
+   delete-then-insert** (SSE/fast-path/sync used `insertOnConflictUpdate`
+   before). Ledgered deltas: (a) SSE/single path now deletes first —
+   same final row (stable localId, preserved flags already in the
+   companion) and it FIXES the FCM-placeholder serverId collision that
+   previously threw out of the SSE handler; (b) `_sync*` companions had
+   to gain `replyToId`/`replyPreview`/`expiresAt` — the old conflict
+   update preserved those columns implicitly, a rebuild-from-companion
+   would reset them to defaults (commented in situ).
+5. **Epoch abort = rollback of the WHOLE commit**, including a drain-ack
+   state flip issued before the re-check — stronger than "skip the later
+   writes".
+6. **drainAck and the SSE pin/delete fast-path GAIN epoch guards** they
+   never had (spec §11); harmless in tests (epoch stable, harness JWT
+   valid), a behavior delta only in the logout window (post-logout
+   writes now drop instead of resurrecting wiped rows).
+7. **Cursor timing vs self-heal/bump tail**: cursor now advances WITH the
+   batch (spec §7), not after `_cacheMessagesBatch`'s heal + conversation
+   bump — the old "rows landed, session died during heal ⇒ cursor held"
+   window closes atomically. No skip either way (rows and cursor match).
+
+### Concerns / NOT moved (ledger — writer-domain audit targets)
+
+- **FCM background write** `fcm_service.dart:497 upsertMessageByServerId`
+  still writes a network-sourced record outside the boundary (separate
+  file + isolate; outside the brief's modify list). Flag for the spec §4
+  two-gate / Task 11-12 audit.
+- **`_updateMsgReceiptStatus` / `_repairUndecrypted`
+  (`cacheDecryptedBody`)** mutate `messages.status`/decrypt columns from
+  local passes — not ingest writes; receipt-driven status vs the §5.1
+  dual-truth rule belongs to a status audit. Untouched.
+- **Create-side writers untouched** (sanctioned, spec §5.1): sendMessage
+  enqueue txn, `_sendTextOp` dual-truth txn, sendMediaMessage,
+  delete/star/pin local toggles, `_emitSystemMessage`,
+  `create_group_screen.dart` local system row.
+- Conversation-list bumps (`_bumpConversationForIncoming`,
+  `updateLastMessage`) stay repo-side: derived metadata, not
+  network-sourced records (outside the brief's commit contract).
+
+### Tests
+
+`test/offline/ingest_boundary_test.dart` 4/4:
+1. same batch committed twice (sse then fetch) → exactly 1 row; cursor
+   advances once; an OLDER cursor delta cannot rewind it;
+2. tombstone → row flagged deleted-for-everyone, never hard-deleted;
+   re-commit (sse) idempotent — still 1 row;
+3. `onBeforeWrite` bumps epoch mid-commit → 0 rows, no cursor (nothing
+   written; commit returns silently);
+4. drainAck: injected `StateError` at the status stage → op stays
+   `queued`, no stamp (rollback proof); control commit → op `sent` +
+   `serverId`/`status='sent'` stamped together, 1 row.
+Test 5: `send_fetch_char_test.dart` **3/3 VERBATIM** (file untouched —
+char test 3 `… SKIPS cache` still pinned for Task 7). Full offline dir
+**44 pass**; full suite **112 pass**; analyze **0 errors** (88 legacy).
