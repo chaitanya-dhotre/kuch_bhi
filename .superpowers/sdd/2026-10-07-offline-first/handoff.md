@@ -1166,3 +1166,9 @@ on the drift stream; a missing re-fetch would time out, a duplicate would
 make length 2 — non-vacuous both ways).
 Char 3/3 (test 3 flipped, tests 1-2 byte-untouched); full offline dir
 **46 pass**; full suite **114 pass**; analyze **0 errors** (88 legacy).
+
+---
+
+## Tasks 8-11 AS-BUILT — see task-{8,9,10,11}-report.md in this directory
+
+(reports carry the AS-BUILT signatures; protocol reports-as-handoff amendment)

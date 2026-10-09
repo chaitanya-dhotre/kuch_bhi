@@ -122,7 +122,7 @@ class DecryptPass {
       }
       groups.add(_KeyGroup(
         key: key,
-        fingerprint: _keyFingerprint(key),
+        fingerprint: DecryptPass.fingerprintOf(key),
         rows: entry.value,
       ));
     }
@@ -245,7 +245,13 @@ class DecryptPass {
   /// The spec §5.1 `key_id` "key reference": sha256(key) hex — changes
   /// exactly when the key rotates, so a mismatching row awaits the new key
   /// instead of being terminal-failed (spec §8 rotation rule).
-  static String _keyFingerprint(List<int> key) {
+  ///
+  /// Deliberately PUBLIC (not `@visibleForTesting`): the C1
+  /// encryption-at-enqueue path in the repository stamps the SAME `key_id`
+  /// this class writes on a successful decrypt. Two different fingerprints
+  /// for one key would make the rotation rule re-queue rows that never
+  /// rotated, so the computation must be shared, not duplicated.
+  static String fingerprintOf(List<int> key) {
     final digest = Sha256().toSync().hashSync(key);
     return digest.bytes
         .map((b) => b.toRadixString(16).padLeft(2, '0'))

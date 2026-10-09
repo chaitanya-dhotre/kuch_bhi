@@ -59,6 +59,17 @@ bool isDuplicateIdError(ClientException error) {
 }
 
 class MessageRepositoryImpl implements MessageRepository {
+  /// I1 (final fix pass): injection seam fired INSIDE the production
+  /// `sendMessage` enqueue transaction, immediately before the outbox row
+  /// is written. Arming it to THROW proves the REAL txn (not a
+  /// test-authored one) rolls back BOTH the message row and the outbox op.
+  ///
+  /// The RF1 atomicity test wrote both rows inside its own
+  /// `db.transaction(...)` — that pins Drift's rollback, not the production
+  /// path. Null in production.
+  @visibleForTesting
+  static void Function()? debugBeforeOutboxEnqueue;
+
   MessageRepositoryImpl({
     required this.pbClient,
     required this.db,
@@ -797,26 +808,69 @@ class MessageRepositoryImpl implements MessageRepository {
 
     // ── Atomic enqueue (spec §5.2): message row + outbox op in ONE
     // Drift transaction — a kill between them is impossible by
-    // construction (ghost message / lost send cannot happen). T9 (column
-    // dropped): the row carries ONLY ciphertext state (`__pending__` —
-    // encryption still runs on the drain path behind [sendOutboxOp]);
-    // the plaintext lands in the SESSION body cache (spec §5.1: "the
-    // main isolate immediately decrypts it into the body cache") — the
-    // own-sent bubble resolves from there with zero async gap.
+    // construction (ghost message / lost send cannot happen).
+    //
+    // C1 (spec §5.2 "Enqueue atomicity", final fix pass): the body
+    // ENCRYPTION runs inside that same transaction while the conversation
+    // key resolves, so the committed row carries REAL ciphertext + iv and
+    // no plaintext-only copy exists anywhere (neither the row nor the
+    // outbox payload). Before this, enqueue stored `__pending__` with the
+    // plaintext in the in-memory body cache alone — backgrounding
+    // (`bodyCache.clear()`, app.dart:69) or a process kill destroyed the
+    // only copy, so the drain read a cache miss and deferred FOREVER
+    // (permanent non-delivery, device-proven in matrix R2: 5 ops queued,
+    // attempts=0). bodyCache.put(plaintext) STAYS below for display
+    // (spec §5.1: the bubble never flashes a placeholder).
+    //
+    // Keyless enqueue (peer key not synced / offline): the interim
+    // `__pending__` marker is kept and the FIRST successful encrypt during
+    // the drain persists ciphertext + iv to the row BEFORE the server
+    // create (see [_sendTextOp]) — after that point memory holds nothing
+    // exclusive. Residual (key never available AND death before the first
+    // encrypt) is a known follow-up: spec §3 forbids a durable plaintext
+    // store, so there is nothing safer to write.
+    // Encryption-at-enqueue (C1, spec §5.2): resolve the key OUTSIDE the
+    // transaction (it may hit the network / secure storage), then write the
+    // row, the outbox op AND the ciphertext in ONE transaction. A helper
+    // returns null instead of assigning inside a catch, which Dart's
+    // definite-assignment analysis cannot prove unreachable.
+    final List<int>? enqueueKey = await _tryResolveSendKey(conversationId, myId);
+    final EncryptResult? encBody =
+        enqueueKey == null ? null : await encryption.encryptMessage(
+            plaintext, enqueueKey);
+    // C1 covers the BODY only. The reply preview keeps its EXISTING storage
+    // format and display contract — re-encrypting it at enqueue would show
+    // ciphertext in the reply quote (the bubble reads message.replyPreview
+    // raw) and its at-rest format is the ruled-to-backlog I2 item. Out of
+    // this pass's scope by instruction.
+
     await db.transaction(() async {
+      // I1: production-path injection seam — fires INSIDE the real enqueue
+      // transaction just before the outbox write, so a test can prove the
+      // production txn (not a test-authored one) rolls BOTH rows back.
+      debugBeforeOutboxEnqueue?.call();
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
         conversationId: conversationId,
         senderId:       myId,
         type:           'text',
-        encryptedBody:  '__pending__',
-        iv:             '',
+        // Real ciphertext when the key resolved (C1); the interim marker
+        // otherwise — never a plaintext column (spec §3, T9 drop).
+        encryptedBody:  encBody?.ciphertext ?? '__pending__',
+        iv:             encBody?.iv ?? '',
         replyToId:      Value(replyToLocalId),
         replyPreview:   Value(replyPreview),
         status:         Value('pending'),
         expiresAt:      Value(expiresAt),
         createdAt:      now,
         updatedAt:      now,
+        // Own rows resolve on read: decrypt_state='ready' + key_id so a
+        // cache miss re-decrypts instead of rendering a placeholder
+        // (spec §5.1: "own sent messages are never placeholders").
+        decryptState:   const Value('ready'),
+        keyId:          Value(enqueueKey == null
+            ? null
+            : DecryptPass.fingerprintOf(enqueueKey)),
       ));
       await db.outboxDao.enqueue(OutboxTableCompanion.insert(
         opId:           generateOpId(),
@@ -883,15 +937,17 @@ class MessageRepositoryImpl implements MessageRepository {
       await db.outboxDao.deleteOp(op.opId);
       return OpSendOutcome.deferred;
     }
-    // T9 (column dropped): plaintext for the drain comes from the session
-    // body cache — enqueue put it there (spec §5.1); a cache miss (app
-    // backgrounded/killed between enqueue and drain) defers like the old
-    // null-body guard did. Relocating encryption to enqueue time (the T2
-    // forward-carry) is the durable fix — ledgered, out of T9 scope.
-    final plaintext = bodyCache.get(localId);
-    if (plaintext == null) {
-      return OpSendOutcome.deferred; // nothing to send yet
-    }
+    // C1 (final fix pass): the row's ciphertext is the SOURCE OF TRUTH for
+    // the drain. Enqueue encrypted inside its transaction (spec §5.2), so a
+    // cleared/never-warmed body cache (backgrounding, process kill) can
+    // NEVER defer an op whose ciphertext is already durable. The cache is
+    // the fast path (no crypto hop) and the display source, not a
+    // requirement.
+    //
+    // Keyless enqueue: the row still carries the interim `__pending__`, and
+    // the plaintext may be in the cache (only if this same process enqueued
+    // it). Decrypting the stored ciphertext is preferred; the cache is used
+    // ONLY when there is no ciphertext to decrypt.
     final myId = await _myId();
     if (myId.isEmpty) {
       return OpSendOutcome.deferred; // session not ready — retry on kick
@@ -902,12 +958,50 @@ class MessageRepositoryImpl implements MessageRepository {
     final uploadEpoch = _sessionEpoch;
     debugPrint('[Msg] Starting upload for localId: $localId');
 
+    final bool needFreshBody =
+        msg.encryptedBody.isEmpty || msg.encryptedBody == '__pending__';
+    String? plaintext;
+    if (!needFreshBody) {
+      // C1: re-derive the plaintext from the DURABLE ciphertext — a cleared
+      // cache must not change the outcome.
+      try {
+        final rowKey = await _getConvKey(conversationId, myId);
+        plaintext = await encryption.decryptMessage(
+            msg.encryptedBody, msg.iv, rowKey);
+      } on MissingKeyException catch (e) {
+        // Row key unavailable: fall back to the cache (this process may
+        // still hold the plaintext) — if that is empty too, defer.
+        debugPrint('[Msg] Row key unavailable, trying cache: $e');
+      } catch (e) {
+        debugPrint('[Msg] Row ciphertext undecryptable, trying cache: $e');
+      }
+      // decryptMessage returns NULL (not throws) for a MAC/parse failure —
+      // including a placeholder ciphertext written by a test seed or a
+      // corrupted row. Either way the session cache is the next source.
+      final cached = bodyCache.get(localId);
+      if (plaintext == null || plaintext.isEmpty) {
+        plaintext = cached;
+      }
+      if (plaintext == null || plaintext.isEmpty) {
+        return OpSendOutcome.deferred; // nothing sendable yet
+      }
+    } else {
+      // Keyless enqueue: plaintext exists ONLY in the cache for the
+      // remainder of this process. A cache miss is the honest defer.
+      plaintext = bodyCache.get(localId);
+      if (plaintext == null) {
+        return OpSendOutcome.deferred; // nothing to send yet
+      }
+    }
+    // From here on `plaintext` is non-null (both branches returned on null).
+    final String body = plaintext;
+
     final List<int> key;
     final EncryptResult encrypted;
     final EncryptResult? encryptedReply;
     try {
       key = await _getConvKey(conversationId, myId);
-      encrypted = await encryption.encryptMessage(plaintext, key);
+      encrypted = await encryption.encryptMessage(body, key);
       // Encrypt the reply preview too — it must never hit the server as plaintext.
       encryptedReply = (replyPreview != null && replyPreview.isNotEmpty)
           ? await encryption.encryptMessage(replyPreview, key)
@@ -940,6 +1034,31 @@ class MessageRepositoryImpl implements MessageRepository {
     if (replyRef != null && replyRef.isNotEmpty) {
       final replyMsg = await db.messagesDao.getMessageByLocalId(replyRef);
       replyServerId = replyMsg?.serverId;
+    }
+
+    // C1 (final fix pass): persist the ciphertext to the row BEFORE the
+    // server create. A keyless enqueue carries the interim `__pending__`, so
+    // this first successful encrypt is the moment the durable copy exists —
+    // a kill between here and the ack now resumes from row ciphertext
+    // instead of losing the message (the row id == op id, so the re-send is
+    // idempotent: spec §5.2 duplicate-id = success). Only the keyless path
+    // needs the write; the enqueue-time ciphertext is already durable.
+    if (needFreshBody) {
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId:        localId,
+        conversationId: conversationId,
+        senderId:       myId,
+        type:           'text',
+        encryptedBody:  encrypted.ciphertext,
+        iv:             encrypted.iv,
+        replyPreview:   Value(replyPreview),
+        expiresAt:      Value(msg.expiresAt),
+        createdAt:      msg.createdAt,
+        updatedAt:      DateTime.now(),
+        decryptState:   const Value('ready'),
+        keyId:          Value(DecryptPass.fingerprintOf(key)),
+      ));
+      debugPrint('[Msg] C1: ciphertext persisted before create (keyless path)');
     }
 
     debugPrint('[Msg] Creating message record on server');
@@ -1008,6 +1127,11 @@ class MessageRepositoryImpl implements MessageRepository {
         // Use the server's canonical timestamp so ordering matches all devices.
         createdAt:      serverCreated,
         updatedAt:      DateTime.now(),
+        // C1: preserve the decrypt state the enqueue/first-encrypt write
+        // set ('ready' + key fingerprint) — a full-row rebuild here would
+        // otherwise reset the row to the column default and lose key_id.
+        decryptState:   const Value('ready'),
+        keyId:          Value(DecryptPass.fingerprintOf(key)),
       ));
       await db.outboxDao.setState(op.opId, OutboxState.sent, attempts: 0);
     });
@@ -1019,7 +1143,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
     await db.conversationsDao.updateLastMessage(
       conversationId,
-      plaintext.length > 50 ? '${plaintext.substring(0, 50)}…' : plaintext,
+      body.length > 50 ? '${body.substring(0, 50)}…' : body,
       serverCreated,
     );
 
@@ -3919,6 +4043,21 @@ class MessageRepositoryImpl implements MessageRepository {
     final secs = _disappearingDurations[convId] ?? 0;
     if (secs <= 0) return null;
     return from.add(Duration(seconds: secs));
+  }
+
+  /// C1: best-effort conversation key resolution for encryption-at-enqueue.
+  /// Returns null when the key is unavailable (peer key not synced, group
+  /// key not yet rotated, storage/network failure) — the enqueue still
+  /// lands with the interim `__pending__` marker and the drain persists the
+  /// ciphertext at its first successful encrypt. Never lets a key failure
+  /// block the user's optimistic message.
+  Future<List<int>?> _tryResolveSendKey(String convId, String myId) async {
+    try {
+      return await _getConvKey(convId, myId);
+    } catch (e) {
+      debugPrint('[Msg] Enqueue key unavailable — keyless path: $e');
+      return null;
+    }
   }
 
   Future<List<int>> _getConvKey(String convId, String myId) async {

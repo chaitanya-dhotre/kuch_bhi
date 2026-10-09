@@ -439,15 +439,18 @@ void main() {
     await tester.runAsync(() async {
       h = charHarness(clientFactory: () => MockClient(client));
       addTearDown(h.close);
-      await seedConversationAndKey(h); // fixture group key
+      // C1 (spec §5.2): the key IS seeded, so enqueue encrypts inside its
+      // transaction and the row carries real ciphertext from the start.
+      await seedConversationAndKey(h);
       repo = buildRepo(h);
       await repo.sendMessage(conversationId: 'g1', plaintext: 'own hello');
       await Future<void>.delayed(const Duration(milliseconds: 150));
       final rows = await h.db.messagesDao.watchMessages('g1').first;
       expect(rows, hasLength(1));
       localId = rows.first.localId;
-      expect(rows.first.encryptedBody, '__pending__',
-          reason: 'drain is held at the gated create — row still optimistic');
+      expect(rows.first.encryptedBody, isNot('__pending__'),
+          reason: 'C1: encryption moved INTO the enqueue transaction '
+              '(spec §5.2) — the row is ciphertext even before the drain');
       expect(bodyCache.get(localId), 'own hello',
           reason: 'carry-in B / spec §5.1: enqueue immediately lands the '
               'plaintext in the BODY CACHE (memory only — no column)');
@@ -484,9 +487,11 @@ void main() {
     expect(find.byKey(ValueKey('body-placeholder-$localId')), findsNothing,
         reason: 'own-sent messages NEVER flash a placeholder (spec §5.1)');
 
-    // (2) Simulated backgrounding: cache wiped, bubble remounts while the
-    // row is still `__pending__` → provider resolves null → keyed
-    // placeholder (the explicit from-null baseline for step 3).
+    // (2) Simulated backgrounding: cache wiped (lib/app.dart:69) while the
+    // drain is still parked. The bubble must re-resolve from the ROW's
+    // ciphertext — that is the C1 contract (spec §8: "A cleared cache is
+    // safe: `ready` rows re-decrypt on next provider read"). A placeholder
+    // here would be a stuck bubble, so the assertion is NO placeholder.
     bodyCache.clear();
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
@@ -494,20 +499,19 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));
     await _drain(tester);
-    expect(find.byKey(ValueKey('body-placeholder-$localId')), findsOneWidget,
-        reason: 'from-null baseline: cache cleared + `__pending__` ciphertext '
-            '→ placeholder (proves step 3 must RE-resolve)');
+    expect(find.byKey(ValueKey('body-placeholder-$localId')), findsNothing,
+        reason: 'C1: ciphertext is durable, so a cleared cache re-decrypts '
+            'instead of stranding a placeholder (the old R2 failure mode)');
+    expect(find.text('own hello'), findsOneWidget,
+        reason: 'row ciphertext re-resolves the same body after the purge');
 
-    // (3) Drain lands ciphertext + status flip → carry-in invalidation →
-    // provider re-resolves the SAME body. Without the invalidation this
-    // assertion stays at the placeholder forever (row streams do not
-    // invalidate the provider).
-    createGate.complete();
-    // Real yield: the drain's create + dual-truth txn run on the real
-    // queue; then drain again so the invalidation-triggered runFor (real
-    // ciphertext now) walks to completion before asserting.
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 400)));
+    // (3) Drain lands: create → dual-truth stamp → carry-in invalidation →
+    // provider re-resolves. Without the invalidation this assertion stays
+    // unresolved forever (row streams do not invalidate the provider).
+    await tester.runAsync(() async {
+      createGate.complete(); // release the parked create
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    });
     await _drain(tester);
 
     final after = (await h.db.messagesDao.getMessageByLocalId(localId))!;

@@ -504,6 +504,17 @@ class FcmService {
         encryptedBody:  r.getStringValue('encrypted_body'),
         iv:             r.getStringValue('iv'),
         status:         const Value('delivered'),
+        // I3a: the background isolate holds NO key material, so this row is
+        // committed ciphertext-only. Defaulting decryptState to the column
+        // default 'ready' lied to every post-T9 reader: 'ready' means "a
+        // body read WILL succeed" (spec §5.1), so the bubble rendered a
+        // permanent placeholder that no repair pass would heal, because the
+        // repair query only selects 'pending'/'key_missing' rows.
+        // Spec §7: "rows commit as `pending` (or `key_missing` when the key
+        // lookup throws) — commit always succeeds regardless of key state."
+        // 'pending' is that value here; DecryptPass picks the row up on the
+        // next open and resolves it to 'ready' (or 'key_missing').
+        decryptState:   const Value('pending'),
         createdAt:      DateTime.tryParse(r.created) ?? DateTime.now(),
         updatedAt:      DateTime.now(),
       ));

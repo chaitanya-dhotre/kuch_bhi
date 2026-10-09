@@ -40,6 +40,32 @@ void main() {
     expect(rows.single.localId, 'main-uuid');
   });
 
+  test('I3a: FCM bg row commits pending (NOT the ready lie) and is repair-visible',
+      () async {
+    // The background isolate writes ciphertext with NO key material. Before
+    // I3a it omitted decryptState, so the row took the column default
+    // 'ready' — spec §5.1 defines 'ready' as "a body read WILL succeed",
+    // so post-T9 readers showed a permanent placeholder and the repair
+    // query (which selects only 'pending'/'key_missing') never selected it.
+    //
+    // This pins the contract at the DAO the FCM path writes through, since
+    // FcmService._cacheMessageBackground is a private static with no test
+    // seam (Firebase/bootstrap dependency) — the same pin style as the two
+    // tests above.
+    await db.messagesDao.upsertMessageByServerId(
+        _row('s1', serverId: 's1').copyWith(
+      decryptState: const Value('pending'), // the I3a one-liner's value
+    ));
+    final row = (await db.select(db.messagesTable).get()).single;
+    expect(row.decryptState, 'pending',
+        reason: 'spec §7: committed regardless of key state, as pending');
+    // The repair pass MUST be able to see it, or the bubble stays sealed.
+    final repairable =
+        await db.messagesDao.getUndecryptableRows('c1');
+    expect(repairable.map((r) => r.localId), contains('s1'),
+        reason: 'a ciphertext-only row must remain repairable');
+  });
+
   test('dedupe SQL keeps the oldest row per serverId', () async {
     // Migration sequence: dupes can only exist BEFORE the index exists.
     await db.customStatement('DROP INDEX IF EXISTS idx_messages_server_id');
