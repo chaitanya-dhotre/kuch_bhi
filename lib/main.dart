@@ -11,8 +11,8 @@ import 'core/network/pocketbase_client.dart';
 import 'data/local/database/app_database.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
+import 'services/fcm_debug_helper.dart';
 import 'services/fcm_service.dart';
-import 'core/utils/fcm_debug_helper.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {

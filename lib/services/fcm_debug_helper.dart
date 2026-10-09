@@ -1,7 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
-import '../../data/local/database/app_database.dart';
-import '../../data/local/database/tables/app_settings_table.dart';
+import '../data/local/database/app_database.dart';
+import '../data/local/database/tables/app_settings_table.dart';
 
 class FcmDebugHelper {
   static Future<void> printFcmDebugInfo() async {

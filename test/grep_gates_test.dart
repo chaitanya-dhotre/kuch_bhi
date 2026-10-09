@@ -189,6 +189,37 @@ void main() {
           isFalse, reason: f);
     }
   });
+
+  // Gate 13 (spec §12 + plan carve-outs): network SDKs live only in the
+  // sanctioned integration paths — screens/features/data/domain/core(else)
+  // stay network-free. Sanctioned: infrastructure (ingest/outbox/blobs),
+  // services (fcm/presence/encryption/upload integrations), core/network
+  // (the PB client), bootstrap (main + firebase_options).
+  test('no network SDK imports outside sanctioned integration paths', () {
+    const sanctioned = [
+      'lib/infrastructure/',
+      'lib/services/',
+      'lib/core/network/',
+      'lib/main.dart',
+      'lib/firebase_options.dart',
+    ];
+    final banned = RegExp(
+        r"package:http/|package:dio/|package:pocketbase/|"
+        r"package:web_socket_channel/|package:firebase_|"
+        r"package:connectivity_plus|"
+        r"dart:io.*(HttpClient|WebSocket|Socket\b)");
+    final hits = <String>[];
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      final allowed = sanctioned.any((p) =>
+          p.endsWith('/') ? f.path.startsWith(p) : f.path == p);
+      if (allowed) continue;
+      if (banned.hasMatch(f.readAsStringSync())) hits.add(f.path);
+    }
+    expect(hits, isEmpty, reason: 'network SDK outside sanctioned paths: $hits');
+  });
 }
 
 const _bannedPurpleHexes = [
