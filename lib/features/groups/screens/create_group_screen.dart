@@ -8,11 +8,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/decrypt/body_cache.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:pocketbase/pocketbase.dart';
 
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../data/local/database/app_database.dart';
@@ -22,6 +19,7 @@ import '../../../domain/entities/friendship.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../features/chat/screens/chat_screen.dart';
 import '../../../features/home/providers/friends_provider.dart';
+import '../../../infrastructure/services/group_create_service.dart';
 import '../../../services/encryption_service.dart';
 
 class CreateGroupScreen extends ConsumerStatefulWidget {
@@ -82,7 +80,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       if (auth is! AuthAuthenticated) throw Exception('Not authenticated.');
 
       final myId      = auth.user.id;
-      final pb        = ref.read(pocketbaseClientProvider).pb;
+      final groupService = ref.read(groupCreateServiceProvider);
       final db        = ref.read(appDatabaseProvider);
       final encryption = ref.read(encryptionServiceProvider);
       final storage   = ref.read(secureStorageProvider);
@@ -95,26 +93,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         'only_admins_can_message': false,
       };
 
-      RecordModel conv;
-      if (_iconFile != null) {
-        conv = await pb.collection('conversations').create(
-          body: convBody,
-          files: [
-            http.MultipartFile.fromBytes(
-              'icon',
-              await _iconFile!.readAsBytes(),
-              filename: 'icon.jpg',
-            ),
-          ],
-        );
-      } else {
-        conv = await pb.collection('conversations').create(body: convBody);
-      }
+      final conv = await groupService.createConversation(
+        convBody: convBody,
+        iconFile: _iconFile,
+      );
 
       final convId = conv.id;
 
       // ── b) Add creator as admin ───────────────────────────────
-      final myMemberRecord = await pb.collection('conversation_members').create(body: {
+      final myMemberRecord = await groupService.createMemberRecord({
         'conversation_id': convId,
         'user_id':         myId,
         'role':            'admin',
@@ -125,15 +112,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           .where((f) => _selectedIds.contains(f.friend.id))
           .toList();
 
-      final List<RecordModel> memberRecords = [];
-      for (final f in selectedFriends) {
-        final rec = await pb.collection('conversation_members').create(body: {
-          'conversation_id': convId,
-          'user_id':         f.friend.id,
-          'role':            'member',
-        });
-        memberRecords.add(rec);
-      }
+      final memberRecords = await groupService.addMembers(
+        conversationId: convId,
+        memberIds: selectedFriends.map((f) => f.friend.id).toList(),
+      );
 
       // Save memberships locally in Drift
       await db.conversationsDao.upsertMember(
@@ -165,7 +147,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       for (final memberId in allMemberIds) {
         String? publicKey;
         try {
-          final r = await pb.collection('users').getOne(memberId);
+          final r = await groupService.getUserRecord(memberId);
           publicKey = r.getStringValue('public_key');
           if (publicKey.isNotEmpty) {
             await db.usersDao.upsertUser(UsersTableCompanion.insert(
@@ -173,7 +155,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               displayName: r.getStringValue('display_name'),
               username:    r.getStringValue('username'),
               email:       Value(r.getStringValue('email')),
-              avatarUrl:   Value(r.getStringValue('avatar').isEmpty ? null : '${pb.baseUrl}/api/files/users/${r.id}/${r.getStringValue('avatar')}'),
+              avatarUrl:   Value(r.getStringValue('avatar').isEmpty ? null : '${groupService.baseUrl}/api/files/users/${r.id}/${r.getStringValue('avatar')}'),
               friendCode:  r.getStringValue('friend_code'),
               publicKey:   Value(publicKey),
               createdAt:   DateTime.tryParse(r.created) ?? DateTime.now(),
@@ -192,7 +174,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           convId,
         );
 
-        await pb.collection('group_keys').create(body: {
+        await groupService.createGroupKey({
           'conversation_id':      convId,
           'user_id':              memberId,
           'encrypted_key':        encryptedKey,
@@ -211,7 +193,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       final iconField = conv.getStringValue('icon');
       final iconUrl   = iconField.isEmpty
           ? null
-          : '${pb.baseUrl}/api/files/conversations/$convId/$iconField';
+          : '${groupService.baseUrl}/api/files/conversations/$convId/$iconField';
 
       // ── f) Sync conversation to Drift ─────────────────────────
       final now = DateTime.now();
@@ -266,7 +248,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       // (Encryption needs the group_key_STORED_ABOVE; local cache row is
       // already visible immediately on this device via the SSE round-trip.)
       try {
-        final myUser = await pb.collection('users').getOne(myId);
+        final myUser = await groupService.getUserRecord(myId);
         final myName = myUser.getStringValue('display_name').isNotEmpty
             ? myUser.getStringValue('display_name')
             : (myUser.getStringValue('username').isNotEmpty
@@ -276,7 +258,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           '$myName created the group "$groupName"',
           groupKey,
         );
-        final sysRec = await pb.collection('messages').create(body: {
+        final sysRec = await groupService.createMessage({
           'conversation_id':          convId,
           'sender_id':                myId,
           'type':                     'system',

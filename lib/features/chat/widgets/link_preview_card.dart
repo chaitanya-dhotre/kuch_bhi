@@ -1,48 +1,9 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/tokens.dart';
-
-final _linkPreviewProvider =
-  FutureProvider.family<_LinkMeta?, String>((ref, url) async {
-  try {
-    final resp = await Dio().get<String>(
-      url,
-      options: Options(
-        responseType:    ResponseType.plain,
-        sendTimeout:     const Duration(seconds: 5),
-        receiveTimeout:  const Duration(seconds: 5),
-        headers: {'User-Agent': 'Mozilla/5.0'},
-      ),
-    );
-    final html  = resp.data ?? '';
-    String? title = RegExp(
-            r'<title[^>]*>([^<]+)</title>',
-            caseSensitive: false)
-        .firstMatch(html)
-        ?.group(1)
-        ?.trim();
-    String? desc = RegExp(
-          r'''<meta[^>]+name=["']description["'][^>]+content=["'](.*?)["']''',
-            caseSensitive: false)
-        .firstMatch(html)
-        ?.group(1)
-        ?.trim();
-    if (title == null) return null;
-    return _LinkMeta(title: title, description: desc, url: url);
-  } catch (_) {
-    return null;
-  }
-});
-
-class _LinkMeta {
-  const _LinkMeta({required this.title, this.description, required this.url});
-  final String  title;
-  final String? description;
-  final String  url;
-}
+import '../../../infrastructure/services/link_preview_service.dart';
 
 /// Shows a URL preview card below message text.
 class LinkPreviewCard extends ConsumerWidget {
@@ -51,7 +12,7 @@ class LinkPreviewCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final metaAsync = ref.watch(_linkPreviewProvider(url));
+    final metaAsync = ref.watch(linkPreviewServiceProvider(url));
 
     return metaAsync.when(
       loading: () => const SizedBox(height: 4),

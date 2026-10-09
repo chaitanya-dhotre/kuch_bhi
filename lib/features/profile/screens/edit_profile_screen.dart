@@ -3,11 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
 
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../infrastructure/services/profile_update_service.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -57,27 +56,16 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final user = authState is AuthAuthenticated ? authState.user : null;
       if (user == null) return;
 
-      final pb = ref.read(pocketbaseClientProvider).pb;
       final body = {
         'display_name': _displayNameController.text.trim(),
         'about': _aboutController.text.trim(),
       };
 
-      if (_pickedImage != null) {
-        await pb.collection('users').update(
-          user.id,
-          body: body,
-          files: [
-            http.MultipartFile.fromBytes(
-              'avatar',
-              await _pickedImage!.readAsBytes(),
-              filename: _pickedImage!.path.split('/').last,
-            ),
-          ],
-        );
-      } else {
-        await pb.collection('users').update(user.id, body: body);
-      }
+      await ref.read(profileUpdateServiceProvider).updateProfile(
+            userId: user.id,
+            body: body,
+            avatarFile: _pickedImage,
+          );
 
       ref.invalidate(authProvider);
       if (mounted) Navigator.of(context).pop();

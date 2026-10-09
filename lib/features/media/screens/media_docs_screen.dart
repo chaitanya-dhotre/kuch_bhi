@@ -3,30 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:open_file/open_file.dart';
-import 'package:pocketbase/pocketbase.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../core/theme/tokens.dart';
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../infrastructure/services/media_gallery_service.dart';
 import '../../chat/providers/chat_provider.dart';
 import '../../media/screens/media_viewer_screen.dart';
-
-// ── Provider ─────────────────────────────────────────────────────────────────
-
-final _mediaPageProvider = FutureProvider.autoDispose
-    .family<List<RecordModel>, ({String conversationId, String mediaType})>(
-  (ref, args) async {
-    final pb = ref.read(pocketbaseClientProvider).pb;
-    final result = await pb.collection('message_media').getList(
-      filter:  'conversation_id="${args.conversationId}"'
-               '&&media_type="${args.mediaType}"',
-      sort:    '-created',
-      perPage: 100,
-    );
-    return result.items;
-  },
-);
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +49,7 @@ class MediaDocsScreen extends ConsumerWidget {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-DateTime? _expiresAt(RecordModel r) {
+DateTime? _expiresAt(MediaRecord r) {
   final raw = r.data['expires_at']?.toString() ?? '';
   return raw.isNotEmpty ? DateTime.tryParse(raw)?.toLocal() : null;
 }
@@ -246,7 +229,7 @@ class _PhotosTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(_mediaPageProvider(
+    final async = ref.watch(mediaPageProvider(
       (conversationId: conversationId, mediaType: 'image'),
     ));
 
@@ -311,7 +294,7 @@ class _VideosTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(_mediaPageProvider(
+    final async = ref.watch(mediaPageProvider(
       (conversationId: conversationId, mediaType: 'video'),
     ));
 
@@ -379,7 +362,7 @@ class _VoiceTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(_mediaPageProvider(
+    final async = ref.watch(mediaPageProvider(
       (conversationId: conversationId, mediaType: 'voice'),
     ));
 
@@ -585,7 +568,7 @@ class _DocsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(_mediaPageProvider(
+    final async = ref.watch(mediaPageProvider(
       (conversationId: conversationId, mediaType: 'document'),
     ));
 

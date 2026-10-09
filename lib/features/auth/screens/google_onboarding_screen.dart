@@ -4,12 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../infrastructure/services/auth_onboarding_service.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class GoogleOnboardingScreen extends ConsumerStatefulWidget {
@@ -92,17 +91,10 @@ class _GoogleOnboardingScreenState
     final image = _pickedImage;
     if (image == null) return;
     try {
-      final pb = ref.read(pocketbaseClientProvider).pb;
-      await pb.collection('users').update(
-        userId,
-        files: [
-          http.MultipartFile.fromBytes(
-            'avatar',
-            await image.readAsBytes(),
-            filename: image.path.split('/').last,
-          ),
-        ],
-      );
+      await ref.read(authOnboardingServiceProvider).uploadAvatar(
+            userId: userId,
+            image: image,
+          );
       // Refresh local user cache so the avatar renders immediately.
       ref.invalidate(authProvider);
     } catch (e) {
