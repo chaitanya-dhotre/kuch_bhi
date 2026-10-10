@@ -2,7 +2,7 @@
 
 > Single source of truth: not-done, half-baked, and decided-for-future work.
 > Status tags: `[DECIDED]` agreed direction · `[PARKED]` plan written, not started · `[BACKLOG]` known gap, no plan yet · `[MINOR]` deferred polish.
-> Last updated: 2026-10-06.
+> Last updated: 2026-10-10.
 
 ## 0a. Brand & product assets `[BACKLOG]` (user-raised 2026-10-06)
 
@@ -99,6 +99,22 @@
 ## 6. Deferred minors (from W3-B final review)
 
 - Gate 4 lacks `Color(0x` ban · gates lib-only (mockup `--error` stale `#C4402F` vs token `#E5484D`) · plan says `avatar`, code `avatarUrl` (plan text stale) · Inter font still bundled in pubspec (spec = system + optional Jakarta; needs cleanup commit) · requests badge `t.error` (semantic red, accepted).
+
+## 6b. Offline-first post-plan (2026-10-10, user rulings)
+
+*From the `feature/offline-first` plan close-out. I2 (seal previews) and keyless sealed-text outbox are NOT here — user overturned those to pre-merge blockers.*
+
+- `[DECIDED]` **Delete + reaction offline wiring — priority 1.** Must mean defined offline behavior (server-confirmed delete, queued reaction), not silent failure. (user, 2026-10-10)
+- `[DECIDED]` **Unwired offline kinds (pin etc.)**: disabled control or clear message offline — never silent failure. Star already gets local write pre-merge (protected-set depends on it).
+- `[BACKLOG]` **FCM bg / receipt / social-sync / auth routing** — I3b/I4 §4 carve-out follow-up: route these writers through IngestBoundary (spec §4 text amended pre-merge to document current carve-outs).
+- `[MINOR]` mediaFileProvider non-autoDispose caches null — bubble stuck placeholder after re-fetch until restart (M2, pre-plan).
+- `[MINOR]` chat_screen ref-after-dispose StateError (:177/:230) + groupKeyReadyProvider defunct-element spam ~4s (M3, pre-plan bbb7d82).
+- `[MINOR]` watchPinnedMessages one-shot stream — add broadcast ping when a pinned-consumer screen lands (T12).
+- `[BACKLOG]` USE_FAKES + chat body reads hit `as MessageRepositoryImpl` cast → soft-fails to placeholder; chat fake work belongs to future fake-backed chat screens (T12 carry-1 residual).
+- `[BACKLOG]` bodyCache LRU eviction unit test (bounded 500 — untested eviction order).
+- `[BACKLOG]` onApplied pin (decrypt apply epoch race polish).
+- `[BACKLOG]` DM key refetch path (key rotation while cached key stale).
+- `[BACKLOG]` Matrix R3/R4 second-device re-runs — executed pre-merge P5 when 2 devices attached (2-device SSE echo + idempotency unverified).
 
 ## 7. Reference
 
