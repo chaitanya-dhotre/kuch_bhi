@@ -33,6 +33,17 @@ Final outbox snapshot (post-session DB pull): dc4kebcr72v9w80 = 5 queued (attemp
 
 **Row verdict: PARTIAL — survival+janitor PASS; reconnect-drain FAIL, root-caused to ledgered T9.7/T2 encryption-at-enqueue forward-carry (out of scope to fix).**
 
+### Row 2 re-run (C1 fix, HEAD 6ab2d50, 2026-10-10) — encrypt-at-enqueue
+
+Conv: "Lineage Chait" (key-present DM). Msgs: `killcase-a101/b102/c103`.
+
+| Step | Expected | Actual | Capture |
+|---|---|---|---|
+| a-f. Airplane ON → 3 msgs queued → `am force-stop` → relaunch OFFLINE → reopen conv | 3 rows survive `queued`, one bubble each, no placeholder, no dupes | 3 `content-desc="killcase-*"` nodes; bubbles re-decrypted from row ciphertext (C1 path); all 3 queued icons; status bar airplane | `t11-c1row2-1-queued-offline.png`, `t11-c1row2-2-survived-kill-offline.png` |
+| g-i. Airplane OFF → drain → verify | All 3 SENT, one bubble each | 3 nodes exactly; all 3 double-tick ✓✓ @15:59 (server-acked); no dupes, no placeholder | `t11-c1row2-3-reconnect-drained.png` |
+
+**Row 2 re-run verdict: PASS** — kill-gap loss window closed by encrypt-at-enqueue (spec §5.2, commit 6ab2d50).
+
 ---
 
 ## Row 3 — Long-gap reconnect (peer msgs accumulate)
@@ -88,7 +99,7 @@ Note: in warm process (no restart) the bubble stayed on placeholder after re-fet
 | Row | Verdict |
 |---|---|
 | 1 Airplane render + queue | PASS |
-| 2 Kill mid-queue | PARTIAL (ledgered T9.7 bodyCache kill-gap) |
+| 2 Kill mid-queue | PASS (re-run 2026-10-10 @6ab2d50; original run PARTIAL, root-caused + fixed via encrypt-at-enqueue) |
 | 3 Long-gap reconnect | BLOCKED-single-device |
 | 4 Key-delay + terminal banner | PARTIAL (T7 PASS; T4 banner blocked-no-trigger) |
 | 5 Media lifecycle | PASS |
