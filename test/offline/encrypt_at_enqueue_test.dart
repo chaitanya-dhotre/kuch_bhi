@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kuch_bhi/core/decrypt/body_cache.dart';
+import 'package:kuch_bhi/core/decrypt/device_key_store.dart';
 import 'package:kuch_bhi/data/local/database/tables/outbox_table.dart';
 import 'package:kuch_bhi/infrastructure/offline/outbox_worker.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
@@ -163,19 +164,22 @@ void main() {
     await repo.sendMessage(conversationId: 'g1', plaintext: 'late key');
 
     final row = (await h.db.messagesDao.watchMessages('g1').first).single;
-    expect(row.encryptedBody, '__pending__',
-        reason: 'keyless enqueue keeps the interim marker (no durable '
-            'plaintext store allowed — spec §3)');
+    expect(row.encryptedBody, isNot('__pending__'),
+        reason: 'P8 (user ruling): a keyless enqueue seals the body under '
+            'the DEVICE-LOCAL key, so the row never carries the interim '
+            'marker — plaintext-only-in-memory was the kill-losing shape');
+    expect(row.encryptedBody, isNotEmpty);
+    expect(row.decryptState, kDeviceSealedState,
+        reason: 'P8: the row declares which key wraps it (device, not group)');
 
     // Key arrives (peer sync / group-key fetch) BEFORE the drain.
     h.storage.put('group_key_g1', base64.encode(fixtureGroupKey));
 
-    // A fresh process (relaunch) — the worker is rebuilt. The keyless path
-    // still needs the plaintext, and spec §3 forbids a durable plaintext
-    // store, so it legitimately comes from the session cache (this process
-    // enqueued it). What this test pins is the PERSIST step: the ciphertext
-    // must reach the ROW before the create, so a death right after it
-    // cannot lose the message.
+    // A fresh process (relaunch) — the worker is rebuilt. The sealed row
+    // unwraps through the DEVICE key (secure storage survives the process),
+    // so no session cache is needed. What this test pins is the PROMOTION
+    // step: the group-key ciphertext must reach the ROW before the create,
+    // so a death right after it cannot leave a device-sealed row behind.
     repo.outboxWorker.dispose();
     repo = buildRepo(h);
     repo.outboxWorker.onAuthResumed(); // release the parked pause

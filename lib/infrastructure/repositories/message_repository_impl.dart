@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/decrypt/body_cache.dart';
 import '../../core/decrypt/decrypt_pass.dart';
+import '../../core/decrypt/device_key_store.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
@@ -108,11 +109,15 @@ class MessageRepositoryImpl implements MessageRepository {
     );
     // Task 8: DecryptPass (spec §8) — same ctor pattern so its apply-step
     // guard reads the repo's LIVE session epoch (dropped results after
-    // logout/account-switch never touch Drift or the body cache).
+    // logout/account-switch never touch Drift or the body cache). P8 also
+    // hands it the device key store so a `device_sealed` row unwraps on
+    // read (the bubble renders, the placeholder law is never violated).
+    deviceKeyStore = DeviceKeyStore(storage);
     decryptPass = DecryptPass(
       db: db,
       enc: encryption,
       epoch: () => _sessionEpoch,
+      deviceKeys: deviceKeyStore,
     );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
@@ -236,6 +241,12 @@ class MessageRepositoryImpl implements MessageRepository {
   /// its epoch seam reads [_sessionEpoch]; exposed for
   /// `decryptPassProvider` (chat_provider / mediaFileProvider precedent).
   late final DecryptPass decryptPass;
+
+  /// P8 (user ruling): the device-local key that wraps a body at keyless
+  /// enqueue so the outbox row survives a kill without durable plaintext.
+  /// Lives over the app's EXISTING secure storage (§11) — no new crypto
+  /// dependency, and `clearSession()` wipes it with the session.
+  late final DeviceKeyStore deviceKeyStore;
 
   /// T9 carry-in (brief): fired AFTER a write lands REAL ciphertext for a
   /// message the drain/upload just stamped (`_sendTextOp` dual-truth txn,
@@ -820,13 +831,17 @@ class MessageRepositoryImpl implements MessageRepository {
     // attempts=0). bodyCache.put(plaintext) STAYS below for display
     // (spec §5.1: the bubble never flashes a placeholder).
     //
-    // Keyless enqueue (peer key not synced / offline): the interim
-    // `__pending__` marker is kept and the FIRST successful encrypt during
-    // the drain persists ciphertext + iv to the row BEFORE the server
-    // create (see [_sendTextOp]) — after that point memory holds nothing
-    // exclusive. Residual (key never available AND death before the first
-    // encrypt) is a known follow-up: spec §3 forbids a durable plaintext
-    // store, so there is nothing safer to write.
+    // Keyless enqueue: the KEYLESS-SEALED path (P8, user ruling). The
+    // conversation key did not resolve, so the body is wrapped with the
+    // DEVICE-LOCAL key (secure storage, §11) and that SEALED ciphertext
+    // + iv land in the same row. Before P8 this wrote the interim
+    // `__pending__` marker with the plaintext in the body cache alone —
+    // backgrounding or a process kill destroyed the only copy, so the
+    // outbox could lose a send forever (matrix R2: 5 ops, attempts=0).
+    // Spec §3 forbids durable PLAINTEXT, not durable sealed text, which is
+    // exactly what this writes. The drain re-encrypts to the group key the
+    // moment it arrives (see [_sendTextOp]).
+    //
     // Encryption-at-enqueue (C1, spec §5.2): resolve the key OUTSIDE the
     // transaction (it may hit the network / secure storage), then write the
     // row, the outbox op AND the ciphertext in ONE transaction. A helper
@@ -836,6 +851,21 @@ class MessageRepositoryImpl implements MessageRepository {
     final EncryptResult? encBody =
         enqueueKey == null ? null : await encryption.encryptMessage(
             plaintext, enqueueKey);
+    // P8 seals only when the CONVERSATION key is absent. A failure of the
+    // device-key path must not break the send: it falls back to the legacy
+    // `__pending__` marker (C1's drain still persists at first encrypt), so
+    // this change can only make the keyless path SURVIVABLE, never worse.
+    EncryptResult? sealedBody;
+    String? sealedKeyId;
+    if (enqueueKey == null) {
+      try {
+        final deviceKey = await deviceKeyStore.resolve();
+        sealedBody = await encryption.encryptMessage(plaintext, deviceKey);
+        sealedKeyId = deviceKeyStore.keyId(deviceKey);
+      } catch (e) {
+        debugPrint('[Msg] P8 device-key seal failed — legacy marker: $e');
+      }
+    }
     // C1 covers the BODY. The REPLY PREVIEW (P7, spec §3 / user ruling:
     // plaintext previews at rest = merge blocker) is NOT stored locally at
     // all — `messages.reply_preview` is dropped in schema v11. The quote
@@ -854,10 +884,14 @@ class MessageRepositoryImpl implements MessageRepository {
         conversationId: conversationId,
         senderId:       myId,
         type:           'text',
-        // Real ciphertext when the key resolved (C1); the interim marker
-        // otherwise — never a plaintext column (spec §3, T9 drop).
-        encryptedBody:  encBody?.ciphertext ?? '__pending__',
-        iv:             encBody?.iv ?? '',
+        // Real ciphertext when the key resolved (C1); the DEVICE-SEALED
+        // ciphertext when the keyless path sealed under the device key
+        // (P8); the interim marker only if even that failed. Never a
+        // plaintext column (spec §3, T9 drop).
+        encryptedBody:  encBody?.ciphertext ??
+            sealedBody?.ciphertext ??
+            '__pending__',
+        iv:             encBody?.iv ?? sealedBody?.iv ?? '',
         replyToId:      Value(replyToLocalId),
         status:         Value('pending'),
         expiresAt:      Value(expiresAt),
@@ -865,10 +899,16 @@ class MessageRepositoryImpl implements MessageRepository {
         updatedAt:      now,
         // Own rows resolve on read: decrypt_state='ready' + key_id so a
         // cache miss re-decrypts instead of rendering a placeholder
-        // (spec §5.1: "own sent messages are never placeholders").
-        decryptState:   const Value('ready'),
+        // (spec §5.1: "own sent messages are never placeholders"). A
+        // keyless-sealed row instead carries `device_sealed` + the device
+        // key's fingerprint — the body IS here, under the device key
+        // (P8), so it renders via an unwrap on read rather than a
+        // placeholder.
+        decryptState:   Value(sealedBody == null
+            ? 'ready'
+            : kDeviceSealedState),
         keyId:          Value(enqueueKey == null
-            ? null
+            ? sealedKeyId
             : DecryptPass.fingerprintOf(enqueueKey)),
       ));
       await db.outboxDao.enqueue(OutboxTableCompanion.insert(
@@ -943,10 +983,17 @@ class MessageRepositoryImpl implements MessageRepository {
     // the fast path (no crypto hop) and the display source, not a
     // requirement.
     //
-    // Keyless enqueue: the row still carries the interim `__pending__`, and
-    // the plaintext may be in the cache (only if this same process enqueued
-    // it). Decrypting the stored ciphertext is preferred; the cache is used
-    // ONLY when there is no ciphertext to decrypt.
+    // Keyless enqueue: the row may still carry the interim `__pending__`
+    // (P8's device-key seal also failed), and the plaintext may be in the
+    // cache (only if this same process enqueued it). Decrypting the stored
+    // ciphertext is preferred; the cache is used ONLY when there is no
+    // ciphertext to decrypt.
+    //
+    // P8 DEVICE-SEALED row: the body is durable, sealed under the
+    // DEVICE-LOCAL key. Unwrap it with that key — a cleared cache then
+    // cannot change the outcome, exactly like the C1 group-key path. The
+    // unwrapped plaintext feeds only the send below; the row stays sealed
+    // at rest (spec §3) until the group key arrives and [key] re-encrypts.
     final myId = await _myId();
     if (myId.isEmpty) {
       return OpSendOutcome.deferred; // session not ready — retry on kick
@@ -958,8 +1005,26 @@ class MessageRepositoryImpl implements MessageRepository {
 
     final bool needFreshBody =
         msg.encryptedBody.isEmpty || msg.encryptedBody == '__pending__';
+    final bool deviceSealed =
+        msg.decryptState == kDeviceSealedState && !needFreshBody;
     String? plaintext;
-    if (!needFreshBody) {
+    if (deviceSealed) {
+      // P8: unwrap with the device-local key. The cached plaintext (this
+      // process enqueued it) is only a fallback for a seal written under a
+      // key that secure storage no longer holds.
+      try {
+        final deviceKey = await deviceKeyStore.resolve();
+        plaintext = await encryption.decryptMessage(
+            msg.encryptedBody, msg.iv, deviceKey);
+      } catch (e) {
+        debugPrint('[Msg] P8 device unwrap failed, trying cache: $e');
+      }
+      final cached = bodyCache.get(localId);
+      if (plaintext == null || plaintext.isEmpty) plaintext = cached;
+      if (plaintext == null || plaintext.isEmpty) {
+        return OpSendOutcome.deferred; // nothing sendable yet
+      }
+    } else if (!needFreshBody) {
       // C1: re-derive the plaintext from the DURABLE ciphertext — a cleared
       // cache must not change the outcome.
       try {
@@ -1049,7 +1114,15 @@ class MessageRepositoryImpl implements MessageRepository {
     // instead of losing the message (the row id == op id, so the re-send is
     // idempotent: spec §5.2 duplicate-id = success). Only the keyless path
     // needs the write; the enqueue-time ciphertext is already durable.
-    if (needFreshBody) {
+    //
+    // P8: the DEVICE-SEALED row needs the same write — the ruling's
+    // "re-encrypt to the group key when it arrives". The device-wrapped copy
+    // is durable SEND-material, but it must not become the row's final
+    // at-rest state: every other device decrypts under the GROUP key, so a
+    // row left `device_sealed` after a successful send would be undecryptable
+    // anywhere else. The write below is therefore the promotion point:
+    // sealed-ciphertext-in → group-ciphertext + `ready` out, before create.
+    if (needFreshBody || deviceSealed) {
       await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
         localId:        localId,
         conversationId: conversationId,
@@ -1063,7 +1136,8 @@ class MessageRepositoryImpl implements MessageRepository {
         decryptState:   const Value('ready'),
         keyId:          Value(DecryptPass.fingerprintOf(key)),
       ));
-      debugPrint('[Msg] C1: ciphertext persisted before create (keyless path)');
+      debugPrint('[Msg] C1: ciphertext persisted before create '
+          '(${deviceSealed ? 'P8 device-sealed' : 'keyless'} path)');
     }
 
     debugPrint('[Msg] Creating message record on server');

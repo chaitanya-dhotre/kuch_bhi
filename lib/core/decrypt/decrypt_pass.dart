@@ -10,6 +10,7 @@ import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../services/encryption_service.dart';
 import 'body_cache.dart';
+import 'device_key_store.dart';
 
 /// Batch decrypt orchestrator (spec §8, Task 8) — the SOLE DecryptPass
 /// writer of `decrypt_state`/`key_id` verdicts beyond ingest (spec §4
@@ -38,13 +39,22 @@ class DecryptPass {
     required AppDatabase db,
     required EncryptionService enc,
     required int Function() epoch,
+    DeviceKeyStore? deviceKeys,
   })  : _db = db,
         _enc = enc,
-        _epoch = epoch;
+        _epoch = epoch,
+        _deviceKeys = deviceKeys;
 
   final AppDatabase _db;
   final EncryptionService _enc;
   final int Function() _epoch;
+
+  /// P8: the device-local key that wraps keyless-enqueue bodies. Null in
+  /// unit tests that build a bare [DecryptPass] — a `device_sealed` row
+  /// then stays unresolvable and the placeholder law covers it (the row is
+  /// never blank, and the op still drains: the drain unwraps through the
+  /// repository's own [DeviceKeyStore]).
+  final DeviceKeyStore? _deviceKeys;
 
   /// Test seam: awaited after crypto, before the epoch-checked apply —
   /// models the isolate result landing (brief test 2 injects its async
@@ -112,18 +122,39 @@ class DecryptPass {
 
     // 3. Keys resolved MAIN-SIDE (secure storage / db-cached peer keys) —
     //    passed to the worker as plain data only (spec §8 isolate model).
+    //
+    // P8: device-sealed rows never need the conversation key at all — the
+    // body is wrapped with the device-local key, so they resolve their own
+    // group (and stay grouped by conversation for the apply step's
+    // no-op-write bookkeeping).
     final keyless = <MessagesTableData>[];
     final groups = <_KeyGroup>[];
+    final sealed = <MessagesTableData>[];
     for (final entry in byConv.entries) {
+      final (convRows, sealedRows) = _splitSealed(entry.value);
+      sealed.addAll(sealedRows);
+      if (convRows.isEmpty) continue;
       final key = await _resolveKey(entry.key);
       if (key == null || key.length != 32) {
-        keyless.addAll(entry.value);
+        keyless.addAll(convRows);
         continue;
       }
       groups.add(_KeyGroup(
         key: key,
         fingerprint: DecryptPass.fingerprintOf(key),
-        rows: entry.value,
+        rows: convRows,
+      ));
+    }
+    for (final row in sealed) {
+      final key = await _deviceKey();
+      if (key == null || key.length != 32) {
+        keyless.add(row);
+        continue;
+      }
+      groups.add(_KeyGroup(
+        key: key,
+        fingerprint: DecryptPass.fingerprintOf(key),
+        rows: [row],
       ));
     }
 
@@ -160,6 +191,7 @@ class DecryptPass {
     final applied = <String>[];
     for (final row in keyless) {
       if (row.decryptState == 'key_missing') continue; // already correct
+      if (row.decryptState == kDeviceSealedState) continue; // P8: stay sealed
       if (!_stillValid(epochAtSchedule, 'key_missing write')) return;
       await (_db.update(_db.messagesTable)
             ..where((t) => t.localId.equals(row.localId)))
@@ -171,6 +203,19 @@ class DecryptPass {
       final state = o['state'] as String;
       final plain = o['plain'] as String?;
       final fp = o['fingerprint'] as String;
+
+      // P8: a device-sealed row unwraps to the CACHE only. Its at-rest
+      // state must stay `device_sealed` — the ciphertext is still under the
+      // device key (the drain promotes it to group-key `ready` at send
+      // time), so flipping to `ready` here would lie about which key opens
+      // the row and would let the group-visibility gate promise a body the
+      // group key cannot produce.
+      if (state == 'ready' && prevStates[id] == kDeviceSealedState) {
+        if (!_stillValid(epochAtSchedule, 'cache put $id')) return;
+        bodyCache.put(id, plain!);
+        applied.add(id);
+        continue;
+      }
 
       // Skip no-op verdict writes: a `ready` row already carrying this
       // fingerprint, or a row already `key_missing`, needs no UPDATE —
@@ -205,6 +250,37 @@ class DecryptPass {
     if (epochAtStart == _epoch()) return true;
     debugPrint('[Decrypt] $what dropped — session epoch changed');
     return false;
+  }
+
+  /// P8: splits a conversation's rows into (conversation-key rows,
+  /// device-sealed rows). A sealed row's ciphertext is under the device key,
+  /// so it must never be handed the conversation key — that swap would read
+  /// as a MAC failure and mark the row terminal.
+  (List<MessagesTableData>, List<MessagesTableData>) _splitSealed(
+      List<MessagesTableData> rows) {
+    final convRows = <MessagesTableData>[];
+    final sealedRows = <MessagesTableData>[];
+    for (final r in rows) {
+      if (r.decryptState == kDeviceSealedState) {
+        sealedRows.add(r);
+      } else {
+        convRows.add(r);
+      }
+    }
+    return (convRows, sealedRows);
+  }
+
+  /// P8: the device-local key, or null when the store is not wired (bare
+  /// test [DecryptPass]) or secure storage holds nothing usable.
+  Future<List<int>?> _deviceKey() async {
+    final store = _deviceKeys;
+    if (store == null) return null;
+    try {
+      return await store.resolve();
+    } catch (e) {
+      debugPrint('[Decrypt] P8 device key unavailable: $e');
+      return null;
+    }
   }
 
   /// Conversation key for [convId] without leaving the main isolate's

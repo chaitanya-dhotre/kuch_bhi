@@ -96,6 +96,39 @@ class FakeSecureStorage implements SecureStorageService {
     _overrides[key] = null;
   }
 
+  /// Live view of every slot the harness is holding (fixture seeds +
+  /// writes, tombstones dropped). P8 needs this to prove the device-local
+  /// key is written to secure storage and later wiped with the session —
+  /// the real [SecureStorageService.readAll] semantics, minus the platform
+  /// channel. Without it, `noSuchMethod` throws UnimplementedError.
+  @override
+  Future<Map<String, String>> readAll() async => {
+        for (final k in secrets.keys) k: secrets[k]!,
+        for (final e in _overrides.entries)
+          if (e.value != null) e.key: e.value!,
+      };
+
+  @override
+  Future<void> clearSession() async {
+    final all = await readAll();
+    for (final key in all.keys) {
+      if (key == 'private_key' ||
+          key.startsWith('private_key_') ||
+          key == 'local_public_key' ||
+          key.startsWith('local_public_key_')) {
+        continue;
+      }
+      await delete(key: key);
+    }
+  }
+
+  @override
+  Future<void> clearAll() async {
+    for (final key in (await readAll()).keys) {
+      await delete(key: key);
+    }
+  }
+
   void put(String key, String value) => _overrides[key] = value;
   void removeKey(String key) => _overrides[key] = null;
 

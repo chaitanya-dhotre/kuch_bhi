@@ -185,6 +185,22 @@ happen in **one Drift transaction** on the main isolate — the outbox payload s
 only ciphertext/refs, never plaintext. A kill between them is impossible by
 construction.
 
+**Keyless enqueue — `device_sealed` (P8).** When the conversation's group key does
+not resolve at enqueue, the body is encrypted under the **device-local outbox key**
+(AES-256, in secure storage, slot `device_outbox_key`, `key_id` = `device:<fp>`) and
+that **sealed** ciphertext + iv land in the message row with
+`decrypt_state = 'device_sealed'` — distinct from `key_missing`, which means no key
+of any kind resolves. §3 forbids durable **plaintext**, not durable sealed text, so
+the pending body now survives a force-stop with nothing recoverable from disk; the
+row unwraps on read through the same `messageBodyProvider` path (a sealed row is
+**visible** — never a placeholder for a message the user just sent), and the drain
+**re-encrypts to the group key** the moment it arrives: sealed-ciphertext-in →
+group-ciphertext + `ready` out, written inside the same transaction as the server
+create, so no device-sealed row is ever left at rest after a successful send (the
+group key is the only key that matches every other device). Logout wipes the slot
+with the session, so a sealed row becomes honestly undecryptable rather than
+permanently unwrappable.
+
 **Two-step outgoing media:** `media_upload` op runs first; its dependent `message_send`
 (`depends_on`) drains only after the upload op reaches `sent`. Discarding a terminal
 `media_upload` **cascades: dependent `message_send` ops are discarded too.**

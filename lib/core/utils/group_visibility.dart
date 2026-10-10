@@ -1,3 +1,5 @@
+import '../decrypt/device_key_store.dart';
+
 /// Group-history visibility (spec D1): a row is visible only from this
 /// member's join time onward, and non-media rows whose body cannot resolve
 /// yet are hidden entirely — ciphertext must never reach a bubble.
@@ -11,6 +13,12 @@
 ///    null/empty `decryptedBody` row was hidden pre-drop;
 ///  - media rows are exempt (their body is optional).
 ///
+/// P8 (`device_sealed`): visible. The body IS present and decryptable — it
+/// is wrapped with the device-local key rather than the conversation key, so
+/// `messageBodyProvider` resolves it through the ordinary unwrap path. It is
+/// NOT in the "cannot resolve" set, so hiding it would make a message the
+/// user JUST SENT vanish from their own chat.
+///
 /// Own optimistic rows carry the column default `ready` (enqueue never
 /// writes state) — they stay visible, same as the plaintext they held.
 bool isGroupRowVisible({
@@ -23,6 +31,10 @@ bool isGroupRowVisible({
     return false;
   }
   const mediaTypes = {'image', 'video', 'voice', 'document', 'file'};
-  if (!mediaTypes.contains(type) && decryptState != 'ready') return false;
+  if (!mediaTypes.contains(type) &&
+      decryptState != 'ready' &&
+      decryptState != kDeviceSealedState) {
+    return false;
+  }
   return true;
 }
