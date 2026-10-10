@@ -7,10 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marionette_flutter/marionette_flutter.dart';
 
 import 'app.dart';
+import 'core/config/data_source.dart';
+import 'core/config/fake_message_repository.dart';
 import 'core/network/pocketbase_client.dart';
 import 'data/local/database/app_database.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
+import 'infrastructure/repositories/message_repository_impl.dart'
+    show messageRepositoryProvider;
 import 'services/fcm_debug_helper.dart';
 import 'services/fcm_service.dart';
 
@@ -62,6 +66,14 @@ Future<void> main() async {
         secureStorageProvider.overrideWithValue(secureStorage),
         appDatabaseProvider.overrideWithValue(db),
         pocketbaseClientProvider.overrideWithValue(pbClient),
+        // USE_FAKES mock-build seam (spec §10): screens read the Map-backed
+        // fake (demo fixtures so home renders rows offline); the real-repo
+        // body (PB/Drift/FCM) never runs. Const-folded away when USE_FAKES
+        // is not set.
+        if (useFakes)
+          messageRepositoryProvider.overrideWithValue(
+            FakeMessageRepository.demo(),
+          ),
       ],
       child: const KuchBhiApp(),
     ),
