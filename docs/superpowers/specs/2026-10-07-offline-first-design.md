@@ -78,6 +78,17 @@ UI screens ──read──▶ Drift only          UI commands ──▶ Repos (
    an SSE handler that writes Drift directly is a bug (guard 2).
 2. **MediaBlobStore** is the only writer of *blob rows and files* (§9).
 
+**Documented carve-outs (amendment 2026-10-10, user-ratified):** the two-gate rule
+above is scoped to the **messages core** this plan delivers. Four pre-existing
+writers sit outside the boundary and are NOT yet routed through IngestBoundary:
+FCM background handler writes, receipt passes, social/friend sync, and
+auth/onboarding flows. These are known, ledgered debt (see `docs/backlog.md`
+§6b); follow-up work routes them through the boundary or amends this section
+again. The import gate (§12) enforces network-SDK *import locality* only — it
+does not and cannot enforce the writer-domain rule; that rule is held by
+characterization tests and review audits. Do not read "gate green" as "two-gate
+rule proven".
+
 Media blob commits do **not** route through IngestBoundary (different lifecycle);
 the "no bypass" claim is per-domain. Both writers are session-epoch guarded (§11).
 
