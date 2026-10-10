@@ -62,6 +62,11 @@ class DeviceKeyStore {
 
   List<int>? _key;
 
+  /// True when the last [resolve] REGENERATED the key (slot missing or
+  /// malformed). P8 (F2): callers use this to report rows sealed under the
+  /// previous key as undecryptable instead of orphaning them silently.
+  bool wasRegenerated = false;
+
   /// The device-local key, generating and securely storing it on first use.
   /// Idempotent: after the first call every later call is a cache/storage
   /// read, so the same key seals every row for the life of the install.
@@ -75,6 +80,7 @@ class DeviceKeyStore {
         final bytes = base64.decode(stored);
         if (bytes.length == 32) {
           _key = bytes;
+          wasRegenerated = false;
           return bytes;
         }
         debugPrint('[P8] Device key slot malformed (len ${bytes.length}) — '
@@ -89,6 +95,7 @@ class DeviceKeyStore {
     // is the honest outcome — that ciphertext is unrecoverable either way.
     final fresh = List<int>.generate(32, (_) => Random.secure().nextInt(256));
     _key = fresh;
+    wasRegenerated = true; // P8 (F2): callers report the orphaned rows.
     await _storage.write(key: kDeviceKeySlot, value: base64.encode(fresh));
     return fresh;
   }

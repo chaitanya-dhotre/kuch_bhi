@@ -166,6 +166,12 @@ class MessageRepositoryImpl implements MessageRepository {
       // too — logout / account switch purges it alongside the epoch bump.
       bodyCache.clear();
       _cutoffCache.clear(); // identity changed — group cutoffs are per-user
+      // P8 (F1 fix): the device-local outbox key lives in a
+      // session-scoped secure-storage slot, so the in-memory copy is
+      // session-scoped too. Without this, the next keyless enqueue in the
+      // new session seals under the OLD key whose slot was wiped — the row
+      // is unopenable by any future process.
+      deviceKeyStore.forget();
       if (authenticated) {
         debugPrint('[Msg] Auth identity changed — reconnecting subscriptions.');
         _reconnect();
@@ -862,6 +868,22 @@ class MessageRepositoryImpl implements MessageRepository {
         final deviceKey = await deviceKeyStore.resolve();
         sealedBody = await encryption.encryptMessage(plaintext, deviceKey);
         sealedKeyId = deviceKeyStore.keyId(deviceKey);
+        // P8 (F2): when the secure-storage slot was cleared or corrupted,
+        // resolve() regenerates and every row sealed under the OLD key becomes
+        // permanently undecryptable. Silent orphans are the F2 shape — report
+        // the count loudly instead (recovery is impossible: the old key is
+        // unrecoverable by construction).
+        if (deviceKeyStore.wasRegenerated) {
+          final orphans = (await db.select(db.messagesTable).get())
+              .where((m) =>
+                  m.decryptState == kDeviceSealedState &&
+                  m.keyId != sealedKeyId)
+              .length;
+          if (orphans > 0) {
+            debugPrint('[P8] Device key REGENERATED — $orphans sealed '
+                'outbox row(s) are now UNDECRYPTABLE (old key unrecoverable)');
+          }
+        }
       } catch (e) {
         debugPrint('[Msg] P8 device-key seal failed — legacy marker: $e');
       }
@@ -3640,8 +3662,18 @@ class MessageRepositoryImpl implements MessageRepository {
       if (parent.encryptedBody.isNotEmpty &&
           parent.encryptedBody != '__pending__' &&
           parent.iv.isNotEmpty) {
-        text = await encryption.decryptMessage(
-            parent.encryptedBody, parent.iv, key);
+        // P8 (F3): a device-sealed parent was wrapped under the DEVICE key,
+        // not the conversation key — [key] would decrypt it to garbage or
+        // throw. Unwrap with the device key instead, same as
+        // messageBodyProvider's `_splitSealed`.
+        if (parent.decryptState == kDeviceSealedState) {
+          final deviceKey = await deviceKeyStore.resolve();
+          text = await encryption.decryptMessage(
+              parent.encryptedBody, parent.iv, deviceKey);
+        } else {
+          text = await encryption.decryptMessage(
+              parent.encryptedBody, parent.iv, key);
+        }
       }
     }
     if (text == null || text.isEmpty) return null;

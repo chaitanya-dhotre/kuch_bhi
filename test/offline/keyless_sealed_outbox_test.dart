@@ -26,6 +26,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,6 +35,7 @@ import 'package:http/testing.dart';
 import 'package:pocketbase/pocketbase.dart' show PocketBase;
 import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:kuch_bhi/core/decrypt/decrypt_pass.dart';
+import 'package:kuch_bhi/core/decrypt/device_key_store.dart';
 import 'package:kuch_bhi/core/network/pocketbase_client.dart';
 import 'package:kuch_bhi/data/local/database/app_database.dart';
 import 'package:kuch_bhi/data/local/database/tables/outbox_table.dart';
@@ -423,6 +425,7 @@ void main() {
     bodyCache.clear();
     repo.outboxWorker.dispose();
     repo = buildRepo(h);
+    addTearDown(repo.outboxWorker.dispose);
     repo.outboxWorker.onAuthResumed();
     await repo.outboxWorker.drain();
 
@@ -498,5 +501,143 @@ void main() {
     // No plaintext anywhere (never was, still is not).
     final values = await _allTextValues(h.db);
     expect(values.where((v) => v.contains('wipe me')), isEmpty);
+  });
+
+  // ── P8.6 F1 (review Critical): device key must not survive a logout in
+  // memory, or the NEXT keyless enqueue seals under the dead key ──
+  test('P8.6: after sign-out the device key is re-generated for the new '
+      'session — a keyless enqueue is openable by a fresh process', () async {
+    final h = charHarness(clientFactory: _clientFactory((req, nth) =>
+        http.Response(jsonEncode(_recordJson('k$nth')), 200,
+            headers: _jsonHeaders)));
+    addTearDown(h.close);
+    await seedConversationAndKey(h, withKey: false);
+
+    final repo = buildRepo(h);
+    await repo.outboxWorker.onAuthPaused(true);
+    await repo.sendMessage(conversationId: 'g1', plaintext: 'session one');
+    expect((await h.storage.readAll()).containsKey(kDeviceKeySlot), isTrue);
+
+    // Real production sign-out — wipes the secure-storage slot.
+    final auth = AuthRepositoryImpl(
+        pbClient: h.pbClient, db: h.db, storage: h.storage);
+    await auth.signOut();
+    expect((await h.storage.readAll()).containsKey(kDeviceKeySlot), isFalse);
+
+    // New session: re-seed identity, same repo (root-scope provider, never
+    // rebuilt — the exact shape that made F1 invisible in unit tests).
+    h.pbClient.pb.authStore.save(_fakeJwt(), null);
+    await seedConversationAndKey(h, withKey: false);
+    await repo.sendMessage(conversationId: 'g1', plaintext: 'session two');
+
+    // A fresh process must be able to open the row: the slot exists and its
+    // key matches the row's key_id (pre-fix it stayed null — the dead
+    // in-memory key was still sealing, storage.write was never reached).
+    final row = (await h.db.messagesDao.watchMessages('g1').first)
+        .lastWhere((m) => m.decryptState == kDeviceSealedState);
+    expect(row.encryptedBody, isNot('__pending__'));
+    final slot = (await h.storage.readAll())[kDeviceKeySlot];
+    expect(slot, isNotNull,
+        reason: 'F1: the re-sealed row must be wrapped by a key that is '
+            'actually persisted — not one that lives only in memory');
+    final store = DeviceKeyStore(h.storage);
+    expect(store.keyId(await store.resolve()), row.keyId,
+        reason: 'the persisted slot key must be the row key');
+    final values = await _allTextValues(h.db);
+    expect(values.where((v) => v.contains('session two')), isEmpty);
+  });
+
+  // ── P8.7 F3: a device-sealed parent still derives a reply preview ──
+  test('P8.7: reply to a device-sealed parent sends the parent body '
+      'encrypted on the wire (never ciphertext, never empty)', () async {
+    final payloads = <Map<String, dynamic>>[];
+    final h = charHarness(clientFactory: _clientFactory((req, nth) {
+      payloads.add(jsonDecode(req.body) as Map<String, dynamic>);
+      return http.Response(jsonEncode(_recordJson('k$nth')), 200,
+          headers: _jsonHeaders);
+    }));
+    addTearDown(h.close);
+    // Seed the conversation WITH a group key so the drain's `_getConvKey`
+    // succeeds — the only missing piece at drain time is the PATH through
+    // _deriveReplyPreview for the device-sealed PARENT.
+    await seedConversationAndKey(h, withKey: true);
+
+    final repo = buildRepo(h);
+    await repo.outboxWorker.onAuthPaused(true); // park the drain kick
+
+    // Parent enqueued keyless-style: sealed under the device key (exactly
+    // what a keyless enqueue writes), sent — so the child's drain finds
+    // the parent row decryptable but ONLY under the device key.
+    final deviceKey = await repo.deviceKeyStore.resolve();
+    final parentSealed =
+        await h.encryption.encryptMessage('parent sealed body', deviceKey);
+    await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId: 'p1',
+      serverId: const Value('srv_p1'),
+      conversationId: 'g1',
+      senderId: 'u_test',
+      type: 'text',
+      encryptedBody: parentSealed.ciphertext,
+      iv: parentSealed.iv,
+      status: const Value('sent'),
+      decryptState: const Value(kDeviceSealedState),
+      keyId: Value(repo.deviceKeyStore.keyId(deviceKey)),
+      createdAt: DateTime.utc(2026, 1, 1),
+      updatedAt: DateTime.utc(2026, 1, 1),
+    ));
+
+    final groupKey = fixtureGroupKey;
+    await repo.sendMessage(
+      conversationId: 'g1',
+      plaintext: 'child reply',
+      replyToLocalId: 'p1',
+    );
+
+    // Relaunch — a fresh worker drains the child; the group key is present
+    // now, so `_getConvKey` succeeds and F3's device-key branch inside
+    // `_deriveReplyPreview` is the only thing that can derive the preview.
+    repo.outboxWorker.dispose();
+    final repo2 = buildRepo(h);
+    addTearDown(repo2.outboxWorker.dispose);
+    repo2.outboxWorker.onAuthResumed();
+    await repo2.outboxWorker.drain();
+
+    final create = payloads.firstWhere(
+        (p) => (p['reply_to_id'] as String?)?.isNotEmpty ?? false);
+    final sent = create['reply_preview'] as String;
+    expect(sent, isNotEmpty, reason: 'F3: the derived preview must be sent');
+    final parts = sent.split(':');
+    final plain = await h.encryption
+        .decryptMessage(parts[1], parts[0], groupKey);
+    expect(plain, 'parent sealed body',
+        reason: 'F3: the preview must derive from the device-sealed parent '
+            '(group-key decrypt would return null)');
+    expect(sent.split(':')[0], isNot('parent sealed body'));
+  });
+
+  // ── P8.8 F2: a regenerated device key reports its orphaned rows ──
+  test('P8.8: slot regeneration flags wasRegenerated — orphans reported, not '
+      'silent', () async {
+    final h = charHarness(clientFactory: _clientFactory((req, nth) =>
+        http.Response(jsonEncode(_recordJson('k$nth')), 200,
+            headers: _jsonHeaders)));
+    addTearDown(h.close);
+    await seedConversationAndKey(h, withKey: false);
+    final repo = buildRepo(h);
+    await repo.outboxWorker.onAuthPaused(true);
+    await repo.sendMessage(conversationId: 'g1', plaintext: 'sealed once');
+
+    // Slot corrupted out-of-band (OS restore / key-store reset):
+    // malformed base64 → resolve() must regenerate, never crash.
+    await h.storage.write(key: kDeviceKeySlot, value: 'not-base64!!');
+    final store = DeviceKeyStore(h.storage);
+    final fresh = await store.resolve();
+    expect(fresh, hasLength(32));
+    expect(store.wasRegenerated, isTrue);
+
+    // A SECOND resolve reads the now-persisted slot: no regeneration.
+    final store2 = DeviceKeyStore(h.storage);
+    expect(await store2.resolve(), fresh);
+    expect(store2.wasRegenerated, isFalse);
   });
 }
