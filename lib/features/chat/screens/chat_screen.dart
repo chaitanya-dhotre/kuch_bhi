@@ -606,23 +606,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 onTyping:           () => _pres.onTyping(_cid),
                 onSend:           (text) {
                   final reply = ref.read(replyProvider);
-                  String? replyPreview;
-                  if (reply != null) {
-                    replyPreview = switch (reply.type) {
-                      'image' => '📷 Photo',
-                      'voice' => '🎤 Voice message',
-                      _       => reply.decryptedBody != null && reply.decryptedBody!.isNotEmpty
-                          ? reply.decryptedBody!.length > 60
-                              ? '${reply.decryptedBody!.substring(0, 60)}…'
-                              : reply.decryptedBody!
-                          : null,
-                    };
-                  }
+                  // P7 (spec §3): the reply PREVIEW is no longer computed
+                  // here and never reaches the repository — the quote
+                  // derives from the parent row at render time and the
+                  // drain derives the server-bound copy from the same row.
                   ref.read(sendMessageProvider.notifier).send(
                     conversationId: _cid,
                     text:           text,
                     replyToLocalId: reply?.localId,
-                    replyPreview:   replyPreview,
                   );
                 },
               ),

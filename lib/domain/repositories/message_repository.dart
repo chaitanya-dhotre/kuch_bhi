@@ -18,11 +18,16 @@ abstract class MessageRepository {
   Stream<List<Message>> watchMessages(String conversationId);
 
   /// Send a text message.
+  ///
+  /// P7 (spec §3): there is deliberately NO `replyPreview` parameter — a
+  /// preview is derived where it is needed (the UI derives the quote from
+  /// the parent row via `messageBodyProvider`; the drain derives the
+  /// server-bound preview from the same row). Nothing preview-shaped is
+  /// ever handed to the repository for storage.
   Future<void> sendMessage({
     required String conversationId,
     required String plaintext,
     String? replyToLocalId,
-    String? replyPreview,
   });
 
   /// Send a media message (voice, image, video, document).

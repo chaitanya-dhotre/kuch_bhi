@@ -341,7 +341,11 @@ class _ConversationTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final fallback = conv.lastMessagePreview ?? 'Tap to open chat';
+    // P7 (spec §3): no stored preview string exists anymore — the tile's
+    // subtitle is DERIVED (newest row via messageBodyProvider; media/system
+    // labels are constants; empty conversation → this fallback). Never a
+    // durable plaintext fallback.
+    const fallback = 'Tap to open chat';
     return ChatTile(
       title: conv.displayName,
       // Kept for the non-widget call paths / badge math; the visible

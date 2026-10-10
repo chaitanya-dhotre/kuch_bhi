@@ -35,7 +35,6 @@ MessagesTableCompanion _row({
       encryptedBody: 'ct',
       iv: 'iv',
       replyToId: const Value(null),
-      replyPreview: const Value(null),
       expiresAt: const Value(null),
       createdAt: DateTime.utc(2026, 1, 2),
       updatedAt: DateTime.utc(2026, 1, 2),

@@ -115,11 +115,29 @@ class _BodyPlaceholder extends StatelessWidget {
   }
 }
 
-/// Conversation-list preview body (spec §8: previews render placeholders
-/// until the provider emits). Shows the newest TEXT row of [conversation]
-/// through [MessageBodyText]; every other last-message kind (media glyphs,
-/// system rows, no rows at all) falls back to the stored preview string —
-/// those surfaces never carried a resolvable body through the provider.
+/// Constant label for a NON-text last message (spec §3 / P7: derived at
+/// render time from the row's `type` — the same glyphs the old stored
+/// `last_message_preview` column held, but never written anywhere).
+String conversationPreviewLabel(String type) => switch (type) {
+      'image'    => '📷 Photo',
+      'video'    => '🎬 Video',
+      'voice'    => '🎤 Voice message',
+      'document' => '📎 Document',
+      'poll'     => '📊 Poll',
+      'system'   => 'New message',
+      _          => 'New message',
+    };
+
+/// Conversation-list preview body (spec §8 placeholder law + P7 sealed
+/// previews, spec §3: NOTHING preview-shaped is durable).
+///
+/// Every branch DERIVES from the newest message row of [conversation]:
+/// * `text`      → [MessageBodyText] ⇒ `messageBodyProvider` (placeholder
+///   until the body emits, never blank, never ciphertext);
+/// * media/system → [conversationPreviewLabel] (a CONSTANT, not a body);
+/// * no row at all (fresh chat / evicted last row) → [fallback], the
+///   constant the caller passes.
+/// There is deliberately no stored-preview fallback anywhere.
 class ConversationPreviewText extends ConsumerWidget {
   const ConversationPreviewText({
     super.key,
@@ -137,12 +155,21 @@ class ConversationPreviewText extends ConsumerWidget {
     final lastMsg = ref
         .watch(conversationLastMessageProvider(conversation.id))
         .valueOrNull;
-    if (lastMsg == null || lastMsg.type != 'text') {
-      // No rows, media/system kind — the stored preview (glyphs, 'New
-      // message', 'Tap to open chat') is the production source, unchanged.
-      final preview = conversation.lastMessagePreview ?? fallback;
-      return Text(
-        preview,
+    if (lastMsg == null) {
+      return _label(fallback, context);
+    }
+    if (lastMsg.type == 'text') {
+      return MessageBodyText(
+        messageId: lastMsg.localId,
+        styleContext: 'preview',
+        style: style,
+      );
+    }
+    return _label(conversationPreviewLabel(lastMsg.type), context);
+  }
+
+  Widget _label(String text, BuildContext context) => Text(
+        text,
         style: style ??
             TextStyle(
               fontSize: 13,
@@ -152,11 +179,4 @@ class ConversationPreviewText extends ConsumerWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       );
-    }
-    return MessageBodyText(
-      messageId: lastMsg.localId,
-      styleContext: 'preview',
-      style: style,
-    );
-  }
 }

@@ -201,8 +201,10 @@ void main() {
         createdAt: DateTime(2026, 10, 7, 12),
         updatedAt: DateTime(2026, 10, 7, 12),
       ));
-      await h.db.conversationsDao.updateLastMessage(
-          'g1', 'New message', DateTime(2026, 10, 7, 12));
+      // P7 (inversion): updateLastMessage takes ONLY the timestamp — the
+      // 'New message' preview string is no longer stored anywhere.
+      await h.db.conversationsDao
+          .updateLastMessage('g1', DateTime(2026, 10, 7, 12));
     });
 
     final body = Completer<String?>();
@@ -219,7 +221,6 @@ void main() {
               id: 'g1',
               type: 'group',
               name: 'Guild',
-              lastMessagePreview: 'New message',
             ),
             fallback: 'Tap to open chat',
           ),
@@ -309,7 +310,9 @@ void main() {
     expect(rows.first.encryptedBody, 'CIPHER',
         reason: 'ciphertext preserved verbatim through the migration');
     final version = await upgraded.customSelect('PRAGMA user_version').getSingle();
-    expect(version.data.values.first, 10, reason: 'user_version advanced');
+    // P7 (inversion): the walk now continues 9 → 11 (v11 drops the two
+    // preview columns after v10 drops decrypted_body).
+    expect(version.data.values.first, 11, reason: 'user_version advanced');
     await upgraded.close();
   });
 

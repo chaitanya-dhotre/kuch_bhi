@@ -31,17 +31,20 @@ class ConversationsDao extends DatabaseAccessor<AppDatabase>
       (select(conversationsTable)..where((t) => t.id.equals(id)))
           .watchSingleOrNull();
 
+  /// Bumps the conversation's last-activity timestamp only.
+  ///
+  /// P7 (spec §3): the preview STRING is no longer stored — the tile
+  /// derives it from the newest message row at render time. Callers pass
+  /// the ordering timestamp; nothing preview-shaped is written.
   Future<void> updateLastMessage(
     String conversationId,
-    String preview,
     DateTime timestamp,
   ) =>
       (update(conversationsTable)
             ..where((t) => t.id.equals(conversationId)))
           .write(ConversationsTableCompanion(
-        lastMessagePreview: Value(preview),
-        lastMessageAt:      Value(timestamp),
-        updatedAt:          Value(DateTime.now()),
+        lastMessageAt: Value(timestamp),
+        updatedAt:     Value(DateTime.now()),
       ));
 
   Future<void> setPinned(String id, bool pinned) =>

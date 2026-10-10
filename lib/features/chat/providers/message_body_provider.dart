@@ -138,8 +138,9 @@ final Provider<void> drainStampWireProvider = Provider<void>((ref) {
 
 /// Newest visible message row for a conversation — the conversation-list
 /// preview's POINTER into [messageBodyProvider] (T9: previews render a
-/// placeholder until the body emits, spec §8). Media/system/no-row cases
-/// fall back to the stored `lastMessagePreview` string at the widget layer.
+/// placeholder until the body emits, spec §8). Media/system cases render a
+/// CONSTANT type label at the widget layer and a missing row renders the
+/// caller's fallback — P7 (spec §3): nothing preview-shaped is stored.
 final conversationLastMessageProvider =
     StreamProvider.autoDispose.family<MessagesTableData?, String>((ref, convId) {
   final db = ref.read(appDatabaseProvider);

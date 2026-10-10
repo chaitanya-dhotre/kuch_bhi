@@ -7,7 +7,6 @@ class Message {
     required this.type,
     this.decryptedBody,
     this.replyToId,
-    this.replyPreview,
     this.isDeletedForEveryone = false,
     this.isDeletedForMe = false,
     this.isPinned = false,
@@ -24,7 +23,6 @@ class Message {
   final String  type; // text | image | video | voice | poll | system
   final String? decryptedBody;
   final String? replyToId;
-  final String? replyPreview;
   final bool    isDeletedForEveryone;
   final bool    isDeletedForMe;
   final bool    isPinned;

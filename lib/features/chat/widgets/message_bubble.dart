@@ -129,8 +129,13 @@ class MessageBubble extends ConsumerWidget {
               ),
             ),
 
-          // ── Reply quote ──────────────────────────────────────
-          if (message.replyPreview != null)
+          // ── Reply quote (P7 / spec §3: DERIVED, never stored) ─────────
+          // The presence test is the PARENT ID, not a preview string —
+          // `messages.reply_preview` is dropped (schema v11). ReplyQuote
+          // resolves the parent row and renders its text through
+          // messageBodyProvider (placeholder while unresolved — never a
+          // blank, never raw ciphertext).
+          if (message.replyToId != null)
             GestureDetector(
               onTap: onReplyTap,
               child: Padding(
@@ -140,22 +145,15 @@ class MessageBubble extends ConsumerWidget {
                   top:   2,
                 ),
                 child: ReplyQuote(
-                  preview:    message.replyPreview!,
                   // The quote shows WHO was replied to, not who sent THIS message.
                   // If I sent this message, I replied to the other user → show their name.
                   // If other user sent this message, they replied to me → show 'You'.
                   senderName: isMine ? senderName : 'You',
                   isMine:     isMine,
-                  // Let the quote resolve the original message type from
-                  // Drift via its server id; the emoji-prefix heuristic is
-                  // only the fallback when the row isn't found locally.
+                  // Local id while the reply is unsent, server id after the
+                  // dual-truth stamp — ReplyQuote resolves BOTH.
                   replyToId:      message.replyToId,
                   conversationId: message.conversationId,
-                  messageType: message.replyPreview!.startsWith('🎤')
-                      ? 'voice'
-                      : message.replyPreview!.startsWith('📷')
-                          ? 'image'
-                          : 'text',
                 ),
               ),
             ),

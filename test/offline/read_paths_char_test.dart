@@ -133,9 +133,17 @@ void main() {
 
     expect(coldRows, isEmpty,
         reason: 'null-body row hidden from chat stream (group cutoff / state)');
-    expect(conv.lastMessagePreview, 'New message',
-        reason: 'production preview computation for a null body '
-            '(message_repository_impl.dart — preview bump) is unchanged');
+    // P7 (inversion): `last_message_preview` is DROPPED (schema v11) — the
+    // preview bump now writes ONLY the ordering timestamp, and the tile
+    // derives its label (placeholder for this null-body row) at render time.
+    expect(conv.lastMessageAt, isNotNull,
+        reason: 'the preview bump still advances lastMessageAt (ordering + '
+            'unread-badge guard are unchanged)');
+    final rawConv = await h2.db
+        .customSelect("SELECT * FROM conversations_table WHERE id = 'g1'")
+        .getSingle();
+    expect(rawConv.data.containsKey('last_message_preview'), isFalse,
+        reason: 'spec §3 / P7: no preview column exists to store it');
     expect(lastLocalId, isNotEmpty);
 
     await tester.pumpWidget(ProviderScope(

@@ -7,7 +7,10 @@ class ConversationsTable extends Table {
   TextColumn get name => text().nullable()(); // groups only
   TextColumn get iconUrl => text().nullable()(); // groups only
   TextColumn get createdById => text()();
-  TextColumn get lastMessagePreview => text().nullable()();
+  // P7 (spec §3 / schema v11): `lastMessagePreview` is DROPPED — the
+  // conversation-list preview DERIVES from the newest message row through
+  // `messageBodyProvider` at render time (type labels for media/system rows
+  // are constants computed in the widget). No plaintext preview at rest.
   DateTimeColumn get lastMessageAt => dateTime().nullable()();
   IntColumn get disappearingDuration => integer().withDefault(const Constant(0))();
   BoolColumn get onlyAdminsCanMessage => boolean().withDefault(const Constant(false))();

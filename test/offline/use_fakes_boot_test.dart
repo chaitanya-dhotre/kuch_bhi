@@ -27,7 +27,6 @@ const _fakeConversation = Conversation(
   id: 'fake-conv-1',
   type: 'group',
   name: 'Fake Boot Chat',
-  lastMessagePreview: 'hello from the fake',
   lastMessageAt: null,
 );
 

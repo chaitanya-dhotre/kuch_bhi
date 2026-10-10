@@ -55,7 +55,6 @@ class FakeMessageRepository implements MessageRepository {
       id: 'demo-conv-group',
       type: 'group',
       name: 'Offline Demo Group',
-      lastMessagePreview: 'Running on fakes — zero network',
       lastMessageAt: now,
       unreadCount: 2,
       memberCount: 3,
@@ -63,7 +62,6 @@ class FakeMessageRepository implements MessageRepository {
     repo.seedConversation(Conversation(
       id: 'demo-conv-dm',
       type: 'direct',
-      lastMessagePreview: 'This row is served by FakeMessageRepository',
       lastMessageAt: now.subtract(const Duration(minutes: 12)),
       otherUser: User(
         id: 'demo-peer',
@@ -100,7 +98,6 @@ class FakeMessageRepository implements MessageRepository {
     required String conversationId,
     required String plaintext,
     String? replyToLocalId,
-    String? replyPreview,
   }) async {
     final message = Message(
       localId: generateOpId(),
@@ -109,15 +106,15 @@ class FakeMessageRepository implements MessageRepository {
       type: 'text',
       decryptedBody: plaintext,
       replyToId: replyToLocalId,
-      replyPreview: replyPreview,
       status: 'sent',
       createdAt: DateTime.now(),
     );
     (_messages[conversationId] ??= []).add(message);
     final conv = _conversations[conversationId];
     if (conv != null) {
+      // P7 (spec §3): no preview string on the entity anymore — the tile
+      // derives it from the message rows.
       _conversations[conversationId] = conv.copyWith(
-        lastMessagePreview: plaintext,
         lastMessageAt: message.createdAt,
       );
       _conversationsChanged.add(null);

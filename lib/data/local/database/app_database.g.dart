@@ -771,17 +771,6 @@ class $ConversationsTableTable extends ConversationsTable
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _lastMessagePreviewMeta =
-      const VerificationMeta('lastMessagePreview');
-  @override
-  late final GeneratedColumn<String> lastMessagePreview =
-      GeneratedColumn<String>(
-        'last_message_preview',
-        aliasedName,
-        true,
-        type: DriftSqlType.string,
-        requiredDuringInsert: false,
-      );
   static const VerificationMeta _lastMessageAtMeta = const VerificationMeta(
     'lastMessageAt',
   );
@@ -908,7 +897,6 @@ class $ConversationsTableTable extends ConversationsTable
     name,
     iconUrl,
     createdById,
-    lastMessagePreview,
     lastMessageAt,
     disappearingDuration,
     onlyAdminsCanMessage,
@@ -967,15 +955,6 @@ class $ConversationsTableTable extends ConversationsTable
       );
     } else if (isInserting) {
       context.missing(_createdByIdMeta);
-    }
-    if (data.containsKey('last_message_preview')) {
-      context.handle(
-        _lastMessagePreviewMeta,
-        lastMessagePreview.isAcceptableOrUnknown(
-          data['last_message_preview']!,
-          _lastMessagePreviewMeta,
-        ),
-      );
     }
     if (data.containsKey('last_message_at')) {
       context.handle(
@@ -1088,10 +1067,6 @@ class $ConversationsTableTable extends ConversationsTable
         DriftSqlType.string,
         data['${effectivePrefix}created_by_id'],
       )!,
-      lastMessagePreview: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}last_message_preview'],
-      ),
       lastMessageAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}last_message_at'],
@@ -1148,7 +1123,6 @@ class ConversationsTableData extends DataClass
   final String? name;
   final String? iconUrl;
   final String createdById;
-  final String? lastMessagePreview;
   final DateTime? lastMessageAt;
   final int disappearingDuration;
   final bool onlyAdminsCanMessage;
@@ -1165,7 +1139,6 @@ class ConversationsTableData extends DataClass
     this.name,
     this.iconUrl,
     required this.createdById,
-    this.lastMessagePreview,
     this.lastMessageAt,
     required this.disappearingDuration,
     required this.onlyAdminsCanMessage,
@@ -1189,9 +1162,6 @@ class ConversationsTableData extends DataClass
       map['icon_url'] = Variable<String>(iconUrl);
     }
     map['created_by_id'] = Variable<String>(createdById);
-    if (!nullToAbsent || lastMessagePreview != null) {
-      map['last_message_preview'] = Variable<String>(lastMessagePreview);
-    }
     if (!nullToAbsent || lastMessageAt != null) {
       map['last_message_at'] = Variable<DateTime>(lastMessageAt);
     }
@@ -1222,9 +1192,6 @@ class ConversationsTableData extends DataClass
           ? const Value.absent()
           : Value(iconUrl),
       createdById: Value(createdById),
-      lastMessagePreview: lastMessagePreview == null && nullToAbsent
-          ? const Value.absent()
-          : Value(lastMessagePreview),
       lastMessageAt: lastMessageAt == null && nullToAbsent
           ? const Value.absent()
           : Value(lastMessageAt),
@@ -1257,9 +1224,6 @@ class ConversationsTableData extends DataClass
       name: serializer.fromJson<String?>(json['name']),
       iconUrl: serializer.fromJson<String?>(json['iconUrl']),
       createdById: serializer.fromJson<String>(json['createdById']),
-      lastMessagePreview: serializer.fromJson<String?>(
-        json['lastMessagePreview'],
-      ),
       lastMessageAt: serializer.fromJson<DateTime?>(json['lastMessageAt']),
       disappearingDuration: serializer.fromJson<int>(
         json['disappearingDuration'],
@@ -1285,7 +1249,6 @@ class ConversationsTableData extends DataClass
       'name': serializer.toJson<String?>(name),
       'iconUrl': serializer.toJson<String?>(iconUrl),
       'createdById': serializer.toJson<String>(createdById),
-      'lastMessagePreview': serializer.toJson<String?>(lastMessagePreview),
       'lastMessageAt': serializer.toJson<DateTime?>(lastMessageAt),
       'disappearingDuration': serializer.toJson<int>(disappearingDuration),
       'onlyAdminsCanMessage': serializer.toJson<bool>(onlyAdminsCanMessage),
@@ -1305,7 +1268,6 @@ class ConversationsTableData extends DataClass
     Value<String?> name = const Value.absent(),
     Value<String?> iconUrl = const Value.absent(),
     String? createdById,
-    Value<String?> lastMessagePreview = const Value.absent(),
     Value<DateTime?> lastMessageAt = const Value.absent(),
     int? disappearingDuration,
     bool? onlyAdminsCanMessage,
@@ -1322,9 +1284,6 @@ class ConversationsTableData extends DataClass
     name: name.present ? name.value : this.name,
     iconUrl: iconUrl.present ? iconUrl.value : this.iconUrl,
     createdById: createdById ?? this.createdById,
-    lastMessagePreview: lastMessagePreview.present
-        ? lastMessagePreview.value
-        : this.lastMessagePreview,
     lastMessageAt: lastMessageAt.present
         ? lastMessageAt.value
         : this.lastMessageAt,
@@ -1351,9 +1310,6 @@ class ConversationsTableData extends DataClass
       createdById: data.createdById.present
           ? data.createdById.value
           : this.createdById,
-      lastMessagePreview: data.lastMessagePreview.present
-          ? data.lastMessagePreview.value
-          : this.lastMessagePreview,
       lastMessageAt: data.lastMessageAt.present
           ? data.lastMessageAt.value
           : this.lastMessageAt,
@@ -1387,7 +1343,6 @@ class ConversationsTableData extends DataClass
           ..write('name: $name, ')
           ..write('iconUrl: $iconUrl, ')
           ..write('createdById: $createdById, ')
-          ..write('lastMessagePreview: $lastMessagePreview, ')
           ..write('lastMessageAt: $lastMessageAt, ')
           ..write('disappearingDuration: $disappearingDuration, ')
           ..write('onlyAdminsCanMessage: $onlyAdminsCanMessage, ')
@@ -1409,7 +1364,6 @@ class ConversationsTableData extends DataClass
     name,
     iconUrl,
     createdById,
-    lastMessagePreview,
     lastMessageAt,
     disappearingDuration,
     onlyAdminsCanMessage,
@@ -1430,7 +1384,6 @@ class ConversationsTableData extends DataClass
           other.name == this.name &&
           other.iconUrl == this.iconUrl &&
           other.createdById == this.createdById &&
-          other.lastMessagePreview == this.lastMessagePreview &&
           other.lastMessageAt == this.lastMessageAt &&
           other.disappearingDuration == this.disappearingDuration &&
           other.onlyAdminsCanMessage == this.onlyAdminsCanMessage &&
@@ -1450,7 +1403,6 @@ class ConversationsTableCompanion
   final Value<String?> name;
   final Value<String?> iconUrl;
   final Value<String> createdById;
-  final Value<String?> lastMessagePreview;
   final Value<DateTime?> lastMessageAt;
   final Value<int> disappearingDuration;
   final Value<bool> onlyAdminsCanMessage;
@@ -1468,7 +1420,6 @@ class ConversationsTableCompanion
     this.name = const Value.absent(),
     this.iconUrl = const Value.absent(),
     this.createdById = const Value.absent(),
-    this.lastMessagePreview = const Value.absent(),
     this.lastMessageAt = const Value.absent(),
     this.disappearingDuration = const Value.absent(),
     this.onlyAdminsCanMessage = const Value.absent(),
@@ -1487,7 +1438,6 @@ class ConversationsTableCompanion
     this.name = const Value.absent(),
     this.iconUrl = const Value.absent(),
     required String createdById,
-    this.lastMessagePreview = const Value.absent(),
     this.lastMessageAt = const Value.absent(),
     this.disappearingDuration = const Value.absent(),
     this.onlyAdminsCanMessage = const Value.absent(),
@@ -1510,7 +1460,6 @@ class ConversationsTableCompanion
     Expression<String>? name,
     Expression<String>? iconUrl,
     Expression<String>? createdById,
-    Expression<String>? lastMessagePreview,
     Expression<DateTime>? lastMessageAt,
     Expression<int>? disappearingDuration,
     Expression<bool>? onlyAdminsCanMessage,
@@ -1529,8 +1478,6 @@ class ConversationsTableCompanion
       if (name != null) 'name': name,
       if (iconUrl != null) 'icon_url': iconUrl,
       if (createdById != null) 'created_by_id': createdById,
-      if (lastMessagePreview != null)
-        'last_message_preview': lastMessagePreview,
       if (lastMessageAt != null) 'last_message_at': lastMessageAt,
       if (disappearingDuration != null)
         'disappearing_duration': disappearingDuration,
@@ -1553,7 +1500,6 @@ class ConversationsTableCompanion
     Value<String?>? name,
     Value<String?>? iconUrl,
     Value<String>? createdById,
-    Value<String?>? lastMessagePreview,
     Value<DateTime?>? lastMessageAt,
     Value<int>? disappearingDuration,
     Value<bool>? onlyAdminsCanMessage,
@@ -1572,7 +1518,6 @@ class ConversationsTableCompanion
       name: name ?? this.name,
       iconUrl: iconUrl ?? this.iconUrl,
       createdById: createdById ?? this.createdById,
-      lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       disappearingDuration: disappearingDuration ?? this.disappearingDuration,
       onlyAdminsCanMessage: onlyAdminsCanMessage ?? this.onlyAdminsCanMessage,
@@ -1604,9 +1549,6 @@ class ConversationsTableCompanion
     }
     if (createdById.present) {
       map['created_by_id'] = Variable<String>(createdById.value);
-    }
-    if (lastMessagePreview.present) {
-      map['last_message_preview'] = Variable<String>(lastMessagePreview.value);
     }
     if (lastMessageAt.present) {
       map['last_message_at'] = Variable<DateTime>(lastMessageAt.value);
@@ -1654,7 +1596,6 @@ class ConversationsTableCompanion
           ..write('name: $name, ')
           ..write('iconUrl: $iconUrl, ')
           ..write('createdById: $createdById, ')
-          ..write('lastMessagePreview: $lastMessagePreview, ')
           ..write('lastMessageAt: $lastMessageAt, ')
           ..write('disappearingDuration: $disappearingDuration, ')
           ..write('onlyAdminsCanMessage: $onlyAdminsCanMessage, ')
@@ -2198,17 +2139,6 @@ class $MessagesTableTable extends MessagesTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _replyPreviewMeta = const VerificationMeta(
-    'replyPreview',
-  );
-  @override
-  late final GeneratedColumn<String> replyPreview = GeneratedColumn<String>(
-    'reply_preview',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-  );
   static const VerificationMeta _isDeletedForEveryoneMeta =
       const VerificationMeta('isDeletedForEveryone');
   @override
@@ -2353,7 +2283,6 @@ class $MessagesTableTable extends MessagesTable
     encryptedBody,
     iv,
     replyToId,
-    replyPreview,
     isDeletedForEveryone,
     isDeletedForMe,
     isPinned,
@@ -2439,15 +2368,6 @@ class $MessagesTableTable extends MessagesTable
       context.handle(
         _replyToIdMeta,
         replyToId.isAcceptableOrUnknown(data['reply_to_id']!, _replyToIdMeta),
-      );
-    }
-    if (data.containsKey('reply_preview')) {
-      context.handle(
-        _replyPreviewMeta,
-        replyPreview.isAcceptableOrUnknown(
-          data['reply_preview']!,
-          _replyPreviewMeta,
-        ),
       );
     }
     if (data.containsKey('is_deleted_for_everyone')) {
@@ -2570,10 +2490,6 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.string,
         data['${effectivePrefix}reply_to_id'],
       ),
-      replyPreview: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}reply_preview'],
-      ),
       isDeletedForEveryone: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_deleted_for_everyone'],
@@ -2646,7 +2562,6 @@ class MessagesTableData extends DataClass
   /// AES IV, base64 encoded.
   final String iv;
   final String? replyToId;
-  final String? replyPreview;
   final bool isDeletedForEveryone;
   final bool isDeletedForMe;
   final bool isPinned;
@@ -2682,7 +2597,6 @@ class MessagesTableData extends DataClass
     required this.encryptedBody,
     required this.iv,
     this.replyToId,
-    this.replyPreview,
     required this.isDeletedForEveryone,
     required this.isDeletedForMe,
     required this.isPinned,
@@ -2709,9 +2623,6 @@ class MessagesTableData extends DataClass
     map['iv'] = Variable<String>(iv);
     if (!nullToAbsent || replyToId != null) {
       map['reply_to_id'] = Variable<String>(replyToId);
-    }
-    if (!nullToAbsent || replyPreview != null) {
-      map['reply_preview'] = Variable<String>(replyPreview);
     }
     map['is_deleted_for_everyone'] = Variable<bool>(isDeletedForEveryone);
     map['is_deleted_for_me'] = Variable<bool>(isDeletedForMe);
@@ -2747,9 +2658,6 @@ class MessagesTableData extends DataClass
       replyToId: replyToId == null && nullToAbsent
           ? const Value.absent()
           : Value(replyToId),
-      replyPreview: replyPreview == null && nullToAbsent
-          ? const Value.absent()
-          : Value(replyPreview),
       isDeletedForEveryone: Value(isDeletedForEveryone),
       isDeletedForMe: Value(isDeletedForMe),
       isPinned: Value(isPinned),
@@ -2784,7 +2692,6 @@ class MessagesTableData extends DataClass
       encryptedBody: serializer.fromJson<String>(json['encryptedBody']),
       iv: serializer.fromJson<String>(json['iv']),
       replyToId: serializer.fromJson<String?>(json['replyToId']),
-      replyPreview: serializer.fromJson<String?>(json['replyPreview']),
       isDeletedForEveryone: serializer.fromJson<bool>(
         json['isDeletedForEveryone'],
       ),
@@ -2812,7 +2719,6 @@ class MessagesTableData extends DataClass
       'encryptedBody': serializer.toJson<String>(encryptedBody),
       'iv': serializer.toJson<String>(iv),
       'replyToId': serializer.toJson<String?>(replyToId),
-      'replyPreview': serializer.toJson<String?>(replyPreview),
       'isDeletedForEveryone': serializer.toJson<bool>(isDeletedForEveryone),
       'isDeletedForMe': serializer.toJson<bool>(isDeletedForMe),
       'isPinned': serializer.toJson<bool>(isPinned),
@@ -2836,7 +2742,6 @@ class MessagesTableData extends DataClass
     String? encryptedBody,
     String? iv,
     Value<String?> replyToId = const Value.absent(),
-    Value<String?> replyPreview = const Value.absent(),
     bool? isDeletedForEveryone,
     bool? isDeletedForMe,
     bool? isPinned,
@@ -2857,7 +2762,6 @@ class MessagesTableData extends DataClass
     encryptedBody: encryptedBody ?? this.encryptedBody,
     iv: iv ?? this.iv,
     replyToId: replyToId.present ? replyToId.value : this.replyToId,
-    replyPreview: replyPreview.present ? replyPreview.value : this.replyPreview,
     isDeletedForEveryone: isDeletedForEveryone ?? this.isDeletedForEveryone,
     isDeletedForMe: isDeletedForMe ?? this.isDeletedForMe,
     isPinned: isPinned ?? this.isPinned,
@@ -2884,9 +2788,6 @@ class MessagesTableData extends DataClass
           : this.encryptedBody,
       iv: data.iv.present ? data.iv.value : this.iv,
       replyToId: data.replyToId.present ? data.replyToId.value : this.replyToId,
-      replyPreview: data.replyPreview.present
-          ? data.replyPreview.value
-          : this.replyPreview,
       isDeletedForEveryone: data.isDeletedForEveryone.present
           ? data.isDeletedForEveryone.value
           : this.isDeletedForEveryone,
@@ -2918,7 +2819,6 @@ class MessagesTableData extends DataClass
           ..write('encryptedBody: $encryptedBody, ')
           ..write('iv: $iv, ')
           ..write('replyToId: $replyToId, ')
-          ..write('replyPreview: $replyPreview, ')
           ..write('isDeletedForEveryone: $isDeletedForEveryone, ')
           ..write('isDeletedForMe: $isDeletedForMe, ')
           ..write('isPinned: $isPinned, ')
@@ -2944,7 +2844,6 @@ class MessagesTableData extends DataClass
     encryptedBody,
     iv,
     replyToId,
-    replyPreview,
     isDeletedForEveryone,
     isDeletedForMe,
     isPinned,
@@ -2969,7 +2868,6 @@ class MessagesTableData extends DataClass
           other.encryptedBody == this.encryptedBody &&
           other.iv == this.iv &&
           other.replyToId == this.replyToId &&
-          other.replyPreview == this.replyPreview &&
           other.isDeletedForEveryone == this.isDeletedForEveryone &&
           other.isDeletedForMe == this.isDeletedForMe &&
           other.isPinned == this.isPinned &&
@@ -2992,7 +2890,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
   final Value<String> encryptedBody;
   final Value<String> iv;
   final Value<String?> replyToId;
-  final Value<String?> replyPreview;
   final Value<bool> isDeletedForEveryone;
   final Value<bool> isDeletedForMe;
   final Value<bool> isPinned;
@@ -3014,7 +2911,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.encryptedBody = const Value.absent(),
     this.iv = const Value.absent(),
     this.replyToId = const Value.absent(),
-    this.replyPreview = const Value.absent(),
     this.isDeletedForEveryone = const Value.absent(),
     this.isDeletedForMe = const Value.absent(),
     this.isPinned = const Value.absent(),
@@ -3037,7 +2933,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     required String encryptedBody,
     required String iv,
     this.replyToId = const Value.absent(),
-    this.replyPreview = const Value.absent(),
     this.isDeletedForEveryone = const Value.absent(),
     this.isDeletedForMe = const Value.absent(),
     this.isPinned = const Value.absent(),
@@ -3067,7 +2962,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Expression<String>? encryptedBody,
     Expression<String>? iv,
     Expression<String>? replyToId,
-    Expression<String>? replyPreview,
     Expression<bool>? isDeletedForEveryone,
     Expression<bool>? isDeletedForMe,
     Expression<bool>? isPinned,
@@ -3090,7 +2984,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       if (encryptedBody != null) 'encrypted_body': encryptedBody,
       if (iv != null) 'iv': iv,
       if (replyToId != null) 'reply_to_id': replyToId,
-      if (replyPreview != null) 'reply_preview': replyPreview,
       if (isDeletedForEveryone != null)
         'is_deleted_for_everyone': isDeletedForEveryone,
       if (isDeletedForMe != null) 'is_deleted_for_me': isDeletedForMe,
@@ -3116,7 +3009,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Value<String>? encryptedBody,
     Value<String>? iv,
     Value<String?>? replyToId,
-    Value<String?>? replyPreview,
     Value<bool>? isDeletedForEveryone,
     Value<bool>? isDeletedForMe,
     Value<bool>? isPinned,
@@ -3139,7 +3031,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       encryptedBody: encryptedBody ?? this.encryptedBody,
       iv: iv ?? this.iv,
       replyToId: replyToId ?? this.replyToId,
-      replyPreview: replyPreview ?? this.replyPreview,
       isDeletedForEveryone: isDeletedForEveryone ?? this.isDeletedForEveryone,
       isDeletedForMe: isDeletedForMe ?? this.isDeletedForMe,
       isPinned: isPinned ?? this.isPinned,
@@ -3181,9 +3072,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     }
     if (replyToId.present) {
       map['reply_to_id'] = Variable<String>(replyToId.value);
-    }
-    if (replyPreview.present) {
-      map['reply_preview'] = Variable<String>(replyPreview.value);
     }
     if (isDeletedForEveryone.present) {
       map['is_deleted_for_everyone'] = Variable<bool>(
@@ -3237,7 +3125,6 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
           ..write('encryptedBody: $encryptedBody, ')
           ..write('iv: $iv, ')
           ..write('replyToId: $replyToId, ')
-          ..write('replyPreview: $replyPreview, ')
           ..write('isDeletedForEveryone: $isDeletedForEveryone, ')
           ..write('isDeletedForMe: $isDeletedForMe, ')
           ..write('isPinned: $isPinned, ')
@@ -8047,7 +7934,6 @@ typedef $$ConversationsTableTableCreateCompanionBuilder =
       Value<String?> name,
       Value<String?> iconUrl,
       required String createdById,
-      Value<String?> lastMessagePreview,
       Value<DateTime?> lastMessageAt,
       Value<int> disappearingDuration,
       Value<bool> onlyAdminsCanMessage,
@@ -8067,7 +7953,6 @@ typedef $$ConversationsTableTableUpdateCompanionBuilder =
       Value<String?> name,
       Value<String?> iconUrl,
       Value<String> createdById,
-      Value<String?> lastMessagePreview,
       Value<DateTime?> lastMessageAt,
       Value<int> disappearingDuration,
       Value<bool> onlyAdminsCanMessage,
@@ -8112,11 +7997,6 @@ class $$ConversationsTableTableFilterComposer
 
   ColumnFilters<String> get createdById => $composableBuilder(
     column: $table.createdById,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get lastMessagePreview => $composableBuilder(
-    column: $table.lastMessagePreview,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8205,11 +8085,6 @@ class $$ConversationsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get lastMessagePreview => $composableBuilder(
-    column: $table.lastMessagePreview,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<DateTime> get lastMessageAt => $composableBuilder(
     column: $table.lastMessageAt,
     builder: (column) => ColumnOrderings(column),
@@ -8284,11 +8159,6 @@ class $$ConversationsTableTableAnnotationComposer
 
   GeneratedColumn<String> get createdById => $composableBuilder(
     column: $table.createdById,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<String> get lastMessagePreview => $composableBuilder(
-    column: $table.lastMessagePreview,
     builder: (column) => column,
   );
 
@@ -8380,7 +8250,6 @@ class $$ConversationsTableTableTableManager
                 Value<String?> name = const Value.absent(),
                 Value<String?> iconUrl = const Value.absent(),
                 Value<String> createdById = const Value.absent(),
-                Value<String?> lastMessagePreview = const Value.absent(),
                 Value<DateTime?> lastMessageAt = const Value.absent(),
                 Value<int> disappearingDuration = const Value.absent(),
                 Value<bool> onlyAdminsCanMessage = const Value.absent(),
@@ -8398,7 +8267,6 @@ class $$ConversationsTableTableTableManager
                 name: name,
                 iconUrl: iconUrl,
                 createdById: createdById,
-                lastMessagePreview: lastMessagePreview,
                 lastMessageAt: lastMessageAt,
                 disappearingDuration: disappearingDuration,
                 onlyAdminsCanMessage: onlyAdminsCanMessage,
@@ -8418,7 +8286,6 @@ class $$ConversationsTableTableTableManager
                 Value<String?> name = const Value.absent(),
                 Value<String?> iconUrl = const Value.absent(),
                 required String createdById,
-                Value<String?> lastMessagePreview = const Value.absent(),
                 Value<DateTime?> lastMessageAt = const Value.absent(),
                 Value<int> disappearingDuration = const Value.absent(),
                 Value<bool> onlyAdminsCanMessage = const Value.absent(),
@@ -8436,7 +8303,6 @@ class $$ConversationsTableTableTableManager
                 name: name,
                 iconUrl: iconUrl,
                 createdById: createdById,
-                lastMessagePreview: lastMessagePreview,
                 lastMessageAt: lastMessageAt,
                 disappearingDuration: disappearingDuration,
                 onlyAdminsCanMessage: onlyAdminsCanMessage,
@@ -8730,7 +8596,6 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       required String encryptedBody,
       required String iv,
       Value<String?> replyToId,
-      Value<String?> replyPreview,
       Value<bool> isDeletedForEveryone,
       Value<bool> isDeletedForMe,
       Value<bool> isPinned,
@@ -8754,7 +8619,6 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<String> encryptedBody,
       Value<String> iv,
       Value<String?> replyToId,
-      Value<String?> replyPreview,
       Value<bool> isDeletedForEveryone,
       Value<bool> isDeletedForMe,
       Value<bool> isPinned,
@@ -8815,11 +8679,6 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<String> get replyToId => $composableBuilder(
     column: $table.replyToId,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get replyPreview => $composableBuilder(
-    column: $table.replyPreview,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8928,11 +8787,6 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get replyPreview => $composableBuilder(
-    column: $table.replyPreview,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<bool> get isDeletedForEveryone => $composableBuilder(
     column: $table.isDeletedForEveryone,
     builder: (column) => ColumnOrderings(column),
@@ -9026,11 +8880,6 @@ class $$MessagesTableTableAnnotationComposer
   GeneratedColumn<String> get replyToId =>
       $composableBuilder(column: $table.replyToId, builder: (column) => column);
 
-  GeneratedColumn<String> get replyPreview => $composableBuilder(
-    column: $table.replyPreview,
-    builder: (column) => column,
-  );
-
   GeneratedColumn<bool> get isDeletedForEveryone => $composableBuilder(
     column: $table.isDeletedForEveryone,
     builder: (column) => column,
@@ -9114,7 +8963,6 @@ class $$MessagesTableTableTableManager
                 Value<String> encryptedBody = const Value.absent(),
                 Value<String> iv = const Value.absent(),
                 Value<String?> replyToId = const Value.absent(),
-                Value<String?> replyPreview = const Value.absent(),
                 Value<bool> isDeletedForEveryone = const Value.absent(),
                 Value<bool> isDeletedForMe = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
@@ -9136,7 +8984,6 @@ class $$MessagesTableTableTableManager
                 encryptedBody: encryptedBody,
                 iv: iv,
                 replyToId: replyToId,
-                replyPreview: replyPreview,
                 isDeletedForEveryone: isDeletedForEveryone,
                 isDeletedForMe: isDeletedForMe,
                 isPinned: isPinned,
@@ -9160,7 +9007,6 @@ class $$MessagesTableTableTableManager
                 required String encryptedBody,
                 required String iv,
                 Value<String?> replyToId = const Value.absent(),
-                Value<String?> replyPreview = const Value.absent(),
                 Value<bool> isDeletedForEveryone = const Value.absent(),
                 Value<bool> isDeletedForMe = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
@@ -9182,7 +9028,6 @@ class $$MessagesTableTableTableManager
                 encryptedBody: encryptedBody,
                 iv: iv,
                 replyToId: replyToId,
-                replyPreview: replyPreview,
                 isDeletedForEveryone: isDeletedForEveryone,
                 isDeletedForMe: isDeletedForMe,
                 isPinned: isPinned,

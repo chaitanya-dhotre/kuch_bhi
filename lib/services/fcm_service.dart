@@ -337,7 +337,6 @@ class FcmService {
             type:      row.type,
             name:      row.name,
             iconUrl:   row.iconUrl,
-            lastMessagePreview: row.lastMessagePreview,
             lastMessageAt:      row.lastMessageAt,
             onlyAdminsCanMessage: row.onlyAdminsCanMessage,
           );

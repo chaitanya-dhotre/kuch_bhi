@@ -71,7 +71,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -142,6 +142,55 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(
                 'ALTER TABLE messages_table DROP COLUMN decrypted_body');
           }
+          if (from < 11) {
+            // P7 (spec §3, user ruling: plaintext previews at rest = merge
+            // blocker): BOTH preview columns are DROPPED. Previews now
+            // derive on read — conversation tiles from the newest message
+            // row via `messageBodyProvider`, reply quotes from the parent
+            // row via the same provider — so there is no durable plaintext
+            // to keep and nothing to seed into the session cache (unlike
+            // v10's in-flight bodies, previews are reproducible from the
+            // ciphertext + key at any time).
+            //
+            // Guarded by a `sqlite_master` read: a partial/minimal DB (the
+            // v9 migration fixture carries only `messages_table`) must not
+            // blow up on a table it never had.
+            Future<void> dropPreviewColumn(
+                String table, String column) async {
+              final ddl = await customSelect(
+                      "SELECT sql FROM sqlite_master "
+                      "WHERE type='table' AND name='$table'")
+                  .getSingleOrNull();
+              if (ddl == null) return; // table absent in this DB
+              if (!ddl.read<String>('sql').contains('"$column"')) return;
+              final stmt = 'ALTER TABLE $table DROP COLUMN $column';
+              // DDL needs an EXCLUSIVE lock and the FCM background isolate
+              // (firebaseMessagingBackgroundHandler) opens its OWN
+              // AppDatabase on the same file — observed losing the race on
+              // emulator-5554 as SQLITE_BUSY "database is locked", which
+              // then re-ran this migration on EVERY subsequent open. The
+              // connection-level `busy_timeout` (see _openConnection) is
+              // the primary fix; this bounded retry is the belt-and-braces
+              // for a foreign transaction that outlasts the timeout.
+              for (var attempt = 0;; attempt++) {
+                try {
+                  await customStatement(stmt);
+                  return;
+                } catch (e) {
+                  final msg = e.toString();
+                  final locky =
+                      msg.contains('locked') || msg.contains('busy');
+                  if (!locky || attempt >= 9) rethrow;
+                  await Future<void>.delayed(
+                      const Duration(milliseconds: 200));
+                }
+              }
+            }
+
+            await dropPreviewColumn('messages_table', 'reply_preview');
+            await dropPreviewColumn(
+                'conversations_table', 'last_message_preview');
+          }
         },
       );
 }
@@ -152,7 +201,15 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dir = await getApplicationDocumentsDirectory();
     final file = File(p.join(dir.path, 'kuch_bhi.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    return NativeDatabase.createInBackground(
+      file,
+      // P7 device run (emulator-5554): the FCM background isolate opens a
+      // SECOND AppDatabase on this same file, and SQLite's default journal
+      // mode fails concurrent DDL with SQLITE_BUSY ("database is locked").
+      // Waiting beats failing: without this the v11 migration could never
+      // land and every later open re-ran it.
+      setup: (db) => db.execute('PRAGMA busy_timeout = 5000'),
+    );
   });
 }
 

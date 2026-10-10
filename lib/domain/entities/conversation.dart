@@ -6,7 +6,6 @@ class Conversation {
     required this.type,
     this.name,
     this.iconUrl,
-    this.lastMessagePreview,
     this.lastMessageAt,
     this.isPinned = false,
     this.unreadCount = 0,
@@ -19,7 +18,6 @@ class Conversation {
   final String    type; // direct | group
   final String?   name;
   final String?   iconUrl;
-  final String?   lastMessagePreview;
   final DateTime? lastMessageAt;
   final bool      isPinned;
   final int       unreadCount;
@@ -41,7 +39,6 @@ class Conversation {
     String? type,
     String? name,
     String? iconUrl,
-    String? lastMessagePreview,
     DateTime? lastMessageAt,
     bool? isPinned,
     int? unreadCount,
@@ -54,7 +51,6 @@ class Conversation {
       type: type ?? this.type,
       name: name ?? this.name,
       iconUrl: iconUrl ?? this.iconUrl,
-      lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
       isPinned: isPinned ?? this.isPinned,
       unreadCount: unreadCount ?? this.unreadCount,

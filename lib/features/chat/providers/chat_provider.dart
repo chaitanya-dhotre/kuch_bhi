@@ -100,7 +100,6 @@ class SendMessageNotifier extends Notifier<bool> {
     required String conversationId,
     required String text,
     String? replyToLocalId,
-    String? replyPreview,
   }) {
     if (text.trim().isEmpty) return;
     try {
@@ -108,7 +107,6 @@ class SendMessageNotifier extends Notifier<bool> {
         conversationId: conversationId,
         plaintext:      text.trim(),
         replyToLocalId: replyToLocalId,
-        replyPreview:   replyPreview,
       );
     } catch (e) {
       // Group-membership gate (#17) — the composer is hidden for

@@ -29,9 +29,13 @@ class MessagesTable extends Table {
   // DROPPED — bodies decrypt on read into the in-memory body cache via
   // `messageBodyProvider`; the DB stores ciphertext + decrypt_state +
   // key_id only. No plaintext body store exists anywhere.
+  //
+  // P7 (spec §3 / schema v11): the `replyPreview` column is DROPPED too —
+  // a reply quote DERIVES its text from the parent row through
+  // `messageBodyProvider` at render time. Nothing preview-shaped is ever
+  // durable (user ruling: plaintext previews at rest = merge blocker).
 
   TextColumn get replyToId => text().nullable()();
-  TextColumn get replyPreview => text().nullable()();
 
   BoolColumn get isDeletedForEveryone =>
       boolean().withDefault(const Constant(false))();

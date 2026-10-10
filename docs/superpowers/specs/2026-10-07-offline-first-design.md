@@ -123,6 +123,27 @@ UI never performs network I/O in render paths. Commands go to repos; repos enque
 - **Own sent messages are never placeholders:** at enqueue the body is encrypted,
   `decrypt_state = ready`, and the main isolate immediately decrypts it into the
   body cache (bubble shows without any async gap).
+- **Previews derive on read (P7, schema v11) — §3 is literal, not aspirational.**
+  Both preview columns are **DROP**ped: `messages.reply_preview` and
+  `conversations.last_message_preview`. Nothing preview-shaped is durable —
+  not in a column, not in an index, not in a file. Every preview surface
+  derives at render time from the same machinery a bubble uses: the
+  conversation tile points at its newest row via
+  `conversationLastMessageProvider` → `messageBodyProvider` (text rows get a
+  body; media/system rows get a CONSTANT type label computed from
+  `lastMsg.type`, e.g. `📷 Photo`; no row at all → the caller's constant
+  fallback), and a reply quote resolves its parent row (local id while unsent,
+  server id after the stamp) → `messageBodyProvider`, so an evicted or
+  keyless parent renders the **same placeholder law as bodies** (keyed
+  skeleton + 🔒 — never blank, never spinner-blocked, never raw ciphertext).
+  Writers that used to persist previews now write only the ordering
+  timestamp (`updateLastMessage`) — the drain-ack's ≤50ch body substring, the
+  ingest bump's decrypted body, the media glyph, the enqueue/stamp/ingest
+  reply preview and the server's `last_message_preview` are all gone from
+  Drift. The **server** contract is unchanged: the outbox drain still ships
+  an encrypted `reply_preview`, derived at drain time from the parent row
+  (`_deriveReplyPreview`) so a process kill between enqueue and drain cannot
+  lose it — derivation, not storage, is the rule on both sides of the wire.
 - **Search: no persistent index of any kind** (neither FTS table nor stored tokens —
   both would be plaintext at rest). Search = **decrypt-on-query**: metadata prefilter
   over the requested scope → batch-decrypt candidates → match → ephemeral results,

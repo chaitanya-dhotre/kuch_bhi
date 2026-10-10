@@ -378,7 +378,6 @@ class MessageRepositoryImpl implements MessageRepository {
         encryptedBody:        existing.encryptedBody,
         iv:                   existing.iv,
         replyToId:            Value(existing.replyToId),
-        replyPreview:         Value(existing.replyPreview),
         isPinned:             Value(serverPinned),
         isStarred:            Value(existing.isStarred),
         isDeletedForMe:       Value(existing.isDeletedForMe),
@@ -792,7 +791,6 @@ class MessageRepositoryImpl implements MessageRepository {
     required String conversationId,
     required String plaintext,
     String? replyToLocalId,
-    String? replyPreview,
   }) async {
     final myId    = await _myId();
     // Hard group-membership gate (#17): the chat screen hides the composer
@@ -838,11 +836,13 @@ class MessageRepositoryImpl implements MessageRepository {
     final EncryptResult? encBody =
         enqueueKey == null ? null : await encryption.encryptMessage(
             plaintext, enqueueKey);
-    // C1 covers the BODY only. The reply preview keeps its EXISTING storage
-    // format and display contract — re-encrypting it at enqueue would show
-    // ciphertext in the reply quote (the bubble reads message.replyPreview
-    // raw) and its at-rest format is the ruled-to-backlog I2 item. Out of
-    // this pass's scope by instruction.
+    // C1 covers the BODY. The REPLY PREVIEW (P7, spec §3 / user ruling:
+    // plaintext previews at rest = merge blocker) is NOT stored locally at
+    // all — `messages.reply_preview` is dropped in schema v11. The quote
+    // derives the parent text from the parent row through
+    // `messageBodyProvider` at render time, so enqueue writes nothing
+    // preview-shaped. The preview still rides to the SERVER encrypted
+    // (`_sendTextOp` below) because the server-side contract is unchanged.
 
     await db.transaction(() async {
       // I1: production-path injection seam — fires INSIDE the real enqueue
@@ -859,7 +859,6 @@ class MessageRepositoryImpl implements MessageRepository {
         encryptedBody:  encBody?.ciphertext ?? '__pending__',
         iv:             encBody?.iv ?? '',
         replyToId:      Value(replyToLocalId),
-        replyPreview:   Value(replyPreview),
         status:         Value('pending'),
         expiresAt:      Value(expiresAt),
         createdAt:      now,
@@ -952,7 +951,6 @@ class MessageRepositoryImpl implements MessageRepository {
     if (myId.isEmpty) {
       return OpSendOutcome.deferred; // session not ready — retry on kick
     }
-    final replyPreview = msg.replyPreview;
     final createdAt = msg.createdAt;
 
     final uploadEpoch = _sessionEpoch;
@@ -996,13 +994,29 @@ class MessageRepositoryImpl implements MessageRepository {
     // From here on `plaintext` is non-null (both branches returned on null).
     final String body = plaintext;
 
+    // Resolve the parent row FIRST (P7): the wire-bound reply preview is
+    // DERIVED from it below — the local row no longer stores one (schema
+    // v11 dropped `messages.reply_preview`).
+    String? replyServerId;
+    MessagesTableData? replyMsg;
+    final replyRef = msg.replyToId;
+    if (replyRef != null && replyRef.isNotEmpty) {
+      replyMsg = await db.messagesDao.getMessageByLocalId(replyRef) ??
+          await db.messagesDao.getMessageByServerId(replyRef);
+      replyServerId = replyMsg?.serverId;
+    }
+
     final List<int> key;
     final EncryptResult encrypted;
     final EncryptResult? encryptedReply;
     try {
       key = await _getConvKey(conversationId, myId);
       encrypted = await encryption.encryptMessage(body, key);
-      // Encrypt the reply preview too — it must never hit the server as plaintext.
+      // Encrypt the reply preview too — it must never hit the server as
+      // plaintext. P7: the preview is DERIVED from the parent row here
+      // (no durable column to read), so the server payload keeps its exact
+      // 'iv:ciphertext' shape.
+      final replyPreview = await _deriveReplyPreview(replyMsg, key);
       encryptedReply = (replyPreview != null && replyPreview.isNotEmpty)
           ? await encryption.encryptMessage(replyPreview, key)
           : null;
@@ -1028,14 +1042,6 @@ class MessageRepositoryImpl implements MessageRepository {
       return OpSendOutcome.deferred;
     }
 
-    // Resolve localId → serverId for reply reference
-    String? replyServerId;
-    final replyRef = msg.replyToId;
-    if (replyRef != null && replyRef.isNotEmpty) {
-      final replyMsg = await db.messagesDao.getMessageByLocalId(replyRef);
-      replyServerId = replyMsg?.serverId;
-    }
-
     // C1 (final fix pass): persist the ciphertext to the row BEFORE the
     // server create. A keyless enqueue carries the interim `__pending__`, so
     // this first successful encrypt is the moment the durable copy exists —
@@ -1051,7 +1057,6 @@ class MessageRepositoryImpl implements MessageRepository {
         type:           'text',
         encryptedBody:  encrypted.ciphertext,
         iv:             encrypted.iv,
-        replyPreview:   Value(replyPreview),
         expiresAt:      Value(msg.expiresAt),
         createdAt:      msg.createdAt,
         updatedAt:      DateTime.now(),
@@ -1121,7 +1126,6 @@ class MessageRepositoryImpl implements MessageRepository {
         iv:             encrypted.iv,
         replyToId:      Value(replyServerId),
         // Keep the local plaintext reply preview for display.
-        replyPreview:   Value(replyPreview),
         status:         Value('sent'),
         expiresAt:      Value(expiresAt),
         // Use the server's canonical timestamp so ordering matches all devices.
@@ -1141,9 +1145,12 @@ class MessageRepositoryImpl implements MessageRepository {
     onBodyStamped?.call(localId);
     debugPrint('[Msg] Local message updated with status: sent');
 
+    // P7 (spec §3): only the ORDERING timestamp is bumped. The old call
+    // wrote `body.substring(0, 50)` into `conversations.last_message_preview`
+    // — plaintext at rest. The tile now derives the preview from this row
+    // through `messageBodyProvider`.
     await db.conversationsDao.updateLastMessage(
       conversationId,
-      body.length > 50 ? '${body.substring(0, 50)}…' : body,
       serverCreated,
     );
 
@@ -1413,16 +1420,11 @@ class MessageRepositoryImpl implements MessageRepository {
       if (durationText != null) bodyCache.put(localId, durationText);
       onBodyStamped?.call(localId);
 
-      final preview = switch (mediaType) {
-        'voice'    => '🎤 Voice message${durationText != null ? ' ($durationText)' : ''}',
-        'image'    => '📷 Photo',
-        'video'    => '🎬 Video',
-        'document' => '📎 Document',
-        _          => '📎 File',
-      };
+      // P7 (spec §3): the media label ('📷 Photo' …) is computed by the
+      // tile from `lastMsg.type` at render time — nothing preview-shaped
+      // is written to Drift here anymore.
       await db.conversationsDao.updateLastMessage(
         conversationId,
-        preview,
         DateTime.now(),
       );
 
@@ -3096,20 +3098,11 @@ class MessageRepositoryImpl implements MessageRepository {
         failedDecrypts.add(r);
       }
 
-      String? preview;
-      final rawReply = r.getStringValue('reply_preview');
-      if (rawReply.isNotEmpty) {
-        final idx = rawReply.indexOf(':');
-        if (idx > 0 && r.getStringValue('encrypted_body') != '__pending__') {
-          preview = key == null
-              ? '🔒' // no key — encrypted preview stays sealed
-              : await encryption.decryptMessage(rawReply.substring(idx + 1),
-                          rawReply.substring(0, idx), key) ??
-                      '🔒';
-        } else {
-          preview = rawReply; // legacy plaintext
-        }
-      }
+      // P7 (spec §3): the server's `reply_preview` is NOT decrypted and
+      // NOT stored — schema v11 dropped `messages.reply_preview`. The UI
+      // derives the quote from the parent row through
+      // `messageBodyProvider`, so the only durable data a reply needs is
+      // `reply_to_id` (kept below).
 
       String? forced;
       final isMine = r.getStringValue('sender_id') == myId;
@@ -3119,7 +3112,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
       companions.add(_companionFromRecord(r,
           existing: e, decrypted: body,
-          decryptedReplyPreview: preview, forcedStatus: forced, myId: myId,
+          forcedStatus: forced, myId: myId,
           decryptState: _ingestDecryptState(
               decrypted: body, keyMissing: key == null)));
     }
@@ -3200,8 +3193,7 @@ class MessageRepositoryImpl implements MessageRepository {
     // records.first). Fetch path is never "live" — no unread bump here.
     final newest = records.first;
     if (newest.getStringValue('sender_id') != myId) {
-      await _bumpConversationForIncoming(newest, _uuid.v4(),
-          previewText: decrypted[newest.id]);
+      await _bumpConversationForIncoming(newest, _uuid.v4());
     }
   }
 
@@ -3288,7 +3280,7 @@ class MessageRepositoryImpl implements MessageRepository {
       for (final row in rows) {
         if (row.serverId != null && deletedIds.contains(row.serverId)) {
           // Task 6: fetch-loop record write → boundary commit. Companion
-          // now carries replyToId/replyPreview/expiresAt too — the
+          // now carries replyToId/expiresAt too — the
           // boundary's delete-then-insert rebuilds the row from the
           // companion, so every column the old conflict-update preserved
           // implicitly must be explicit here (lossless move). Task 7:
@@ -3305,7 +3297,6 @@ class MessageRepositoryImpl implements MessageRepository {
                 encryptedBody:        row.encryptedBody,
                 iv:                   row.iv,
                 replyToId:            Value(row.replyToId),
-                replyPreview:         Value(row.replyPreview),
                 isDeletedForMe:       Value(true),
                 isDeletedForEveryone: Value(row.isDeletedForEveryone),
                 isStarred:            Value(row.isStarred),
@@ -3357,7 +3348,6 @@ class MessageRepositoryImpl implements MessageRepository {
                 encryptedBody:        row.encryptedBody,
                 iv:                   row.iv,
                 replyToId:            Value(row.replyToId),
-                replyPreview:         Value(row.replyPreview),
                 isDeletedForMe:       Value(row.isDeletedForMe),
                 isDeletedForEveryone: Value(row.isDeletedForEveryone),
                 isStarred:            Value(true),
@@ -3428,22 +3418,9 @@ class MessageRepositoryImpl implements MessageRepository {
         }
       }
     }
-    // Decrypt the reply preview if present. New messages store it as
-    // 'iv:ciphertext'; legacy rows may hold plaintext — handle both.
-    String? replyPreview;
-    final rawReply = r.getStringValue('reply_preview');
-    if (rawReply.isNotEmpty) {
-      final idx = rawReply.indexOf(':');
-      if (idx > 0 && encBody != '__pending__') {
-        final rIv = rawReply.substring(0, idx);
-        final rCt = rawReply.substring(idx + 1);
-        replyPreview = key == null
-            ? '🔒' // no key — encrypted preview stays sealed
-            : await encryption.decryptMessage(rCt, rIv, key) ?? '🔒';
-      } else {
-        replyPreview = rawReply; // legacy plaintext
-      }
-    }
+    // P7 (spec §3): the server's `reply_preview` is NOT decrypted and NOT
+    // stored (schema v11 dropped the column) — the quote derives from the
+    // parent row at render time.
 
     final existing = await db.messagesDao.getMessageByServerId(r.id);
     final isMine = r.getStringValue('sender_id') == myId;
@@ -3470,7 +3447,6 @@ class MessageRepositoryImpl implements MessageRepository {
       r,
       existing: existing,
       decrypted: decrypted,
-      decryptedReplyPreview: replyPreview,
       forcedStatus: forcedStatus,
       myId: myId,
       decryptState: _ingestDecryptState(
@@ -3484,9 +3460,7 @@ class MessageRepositoryImpl implements MessageRepository {
       source,
     );
     if (!isMine) {
-      await _bumpConversationForIncoming(r,
-          existing?.localId ?? _uuid.v4(),
-          previewText: decrypted);
+      await _bumpConversationForIncoming(r, existing?.localId ?? _uuid.v4());
     }
   }
 
@@ -3508,7 +3482,6 @@ class MessageRepositoryImpl implements MessageRepository {
     RecordModel r, {
     required MessagesTableData? existing,
     required String? decrypted,
-    String? decryptedReplyPreview,
     String? forcedStatus,
     required String myId,
     required String decryptState,
@@ -3541,7 +3514,8 @@ class MessageRepositoryImpl implements MessageRepository {
       iv:                   iv,
       replyToId:            Value(r.getStringValue('reply_to_id').isEmpty
           ? null : r.getStringValue('reply_to_id')),
-      replyPreview:         Value(decryptedReplyPreview ?? existing?.replyPreview),
+      // P7: NO reply_preview write — schema v11 dropped the column; the
+      // quote derives from the parent row (replyToId) at render time.
       // Preserve locally-known star/pin/delete-for-me flags across re-caches.
       isPinned:             Value(r.getBoolValue('is_pinned')),
       isStarred:            Value(existing?.isStarred ?? false),
@@ -3559,17 +3533,61 @@ class MessageRepositoryImpl implements MessageRepository {
     );
   }
 
-  /// Keep the conversation list ordered + previewed on the RECIPIENT side
-  /// too (the sender's device updates it in sendMessage). Callers must gate
-  /// on `!isMine` first. Only bumps for messages newer than the current
+  /// P7 (spec §3 / user ruling): the SERVER-BOUND reply preview, DERIVED
+  /// at drain time from the parent row — never read from a durable column
+  /// (`messages.reply_preview` is dropped in schema v11).
+  ///
+  /// Mirrors the labels the composer used to compute (chat_screen), so the
+  /// wire payload keeps its exact `iv:ciphertext` shape. The plaintext
+  /// source is the same one the UI's quote uses: the session body cache
+  /// first, then the parent row's ciphertext with the already-resolved key
+  /// (a process kill between enqueue and drain must not lose the preview).
+  /// Returns null when there is no parent or nothing quotable — the caller
+  /// then sends an empty `reply_preview`, exactly like a non-reply.
+  Future<String?> _deriveReplyPreview(
+      MessagesTableData? parent, List<int> key) async {
+    if (parent == null) return null;
+    switch (parent.type) {
+      case 'image':
+        return '📷 Photo';
+      case 'video':
+        return '🎬 Video';
+      case 'voice':
+        return '🎤 Voice message';
+      case 'document':
+        return '📎 Document';
+      case 'poll':
+        return '📊 Poll';
+      case 'system':
+        return 'System message';
+    }
+    var text = bodyCache.get(parent.localId);
+    if (text == null || text.isEmpty) {
+      if (parent.encryptedBody.isNotEmpty &&
+          parent.encryptedBody != '__pending__' &&
+          parent.iv.isNotEmpty) {
+        text = await encryption.decryptMessage(
+            parent.encryptedBody, parent.iv, key);
+      }
+    }
+    if (text == null || text.isEmpty) return null;
+    return text.length > 60 ? '${text.substring(0, 60)}…' : text;
+  }
+
+  /// Keep the conversation list ordered on the RECIPIENT side too (the
+  /// sender's device bumps it in sendMessage). Callers must gate on
+  /// `!isMine` first. Only bumps for messages newer than the current
   /// lastMessageAt, so backfills can't reorder the list or double-count:
   /// the newest row bumps once, every older row is skipped. This is what
   /// makes the resume/cold-open backfill badge correctly.
+  ///
+  /// P7 (spec §3): bumps the ORDERING timestamp + unread badge only — the
+  /// preview string used to be written here (decrypted body / media glyph)
+  /// and is now DERIVED by the tile from this conversation's newest row.
   Future<void> _bumpConversationForIncoming(
     RecordModel r,
-    String incomingLocalId, {
-    String? previewText,
-  }) async {
+    String incomingLocalId,
+  ) async {
     final convId = r.getStringValue('conversation_id');
     final createdAt = DateTime.tryParse(r.created) ?? DateTime.now();
     if (r.getBoolValue('is_deleted_for_everyone')) return;
@@ -3579,14 +3597,7 @@ class MessageRepositoryImpl implements MessageRepository {
       final conv = await db.conversationsDao.getConversationById(convId);
       final currentLast = conv?.lastMessageAt;
       if (currentLast != null && !createdAt.isAfter(currentLast)) return;
-      final preview = switch (localType) {
-        'image'    => '📷 Photo',
-        'video'    => '🎬 Video',
-        'voice'    => '🎤 Voice message',
-        'document' => '📎 Document',
-        _          => previewText ?? 'New message',
-      };
-      await db.conversationsDao.updateLastMessage(convId, preview, createdAt);
+      await db.conversationsDao.updateLastMessage(convId, createdAt);
       // Unread badge: fires only for rows newer than the last known message
       // (the guard above), so a backfill of older history never counts, and
       // a genuinely-new message badges regardless of which path cached it
@@ -4148,11 +4159,11 @@ class MessageRepositoryImpl implements MessageRepository {
             onlyAdminsCanMessage: Value(conv.getBoolValue('only_admins_can_message')),
             disappearingDuration: Value(conv.getIntValue('disappearing_duration')),
             isPinned: Value(existingConv?.isPinned ?? false),
-            lastMessagePreview: Value(keepLocal
-                ? existingConv?.lastMessagePreview
-                : (conv.getStringValue('last_message_preview').isEmpty
-                    ? existingConv?.lastMessagePreview
-                    : conv.getStringValue('last_message_preview'))),
+            // P7 (spec §3): the server's `last_message_preview` is NOT
+            // stored — schema v11 dropped the column. Local Drift keeps
+            // only the ordering timestamp; the tile derives its label from
+            // the newest message row (this server field is stale anyway —
+            // see the comment above).
             lastMessageAt: Value(keepLocal ? localAt : (serverAt ?? localAt)),
             createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
             updatedAt: DateTime.now(),
@@ -4328,7 +4339,6 @@ class MessageRepositoryImpl implements MessageRepository {
       ConversationsTableData r, User? otherUser, {int? memberCount}) =>
       Conversation(
         id: r.id, type: r.type, name: r.name, iconUrl: r.iconUrl,
-        lastMessagePreview: r.lastMessagePreview,
         lastMessageAt: r.lastMessageAt,
         isPinned: r.isPinned, otherUser: otherUser,
         onlyAdminsCanMessage: r.onlyAdminsCanMessage,
@@ -4341,7 +4351,6 @@ class MessageRepositoryImpl implements MessageRepository {
     conversationId: r.conversationId, senderId: r.senderId,
     type: r.type, decryptedBody: bodyCache.get(r.localId),
     replyToId: r.replyToId,
-    replyPreview: r.replyPreview,
     isDeletedForEveryone: r.isDeletedForEveryone,
     isDeletedForMe: r.isDeletedForMe,
     isPinned: r.isPinned, isStarred: r.isStarred,

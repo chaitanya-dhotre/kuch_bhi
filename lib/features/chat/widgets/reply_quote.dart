@@ -7,28 +7,37 @@ import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
 import '../../../core/theme/tokens.dart';
+import 'message_body_text.dart';
 
-/// Resolves the original (replied-to) message row from Drift by server id.
+/// Resolves the original (replied-to) message row from Drift.
+///
+/// P7: the id a quote carries is a LOCAL id while the reply is still
+/// unsent (the enqueue writes `replyToLocalId`) and becomes a SERVER id
+/// once the dual-truth stamp lands — resolve BOTH, local first.
 final _originalMessageProvider = FutureProvider.autoDispose
-    .family<MessagesTableData?, String>((ref, serverId) {
-  return ref
-      .read(appDatabaseProvider)
-      .messagesDao
-      .getMessageByServerId(serverId);
+    .family<MessagesTableData?, String>((ref, id) async {
+  final dao = ref.read(appDatabaseProvider).messagesDao;
+  return await dao.getMessageByLocalId(id) ?? dao.getMessageByServerId(id);
 });
 
 /// Compact quote shown inside a message bubble (received) or above the
 /// input bar (composing). Pass [compact] = true for the input bar.
 ///
-/// If [replyToId] (server id of the original message) is provided the quote
-/// resolves the original message from Drift and renders a media-aware
-/// preview (photo/video thumbnail, voice duration, document label) like
-/// WhatsApp. Falls back to [messageType] / emoji-prefix heuristics when the
-/// row isn't found locally.
+/// **P7 / spec §3 — previews are DERIVED, never stored.** With
+/// [replyToId] provided the quote resolves the original row from Drift and
+/// renders a media-aware preview (photo/video thumbnail, voice duration,
+/// document label); a TEXT parent's line comes from
+/// `messageBodyProvider(messageId)` — the same read path as a bubble, so
+/// an unresolved/gone parent renders the keyed skeleton+🔒 placeholder,
+/// never a blank and never raw ciphertext. Falls back to [messageType]
+/// only to pick the label when the row isn't found locally.
+///
+/// [preview] is an OPTIONAL explicit label used solely by the input bar
+/// (built in memory from the reply provider — never from storage).
 class ReplyQuote extends ConsumerWidget {
   const ReplyQuote({
     super.key,
-    required this.preview,
+    this.preview,
     required this.senderName,
     this.isMine         = false,
     this.compact        = false,
@@ -38,7 +47,8 @@ class ReplyQuote extends ConsumerWidget {
     this.onCancel,
   });
 
-  final String         preview;
+  /// Optional EXPLICIT label (input bar only — in-memory source).
+  final String?        preview;
   final String         senderName;
   final bool           isMine;
   final bool           compact;
@@ -78,10 +88,13 @@ class ReplyQuote extends ConsumerWidget {
   /// Type guess when the original row isn't available locally.
   String get _fallbackType {
     if (_mediaTypes.contains(messageType)) return messageType;
-    if (preview.startsWith('🎤')) return 'voice';
-    if (preview.startsWith('📷')) return 'image';
-    if (preview.startsWith('🎥')) return 'video';
-    if (preview.startsWith('📄')) return 'document';
+    final p = preview;
+    if (p != null) {
+      if (p.startsWith('🎤')) return 'voice';
+      if (p.startsWith('📷')) return 'image';
+      if (p.startsWith('🎥')) return 'video';
+      if (p.startsWith('📄')) return 'document';
+    }
     return 'text';
   }
 
@@ -96,6 +109,15 @@ class ReplyQuote extends ConsumerWidget {
   /// Strips a leading media emoji ('🎤 ', '📷 ', …) from a preview string.
   static String _stripEmoji(String s) =>
       s.replaceFirst(RegExp(r'^(🎤|📷|🎥|📄)\s*'), '').trim();
+
+  /// The preview line for a CONSTANT label (type labels + explicit input-bar
+  /// label) — single line, ellipsised, 12px (the quote's typography).
+  static Widget _line(String text, Color color) => Text(
+        text,
+        maxLines:  1,
+        overflow:  TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 12, color: color),
+      );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -141,29 +163,52 @@ class ReplyQuote extends ConsumerWidget {
       iconColor    = context.t.ink.withValues(alpha: 0.60);
     }
 
-    // ── Preview label per resolved type ─────────────────────────
-    final String label;
-    switch (resolvedType) {
-      case 'image':
-        label = 'Photo';
-      case 'video':
-        label = 'Video';
-      case 'voice':
-        // T9: row bodies live in the session cache (column dropped).
-        final origBody =
-            original == null ? null : bodyCache.get(original.localId);
-        final dur = _stripEmoji(
-            origBody ?? (_fallbackType == 'voice' ? preview : ''));
-        label = dur.isNotEmpty && dur != 'Voice message'
-            ? 'Voice message · $dur'
-            : 'Voice message';
-      case 'document':
-        final doc = _stripEmoji(
-            (original == null ? null : bodyCache.get(original.localId)) ??
-                preview);
-        label = doc.isNotEmpty ? doc : 'Document';
-      default:
-        label = preview;
+    // ── Preview line (P7 / spec §3: DERIVED, never a stored string) ────
+    // An explicit [preview] (input bar, built in memory from the reply
+    // provider) wins. Otherwise everything derives from the parent row:
+    // media → CONSTANT type labels; voice/document → the session body
+    // cache with a constant fallback (never blank); text → THE PROVIDER.
+    final String? explicit =
+        (preview == null || preview!.isEmpty) ? null : preview;
+    final Widget previewLine;
+    if (explicit != null) {
+      previewLine = _line(explicit, previewColor);
+    } else {
+      switch (resolvedType) {
+        case 'image':
+          previewLine = _line('Photo', previewColor);
+        case 'video':
+          previewLine = _line('Video', previewColor);
+        case 'voice':
+          // T9/P7: row bodies live in the session cache only.
+          final origBody =
+              original == null ? null : bodyCache.get(original.localId);
+          final dur = _stripEmoji(origBody ?? '');
+          previewLine = _line(
+              dur.isNotEmpty && dur != 'Voice message'
+                  ? 'Voice message · $dur'
+                  : 'Voice message',
+              previewColor);
+        case 'document':
+          final doc = original == null
+              ? ''
+              : _stripEmoji(bodyCache.get(original.localId) ?? '');
+          previewLine = _line(doc.isNotEmpty ? doc : 'Document', previewColor);
+        default:
+          // text (or the parent row is gone): messageBodyProvider is the
+          // single read path. A gone/unresolvable parent resolves null ⇒
+          // the keyed skeleton+🔒 placeholder — never blank, never raw
+          // ciphertext (spec §8 placeholder law; user ruling: never
+          // re-introduce ciphertext printing in a quote).
+          final parentId = original?.localId ?? replyToId;
+          previewLine = parentId == null
+              ? _line('Message', previewColor)
+              : MessageBodyText(
+                  messageId: parentId,
+                  styleContext: 'preview',
+                  style: TextStyle(fontSize: 12, color: previewColor),
+                );
+      }
     }
 
     final icon = _iconFor(resolvedType);
@@ -188,12 +233,7 @@ class ReplyQuote extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 2),
-        Text(
-          label,
-          maxLines:  1,
-          overflow:  TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12, color: previewColor),
-        ),
+        previewLine,
       ],
     );
 
