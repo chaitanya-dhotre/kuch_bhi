@@ -286,6 +286,15 @@ void main() {
     final file = File('${dir.path}/kuch_bhi.sqlite');
     final before = raw.sqlite3.open(file.path);
     before.execute(_kV9MessagesCreate);
+    // P7: the v10→v11 leg also drops conversations.last_message_preview —
+    // the fixture must carry that table or the walk past v11 never exercises it.
+    before.execute('CREATE TABLE "conversations_table" ('
+        '"conversation_id" TEXT NOT NULL, "title" TEXT NULL, "type" TEXT NOT NULL, '
+        '"last_message_preview" TEXT NULL, "last_message_at" INTEGER NULL, '
+        '"updated_at" INTEGER NOT NULL, PRIMARY KEY ("conversation_id"))');
+    before.execute('INSERT INTO conversations_table (conversation_id, title, '
+        'type, last_message_preview, last_message_at, updated_at) VALUES '
+        "('g1','g1','dm','PLAINTEXT PREVIEW',1760000000,1760000000)");
     before.execute(
       "INSERT INTO messages_table (local_id, conversation_id, sender_id, "
       "type, encrypted_body, iv, decrypted_body, status, decrypt_state, "
@@ -313,6 +322,18 @@ void main() {
     // P7 (inversion): the walk now continues 9 → 11 (v11 drops the two
     // preview columns after v10 drops decrypted_body).
     expect(version.data.values.first, 11, reason: 'user_version advanced');
+    // P7 review minor 1: the v10→v11 leg must drop both preview columns on
+    // the real release walk (9 → 11), not only in the synthetic fixture.
+    final convSql = await upgraded
+        .customSelect(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations_table'")
+        .getSingle();
+    expect(postSql.read<String>('sql').contains('reply_preview'), isFalse,
+        reason: 'v11 must DROP messages.reply_preview on the 9→11 walk');
+    expect(convSql.read<String>('sql').contains('last_message_preview'), isFalse,
+        reason: 'v11 must DROP conversations.last_message_preview on the 9→11 walk');
+    final rawCols = await upgraded.customSelect('PRAGMA table_info(messages_table)').get();
+    expect(rawCols.map((r) => r.data['name']), isNot(contains('reply_preview')));
     await upgraded.close();
   });
 
