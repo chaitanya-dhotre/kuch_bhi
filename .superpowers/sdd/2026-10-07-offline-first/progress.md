@@ -151,3 +151,5 @@ P1 review minor 1: RE-GRADED Important and FIXED inline (merge-blocker real rele
 P1 review minor 2: BACKLOG (pre-existing asymmetry, line untouched in range): v10 DROP COLUMN decrypted_body unguarded (no sqlite_master check/lock retry vs v11 helper) → backlog hardening.
 P1 review advisory: getStarredMessages memory-only server preview, toggleStar plaintext body to PB, message_drafts_table draftText plaintext at rest → backlog §17 consistency sweep (pre-plan origins).
 P1: complete (commits 2b66cd3..+minor-fix; review PASS; suite 142/142; device capture p1-sealed-preview.png) — I2 ruling SATISFIED: zero plaintext message text in client DB (bodies since v10, previews since v11).
+USER INSTRUCTION (2026-10-10): PAUSE after P2 complete + reviewed. Next pre-merge tasks P3 (fakes release guard), P4 (star local write + unwired disabled-controls), P5 remainder (R3/R4 second-device rows) hold until user resumes. Do not dispatch past P2 review.
+P2 dispatched (keyless sealed outbox, merge blocker, full review after).
