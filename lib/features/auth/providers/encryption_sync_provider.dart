@@ -31,8 +31,16 @@ final encryptionSyncProvider = FutureProvider<EncryptionSyncStatus>((ref) async 
     }
   }
 
-  // 2. Local key exists. Check if backup exists on server
-  final hasBackup = await enc.hasPocketBaseBackup(user.id);
+  // 2. Local key exists. Check if backup exists on server — TRI-STATE (P6):
+  // an unreachable server is "unknown", not "no backup". A local key means
+  // the user can already decrypt offline; only a CONFIRMED absent backup may
+  // route into the setup flow.
+  final hasBackup = await enc.tryHasPocketBaseBackup(user.id);
+  if (hasBackup == null) {
+    // Offline / server down: local key stands on its own (user report
+    // 2026-10-11 — offline cold start must not ask a set-up user to set up).
+    return EncryptionSyncStatus.keyOk;
+  }
   if (hasBackup) {
     return EncryptionSyncStatus.keyOk;
   }
@@ -67,8 +75,11 @@ final showBackupBannerProvider = FutureProvider<bool>((ref) async {
   final hasLocal = await enc.hasLocalPrivateKey();
   if (!hasLocal) return false;
 
-  final hasBackup = await enc.hasPocketBaseBackup(user.id);
-  if (hasBackup) return false;
+  // P6: tri-state — an offline check is unknown, and nagging a user to back
+  // up a key that is very likely already backed up (server just unreachable)
+  // is the same conflation that broke the cold-start route.
+  final hasBackup = await enc.tryHasPocketBaseBackup(user.id);
+  if (hasBackup != false) return false; // true = backed up; null = unknown
 
   // Check if they dismissed the reminder within the last 7 days
   final dismissedAtStr = await db.settingsDao.getSetting('backup_reminder_dismissed_at');

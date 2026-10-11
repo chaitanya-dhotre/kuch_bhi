@@ -587,6 +587,23 @@ class EncryptionService {
       return false;
     }
   }
+
+  /// P6 (user report 2026-10-11): TRI-STATE backup check — `true`/`false`
+  /// when the server answers, `null` when the check could not run (offline,
+  /// server down). `hasPocketBaseBackup`'s catch-all `false` conflated
+  /// "unreachable" with "no backup", which routed already-set-up users into
+  /// the Backup-PIN setup screen on every offline cold start. Callers that
+  /// BRANCH on the answer must use this and treat `null` as "unknown".
+  Future<bool?> tryHasPocketBaseBackup(String userId) async {
+    try {
+      final userRecord = await _pb.collection('users').getOne(userId);
+      final encrypted = userRecord.getStringValue('private_key_encrypted');
+      return encrypted.isNotEmpty;
+    } catch (e) {
+      debugPrint('[Enc] hasPocketBaseBackup check failed (unknown): $e');
+      return null;
+    }
+  }
 }
 
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
