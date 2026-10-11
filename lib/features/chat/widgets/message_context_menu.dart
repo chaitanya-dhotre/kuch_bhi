@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/message.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
+import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import '../../../core/theme/tokens.dart';
 
@@ -61,6 +63,11 @@ class _ContextSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.read(messageRepositoryProvider);
     final body = message.decryptedBody ?? '';
+    // P4 (user ruling 2): defined-offline gating. Unwired actions (pin,
+    // delete-for-everyone, react) render disabled with a hint offline —
+    // never a silent no-op. Loading/error → online (fail-safe: controls
+    // stay enabled when the signal is unknown).
+    final isOnline = ref.watch(isOnlineProvider).value ?? true;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -82,10 +89,19 @@ class _ContextSheet extends ConsumerWidget {
             ),
           ),
 
-          // Scrollable reaction row
+          // Scrollable reaction row — disabled offline (P4: reactions are
+          // network-only; a tap must never look like it worked).
           SizedBox(
             height: 52,
-            child: ListView.separated(
+            child: IgnorePointer(
+              ignoring: !isMessageActionEnabled(MessageAction.react,
+                  isOnline: isOnline),
+              child: Opacity(
+                opacity: isMessageActionEnabled(MessageAction.react,
+                        isOnline: isOnline)
+                    ? 1
+                    : 0.35,
+                child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount:  _reactionEmojis.length,
               separatorBuilder: (_, __) => const SizedBox(width: 6),
@@ -113,6 +129,8 @@ class _ContextSheet extends ConsumerWidget {
                   ),
                 );
               },
+                ),
+              ),
             ),
           ),
 
@@ -165,6 +183,10 @@ class _ContextSheet extends ConsumerWidget {
                 }
               }
             },
+            // P4: pin reverts from server truth on next fetch — offline it
+            // would look applied then silently disappear. Disable + hint.
+            enabled: isMessageActionEnabled(MessageAction.pin,
+                isOnline: isOnline),
           ),
 
           _tile(
@@ -194,6 +216,10 @@ class _ContextSheet extends ConsumerWidget {
                 if (context.mounted) _afterAction(context);
               },
               color: context.t.error,
+              // P4: delete-for-everyone is server-first; offline the local
+              // mark is reverted by the next fetch. Disable + hint.
+              enabled: isMessageActionEnabled(MessageAction.deleteForEveryone,
+                  isOnline: isOnline),
             ),
         ],
       ),
@@ -227,11 +253,16 @@ class _ContextSheet extends ConsumerWidget {
   }
 
   Widget _tile(IconData icon, String label, VoidCallback onTap,
-      {Color? color}) {
+      {Color? color, bool enabled = true}) {
     return ListTile(
-      leading:         Icon(icon, color: color),
-      title:           Text(label, style: TextStyle(color: color)),
-      onTap:           onTap,
+      leading:         Icon(icon, color: enabled ? color : null),
+      title:           Text(label,
+          style: TextStyle(color: enabled ? color : null)),
+      // P4 defined-offline: disabled tiles show the hint instead of a
+      // silent no-op (user ruling 2).
+      subtitle:        enabled ? null : const Text(kOfflineActionHint),
+      onTap:           enabled ? onTap : null,
+      enabled:         enabled,
       dense:           true,
       contentPadding:  EdgeInsets.zero,
     );
