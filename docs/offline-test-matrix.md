@@ -103,3 +103,14 @@ Note: in warm process (no restart) the bubble stayed on placeholder after re-fet
 | 3 Long-gap reconnect | BLOCKED-single-device |
 | 4 Key-delay + terminal banner | PARTIAL (T7 PASS; T4 banner blocked-no-trigger) |
 | 5 Media lifecycle | PASS |
+
+### Row 3 re-run (2-device, 2026-10-11) — DUT emulator-5554 (Pixel Chait), peer WayDroid 192.168.240.112 (theichione1), shared DM "Lineage Chait"/"Pixel Chait"
+
+| Step | Expected | Actual | Capture |
+|---|---|---|---|
+| 1. DUT airplane ON; peer sends r3-peer-1..5 | 5 created on server | 5/5 sent on peer (each one node in thread) | `r3-peer-sent-5.png` |
+| 2. ~2min offline window; DUT reconnects | catch-up applies ONCE; no cursor skips; no dupes | tile preview r3-peer-5, badge 6 (1 pre-existing unread + 5 new); thread shows exactly r3-peer-1..5, one bubble each, correct order, decrypted | `r3-dut-catchup.png` |
+
+Deviation: 2-min offline window instead of 10+ (cursor resync is the tested mechanism; wall-clock gap is a proxy). Redmi S2 attached but runs the OLD pre-branch build (dark theme, stuck loading spinner — the bug this branch fixes); left untouched (daily phone; install = session wipe).
+
+**Row 3 re-run verdict: PASS**
