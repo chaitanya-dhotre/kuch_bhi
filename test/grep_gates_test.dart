@@ -190,11 +190,17 @@ void main() {
     }
   });
 
-  // Gate 13 (spec §12 + plan carve-outs): network SDKs live only in the
-  // sanctioned integration paths — screens/features/data/domain/core(else)
-  // stay network-free. Sanctioned: infrastructure (ingest/outbox/blobs),
-  // services (fcm/presence/encryption/upload integrations), core/network
-  // (the PB client), bootstrap (main + firebase_options).
+  // Gate 13 (spec §12 + plan carve-outs): network SDK IMPORT LOCALITY only —
+  // network SDKs live in the sanctioned integration paths, everything else
+  // (screens/features/data/domain/core(else)) stays network-free. Sanctioned:
+  // infrastructure (ingest/outbox/blobs), services (fcm/presence/encryption/
+  // upload integrations), core/network (the PB client), bootstrap
+  // (main + firebase_options).
+  // SCOPE (spec §4 amendment 2026-10-10, user-ratified): this gate does NOT
+  // enforce the single-writer / two-gate domain rule and cannot — import
+  // locality ≠ writer discipline. That rule is held by characterization
+  // tests and review audits. Do NOT read gate-13 green as "two-gate rule
+  // proven".
   test('no network SDK imports outside sanctioned integration paths', () {
     const sanctioned = [
       'lib/infrastructure/',

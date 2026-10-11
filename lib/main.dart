@@ -25,6 +25,12 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
+  // Release fail-loud guard (P3, spec §10): USE_FAKES is a dev mock-build
+  // seam only. Throws StateError BEFORE any init / ProviderScope if a
+  // release binary was built with USE_FAKES=true. (Pure fn in
+  // core/config/data_source.dart — unit-tested both ways there.)
+  assertFakesAllowed(release: kReleaseMode, useFakes: useFakes);
+
   if (kDebugMode) {
     // Marionette: agent-driven app interaction over the VM service —
     // debug builds only (release falls through to the normal binding).
