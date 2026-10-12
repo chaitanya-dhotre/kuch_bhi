@@ -114,3 +114,17 @@ Note: in warm process (no restart) the bubble stayed on placeholder after re-fet
 Deviation: 2-min offline window instead of 10+ (cursor resync is the tested mechanism; wall-clock gap is a proxy). Redmi S2 attached but runs the OLD pre-branch build (dark theme, stuck loading spinner — the bug this branch fixes); left untouched (daily phone; install = session wipe).
 
 **Row 3 re-run verdict: PASS**
+
+### Row 4 re-run (2026-10-12) — terminal banner on-device (WayDroid 192.168.240.112)
+
+Trigger: oversized send (~4MB text body, chunked input) in a keyed DM → server rejects (terminal class; opaque-400 ladder) → outbox `failedTerminal` → banner renders.
+
+| Step | Expected | Actual | Capture |
+|---|---|---|---|
+| 1. Send oversized message | create rejected → terminal | rejected on create (no receipt/ack); op → failedTerminal | — |
+| 2. Banner | title + Retry/Discard actionable | Banner rendered with live **Retry** and **Discard** buttons in-thread | `r4-terminal-banner.png` |
+| 3. Discard | op removed, thread reverts | Discarded: banner gone, tile preview reverted to 📎 Document, no balloon residue | — |
+
+Companion observations (not Row-4 subject, ledgered): group-removal while sends queued → drain DEFERS (key wiped by removal reconciliation before create → key_missing defer, never HTTP) — footer + "You were removed" system bubble = defined UX, terminal unreachable by this path by design. r4-term-1/2 remain queued (deferred) on WayDroid as residue.
+
+**Row 4 re-run verdict: PASS**

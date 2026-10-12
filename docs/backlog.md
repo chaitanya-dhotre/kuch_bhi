@@ -122,3 +122,7 @@
 - Plans: `docs/superpowers/plans/` (W1, W3-A, W3-B, widget-gaps parked).
 - Inspiration: `docs/Inspiration/` — add screenshots here per element/design liked.
 - Mockups (approved): `docs/mockups/2026-10-05-*.html`.
+- `[BACKLOG]` Membership reconciliation false-positive: group CREATE racing an in-flight conversations fetch -> server list predates new group -> false "You were removed" + local role=left (W1 #17 path; observed 2026-10-11, conv r4-trig). Fix = require consecutive misses or refetch before removal verdict.
+- `[MINOR]` Duplicate "X joined the group" system message (x2) on invite-accept.
+- `[MINOR]` Stale outgoing-invite row persists in Group Info after invite is accepted.
+- `[BACKLOG]` Fresh-group composer disabled on first open (user-reported 2026-10-11) — close+reopen works; root-cause the initial disabled state.
