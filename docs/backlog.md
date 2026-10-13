@@ -127,3 +127,21 @@
 - `[MINOR]` Stale outgoing-invite row persists in Group Info after invite is accepted.
 - `[BACKLOG]` Fresh-group composer disabled on first open (user-reported 2026-10-11) — close+reopen works; root-cause the initial disabled state.
 - `[DECIDED]` **Disappearing-messages data loss (user-reported 2026-10-12, Samsung M52, Avium).** Root cause proven: `_companionFromRecord` stamps `expiresAt = createdAt + duration` RETROACTIVELY on all history (message_repository_impl.dart:3626); `watchMessages` purges expired rows on every chat open (:736 / messages_dao.dart:230); W1 cursor then blocks re-download → permanent local loss. Session 1 hides it (purge runs before first fetch; visibility gate ignores expiresAt). Turning the feature OFF does not clear existing stamps — surviving rows keep live fuses. User confirmed duration was ON, then turned it OFF; scroll-up test NEGATIVE (server cron also hard-deleted) → affected history unrecoverable; fix = prevention only. Scope: (1) stamp only messages created AFTER enable — never retroactive history; (2) duration→0 (and duration change) clears/restamps existing local `expiresAt`; (3) audit server `disappearing_messages.pb.js` cron for retroactive server-side deletion (SSH to VM unreachable 2026-10-12 — IP/connectivity suspect). User paused voluntarily; resume on request ("fix it").
+
+## 8. Production readiness — group key/rotation hardening (2026-10-13)
+
+*Source docs (both in repo root docs/, both UNCOMMITTED along with the code they describe):*
+- `docs/2026-10-13-production-readiness-changes.md` — summary + repro + retest checklist
+- `docs/2026-10-13-production-readiness-changes (2).md` — full detail: 14 client + 9 live root causes, changes, backups, invariants, limitations
+
+*Status: applied to working tree (12 files, +610/−300) + live PocketBase rules hardened (backups `/opt/pocketbase/...20261013-group-hardening-pre`), targeted tests PASS, analyze 0 errors, debug APK installed on emulator-5554. NO commit created — user to review tree before committing (do not stage unrelated pre-existing files).*
+
+- `[DECIDED]` **Incident**: post-rotation cold start hid all pre-rotation group history (cold fetch = newest key only → `pending` → visibility gate hid rows before lazy decrypt). Fixed via versioned key slots (`group_key_<convId>_<version>`), multi-key candidates through all fetch/decrypt/repair paths, fail-closed cutoff on missing membership, rotation no longer deletes old key rows, collision-retry, pubkey preflight on create, leave/removal cleanup, pubspec asset fix.
+- `[ACTION]` **Required real-device retest** of the repro (doc 1 §"Live Test Result Before the Final Fix" / §"Required Retest"): stop + clear cache → reopen → pre- and post-rotation messages visible, no "group key missing". Plus two-device matrix (kill-before-rotation, cache-clear, join-during-offline, remove-while-offline, leave+rejoin, concurrent rotations).
+- `[ACTION]` Run FULL flutter test suite on target toolchain before release (only targeted tests ran).
+- `[BACKLOG]` Historical key rows deleted by OLD prod code unrecoverable (e.g. group `4chan`: only versions 16–17 retained, July messages stranded) — needs DB-backup restore or accepted loss.
+- `[BACKLOG]` Server-side atomic key-publication endpoint (membership snapshot + one txn per version); current = prepare-all-then-write best effort.
+- `[BACKLOG]` Rotation-pending message blocking (membership delete vs rotation = separate ops; offline gap keeps old member able to decrypt until rotation lands).
+- `[BACKLOG]` Server-side history cutoff disabled by design (prior back-reference rule erased old-member history) — needs tested membership-epoch model before enabling; current boundary = client cutoff + E2E key possession.
+- `[BACKLOG]` Group creation rollback is best-effort — orphan server rows possible after partial create + connectivity loss.
+- `[MINOR]` Startup frame skips on emulator · FcmDebugHelper second AppDatabase Drift warning · Gradle/AGP/Kotlin future-compat warnings · repo not lint-clean (warnings/infos remain).
