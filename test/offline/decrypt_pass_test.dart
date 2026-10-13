@@ -13,8 +13,11 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -82,7 +85,9 @@ void main() {
     final cipher =
         await pre.encryption.encryptMessage('coalesced', fixtureGroupKey);
 
-    final h = charHarness();
+    final h = charHarness(
+        clientFactory: () => MockClient(
+            (_) async => throw http.ClientException('offline')));
     addTearDown(h.close);
     await seedConversationAndKey(h); // g1 + group_key_g1
     for (var i = 0; i < 40; i++) {
@@ -119,6 +124,33 @@ void main() {
     for (final s in subs) {
       s.close();
     }
+  });
+
+  test('multi-key pass recovers a pre-rotation body after cache hydration',
+      () async {
+    final pre = charHarness();
+    addTearDown(pre.close);
+    final historicalKey = List<int>.generate(32, (i) => 100 + i);
+    final cipher = await pre.encryption.encryptMessage(
+        'before rotation', historicalKey);
+
+    final h = charHarness(
+        clientFactory: () => MockClient(
+            (_) async => throw http.ClientException('offline')));
+    addTearDown(h.close);
+    await seedConversationAndKey(h, key: fixtureGroupKey);
+    // The compatibility slot contains the current key; the versioned slot is
+    // the retained historical key available after a process/cache restart.
+    h.storage.put('group_key_g1_1', base64.encode(historicalKey));
+    await _seedText(h.db, localId: 'm_old', cipher: cipher);
+
+    final pass = DecryptPass(db: h.db, enc: h.encryption, epoch: () => 0);
+    await pass.runFor(const ['m_old']);
+
+    final row = (await h.db.messagesDao.getMessageByLocalId('m_old'))!;
+    expect(row.decryptState, 'ready');
+    expect(row.keyId, DecryptPass.fingerprintOf(historicalKey));
+    expect(bodyCache.get('m_old'), 'before rotation');
   });
 
   test(

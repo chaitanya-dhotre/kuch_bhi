@@ -145,3 +145,20 @@
 - `[BACKLOG]` Server-side history cutoff disabled by design (prior back-reference rule erased old-member history) — needs tested membership-epoch model before enabling; current boundary = client cutoff + E2E key possession.
 - `[BACKLOG]` Group creation rollback is best-effort — orphan server rows possible after partial create + connectivity loss.
 - `[MINOR]` Startup frame skips on emulator · FcmDebugHelper second AppDatabase Drift warning · Gradle/AGP/Kotlin future-compat warnings · repo not lint-clean (warnings/infos remain).
+
+### 8.1 Code-review findings on the 2026-10-13 diff (pre-commit pass)
+
+Fix-candidates ON this diff (edge combos — not touched, reported before commit):
+
+- `[BACKLOG]` `clearCurrentGroupKey` (secure_storage_service.dart:121) deletes the NEWEST versioned slot on leave/removal → leaver loses recent entitled history; doc comment claims historical stays readable. Fix: clear base slot only, keep versioned slots.
+- `[BACKLOG]` Optimistic enqueue seals with stale cached key (getCachedGroupKey) but drain unwraps only with CURRENT key → after rotation + process kill the send defers forever, silently (message_repository_impl.dart:4191). Fix: drain unwrap via row keyId fingerprint / candidate keys.
+- `[BACKLOG]` `getOrFetchGroupKeyCandidates` ignores requireCurrent on transport failure (publishes under stale key → undecryptable for post-rotation members) and can demote base slot to an older version before throwing (encryption_service.dart:523).
+- `[BACKLOG]` `_decryptBatch` multi-key: all-candidates-fail + keys.length>1 forces key_missing forever — corrupt rows never reach terminal failed (decrypt_pass.dart:389). Also: AesGcm/SecretKey built per item×candidate — hoist per-key setup (decrypt_pass.dart:369).
+- `[BACKLOG]` Create-group rollback leaves orphan `group_key_*` secure-storage entries + 2×N getUserRecord round trips (create_group_screen.dart:330).
+- `[BACKLOG]` getCachedGroupKey/candidates use secure-storage readAll() (all keys) on send/decrypt hot path — prefix-read or in-memory index (encryption_service.dart:428).
+
+Pre-existing (offline-first era, NOT this diff — surfaced by same review):
+
+- `[BACKLOG]` Pinned banner / ReplyQuote / context-menu Copy read session-cache-only decryptedBody → after background-clear show 🔒 / lose Copy until bubble decrypt re-runs (pinned_message_banner.dart:32).
+- `[BACKLOG]` toggleStar writes message_preview from cold bodyCache → starred screen permanently blank row (message_repository_impl.dart:1909; `?? 🔒` never fires for -string).
+- `[BACKLOG]` retryPendingMessages skips text rows when bodyCache cold → legacy pre-outbox pending rows stuck forever after restart (message_repository_impl.dart:1578).

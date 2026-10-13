@@ -75,6 +75,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       _error    = null;
     });
 
+    String? createdConversationId;
+    var creationCommitted = false;
     try {
       final auth = ref.read(authProvider).valueOrNull;
       if (auth is! AuthAuthenticated) throw Exception('Not authenticated.');
@@ -84,6 +86,21 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       final db        = ref.read(appDatabaseProvider);
       final encryption = ref.read(encryptionServiceProvider);
       final storage   = ref.read(secureStorageProvider);
+
+      final selectedFriends = allFriends
+          .where((f) => _selectedIds.contains(f.friend.id))
+          .toList();
+      final allMemberIds = [myId, ...selectedFriends.map((f) => f.friend.id)];
+
+      // A group without a key for one member is unrecoverable until another
+      // rotation happens. Validate every public key before creating any
+      // server rows, so a transient/missing key cannot leave an orphan group.
+      for (final memberId in allMemberIds) {
+        final user = await groupService.getUserRecord(memberId);
+        if (user.getStringValue('public_key').isEmpty) {
+          throw StateError('Member $memberId has no encryption key yet.');
+        }
+      }
 
       // ── a) Create conversation on PocketBase ──────────────────
       final Map<String, dynamic> convBody = {
@@ -99,6 +116,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       );
 
       final convId = conv.id;
+      createdConversationId = convId;
 
       // ── b) Add creator as admin ───────────────────────────────
       final myMemberRecord = await groupService.createMemberRecord({
@@ -108,10 +126,6 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       });
 
       // ── c) Add selected friends as members ────────────────────
-      final selectedFriends = allFriends
-          .where((f) => _selectedIds.contains(f.friend.id))
-          .toList();
-
       final memberRecords = await groupService.addMembers(
         conversationId: convId,
         memberIds: selectedFriends.map((f) => f.friend.id).toList(),
@@ -124,7 +138,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           conversationId: convId,
           userId:         myId,
           role:           const Value('admin'),
-          joinedAt:       DateTime.now(),
+          joinedAt:       DateTime.tryParse(
+                myMemberRecord.getStringValue('joined_at')) ??
+              DateTime.tryParse(myMemberRecord.created) ??
+              DateTime.now(),
         ),
       );
 
@@ -135,15 +152,16 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             conversationId: convId,
             userId:         rec.getStringValue('user_id'),
             role:           const Value('member'),
-            joinedAt:       DateTime.now(),
+            joinedAt:       DateTime.tryParse(
+                  rec.getStringValue('joined_at')) ??
+                DateTime.tryParse(rec.created) ??
+                DateTime.now(),
           ),
         );
       }
 
       // ── d) Generate and distribute group key ──────────────────
       final groupKey  = encryption.generateGroupKey();
-      final allMemberIds = [myId, ...selectedFriends.map((f) => f.friend.id)];
-
       for (final memberId in allMemberIds) {
         String? publicKey;
         try {
@@ -166,7 +184,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           debugPrint('[Group] Could not fetch public key for $memberId: $e');
         }
 
-        if (publicKey == null || publicKey.isEmpty) continue;
+        if (publicKey == null || publicKey.isEmpty) {
+          throw StateError('Member $memberId has no encryption key yet.');
+        }
 
         final encryptedKey = await encryption.encryptGroupKeyForMember(
           groupKey,
@@ -186,6 +206,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       // Cache own group key
       await storage.write(
         key:   'group_key_$convId',
+        value: base64.encode(groupKey),
+      );
+      await storage.write(
+        key:   'group_key_${convId}_1',
         value: base64.encode(groupKey),
       );
 
@@ -216,7 +240,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           conversationId: convId,
           userId:         myId,
           role:           Value('admin'),
-          joinedAt:       now,
+          joinedAt:       DateTime.tryParse(
+                myMemberRecord.getStringValue('joined_at')) ??
+              DateTime.tryParse(myMemberRecord.created) ??
+              now,
         ),
       );
 
@@ -229,7 +256,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             conversationId: convId,
             userId:         f.friend.id,
             role:           Value('member'),
-            joinedAt:       now,
+            joinedAt:       DateTime.tryParse(
+                  rec.getStringValue('joined_at')) ??
+                DateTime.tryParse(rec.created) ??
+                now,
           ),
         );
       }
@@ -277,7 +307,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           encryptedBody:     sysRes.ciphertext,
           iv:                sysRes.iv,
           status:            const Value('sent'),
-          createdAt:         DateTime.now(),
+          createdAt:         DateTime.tryParse(sysRec.created) ??
+              DateTime.now(),
           updatedAt:         DateTime.now(),
         ));
         // T9: system narrative is a body — session cache (spec §3: the
@@ -289,12 +320,30 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       }
 
       if (context.mounted) {
+        creationCommitted = true;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => ChatScreen(conversation: groupConv)),
           (route) => route.isFirst,
         );
       }
     } catch (e) {
+      if (createdConversationId != null && !creationCommitted) {
+        // Conversation/member/key creation is multi-request on PocketBase.
+        // Roll back the server aggregate on any pre-navigation failure; the
+        // live creator-only delete rule permits this and cascades children.
+        try {
+          await ref.read(groupCreateServiceProvider)
+              .deleteConversation(createdConversationId!);
+        } catch (rollbackError) {
+          debugPrint('[Group] server rollback failed: $rollbackError');
+        }
+        try {
+          await ref.read(appDatabaseProvider).conversationsDao
+              .deleteConversation(createdConversationId!);
+        } catch (rollbackError) {
+          debugPrint('[Group] local rollback failed: $rollbackError');
+        }
+      }
       setState(() => _error = 'Failed to create group: $e');
       debugPrint('[Group] create error: $e');
     } finally {

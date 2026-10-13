@@ -134,14 +134,14 @@ class DecryptPass {
       final (convRows, sealedRows) = _splitSealed(entry.value);
       sealed.addAll(sealedRows);
       if (convRows.isEmpty) continue;
-      final key = await _resolveKey(entry.key);
-      if (key == null || key.length != 32) {
+      final keys = await _resolveKeys(entry.key);
+      if (keys.isEmpty) {
         keyless.addAll(convRows);
         continue;
       }
       groups.add(_KeyGroup(
-        key: key,
-        fingerprint: DecryptPass.fingerprintOf(key),
+        keys: keys,
+        fingerprints: [for (final key in keys) DecryptPass.fingerprintOf(key)],
         rows: convRows,
       ));
     }
@@ -152,8 +152,8 @@ class DecryptPass {
         continue;
       }
       groups.add(_KeyGroup(
-        key: key,
-        fingerprint: DecryptPass.fingerprintOf(key),
+        keys: [key],
+        fingerprints: [DecryptPass.fingerprintOf(key)],
         rows: [row],
       ));
     }
@@ -174,12 +174,14 @@ class DecryptPass {
       ];
       if (useIsolate) {
         isolateCalls++;
-        final key = g.key;
-        final fp = g.fingerprint;
-        outcomes.addAll(await Isolate.run(() => _decryptBatch(items, key, fp)));
+        final keys = g.keys;
+        final fingerprints = g.fingerprints;
+        outcomes.addAll(await Isolate.run(
+            () => _decryptBatch(items, keys, fingerprints)));
       } else {
         inlineCalls++;
-        outcomes.addAll(await _decryptBatch(items, g.key, g.fingerprint));
+        outcomes.addAll(
+            await _decryptBatch(items, g.keys, g.fingerprints));
       }
     }
 
@@ -287,25 +289,25 @@ class DecryptPass {
   /// storage access: groups read the secure-storage cache (network
   /// fallback mirrors `_getConvKey`), DMs derive from the db-cached peer
   /// public key. Any failure ⇒ null ⇒ rows stay/mark `key_missing`.
-  Future<List<int>?> _resolveKey(String convId) async {
+  Future<List<List<int>>> _resolveKeys(String convId) async {
     try {
       final conv = await _db.conversationsDao.getConversationById(convId);
-      if (conv == null) return null;
+      if (conv == null) return const [];
       final myId =
           (await _db.settingsDao.getSetting(AppSettingsKeys.currentUserId)) ??
               '';
       if (conv.type == 'group') {
-        return await _enc.getOrFetchGroupKey(convId, myId);
+        return await _enc.getOrFetchGroupKeyCandidates(convId, myId);
       }
-      if (myId.isEmpty) return null;
+      if (myId.isEmpty) return const [];
       final otherUserId = await _otherMemberId(convId, myId);
-      if (otherUserId == null) return null;
+      if (otherUserId == null) return const [];
       final user = await _db.usersDao.getUserById(otherUserId);
       final pub = user?.publicKey;
-      if (pub == null || pub.isEmpty) return null;
-      return await _enc.getOrDeriveConversationKey(convId, pub);
+      if (pub == null || pub.isEmpty) return const [];
+      return [await _enc.getOrDeriveConversationKey(convId, pub)];
     } catch (_) {
-      return null; // MissingKeyException / offline / bad peer key
+      return const []; // MissingKeyException / offline / bad peer key
     }
   }
 
@@ -338,13 +340,13 @@ class DecryptPass {
 /// One conversation's key + rows in a [runFor] batch.
 class _KeyGroup {
   _KeyGroup({
-    required this.key,
-    required this.fingerprint,
+    required this.keys,
+    required this.fingerprints,
     required this.rows,
   });
 
-  final List<int> key;
-  final String fingerprint;
+  final List<List<int>> keys;
+  final List<String> fingerprints;
   final List<MessagesTableData> rows;
 }
 
@@ -354,33 +356,38 @@ class _KeyGroup {
 /// (isolate messages are JSON-ish values, not Dart records).
 Future<List<Map<String, Object?>>> _decryptBatch(
   List<Map<String, Object?>> items,
-  List<int> key,
-  String fingerprint,
+  List<List<int>> keys,
+  List<String> fingerprints,
 ) async {
-  final aes = AesGcm.with256bits();
-  final secretKey = await aes.newSecretKeyFromBytes(key);
   final out = <Map<String, Object?>>[];
   for (final item in items) {
     final id = item['id'] as String;
     String? plain;
-    try {
-      final nonce = base64.decode(item['iv'] as String);
-      final all = base64.decode(item['ciphertext'] as String);
-      final ct = all.sublist(0, all.length - 16);
-      final mac = Mac(all.sublist(all.length - 16));
-      final clear = await aes.decrypt(
-        SecretBox(ct, nonce: nonce, mac: mac),
-        secretKey: secretKey,
-      );
-      plain = utf8.decode(clear);
-    } catch (_) {
-      plain = null; // bad MAC / parse — verdict below
+    var matchedFingerprint = fingerprints.first;
+    for (var i = 0; i < keys.length && plain == null; i++) {
+      try {
+        final aes = AesGcm.with256bits();
+        final secretKey = await aes.newSecretKeyFromBytes(keys[i]);
+        final nonce = base64.decode(item['iv'] as String);
+        final all = base64.decode(item['ciphertext'] as String);
+        final ct = all.sublist(0, all.length - 16);
+        final mac = Mac(all.sublist(all.length - 16));
+        final clear = await aes.decrypt(
+          SecretBox(ct, nonce: nonce, mac: mac),
+          secretKey: secretKey,
+        );
+        plain = utf8.decode(clear);
+        matchedFingerprint = fingerprints[i];
+      } catch (_) {
+        // Try the next retained historical key.
+      }
     }
     final prevKeyId = item['keyId'] as String?;
     final String state;
     if (plain != null) {
       state = 'ready';
-    } else if (prevKeyId != null && prevKeyId != fingerprint) {
+    } else if (keys.length > 1 ||
+        (prevKeyId != null && prevKeyId != matchedFingerprint)) {
       // Rotation: ciphertext belongs to another key — re-queue, never
       // terminal (spec §8 "key_id mismatch rows are re-queued").
       state = 'key_missing';
@@ -391,7 +398,7 @@ Future<List<Map<String, Object?>>> _decryptBatch(
       'id': id,
       'plain': plain,
       'state': state,
-      'fingerprint': fingerprint,
+      'fingerprint': matchedFingerprint,
     });
   }
   return out;

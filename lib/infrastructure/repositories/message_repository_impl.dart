@@ -787,7 +787,13 @@ class MessageRepositoryImpl implements MessageRepository {
       List<MessagesTableData> rows) async {
     final myId = await _myId();
     if (rows.isEmpty) return [];
+    final conv = await db.conversationsDao
+        .getConversationById(rows.first.conversationId);
     final joinedAt = await _groupCutoff(rows.first.conversationId);
+    // A group row without a local membership record is not yet authorized
+    // locally (fresh install/sync race, or membership loss). Fail closed
+    // instead of exposing the full server history while the cutoff is null.
+    if (conv?.type == 'group' && joinedAt == null) return [];
     return [
       for (final r in rows)
         if (joinedAt == null ||
@@ -1736,9 +1742,10 @@ class MessageRepositoryImpl implements MessageRepository {
         page:    (offset ~/ 40) + 1,
         perPage: 40,
       );
-      final key = await _getConvKey(conversationId, myId);
+      final keys = await _getConvKeyCandidates(conversationId, myId);
       for (final r in res.items) {
-        await _cacheMsg(r, myId, key);
+        await _cacheMsg(r, myId, keys.firstOrNull,
+            keyCandidates: keys);
       }
       // Drift auto-emits after the inserts above
     } on MissingKeyException catch (e) {
@@ -1772,8 +1779,8 @@ class MessageRepositoryImpl implements MessageRepository {
         } catch (_) {}
       }
 
-      final key = await _getConvKey(conversationId, myId);
-      await _cacheMsg(r, myId, key);
+      final keys = await _getConvKeyCandidates(conversationId, myId);
+      await _cacheMsg(r, myId, keys.firstOrNull, keyCandidates: keys);
       debugPrint('[Msg] Successfully fetched and cached single message $messageId');
     } on MissingKeyException catch (e) {
       debugPrint('[Msg] single message key not ready: $e');
@@ -2147,13 +2154,13 @@ class MessageRepositoryImpl implements MessageRepository {
         );
         final msgTotal = headRes.totalItems;
         try {
-          List<int>? key;
+          List<List<int>> keys = const [];
           // Retry key derivation a few times — during reinstall restore the
           // peer's public key fetch can transiently fail on a flaky network,
           // and skipping it would leave the whole conversation blank.
-          for (var attempt = 0; attempt < 3 && key == null; attempt++) {
+          for (var attempt = 0; attempt < 3 && keys.isEmpty; attempt++) {
             try {
-              key = await _getConvKey(conv.id, myId);
+              keys = await _getConvKeyCandidates(conv.id, myId);
             } on MissingKeyException {
               if (attempt < 2) {
                 await Future.delayed(
@@ -2161,7 +2168,7 @@ class MessageRepositoryImpl implements MessageRepository {
               }
             }
           }
-          if (key == null) {
+          if (keys.isEmpty) {
             debugPrint('[Sync] conv ${conv.id}: no key after retries, '
                 'messages will re-decrypt once key is available');
           }
@@ -2181,7 +2188,8 @@ class MessageRepositoryImpl implements MessageRepository {
             // ciphertext and a later chat-open re-decrypts. Never drop history.
             // Task 7: null key passes through so rows land key_missing.
             for (final r in res.items) {
-              await _cacheMsg(r, myId, key);
+              await _cacheMsg(r, myId, keys.firstOrNull,
+                  keyCandidates: keys);
               downloaded++;
               if (msgTotal > 0) {
                 onProgress?.call(HistorySyncProgress(
@@ -2542,6 +2550,23 @@ class MessageRepositoryImpl implements MessageRepository {
     if (!await isCurrentUserAdmin(conversationId)) {
       throw Exception('Not an admin');
     }
+    if (userId == myId) {
+      throw StateError('Use leave group to remove yourself.');
+    }
+    final liveMembers = await _pb.collection('conversation_members')
+        .getFullList(filter: 'conversation_id="$conversationId"', batch: 200);
+    final liveTarget = liveMembers
+        .where((m) => m.getStringValue('user_id') == userId)
+        .firstOrNull;
+    if (liveTarget == null) {
+      throw StateError('User is not an active group member.');
+    }
+    final liveAdminCount = liveMembers
+        .where((m) => m.getStringValue('role') == 'admin')
+        .length;
+    if (liveTarget?.getStringValue('role') == 'admin' && liveAdminCount <= 1) {
+      throw StateError('The group must retain an admin.');
+    }
 
     // Capture display names BEFORE we drop the membership rows / caches.
     final removedName = await _userName(userId);
@@ -2590,19 +2615,10 @@ class MessageRepositoryImpl implements MessageRepository {
     }
     _invalidateCutoff(conversationId);
 
-    // 4) Remove the removed user's group-key rows so they can't decrypt
-    //    anything on a fresh install. Best-effort: the server's
-    //    group_keys.deleteRule may forbid this — stale rows only ever
-    //    decrypt messages from BEFORE the rotation, which the user was
-    //    entitled to anyway.
-    try {
-      final keyRecs = await _pb.collection('group_keys').getFullList(
-        filter: 'conversation_id="$conversationId"&&user_id="$userId"', batch: 50,
-      );
-      for (final rec in keyRecs) {
-        await _pb.collection('group_keys').delete(rec.id);
-      }
-    } catch (_) {}
+    // 4) Keep the removed user's historical key rows. They are required to
+    // decrypt messages sent while that user was a member. The new rotation
+    // below creates a fresh version only for current members, so these rows do
+    // not grant access to future messages.
 
     // 5) Fully remove locally (not a soft 'left' — they were removed by an
     //    admin). The removed user's own device flips to 'left' via
@@ -2617,78 +2633,86 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Future<void> _rotateGroupKey(String convId, String myId) async {
-    final newKey = encryption.generateGroupKey();
+    // Version allocation is not a server transaction. If another admin wins
+    // the same max+1 race, never overwrite its row with ciphertext for a
+    // different random key. Retry at the next version instead.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final newKey = encryption.generateGroupKey();
 
-    // Read the CURRENT membership straight from the server so a just-added
-    // member is included and a just-removed member is excluded.
-    final memberRecs = await _pb.collection('conversation_members').getFullList(
-      filter: 'conversation_id="$convId"', batch: 200,
-    );
+      // Read CURRENT membership so a just-added member is included and a
+      // removed member is excluded.
+      final memberRecs = await _pb.collection('conversation_members')
+          .getFullList(filter: 'conversation_id="$convId"', batch: 200);
+      // A fully empty group has no recipient and therefore no key to create.
+      // This is valid after the last member leaves/is removed.
+      if (memberRecs.isEmpty) return;
 
-    // Determine the next key version from any existing key for this group.
-    final existing = await _pb.collection('group_keys').getList(
-      filter: 'conversation_id="$convId"',
-      sort: '-key_version',
-      perPage: 1,
-    );
-    final newVersion =
-        (existing.items.isEmpty ? 0 : existing.items.first.getIntValue('key_version')) + 1;
-
-    for (final m in memberRecs) {
-      final uid = m.getStringValue('user_id');
-      String? pubKey;
-      try {
-        final r = await _pb.collection('users').getOne(uid);
-        await _cacheUserRecord(r);
-        pubKey = r.getStringValue('public_key');
-      } catch (_) {}
-      if (pubKey == null || pubKey.isEmpty) continue;
-
-      final encKey = await encryption.encryptGroupKeyForMember(
-        newKey, pubKey, convId,
+      final existing = await _pb.collection('group_keys').getList(
+        filter: 'conversation_id="$convId"',
+        sort: '-key_version',
+        perPage: 1,
       );
-      try {
-        await _pb.collection('group_keys').create(body: {
-          'conversation_id':      convId,
-          'user_id':              uid,
-          'encrypted_key':        encKey,
-          'encrypted_by_user_id': myId,
-          'key_version':          newVersion,
-        });
-      } catch (e) {
-        // Unique (conv,user,version) race — update the existing row instead.
-        debugPrint('[Group] group_key create conflict for $uid, updating: $e');
+      final newVersion = (existing.items.isEmpty
+              ? 0
+              : existing.items.first.getIntValue('key_version')) + 1;
+
+      // Resolve and encrypt every member before the first write. A missing
+      // public key must fail the rotation, not silently create a group where
+      // one member can never decrypt.
+      final encryptedForMember = <String, String>{};
+      for (final m in memberRecs) {
+        final uid = m.getStringValue('user_id');
+        final user = await _pb.collection('users').getOne(uid);
+        await _cacheUserRecord(user);
+        final pubKey = user.getStringValue('public_key');
+        if (pubKey.isEmpty) {
+          throw StateError('Member $uid has no public key');
+        }
+        encryptedForMember[uid] = await encryption.encryptGroupKeyForMember(
+          newKey, pubKey, convId,
+        );
+      }
+
+      var collision = false;
+      for (final entry in encryptedForMember.entries) {
         try {
-          final ex = await _pb.collection('group_keys').getFirstListItem(
-            'conversation_id="$convId"&&user_id="$uid"&&key_version=$newVersion',
-          );
-          await _pb.collection('group_keys').update(ex.id, body: {
-            'encrypted_key':        encKey,
+          await _pb.collection('group_keys').create(body: {
+            'conversation_id':      convId,
+            'user_id':              entry.key,
+            'encrypted_key':        entry.value,
             'encrypted_by_user_id': myId,
+            'key_version':          newVersion,
           });
-        } catch (_) {}
+        } on ClientException catch (e) {
+          // A row already existing at this version proves a concurrent
+          // rotation. Do not update it: its ciphertext may wrap another key.
+          try {
+            await _pb.collection('group_keys').getFirstListItem(
+              'conversation_id="$convId"&&user_id="${entry.key}"'
+                  '&&key_version=$newVersion',
+            );
+            collision = true;
+            break;
+          } catch (_) {
+            throw e;
+          }
+        }
       }
-    }
-
-    // Delete stale older-version keys.
-    final oldRecs = await _pb.collection('group_keys').getFullList(
-      filter: 'conversation_id="$convId"&&key_version<$newVersion', batch: 200,
-    );
-    for (final r in oldRecs) {
-      try {
-        await _pb.collection('group_keys').delete(r.id);
-      } catch (e) {
-        debugPrint('[Group] Non-fatal: could not delete old group key record: $e');
+      if (collision) {
+        debugPrint('[Group] rotation collision at v$newVersion; retrying');
+        continue;
       }
-    }
 
-    // Update my own cache to the new key; other members' caches self-heal on
-    // decrypt failure (they re-fetch the latest key version).
-    await storage.write(
-      key:   'group_key_$convId',
-      value: base64.encode(newKey),
-    );
-    await storage.write(key: 'contact_key_${convId}_gk', value: '');
+      // Historical versions are required for cold-start decryption.
+      await storage.write(
+        key: 'group_key_$convId', value: base64.encode(newKey));
+      await storage.write(
+        key: 'group_key_${convId}_$newVersion',
+        value: base64.encode(newKey));
+      await storage.write(key: 'contact_key_${convId}_gk', value: '');
+      return;
+    }
+    throw StateError('Group-key rotation conflicted repeatedly: $convId');
   }
 
   @override
@@ -2783,10 +2807,17 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     }
 
-    // "X left" — emitted BEFORE deleting the key row/cache so it encrypts
-    // with the key the remaining members still share (and our own cached
-    // key is still available to encrypt it). Rotation at the end then
-    // excludes the leaver from all FUTURE messages.
+    // Membership removal is security-critical. Do not swallow a failed
+    // delete and then rotate: if the row remains, the leaver is still a
+    // current member and would receive the next key.
+    final rec = await _pb.collection('conversation_members').getFirstListItem(
+      'conversation_id="$conversationId"&&user_id="$myId"',
+    );
+    await _pb.collection('conversation_members').delete(rec.id);
+
+    // Emit after membership deletion but before key-cache cleanup/rotation.
+    // The old key is still available locally, and a failed membership delete
+    // can no longer produce a false "left" event.
     try {
       final myName = await _userName(myId);
       await _emitSystemMessage(
@@ -2798,23 +2829,9 @@ class MessageRepositoryImpl implements MessageRepository {
       debugPrint('[Group] leaveGroup system message emit failed: $e');
     }
 
-    try {
-      final rec = await _pb.collection('conversation_members').getFirstListItem(
-        'conversation_id="$conversationId"&&user_id="$myId"',
-      );
-      await _pb.collection('conversation_members').delete(rec.id);
-    } catch (e) {
-      debugPrint('[Group] Error deleting membership on server during leave: $e');
-    }
-
-    try {
-      final keyRec = await _pb.collection('group_keys').getFirstListItem(
-        'conversation_id="$conversationId"&&user_id="$myId"',
-      );
-      await _pb.collection('group_keys').delete(keyRec.id);
-    } catch (_) {}
-
-    await storage.delete(key: 'group_key_$conversationId');
+    // Retain older versioned keys for authorized historical messages, but
+    // drop the active key locally before persisting the left state.
+    await storage.clearCurrentGroupKey(conversationId);
     _invalidateCutoff(conversationId);
 
     if (me != null) {
@@ -2995,8 +3012,12 @@ class MessageRepositoryImpl implements MessageRepository {
               r.getStringValue('user_id'):
                   maxByVersion[r.getStringValue('user_id')],
           };
-          final missing = membersMissingCurrentKey(
-              memberToMaxVersion: memberVersions, currentVersion: current);
+          final missing = current == 0
+              ? memberVersions.keys.toSet()
+              : membersMissingCurrentKey(
+                  memberToMaxVersion: memberVersions,
+                  currentVersion: current,
+                );
           if (missing.isEmpty) continue;
           debugPrint('[Group] key gap in $convId for $missing');
           if (!await _isRotationOwner(convId, myId)) continue;
@@ -3083,13 +3104,13 @@ class MessageRepositoryImpl implements MessageRepository {
         // and the cursor advances WITH them (same boundary txn), so the
         // window can neither be lost nor double-fetched; key arrival heals
         // via _repairUndecrypted / the batch self-heal.
-        List<int>? key;
+        List<List<int>> keys;
         try {
-          key = await _getConvKey(conversationId, myId);
+          keys = await _getConvKeyCandidates(conversationId, myId);
         } on MissingKeyException catch (e) {
           debugPrint(
               '[Msg] key not ready during fetch — committing ciphertext: $e');
-          key = null;
+          keys = const [];
         }
         // Review I2: only advance the cursor when the whole delta present
         // at fetch start landed (offset shifts during multi-page
@@ -3104,7 +3125,7 @@ class MessageRepositoryImpl implements MessageRepository {
         final newest = DateTime.tryParse(all.first.getStringValue('created'));
         await _cacheMessagesBatch(
           all,
-          key,
+          keys,
           myId,
           cursorAdvance: (newest != null && advance)
               ? CursorDelta(conversationId: conversationId, to: newest)
@@ -3139,7 +3160,8 @@ class MessageRepositoryImpl implements MessageRepository {
 
   /// Batched cache: one existing-rows query, one decryptBatch hop, one
   /// boundary commit. [records] must be one conversation, sorted
-  /// `-created`. [key] null = the key lookup threw (Task 7 always-commit):
+  /// `-created`. An empty [keys] list means the key lookup threw (Task 7
+  /// always-commit):
   /// no decrypt attempt, every row commits `decrypt_state='key_missing'`,
   /// and the key-invalidating self-heal is skipped — there is no key to
   /// invalidate. Decrypt misses self-heal per-row (groups only) exactly
@@ -3147,7 +3169,7 @@ class MessageRepositoryImpl implements MessageRepository {
   /// the upserts (spec §7 — Task 6).
   Future<void> _cacheMessagesBatch(
     List<RecordModel> records,
-    List<int>? key,
+    List<List<int>> keys,
     String myId, {
     CursorDelta? cursorAdvance,
   }) async {
@@ -3164,11 +3186,10 @@ class MessageRepositoryImpl implements MessageRepository {
     // Task 7: keyless batches skip the decrypt hop entirely — the
     // ciphertext still lands (key_missing), nothing is attempted, so no
     // miss can be mistaken for a stale key below.
-    final Map<String, String?> decrypted;
-    if (key == null) {
-      decrypted = const {};
-    } else {
-      decrypted = await encryption.decryptBatch(key, [
+    final decrypted = <String, String?>{};
+    final decryptedKeyIds = <String, String>{};
+    for (final key in keys) {
+      final batch = await encryption.decryptBatch(key, [
         for (final r in records)
           {
             'id':         r.id,
@@ -3176,23 +3197,19 @@ class MessageRepositoryImpl implements MessageRepository {
             'iv':         r.getStringValue('iv'),
           },
       ]);
+      for (final r in records) {
+        final body = batch[r.id];
+        if (body != null && !decrypted.containsKey(r.id)) {
+          decrypted[r.id] = body;
+          decryptedKeyIds[r.id] = DecryptPass.fingerprintOf(key);
+        }
+      }
     }
 
     final companions = <MessagesTableCompanion>[];
-    final failedDecrypts = <RecordModel>[];
     for (final r in records) {
       final e = existingById[r.id];
-      var body = decrypted[r.id];
-      // Only genuine decrypt misses count (key WAS present): a row with
-      // empty ciphertext/iv (never happens server-side today) would
-      // otherwise trigger the key-invalidating self-heal — and its network
-      // refetch — on EVERY fetch; a keyless batch attempted nothing.
-      if (key != null &&
-          body == null &&
-          r.getStringValue('encrypted_body').isNotEmpty &&
-          r.getStringValue('iv').isNotEmpty) {
-        failedDecrypts.add(r);
-      }
+      final body = decrypted[r.id];
 
       // P7 (spec §3): the server's `reply_preview` is NOT decrypted and
       // NOT stored — schema v11 dropped `messages.reply_preview`. The UI
@@ -3209,8 +3226,11 @@ class MessageRepositoryImpl implements MessageRepository {
       companions.add(_companionFromRecord(r,
           existing: e, decrypted: body,
           forcedStatus: forced, myId: myId,
+          keyId: body == null || keys.isEmpty
+              ? e?.keyId
+              : decryptedKeyIds[r.id],
           decryptState: _ingestDecryptState(
-              decrypted: body, keyMissing: key == null)));
+              decrypted: body, keyMissing: keys.isEmpty)));
     }
 
     // Review C1: decrypt awaited across the gap above — re-check before
@@ -3250,40 +3270,8 @@ class MessageRepositoryImpl implements MessageRepository {
       IngestSource.fetch,
     );
 
-    // Self-heal decrypt misses: invalidate the cached conv key (group row
-    // cache, or ALL contact-key caches for a direct chat — covers stale
-    // ECDH derivations after re-key events) and retry each failed row once
-    // with the freshly fetched key.
-    if (failedDecrypts.isNotEmpty) {
-      try {
-        if (conv?.type == 'group') {
-          await storage.delete(key: 'group_key_$convId');
-        } else {
-          await storage.clearAllContactKeys();
-        }
-        final freshKey = await _getConvKey(convId, myId);
-        for (final r in failedDecrypts) {
-          final body = await encryption.decryptMessage(
-              r.getStringValue('encrypted_body'),
-              r.getStringValue('iv'), freshKey);
-          if (body != null) {
-            final healed = _companionFromRecord(r,
-                existing: existingById[r.id],
-                decrypted: body,
-                myId: myId,
-                // Fresh key just decrypted it — decryptable (spec §5.1).
-                decryptState: 'ready');
-            bodyCache.put(healed.localId.value, body);
-            await ingestBoundary.commit(
-              IngestBatch(upserts: [MessageUpsert(healed)]),
-              IngestSource.fetch,
-            );
-          }
-        }
-      } catch (e) {
-        debugPrint('[Enc] batch self-heal failed: $e');
-      }
-    }
+    // All retained keys were tried above. Rows that still miss are left
+    // pending/key_missing and will be retried when key distribution catches up.
 
     // Conversation-list bump: newest incoming row only (sort -created →
     // records.first). Fetch path is never "live" — no unread bump here.
@@ -3305,13 +3293,12 @@ class MessageRepositoryImpl implements MessageRepository {
       final epoch = _sessionEpoch;
       final myId = await _myId();
       if (myId.isEmpty) return;
-      List<int>? key;
+      List<List<int>> keys;
       try {
-        key = await _getConvKey(conversationId, myId);
+        keys = await _getConvKeyCandidates(conversationId, myId);
       } on MissingKeyException {
         return;
       }
-      final conv = await db.conversationsDao.getConversationById(conversationId);
       for (final row in rows) {
         if (!sessionStillValid(
             epochAtStart: epoch,
@@ -3319,20 +3306,24 @@ class MessageRepositoryImpl implements MessageRepository {
             authValid: _pb.authStore.isValid)) {
           return;
         }
-        var plain = await encryption.decryptMessage(
-            row.encryptedBody, row.iv, key);
-        if (plain == null && conv?.type == 'group') {
-          try {
-            await storage.delete(key: 'group_key_$conversationId');
-            final fresh = await _getConvKey(conversationId, myId);
-            plain = await encryption.decryptMessage(
-                row.encryptedBody, row.iv, fresh);
-          } catch (_) {
-            return; // key still bad (e.g. rotated-away) — stop this pass
+        String? plain;
+        String? keyId;
+        for (final key in keys) {
+          plain = await encryption.decryptMessage(
+              row.encryptedBody, row.iv, key);
+          if (plain != null) {
+            keyId = DecryptPass.fingerprintOf(key);
+            break;
           }
         }
         if (plain != null) {
-          await db.messagesDao.cacheDecryptedBody(row.localId, plain);
+          bodyCache.put(row.localId, plain);
+          await (db.update(db.messagesTable)
+                ..where((t) => t.localId.equals(row.localId)))
+              .write(MessagesTableCompanion(
+                decryptState: const Value('ready'),
+                keyId: Value(keyId),
+              ));
         }
       }
       debugPrint('[Enc] repair pass decrypted '
@@ -3473,12 +3464,13 @@ class MessageRepositoryImpl implements MessageRepository {
   final Map<String, Future<void>> _cacheInFlight = {};
 
   Future<void> _cacheMsg(RecordModel r, String myId, List<int>? key,
-      {IngestSource source = IngestSource.fetch}) {
+      {IngestSource source = IngestSource.fetch,
+      List<List<int>>? keyCandidates}) {
     final pending = _cacheInFlight[r.id];
     // Swallow the previous op's error so the chain always continues.
     final next = (pending ?? Future.value())
         .catchError((_) {})
-        .then((_) => _cacheMsgInner(r, myId, key, source));
+        .then((_) => _cacheMsgInner(r, myId, key, source, keyCandidates));
     _cacheInFlight[r.id] = next.whenComplete(() {
       if (identical(_cacheInFlight[r.id], next)) _cacheInFlight.remove(r.id);
     });
@@ -3486,31 +3478,44 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Future<void> _cacheMsgInner(
-      RecordModel r, String myId, List<int>? key, IngestSource source) async {
+      RecordModel r,
+      String myId,
+      List<int>? key,
+      IngestSource source,
+      List<List<int>>? keyCandidates) async {
     final epoch = _sessionEpoch;
     // Note: isDeletedForEveryone is already synchronized automatically on fresh install
     // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
     final encBody = r.getStringValue('encrypted_body');
     final iv      = r.getStringValue('iv');
     String? decrypted;
+    List<int>? decryptedWithKey;
     // Task 7: null key (the callers' MissingKeyException catch) means no
     // attempt — the ciphertext lands key_missing, no self-heal (there is
     // no cached key to invalidate and _getConvKey would just throw again).
-    if (key != null &&
+    final List<List<int>> candidates = keyCandidates ??
+        (key == null ? const <List<int>>[] : <List<int>>[key]);
+    for (final candidate in candidates) {
+      if (decrypted != null) break;
+      if (encBody.isEmpty || iv.isEmpty || encBody == '__pending__') break;
+      decrypted = await encryption.decryptMessage(encBody, iv, candidate);
+      if (decrypted != null) decryptedWithKey = candidate;
+    }
+    if (decrypted == null &&
+        keyCandidates == null &&
+        key != null &&
         encBody.isNotEmpty && iv.isNotEmpty && encBody != '__pending__') {
-      decrypted = await encryption.decryptMessage(encBody, iv, key);
-      if (decrypted == null) {
-        final convId = r.getStringValue('conversation_id');
-        final conv = await db.conversationsDao.getConversationById(convId);
-        if (conv?.type == 'group') {
-          debugPrint('[Enc] Group decryption failed. Invalidating cached group key and refetching...');
-          try {
-            await storage.delete(key: 'group_key_$convId');
-            final freshKey = await _getConvKey(convId, myId);
-            decrypted = await encryption.decryptMessage(encBody, iv, freshKey);
-          } catch (e) {
-            debugPrint('[Enc] Self-healing group key fetch failed: $e');
-          }
+      final convId = r.getStringValue('conversation_id');
+      final conv = await db.conversationsDao.getConversationById(convId);
+      if (conv?.type == 'group') {
+        debugPrint('[Enc] Group decryption failed. Invalidating cached group key and refetching...');
+        try {
+          await storage.delete(key: 'group_key_$convId');
+          final freshKey = await _getConvKey(convId, myId);
+          decrypted = await encryption.decryptMessage(encBody, iv, freshKey);
+          if (decrypted != null) decryptedWithKey = freshKey;
+        } catch (e) {
+          debugPrint('[Enc] Self-healing group key fetch failed: $e');
         }
       }
     }
@@ -3545,8 +3550,11 @@ class MessageRepositoryImpl implements MessageRepository {
       decrypted: decrypted,
       forcedStatus: forcedStatus,
       myId: myId,
+      keyId: decrypted == null || decryptedWithKey == null
+          ? existing?.keyId
+          : DecryptPass.fingerprintOf(decryptedWithKey),
       decryptState: _ingestDecryptState(
-          decrypted: decrypted, keyMissing: key == null),
+          decrypted: decrypted, keyMissing: candidates.isEmpty),
     );
     if (decrypted != null) bodyCache.put(single.localId.value, decrypted);
     // Sole writer (Task 6): the boundary re-checks its own entry epoch for
@@ -3581,6 +3589,7 @@ class MessageRepositoryImpl implements MessageRepository {
     String? forcedStatus,
     required String myId,
     required String decryptState,
+    String? keyId,
   }) {
     final encBody = r.getStringValue('encrypted_body');
     final iv      = r.getStringValue('iv');
@@ -3619,10 +3628,11 @@ class MessageRepositoryImpl implements MessageRepository {
       isDeletedForEveryone: Value(r.getBoolValue('is_deleted_for_everyone')),
       mediaId:              Value(rawMediaId.isEmpty ? null : rawMediaId),
       status:               Value(status),
-      // Task 7: state is computed by the caller from the key/decrypt
-      // outcome; key_id preserved (nothing writes it until Task 8).
+      // Persist the fingerprint whenever ingest successfully decrypts. This
+      // lets the lazy path distinguish rotation from actual corruption after
+      // the in-memory body cache is cleared.
       decryptState:         Value(decryptState),
-      keyId:                Value(existing?.keyId),
+      keyId:                Value(keyId ?? existing?.keyId),
       expiresAt:            Value(_computeExpirySync(convId, createdAt)),
       createdAt:            createdAt,
       updatedAt:            DateTime.now(),
@@ -4063,6 +4073,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
   Future<ConversationsTableData?> _fetchAndCacheConversation(String convId, String myId) async {
     try {
+      _invalidateCutoff(convId);
       final conv = await _pb.collection('conversations').getOne(convId);
       final iconField = conv.getStringValue('icon');
       final iconUrl   = iconField.isEmpty
@@ -4097,9 +4108,10 @@ class MessageRepositoryImpl implements MessageRepository {
         ),
       );
       _disappearingDurations[convId] = tableData.disappearingDuration;
-      final membersRes = await _pb.collection('conversation_members').getList(
+      final membersRes = await _pb.collection('conversation_members').getFullList(
         filter: 'conversation_id="$convId"',
         expand: 'user_id',
+        batch: 200,
       );
       // Join-triggered rotate, sync-discovery variant (see _syncConversations):
       // pre-check BEFORE each upsert so rows new-to-this-device schedule the
@@ -4109,7 +4121,7 @@ class MessageRepositoryImpl implements MessageRepository {
               .getAllMembersForConversation(convId))
           .map((lm) => lm.userId)
           .toSet();
-      for (final m in membersRes.items) {
+      for (final m in membersRes) {
         final u = m.expand['user_id']?.firstOrNull;
         if (u != null) await _cacheUserRecord(u);
         if (!localMemberIds.contains(m.getStringValue('user_id'))) {
@@ -4131,7 +4143,7 @@ class MessageRepositoryImpl implements MessageRepository {
       // id; the old local row would keep role 'left' and break the gate).
       await db.conversationsDao.removeStaleMemberRows(
         convId,
-        {for (final m in membersRes.items) m.id},
+         {for (final m in membersRes) m.id},
       );
       return tableData;
     } catch (e) {
@@ -4170,6 +4182,15 @@ class MessageRepositoryImpl implements MessageRepository {
   /// block the user's optimistic message.
   Future<List<int>?> _tryResolveSendKey(String convId, String myId) async {
     try {
+      // Preserve the offline-first optimistic path: a cached group key is
+      // enough to seal the local outbox row immediately. The outbox drain's
+      // _getConvKey call performs the authoritative current-key check before
+      // server publication.
+      final conv = await db.conversationsDao.getConversationById(convId);
+      if (conv?.type == 'group') {
+        final cachedGroupKey = await encryption.getCachedGroupKey(convId);
+        if (cachedGroupKey != null) return cachedGroupKey;
+      }
       return await _getConvKey(convId, myId);
     } catch (e) {
       debugPrint('[Msg] Enqueue key unavailable — keyless path: $e');
@@ -4183,6 +4204,8 @@ class MessageRepositoryImpl implements MessageRepository {
       conv = await _fetchAndCacheConversation(convId, myId);
     }
     if (conv?.type == 'group') {
+      // The single-key facade requires the newest server version when online;
+      // it still falls back to locally retained keys only on transport loss.
       return encryption.getOrFetchGroupKey(convId, myId);
     }
 
@@ -4219,8 +4242,27 @@ class MessageRepositoryImpl implements MessageRepository {
     return encryption.getOrDeriveConversationKey(convId, u.publicKey!);
   }
 
+  Future<List<List<int>>> _getConvKeyCandidates(
+      String convId, String myId) async {
+    var conv = await db.conversationsDao.getConversationById(convId);
+    if (conv == null) {
+      conv = await _fetchAndCacheConversation(convId, myId);
+    }
+    if (conv?.type == 'group') {
+      try {
+        return await encryption.getOrFetchGroupKeyCandidates(convId, myId);
+      } catch (e) {
+        throw MissingKeyException('group key unavailable for $convId: $e');
+      }
+    }
+    return [await _getConvKey(convId, myId)];
+  }
+
   Future<void> _syncConversations(String myId) async {
     final epoch = _sessionEpoch;
+    // Membership rows and join timestamps are the authorization boundary for
+    // group history. Never reuse a cutoff across a server reconciliation.
+    _cutoffCache.clear();
     try {
       final res = await _pb.collection('conversation_members').getList(
         filter: 'user_id="$myId"', expand: 'conversation_id', sort: '-created',
@@ -4366,7 +4408,7 @@ class MessageRepositoryImpl implements MessageRepository {
             // removal is visible in the timeline even if the removal SSE
             // message was missed (e.g. offline at the time).
             try {
-              await storage.delete(key: 'group_key_${lm.conversationId}');
+              await storage.clearCurrentGroupKey(lm.conversationId);
               await storage.write(
                   key: 'contact_key_${lm.conversationId}_gk', value: '');
               await _emitLocalSystemMessage(

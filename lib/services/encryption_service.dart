@@ -351,49 +351,182 @@ class EncryptionService {
     return base64.decode(result);
   }
 
-  /// Returns the AES group key for [conversationId].
-  /// Checks secure storage cache first; fetches and decrypts from PocketBase
-  /// if not cached.
+  /// Returns the current AES group key for [conversationId].
+  /// Uses the newest server version when reachable; cached versioned keys are
+  /// a transport-failure fallback only.
   Future<List<int>> getOrFetchGroupKey(
     String conversationId,
     String myId,
   ) async {
     try {
-      final cacheKey = 'group_key_$conversationId';
-      final cached   = await _storage.read(key: cacheKey);
-      if (cached != null && cached.isNotEmpty) {
-        return base64.decode(cached);
-      }
-
-      final list = await _pb.collection('group_keys').getList(
-        filter: 'conversation_id="$conversationId"&&user_id="$myId"',
-        sort: '-key_version',
-        perPage: 1,
-        expand: 'encrypted_by_user_id',
-      );
-      if (list.items.isEmpty) {
-        throw Exception('No group key found');
-      }
-      final record = list.items.first;
-
-      final adminRecord  = record.expand['encrypted_by_user_id']?.firstOrNull;
-      final adminPubKey = adminRecord?.getStringValue('public_key') ?? '';
-
-      final groupKey = await decryptGroupKey(
-        record.getStringValue('encrypted_key'),
-        adminPubKey,
-        conversationId,
-      );
-
-      await _storage.write(key: cacheKey, value: base64.encode(groupKey));
-      return groupKey;
+      final candidates = await getOrFetchGroupKeyCandidates(
+          conversationId, myId, requireCurrent: true);
+      if (candidates.isEmpty) throw Exception('No group key found');
+      return candidates.first;
     } catch (e) {
-      // NEVER fall back to a zero key — that would produce ciphertext
-      // under a publicly-known key. Hard-fail so the caller keeps the
-      // message pending and retries once the key is available.
+      // NEVER fall back to a zero key — that would produce ciphertext under a
+      // publicly-known key. Hard-fail so the caller keeps the message pending.
       debugPrint('[Enc] Failed to fetch group key: $e');
+      if (e is MissingKeyException) rethrow;
       throw MissingKeyException('group key unavailable for $conversationId: $e');
     }
+  }
+
+  /// Fast local-only lookup used by optimistic enqueue. It must never perform
+  /// network I/O on the UI path; the durable outbox drain revalidates the
+  /// current server key before publishing ciphertext.
+  Future<List<int>?> getCachedGroupKey(String conversationId) async {
+    final base = await _storage.read(key: 'group_key_$conversationId');
+    if (base != null) {
+      try {
+        final key = base64.decode(base);
+        if (key.length == 32) return key;
+      } catch (_) {}
+    }
+    try {
+      final prefix = 'group_key_${conversationId}_';
+      final entries = (await _storage.readAll()).entries
+          .where((e) => e.key.startsWith(prefix))
+          .toList()
+        ..sort((a, b) => (int.tryParse(b.key.substring(prefix.length)) ?? -1)
+            .compareTo(int.tryParse(a.key.substring(prefix.length)) ?? -1));
+      for (final entry in entries) {
+        try {
+          final key = base64.decode(entry.value);
+          if (key.length == 32) return key;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Returns every group-key version currently available to this member.
+  ///
+  /// A conversation has one active cache slot for backwards compatibility,
+  /// but historical messages may require an older key after rotation.  The
+  /// server's descending version order is authoritative when online; the
+  /// cached key is only an offline fallback. Older rows are retained.
+  Future<List<List<int>>> getOrFetchGroupKeyCandidates(
+    String conversationId,
+    String myId, {
+    bool requireCurrent = false,
+  }
+  ) async {
+    final cachedCandidates = <String, List<int>>{};
+    final cached = await _storage.read(key: 'group_key_$conversationId');
+    if (cached != null && cached.isNotEmpty) {
+      try {
+        final key = base64.decode(cached);
+        if (key.length == 32) cachedCandidates[cached] = key;
+      } catch (_) {}
+    }
+    // Versioned slots survive rotation and allow offline recovery even when
+    // the single compatibility slot was evicted. Keys are deduplicated by
+    // bytes below; malformed/stale slots are ignored.
+    try {
+      final prefix = 'group_key_${conversationId}_';
+      final all = await _storage.readAll();
+      final versioned = all.entries
+          .where((entry) => entry.key.startsWith(prefix))
+          .toList()
+        ..sort((a, b) {
+          final av = int.tryParse(a.key.substring(prefix.length)) ?? -1;
+          final bv = int.tryParse(b.key.substring(prefix.length)) ?? -1;
+          return bv.compareTo(av);
+        });
+      for (final entry in versioned) {
+        try {
+          final key = base64.decode(entry.value);
+          if (key.length == 32) {
+            cachedCandidates.putIfAbsent(entry.value, () => key);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Bare/offline callers may not have a resolved account id yet. Do not
+    // turn a valid local key into a network request with user_id=""; the
+    // normal authenticated path always supplies [myId] and can hydrate the
+    // retained history below.
+    if (myId.isEmpty && cachedCandidates.isNotEmpty) {
+      return cachedCandidates.values.toList();
+    }
+
+    try {
+      // Do not cap this at 200. A long-lived group can have more rotations
+      // than one page; truncation silently loses oldest decrypt keys.
+      final list = await _pb.collection('group_keys').getFullList(
+        filter: 'conversation_id="$conversationId"&&user_id="$myId"',
+        sort: '-key_version',
+        expand: 'encrypted_by_user_id',
+      );
+      final serverCandidates = <String, List<int>>{};
+      final newestVersion = list.isEmpty
+          ? null
+          : list.first.getIntValue('key_version');
+      List<int>? newestKey;
+      var cachedCurrent = false;
+      for (final record in list) {
+        final admin = record.expand['encrypted_by_user_id']?.firstOrNull;
+        final adminPubKey = admin?.getStringValue('public_key') ?? '';
+        if (adminPubKey.isEmpty) continue;
+        try {
+          final key = await decryptGroupKey(
+            record.getStringValue('encrypted_key'),
+            adminPubKey,
+            conversationId,
+          );
+          if (key.length == 32) {
+            final encoded = base64.encode(key);
+            serverCandidates.putIfAbsent(encoded, () => key);
+            final version = record.getIntValue('key_version');
+            if (version == newestVersion && newestKey == null) {
+              newestKey = key;
+            }
+            await _storage.write(
+              key: 'group_key_${conversationId}_$version',
+              value: encoded,
+            );
+            if (!cachedCurrent) {
+              await _storage.write(
+                key: 'group_key_$conversationId', value: encoded);
+              cachedCurrent = true;
+            }
+          }
+        } catch (e) {
+          debugPrint('[Enc] Skipping undecryptable group key version: $e');
+        }
+      }
+      if (requireCurrent && newestVersion != null && newestKey == null) {
+        throw MissingKeyException(
+            'current group key version $newestVersion is unavailable');
+      }
+      if (serverCandidates.isNotEmpty) {
+        // The server list is sorted by key_version descending.
+        await _storage.write(
+          key: 'group_key_$conversationId',
+          value: base64.encode(serverCandidates.values.first),
+        );
+        final merged = <String, List<int>>{};
+        merged.addAll(serverCandidates);
+        for (final entry in cachedCandidates.entries) {
+          merged.putIfAbsent(entry.key, () => entry.value);
+        }
+        return merged.values.toList();
+      }
+      // A successful empty/undecryptable server response is not an offline
+      // condition. Do not silently send under a stale cached key.
+      throw MissingKeyException('no decryptable group key for $conversationId');
+    } catch (e) {
+      if (e is MissingKeyException) rethrow;
+      if (cachedCandidates.isEmpty) rethrow;
+      debugPrint('[Enc] Group-key history fetch failed; using cache: $e');
+    }
+
+    if (cachedCandidates.isEmpty) {
+      throw MissingKeyException('group key unavailable for $conversationId');
+    }
+    return cachedCandidates.values.toList();
   }
 
   // ── PIN Backup & Restore ───────────────────────────────────────

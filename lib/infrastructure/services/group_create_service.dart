@@ -77,6 +77,10 @@ class GroupCreateService {
     final pb = _client.pb;
     return pb.collection('messages').create(body: body);
   }
+
+  Future<void> deleteConversation(String conversationId) async {
+    await _client.pb.collection('conversations').delete(conversationId);
+  }
 }
 
 final groupCreateServiceProvider = Provider<GroupCreateService>((ref) {

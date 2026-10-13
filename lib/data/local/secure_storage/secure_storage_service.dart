@@ -107,6 +107,27 @@ class SecureStorageService {
     }
   }
 
+  /// Removes the active group-key cache while retaining older versioned
+  /// entries. Historical group messages remain readable after a member leaves
+  /// or is removed, but the just-active key is not left in the local cache.
+  Future<void> clearCurrentGroupKey(String conversationId) async {
+    final prefix = 'group_key_${conversationId}_';
+    final all = await _storage.readAll();
+    await _storage.delete(key: 'group_key_$conversationId');
+
+    var newestVersion = -1;
+    String? newestKey;
+    for (final key in all.keys) {
+      if (!key.startsWith(prefix)) continue;
+      final version = int.tryParse(key.substring(prefix.length));
+      if (version != null && version > newestVersion) {
+        newestVersion = version;
+        newestKey = key;
+      }
+    }
+    if (newestKey != null) await _storage.delete(key: newestKey);
+  }
+
   // ── Full wipe ─────────────────────────────────────────────────
   Future<void> clearAll() => _storage.deleteAll();
 

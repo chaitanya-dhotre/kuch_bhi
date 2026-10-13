@@ -129,6 +129,21 @@ class FakeSecureStorage implements SecureStorageService {
     }
   }
 
+  @override
+  Future<void> clearCurrentGroupKey(String conversationId) async {
+    final prefix = 'group_key_${conversationId}_';
+    final keys = (await readAll()).keys
+        .where((key) => key.startsWith(prefix))
+        .toList()
+      ..sort((a, b) {
+        final av = int.tryParse(a.substring(prefix.length)) ?? -1;
+        final bv = int.tryParse(b.substring(prefix.length)) ?? -1;
+        return bv.compareTo(av);
+      });
+    await delete(key: 'group_key_$conversationId');
+    if (keys.isNotEmpty) await delete(key: keys.first);
+  }
+
   void put(String key, String value) => _overrides[key] = value;
   void removeKey(String key) => _overrides[key] = null;
 
