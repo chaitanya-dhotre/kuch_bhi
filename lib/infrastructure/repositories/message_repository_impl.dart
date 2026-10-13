@@ -166,6 +166,7 @@ class MessageRepositoryImpl implements MessageRepository {
       // too — logout / account switch purges it alongside the epoch bump.
       bodyCache.clear();
       _cutoffCache.clear(); // identity changed — group cutoffs are per-user
+      _removalMissCounts.clear(); // and removal verdicts are per-user too
       // P8 (F1 fix): the device-local outbox key lives in a
       // session-scoped secure-storage slot, so the in-memory copy is
       // session-scoped too. Without this, the next keyless enqueue in the
@@ -765,6 +766,18 @@ class MessageRepositoryImpl implements MessageRepository {
   /// multiplied the watch storm. Invalidated on membership change via
   /// [_invalidateCutoff].
   final Map<String, DateTime?> _cutoffCache = {};
+
+  /// §7 false-removal guard — consecutive membership-list misses per
+  /// conversation since the row was last seen. A verdict requires
+  /// [_removalConfirmMisses] misses in a row PLUS a confirmation point
+  /// query reporting the row gone (see the reconcile loop in
+  /// [_syncConversations]). Session-scoped: cleared on identity change.
+  final Map<String, int> _removalMissCounts = {};
+
+  /// Misses needed before a confirmed absence condemns the row. 2 = one
+  /// stale-snapshot cycle is forgiven (fresh-group race), a real removal
+  /// still lands on the very next sync after that.
+  static const int _removalConfirmMisses = 2;
 
   void _invalidateCutoff(String convId) => _cutoffCache.remove(convId);
 
@@ -4258,6 +4271,16 @@ class MessageRepositoryImpl implements MessageRepository {
     return [await _getConvKey(convId, myId)];
   }
 
+  /// Test seam: drives the production reconcile path (list fetch +
+  /// membership-reconcile + removal verdict) without going through the
+  /// fire-and-forget background wrapper.
+  @visibleForTesting
+  Future<void> debugSyncConversations() async {
+    final myId = await _myId();
+    if (myId.isEmpty) return;
+    await _syncConversations(myId);
+  }
+
   Future<void> _syncConversations(String myId) async {
     final epoch = _sessionEpoch;
     // Membership rows and join timestamps are the authorization boundary for
@@ -4393,32 +4416,67 @@ class MessageRepositoryImpl implements MessageRepository {
 
       final localMembers = await db.conversationsDao.getMembershipsOfUser(myId);
       for (final lm in localMembers) {
-        if (lm.role != 'left' && !activeConvIds.contains(lm.conversationId)) {
-          final conv = await db.conversationsDao.getConversationById(lm.conversationId);
-          if (conv?.type == 'group') {
-            await (db.update(db.conversationMembersTable)
-                  ..where((t) => t.conversationId.equals(lm.conversationId)
-                      & t.userId.equals(myId)))
-                .write(const ConversationMembersTableCompanion(role: Value('left')));
-            // We did NOT leave from THIS device (leaveGroup sets 'left'
-            // locally first, so the branch above is skipped there) — the
-            // server dropped our membership: an admin removed us (#17).
-            // Wipe the cached group key so we can neither decrypt nor send
-            // anything further, and drop a local-only info bubble so the
-            // removal is visible in the timeline even if the removal SSE
-            // message was missed (e.g. offline at the time).
-            try {
-              await storage.clearCurrentGroupKey(lm.conversationId);
-              await storage.write(
-                  key: 'contact_key_${lm.conversationId}_gk', value: '');
-              await _emitLocalSystemMessage(
-                lm.conversationId,
-                'You were removed from this group',
+        if (lm.role == 'left') continue;
+        if (activeConvIds.contains(lm.conversationId)) {
+          _removalMissCounts.remove(lm.conversationId); // seen — healthy
+          continue;
+        }
+        final conv = await db.conversationsDao.getConversationById(lm.conversationId);
+        if (conv?.type != 'group') continue;
+
+        // §7 false-removal guard: this list snapshot can PRECEDE a freshly
+        // created membership row (live repro 2026-10-12 — group condemned
+        // seconds after creation), and one page can also cap older rows out.
+        // Absence from the list is therefore only a MISS: count consecutive
+        // misses and confirm against a direct point query before condemning.
+        final misses = (_removalMissCounts[lm.conversationId] ?? 0) + 1;
+        _removalMissCounts[lm.conversationId] = misses;
+
+        final bool stillMember;
+        try {
+          final probe = await _pb.collection('conversation_members').getList(
+                filter:
+                    'conversation_id="${lm.conversationId}"&&user_id="$myId"',
               );
-            } catch (e) {
-              debugPrint('[Group] membership-loss cleanup failed: $e');
-            }
-          }
+          stillMember = probe.items.isNotEmpty;
+        } catch (e) {
+          debugPrint(
+              '[Conv] removal confirm failed for ${lm.conversationId}: $e');
+          continue; // cannot confirm absence — never condemn on an error
+        }
+        if (stillMember) {
+          _removalMissCounts.remove(lm.conversationId); // race, not removal
+          continue;
+        }
+        if (misses < _removalConfirmMisses) {
+          debugPrint(
+              '[Conv] membership miss $misses/$_removalConfirmMisses for '
+              '${lm.conversationId} — holding verdict');
+          continue;
+        }
+        _removalMissCounts.remove(lm.conversationId);
+
+        await (db.update(db.conversationMembersTable)
+              ..where((t) => t.conversationId.equals(lm.conversationId)
+                  & t.userId.equals(myId)))
+            .write(const ConversationMembersTableCompanion(role: Value('left')));
+        // We did NOT leave from THIS device (leaveGroup sets 'left'
+        // locally first, so the branch above is skipped there) — the
+        // server dropped our membership: an admin removed us (#17).
+        // Wipe the cached group key so we can neither decrypt nor send
+        // anything further, and drop a local-only info bubble so the
+        // removal is visible in the timeline even if the removal SSE
+        // message was missed (e.g. offline at the time).
+        try {
+          await storage.clearCurrentGroupKey(lm.conversationId);
+          await storage.write(
+              key: 'contact_key_${lm.conversationId}_gk', value: '');
+          await _emitLocalSystemMessage(
+            lm.conversationId,
+            'You were removed from this group',
+          );
+        } catch (e) {
+          debugPrint('[Group] membership-loss cleanup failed: $e');
         }
       }
     } catch (e) {
