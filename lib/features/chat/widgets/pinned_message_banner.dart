@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
 import '../../../core/theme/tokens.dart';
+import 'message_body_text.dart';
 
 class PinnedMessageBanner extends ConsumerStatefulWidget {
   const PinnedMessageBanner({
@@ -12,7 +13,7 @@ class PinnedMessageBanner extends ConsumerStatefulWidget {
     this.onTap,
   });
 
-  final String    conversationId;
+  final String conversationId;
   final void Function(Message)? onTap;
 
   @override
@@ -23,11 +24,9 @@ class PinnedMessageBanner extends ConsumerStatefulWidget {
 class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
   int _index = 0;
 
-  /// Type-aware preview for the pinned banner.
-  /// Plaintext-only fallback `decryptedBody ?? '📎 Attachment'` left media
-  /// messages looking blank (the body's just a duration string for voice/
-  /// video or empty for documents). Emojis here match the conversation-list
-  /// previews, so it feels consistent.
+  /// Type-aware preview for media/system rows. Text bodies and terminal
+  /// decrypt states use [MessageBodyText] so they share the chat/home state
+  /// machine: transient = neutral placeholder, terminal = explicit error.
   static String _previewForBanner(Message msg) {
     final body = msg.decryptedBody ?? '';
     switch (msg.type) {
@@ -42,9 +41,36 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
       case 'document':
         return body.isNotEmpty ? '📎 $body' : '📎 Document';
       default:
-        final text = body.isNotEmpty ? body : '🔒 Encrypted';
-        return text.length > 60 ? '${text.substring(0, 60)}…' : text;
+        return 'New message';
     }
+  }
+
+  Widget _previewWidget(BuildContext context, Message msg) {
+    final previewStyle = TextStyle(
+      fontSize: 12,
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+    );
+    final terminal =
+        msg.decryptState == 'key_missing' || msg.decryptState == 'failed';
+
+    // Text and terminal rows must use the shared body state machine. This
+    // removes the misleading old "🔒 Encrypted" fallback from pinned UI.
+    if (msg.type == 'text' || terminal) {
+      return MessageBodyText(
+        messageId: msg.localId,
+        styleContext: 'preview',
+        decryptState: msg.decryptState,
+        ciphertextLength: msg.ciphertextLength,
+        style: previewStyle,
+      );
+    }
+
+    return Text(
+      _previewForBanner(msg),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: previewStyle,
+    );
   }
 
   @override
@@ -53,13 +79,11 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
 
     return pinned.when(
       loading: () => const SizedBox.shrink(),
-      error:   (_, __) => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
       data: (messages) {
         if (messages.isEmpty) return const SizedBox.shrink();
 
         final msg = messages[_index % messages.length];
-        final preview = _previewForBanner(msg);
-
         return GestureDetector(
           onTap: () {
             widget.onTap?.call(msg);
@@ -68,16 +92,15 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
             }
           },
           child: Container(
-            width:   double.infinity,
+            width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
               border: Border(
                 bottom: BorderSide(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .outline
-                      .withValues(alpha: 0.15),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outline.withValues(alpha: 0.15),
                 ),
                 left: BorderSide(color: context.t.accent, width: 3),
               ),
@@ -95,35 +118,23 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
                             ? 'Pinned Message ${_index + 1}/${messages.length}'
                             : 'Pinned Message',
                         style: TextStyle(
-                          fontSize:   11,
+                          fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color:      context.t.accent,
+                          color: context.t.accent,
                         ),
                       ),
-                      Text(
-                        preview.length > 60
-                            ? '${preview.substring(0, 60)}…'
-                            : preview,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color:    Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                        maxLines:  1,
-                        overflow:  TextOverflow.ellipsis,
-                      ),
+                      _previewWidget(context, msg),
                     ],
                   ),
                 ),
                 if (messages.length > 1)
-                  Icon(Icons.keyboard_arrow_up,
-                      size: 16,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.4)),
+                  Icon(
+                    Icons.keyboard_arrow_up,
+                    size: 16,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.4),
+                  ),
               ],
             ),
           ),

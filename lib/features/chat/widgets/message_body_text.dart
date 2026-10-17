@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,23 +15,27 @@ import '../providers/message_body_provider.dart';
 /// - text when a body is available — the synchronous [bodyCache] fast-path
 ///   resolves the very FIRST frame (own-sent messages never flash a
 ///   placeholder, spec §5.1), else when the provider emits;
-/// - a keyed skeleton + 🔒 placeholder while the provider is loading OR
-///   resolves null (`key_missing`/`failed`/not-yet-resident) — never
-///   blank, never throws, never spinner-blocks.
+/// - a geometry-preserving neutral placeholder while a body is transiently
+///   unavailable; a lock/error indicator is reserved for terminal decrypt
+///   states (`key_missing`/`failed`).
 ///
 /// [styleContext] picks the typography/color slot:
 /// `'bubble.mine' | 'bubble' | 'emoji' | 'system' | 'preview'`.
 /// [style] overrides the slot wholesale (parent-controlled coloring).
-class MessageBodyText extends ConsumerWidget {
+class MessageBodyText extends ConsumerStatefulWidget {
   const MessageBodyText({
     super.key,
     required this.messageId,
     required this.styleContext,
+    this.decryptState = 'ready',
+    this.ciphertextLength = 0,
     this.style,
   });
 
   final String messageId;
   final String styleContext;
+  final String decryptState;
+  final int ciphertextLength;
   final TextStyle? style;
 
   /// The placeholder's finder key — brief tests pin
@@ -44,89 +50,424 @@ class MessageBodyText extends ConsumerWidget {
       'bubble' => TextStyle(color: t.ink, fontSize: 15),
       'emoji' => const TextStyle(fontSize: 40),
       'system' => TextStyle(
-          fontSize: 12,
-          fontStyle: FontStyle.italic,
-          fontWeight: FontWeight.w500,
-          color: Theme.of(context)
-              .colorScheme
-              .onSurface
-              .withValues(alpha: 0.55),
-        ),
+        fontSize: 12,
+        fontStyle: FontStyle.italic,
+        fontWeight: FontWeight.w500,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+      ),
       'preview' => TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w400,
-          color: t.inkSoft,
-        ),
+        fontSize: 13,
+        fontWeight: FontWeight.w400,
+        color: t.inkSoft,
+      ),
       _ => const TextStyle(fontSize: 15),
     };
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Cache fast-path: resolves instantly (and synchronously) so a resident
-    // body never flashes the placeholder for a frame. The provider watch
-    // below stays UNCONDITIONAL (Riverpod rule) and covers the miss path.
-    final cached = bodyCache.get(messageId);
-    final resolved =
-        cached ?? ref.watch(messageBodyProvider(messageId)).valueOrNull;
-    final slot = style ?? _slotStyle(context);
-    if (resolved != null) {
-      return Text(
-        resolved,
-        style: slot,
-        maxLines: styleContext == 'preview' ? 1 : null,
-        overflow: styleContext == 'preview' ? TextOverflow.ellipsis : null,
-      );
-    }
-    // Loading OR resolved-null — same visible contract (spec §8): skeleton
-    // line + lock hint, keyed, never empty.
-    return _BodyPlaceholder(key: placeholderKey(messageId), style: slot);
-  }
+  ConsumerState<MessageBodyText> createState() => _MessageBodyTextState();
 }
 
-/// Skeleton line + 🔒 hint — the ONLY thing an unresolved body renders.
-/// Public so tests and future surfaces can locate/type-check it directly.
-class _BodyPlaceholder extends StatelessWidget {
-  const _BodyPlaceholder({super.key, required this.style});
+class _MessageBodyTextState extends ConsumerState<MessageBodyText> {
+  String? _lastBody;
+  late String _lastMessageId;
+  bool _hasRenderedBody = false;
 
-  final TextStyle style;
+  @override
+  void initState() {
+    super.initState();
+    _lastMessageId = widget.messageId;
+    _lastBody = _nonEmptyBody(bodyCache.get(widget.messageId));
+    _hasRenderedBody = _lastBody != null;
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageBodyText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.messageId == widget.messageId) return;
+
+    _lastMessageId = widget.messageId;
+    _lastBody = _nonEmptyBody(bodyCache.get(widget.messageId));
+    _hasRenderedBody = _lastBody != null;
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Cache fast-path: resolves instantly (and synchronously) so a resident
+    // body never flashes the placeholder for a frame. The provider watch
+    // below stays UNCONDITIONAL (Riverpod rule) and covers the miss path.
+    final cached = bodyCache.get(widget.messageId);
+    final providerBody = ref
+        .watch(messageBodyProvider(widget.messageId))
+        .valueOrNull;
+    final resolved = _rememberBody(cached ?? providerBody);
+    final slot = widget.style ?? widget._slotStyle(context);
+    final metrics = _placeholderMetricsFor(
+      context,
+      style: slot,
+      styleContext: widget.styleContext,
+      ciphertextLength: widget.ciphertextLength,
+    );
+
+    final Widget content;
+    if (resolved != null) {
+      final lockSize = !_hasRenderedBody;
+      _hasRenderedBody = true;
+      content = _ResolvedBody(
+        key: ValueKey('body-content-${widget.messageId}'),
+        body: resolved,
+        messageId: widget.messageId,
+        style: slot,
+        styleContext: widget.styleContext,
+        metrics: metrics,
+        lockSize: lockSize,
+      );
+    } else {
+      content = _BodyPlaceholder(
+        key: MessageBodyText.placeholderKey(widget.messageId),
+        style: slot,
+        styleContext: widget.styleContext,
+        decryptState: widget.decryptState,
+        ciphertextLength: widget.ciphertextLength,
+      );
+    }
+
+    // The provider can complete after the bubble has painted. Keep the slot
+    // stable while the decrypted text fades in over roughly 100ms.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 100),
+      reverseDuration: const Duration(milliseconds: 100),
+      layoutBuilder: (currentChild, previousChildren) => Stack(
+        alignment: AlignmentDirectional.topStart,
+        children: <Widget>[
+          ...previousChildren,
+          if (currentChild != null) currentChild,
+        ],
+      ),
+      transitionBuilder: (child, animation) =>
+          FadeTransition(opacity: animation, child: child),
+      child: content,
+    );
+  }
+
+  String? _rememberBody(String? body) {
+    if (_lastMessageId != widget.messageId) {
+      _lastMessageId = widget.messageId;
+      _lastBody = null;
+      _hasRenderedBody = false;
+    }
+    final nonEmpty = _nonEmptyBody(body);
+    if (nonEmpty != null) _lastBody = nonEmpty;
+    return _lastBody;
+  }
+}
+
+String? _nonEmptyBody(String? body) =>
+    body == null || body.isEmpty ? null : body;
+
+/// Holds the ciphertext-sized slot only while a newly resolved body replaces
+/// its placeholder. Once the switcher has landed, [AnimatedSize] settles to
+/// the body's natural layout instead of leaving a permanent minimum size.
+class _ResolvedBody extends StatefulWidget {
+  const _ResolvedBody({
+    super.key,
+    required this.body,
+    required this.messageId,
+    required this.style,
+    required this.styleContext,
+    required this.metrics,
+    required this.lockSize,
+  });
+
+  final String body;
+  final String messageId;
+  final TextStyle style;
+  final String styleContext;
+  final _PlaceholderMetrics metrics;
+  final bool lockSize;
+
+  @override
+  State<_ResolvedBody> createState() => _ResolvedBodyState();
+}
+
+class _ResolvedBodyState extends State<_ResolvedBody> {
+  Timer? _unlockTimer;
+  late bool _locked;
+
+  @override
+  void initState() {
+    super.initState();
+    _locked = widget.lockSize;
+    if (_locked) _scheduleUnlock();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ResolvedBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.body == oldWidget.body) return;
+    if (widget.lockSize) {
+      _unlockTimer?.cancel();
+      _locked = true;
+      _scheduleUnlock();
+    } else if (_locked) {
+      _unlockTimer?.cancel();
+      _unlockTimer = null;
+      _locked = false;
+    }
+  }
+
+  void _scheduleUnlock() {
+    _unlockTimer = Timer(const Duration(milliseconds: 100), () {
+      if (!mounted) return;
+      setState(() => _locked = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _unlockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      widget.body,
+      key: ValueKey('body-text-${widget.messageId}'),
+      style: widget.style,
+      maxLines: widget.styleContext == 'preview' ? 1 : null,
+      overflow: widget.styleContext == 'preview' ? TextOverflow.ellipsis : null,
+    );
+    final child = _locked
+        ? ConstrainedBox(
+            constraints: BoxConstraints(
+              minWidth: widget.metrics.width,
+              minHeight: widget.metrics.height,
+            ),
+            child: text,
+          )
+        : text;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 100),
+      curve: Curves.easeOut,
+      alignment: AlignmentDirectional.topStart,
+      child: child,
+    );
+  }
+}
+
+/// A transient body paints its estimated neutral skeleton immediately. The
+/// existing 150ms grace remains as a low-contrast-to-normal transition; the
+/// bubble never has a transparent body during that grace. Terminal decrypt
+/// states show one explicit lock/error state instead.
+class _BodyPlaceholder extends StatefulWidget {
+  const _BodyPlaceholder({
+    super.key,
+    required this.style,
+    required this.styleContext,
+    required this.decryptState,
+    required this.ciphertextLength,
+  });
+
+  final TextStyle style;
+  final String styleContext;
+  final String decryptState;
+  final int ciphertextLength;
+
+  @override
+  State<_BodyPlaceholder> createState() => _BodyPlaceholderState();
+}
+
+class _BodyPlaceholderState extends State<_BodyPlaceholder> {
+  Timer? _timer;
+  bool _showSkeleton = false;
+
+  bool get _terminal =>
+      widget.decryptState == 'key_missing' || widget.decryptState == 'failed';
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    if (_terminal) return;
+    _timer = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) setState(() => _showSkeleton = true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _BodyPlaceholder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final wasTerminal =
+        oldWidget.decryptState == 'key_missing' ||
+        oldWidget.decryptState == 'failed';
+    if (_terminal) {
+      _timer?.cancel();
+      _timer = null;
+      _showSkeleton = false;
+      return;
+    }
+    if (wasTerminal && !_terminal) {
+      _timer?.cancel();
+      _showSkeleton = false;
+      _startTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final metrics = _placeholderMetricsFor(
+      context,
+      style: widget.style,
+      styleContext: widget.styleContext,
+      ciphertextLength: widget.ciphertextLength,
+    );
     final t = context.t;
-    final dim = style.color ?? t.inkSoft;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('🔒', style: style.copyWith(fontSize: 12)),
-        const SizedBox(width: 6),
-        // Skeleton line: a soft rounded bar standing in for the text that
-        // has not decrypted yet (spec §8 "skeleton line + 🔒 hint").
+    final dim = widget.style.color ?? t.inkSoft;
+    if (_terminal) {
+      final terminalStyle = widget.style.copyWith(
+        color: dim,
+        fontSize: (widget.style.fontSize ?? 15).clamp(11.0, 15.0).toDouble(),
+        fontStyle: FontStyle.normal,
+        fontWeight: FontWeight.w500,
+      );
+      return Row(
+        key: const ValueKey('body-terminal-decrypt'),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(
+            widget.decryptState == 'failed'
+                ? Icons.error_outline
+                : Icons.lock_outline,
+            size: 14,
+            color: dim.withValues(alpha: 0.75),
+          ),
+          const SizedBox(width: 6),
+          Text("Can't decrypt", style: terminalStyle),
+        ],
+      );
+    }
+
+    // Keep the 150ms grace, but paint bars during it so a text bubble is
+    // never an empty painted chrome. The grace only raises bar contrast.
+    final barAlpha = _showSkeleton ? 0.18 : 0.10;
+    final bars = <Widget>[];
+    for (var i = 0; i < metrics.lineWidths.length; i++) {
+      bars.add(
         Container(
-          width: 72,
-          height: 10,
+          width: metrics.lineWidths[i],
+          height: metrics.lineHeight,
           decoration: BoxDecoration(
-            color: dim.withValues(alpha: 0.25),
+            color: dim.withValues(alpha: barAlpha),
             borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
           ),
         ),
-      ],
+      );
+      if (i + 1 < metrics.lineWidths.length) {
+        bars.add(SizedBox(height: metrics.lineGap));
+      }
+    }
+    final skeleton = Column(
+      key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: bars,
+    );
+    return skeleton;
+  }
+}
+
+_PlaceholderMetrics _placeholderMetricsFor(
+  BuildContext context, {
+  required TextStyle style,
+  required String styleContext,
+  required int ciphertextLength,
+}) {
+  final fontSize = style.fontSize ?? 15;
+  if (styleContext == 'emoji') {
+    return const _PlaceholderMetrics(
+      width: 56,
+      height: 48,
+      lineHeight: 40,
+      lineGap: 0,
+      lineWidths: [56],
     );
   }
+
+  // Use ciphertext length only as a coarse geometry signal. No plaintext is
+  // decoded or retained by this widget.
+  final int estimatedChars = ciphertextLength <= 0
+      ? 12
+      : (((ciphertextLength * 3) / 4).round() - 28).clamp(8, 480).toInt();
+  final charWidth = fontSize * 0.52;
+  final preview = styleContext == 'preview';
+  final double maxWidth = preview
+      ? 180.0
+      : (MediaQuery.sizeOf(context).width * 0.64)
+            .clamp(150.0, 280.0)
+            .toDouble();
+  final int lines = preview
+      ? 1
+      : (estimatedChars / (maxWidth / charWidth)).ceil().clamp(1, 6).toInt();
+  final double width = preview
+      ? (estimatedChars * charWidth).clamp(42.0, maxWidth).toDouble()
+      : (estimatedChars * charWidth).clamp(54.0, maxWidth).toDouble();
+  final double lineHeight = (fontSize * 1.25).clamp(12.0, 24.0).toDouble();
+  final lineWidths = <double>[];
+  for (var i = 0; i < lines; i++) {
+    lineWidths.add(
+      i == lines - 1 && lines > 1
+          ? (width * 0.72).clamp(36.0, width).toDouble()
+          : width,
+    );
+  }
+  return _PlaceholderMetrics(
+    width: width,
+    height: lineHeight * lines + (lines - 1) * 3,
+    lineHeight: lineHeight,
+    lineGap: 3,
+    lineWidths: lineWidths,
+  );
+}
+
+class _PlaceholderMetrics {
+  const _PlaceholderMetrics({
+    required this.width,
+    required this.height,
+    required this.lineHeight,
+    required this.lineGap,
+    required this.lineWidths,
+  });
+
+  final double width;
+  final double height;
+  final double lineHeight;
+  final double lineGap;
+  final List<double> lineWidths;
 }
 
 /// Constant label for a NON-text last message (spec §3 / P7: derived at
 /// render time from the row's `type` — the same glyphs the old stored
 /// `last_message_preview` column held, but never written anywhere).
 String conversationPreviewLabel(String type) => switch (type) {
-      'image'    => '📷 Photo',
-      'video'    => '🎬 Video',
-      'voice'    => '🎤 Voice message',
-      'document' => '📎 Document',
-      'poll'     => '📊 Poll',
-      'system'   => 'New message',
-      _          => 'New message',
-    };
+  'image' => '📷 Photo',
+  'video' => '🎬 Video',
+  'voice' => '🎤 Voice message',
+  'document' => '📎 Document',
+  'poll' => '📊 Poll',
+  'system' => 'New message',
+  _ => 'New message',
+};
 
 /// Conversation-list preview body (spec §8 placeholder law + P7 sealed
 /// previews, spec §3: NOTHING preview-shaped is durable).
@@ -152,16 +493,20 @@ class ConversationPreviewText extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final lastMsg = ref
-        .watch(conversationLastMessageProvider(conversation.id))
-        .valueOrNull;
+    final lastMsgAsync = ref.watch(
+      conversationLastMessageProvider(conversation.id),
+    );
+    final lastMsg = lastMsgAsync.valueOrNull;
     if (lastMsg == null) {
+      if (lastMsgAsync.isLoading) return const _PreviewLoadingPlaceholder();
       return _label(fallback, context);
     }
     if (lastMsg.type == 'text') {
       return MessageBodyText(
         messageId: lastMsg.localId,
         styleContext: 'preview',
+        decryptState: lastMsg.decryptState,
+        ciphertextLength: lastMsg.encryptedBody.length,
         style: style,
       );
     }
@@ -169,14 +514,60 @@ class ConversationPreviewText extends ConsumerWidget {
   }
 
   Widget _label(String text, BuildContext context) => Text(
-        text,
-        style: style ??
-            TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w400,
-              color: context.t.inkSoft,
-            ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      );
+    text,
+    style:
+        style ??
+        TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w400,
+          color: context.t.inkSoft,
+        ),
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+  );
+}
+
+/// Loading state for the preview-row query itself. A row does not yet exist,
+/// so there is no ciphertext length to estimate from. Keep the tile geometry
+/// quiet for fast reads and show a short neutral line only after the same
+/// 150ms grace period used by body decrypts.
+class _PreviewLoadingPlaceholder extends StatefulWidget {
+  const _PreviewLoadingPlaceholder();
+
+  @override
+  State<_PreviewLoadingPlaceholder> createState() =>
+      _PreviewLoadingPlaceholderState();
+}
+
+class _PreviewLoadingPlaceholderState
+    extends State<_PreviewLoadingPlaceholder> {
+  Timer? _timer;
+  bool _show = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) setState(() => _show = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_show) return const SizedBox(width: 96, height: 16);
+    return Container(
+      width: 96,
+      height: 10,
+      decoration: BoxDecoration(
+        color: context.t.inkSoft.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+      ),
+    );
+  }
 }

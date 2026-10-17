@@ -5349,6 +5349,8 @@ class MessageRepositoryImpl implements MessageRepository {
     status: r.status,
     createdAt: r.createdAt,
     mediaId: r.mediaId,
+    decryptState: r.decryptState,
+    ciphertextLength: r.encryptedBody.length,
   );
 
   User _tableUserToEntity(dynamic u, {String? groupRole}) => User(

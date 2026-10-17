@@ -29,20 +29,20 @@ import 'message_context_menu.dart';
 // highlight pair. Same slot count both themes so hash → index is stable.
 List<Color> _senderPalette(Brightness brightness) =>
     brightness == Brightness.dark
-        ? const [
-            WarmPopTokens.accent,   // 8.0:1 on dark surface
-            WarmPopTokens.keyGold,  // 7.6:1
-            WarmPopTokens.info,
-            WarmPopTokens.success,
-            WarmPopTokens.error,
-          ]
-        : const [
-            WarmPopTokens.info,        // ~4.7:1 on white
-            WarmPopTokens.success,     // ~3.4:1
-            WarmPopTokens.error,       // ~3.9:1
-            WarmPopTokens.inkSoft,     // ~5.3:1
-            WarmPopTokens.mascotSnout, // ~5.7:1 warm brown
-          ];
+    ? const [
+        WarmPopTokens.accent, // 8.0:1 on dark surface
+        WarmPopTokens.keyGold, // 7.6:1
+        WarmPopTokens.info,
+        WarmPopTokens.success,
+        WarmPopTokens.error,
+      ]
+    : const [
+        WarmPopTokens.info, // ~4.7:1 on white
+        WarmPopTokens.success, // ~3.4:1
+        WarmPopTokens.error, // ~3.9:1
+        WarmPopTokens.inkSoft, // ~5.3:1
+        WarmPopTokens.mascotSnout, // ~5.7:1 warm brown
+      ];
 
 Color _colorForSender(String senderId, Brightness brightness) {
   final palette = _senderPalette(brightness);
@@ -55,15 +55,15 @@ class MessageBubble extends ConsumerWidget {
     required this.message,
     required this.isMine,
     this.senderName = 'Unknown',
-    this.isGroup    = false,
+    this.isGroup = false,
     this.onReply,
     this.onReplyTap,
   });
 
-  final Message      message;
-  final bool         isMine;
-  final String       senderName;
-  final bool         isGroup;
+  final Message message;
+  final bool isMine;
+  final String senderName;
+  final bool isGroup;
   final VoidCallback? onReply;
   final VoidCallback? onReplyTap;
 
@@ -76,14 +76,18 @@ class MessageBubble extends ConsumerWidget {
     // rendering surfaces below (never ciphertext, never a blank).
     final String? resolved = bodyCache.get(message.localId) ??
         ref.watch(messageBodyProvider(message.localId)).valueOrNull;
-    final body      = resolved ?? '';
+    final body = resolved ?? '';
     final emojiOnly = isEmojiOnly(body) && message.type == 'text';
-    final isDark    = Theme.of(context).brightness == Brightness.dark;
-    final url       = extractFirstUrl(body);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final url = extractFirstUrl(body);
 
     // ── System / info bubbles — no reply, no long-press, no sender meta ─
     if (message.type == 'system') {
-      return _SystemMessageBubble(messageId: message.localId);
+      return _SystemMessageBubble(
+        messageId: message.localId,
+        decryptState: message.decryptState,
+        ciphertextLength: message.ciphertextLength,
+      );
     }
 
     // ── Terminal-failure lookup (Task 4) ───────────────────────────────
@@ -92,7 +96,7 @@ class MessageBubble extends ConsumerWidget {
     OutboxTableData? failedOp;
     final outboxRows =
         ref.watch(outboxStatusProvider(message.conversationId)).value ??
-            const <OutboxTableData>[];
+        const <OutboxTableData>[];
     for (final row in outboxRows) {
       if (row.ref == message.localId &&
           row.state == OutboxState.failedTerminal) {
@@ -104,10 +108,10 @@ class MessageBubble extends ConsumerWidget {
 
     final bubble = GestureDetector(
       onLongPress: () => showMessageMenu(
-        context:    context,
-        ref:        ref,
-        message:    message,
-        isMine:     isMine,
+        context: context,
+        ref: ref,
+        message: message,
+        isMine: isMine,
         senderName: senderName,
       ),
       child: Column(
@@ -121,7 +125,7 @@ class MessageBubble extends ConsumerWidget {
               child: Text(
                 senderName,
                 style: TextStyle(
-                  fontSize:   12, // plan floor: labels ≥ w600 12px
+                  fontSize: 12, // plan floor: labels ≥ w600 12px
                   fontWeight: FontWeight.w600,
                   color:      _colorForSender(message.senderId,
                       Theme.of(context).brightness),
@@ -140,19 +144,19 @@ class MessageBubble extends ConsumerWidget {
               onTap: onReplyTap,
               child: Padding(
                 padding: EdgeInsets.only(
-                  left:  isMine ? 64 : 12,
+                  left: isMine ? 64 : 12,
                   right: isMine ? 12 : 64,
-                  top:   2,
+                  top: 2,
                 ),
                 child: ReplyQuote(
                   // The quote shows WHO was replied to, not who sent THIS message.
                   // If I sent this message, I replied to the other user → show their name.
                   // If other user sent this message, they replied to me → show 'You'.
                   senderName: isMine ? senderName : 'You',
-                  isMine:     isMine,
+                  isMine: isMine,
                   // Local id while the reply is unsent, server id after the
                   // dual-truth stamp — ReplyQuote resolves BOTH.
-                  replyToId:      message.replyToId,
+                  replyToId: message.replyToId,
                   conversationId: message.conversationId,
                 ),
               ),
@@ -165,18 +169,18 @@ class MessageBubble extends ConsumerWidget {
                   isMine ? Alignment.centerRight : Alignment.centerLeft,
               child: Padding(
                 padding: EdgeInsets.only(
-                  left:   isMine ? 64 : 12,
-                  right:  isMine ? 12 : 64,
-                  top:    2,
+                  left: isMine ? 64 : 12,
+                  right: isMine ? 12 : 64,
+                  top: 2,
                   bottom: 2,
                 ),
                 child: VoiceMessageBubble(
                   conversationId: message.conversationId,
-                  serverId:     message.serverId!,
-                  isMine:       isMine,
+                  serverId: message.serverId!,
+                  isMine: isMine,
                   durationText: resolved,
-                  status:       message.status,
-                  createdAt:    message.createdAt,
+                  status: message.status,
+                  createdAt: message.createdAt,
                 ),
               ),
             )
@@ -186,17 +190,17 @@ class MessageBubble extends ConsumerWidget {
                   isMine ? Alignment.centerRight : Alignment.centerLeft,
               child: Padding(
                 padding: EdgeInsets.only(
-                  left:   isMine ? 64 : 12,
-                  right:  isMine ? 12 : 64,
-                  top:    2,
+                  left: isMine ? 64 : 12,
+                  right: isMine ? 12 : 64,
+                  top: 2,
                   bottom: 2,
                 ),
                 child: ImageMessageBubble(
                   conversationId: message.conversationId,
-                  serverId:  message.serverId!,
-                  isMine:    isMine,
-                  isDark:    isDark,
-                  status:    message.status,
+                  serverId: message.serverId!,
+                  isMine: isMine,
+                  isDark: isDark,
+                  status: message.status,
                   createdAt: message.createdAt,
                 ),
               ),
@@ -207,17 +211,17 @@ class MessageBubble extends ConsumerWidget {
                   isMine ? Alignment.centerRight : Alignment.centerLeft,
               child: Padding(
                 padding: EdgeInsets.only(
-                  left:   isMine ? 64 : 12,
-                  right:  isMine ? 12 : 64,
-                  top:    2,
+                  left: isMine ? 64 : 12,
+                  right: isMine ? 12 : 64,
+                  top: 2,
                   bottom: 2,
                 ),
                 child: VideoMessageBubble(
                   conversationId: message.conversationId,
-                  serverId:  message.serverId!,
-                  isMine:    isMine,
-                  isDark:    isDark,
-                  status:    message.status,
+                  serverId: message.serverId!,
+                  isMine: isMine,
+                  isDark: isDark,
+                  status: message.status,
                   createdAt: message.createdAt,
                 ),
               ),
@@ -228,10 +232,10 @@ class MessageBubble extends ConsumerWidget {
                   isMine ? Alignment.centerRight : Alignment.centerLeft,
               child: DocumentMessageBubble(
                 conversationId: message.conversationId,
-                serverId:  message.serverId!,
-                isMine:    isMine,
-                isDark:    isDark,
-                status:    message.status,
+                serverId: message.serverId!,
+                isMine: isMine,
+                isDark: isDark,
+                status: message.status,
                 createdAt: message.createdAt,
               ),
             )
@@ -245,13 +249,13 @@ class MessageBubble extends ConsumerWidget {
                   isMine ? Alignment.centerRight : Alignment.centerLeft,
               child: Padding(
                 padding: EdgeInsets.only(
-                  left:   isMine ? 64 : 12,
-                  right:  isMine ? 12 : 64,
-                  top:    2,
+                  left: isMine ? 64 : 12,
+                  right: isMine ? 12 : 64,
+                  top: 2,
                   bottom: 2,
                 ),
                 child: Container(
-                  width:  140,
+                  width: 140,
                   height: 140,
                   decoration: BoxDecoration(
                     color: Theme.of(context)
@@ -274,9 +278,9 @@ class MessageBubble extends ConsumerWidget {
           else
             _TextBubble(
               message: message,
-              isMine:  isMine,
-              isDark:  isDark,
-              url:     url,
+              isMine: isMine,
+              isDark: isDark,
+              url: url,
             ),
 
           // ── Reactions ────────────────────────────────────────
@@ -289,7 +293,7 @@ class MessageBubble extends ConsumerWidget {
           if (terminalOp != null)
             TerminalFailureBanner(
               key: ValueKey('terminal-banner-${message.localId}'),
-              isMine:     isMine,
+              isMine: isMine,
               errorClass: terminalOp.errorClass,
               onRetry: () =>
                   ref.read(messageRepositoryProvider).retryOp(terminalOp.opId),
@@ -301,9 +305,9 @@ class MessageBubble extends ConsumerWidget {
     );
 
     return SwipeToReply(
-      isMine:  isMine,
+      isMine: isMine,
       onReply: onReply ?? () {},
-      child:   bubble,
+      child: bubble,
     );
   }
 }
@@ -336,9 +340,9 @@ class TerminalFailureBanner extends StatelessWidget {
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: EdgeInsets.only(
-          left:   isMine ? 64 : 12,
-          right:  isMine ? 12 : 64,
-          top:    2,
+          left: isMine ? 64 : 12,
+          right: isMine ? 12 : 64,
+          top: 2,
           bottom: 2,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -416,7 +420,7 @@ class TerminalFailureBanner extends StatelessWidget {
 class _EmojiOnlyBubble extends StatelessWidget {
   const _EmojiOnlyBubble({required this.message, required this.isMine});
   final Message message;
-  final bool    isMine;
+  final bool isMine;
 
   @override
   Widget build(BuildContext context) {
@@ -424,9 +428,9 @@ class _EmojiOnlyBubble extends StatelessWidget {
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Padding(
         padding: EdgeInsets.only(
-          left:   isMine ? 64 : 12,
-          right:  isMine ? 12 : 64,
-          top:    2,
+          left: isMine ? 64 : 12,
+          right: isMine ? 12 : 64,
+          top: 2,
           bottom: 2,
         ),
         child: Column(
@@ -436,6 +440,8 @@ class _EmojiOnlyBubble extends StatelessWidget {
             MessageBodyText(
               messageId: message.localId,
               styleContext: 'emoji',
+              decryptState: message.decryptState,
+              ciphertextLength: message.ciphertextLength,
             ),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -474,8 +480,8 @@ class _TextBubble extends StatelessWidget {
   });
 
   final Message message;
-  final bool    isMine;
-  final bool    isDark;
+  final bool isMine;
+  final bool isDark;
   final String? url;
 
   @override
@@ -484,9 +490,9 @@ class _TextBubble extends StatelessWidget {
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: EdgeInsets.only(
-          left:   isMine ? 64 : 12,
-          right:  isMine ? 12 : 64,
-          top:    2,
+          left: isMine ? 64 : 12,
+          right: isMine ? 12 : 64,
+          top: 2,
           bottom: 2,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -495,22 +501,22 @@ class _TextBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color:      context.t.ink.withValues(alpha: 0.06),
+              color: context.t.ink.withValues(alpha: 0.06),
               blurRadius: 4,
-              offset:     const Offset(0, 1),
+              offset: const Offset(0, 1),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize:       MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
             if (message.isDeletedForEveryone)
               Text(
                 '🚫 Message deleted',
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
-                  fontSize:  14,
+                  fontSize: 14,
                   color: isMine
                       ? context.t.onAccent.withValues(alpha: 0.7)
                       : context.t.inkSoft,
@@ -520,6 +526,8 @@ class _TextBubble extends StatelessWidget {
               MessageBodyText(
                 messageId: message.localId,
                 styleContext: isMine ? 'bubble.mine' : 'bubble',
+                decryptState: message.decryptState,
+                ciphertextLength: message.ciphertextLength,
               ),
 
             // Link preview
@@ -564,7 +572,7 @@ class _TickIndicator extends StatelessWidget {
       return SizedBox(
         width: 12, height: 12,
         child: CircularProgressIndicator(
-            strokeWidth: 1.5,
+          strokeWidth: 1.5,
             color: context.t.onAccent.withValues(alpha: 0.54)),
       );
     }
@@ -573,9 +581,9 @@ class _TickIndicator extends StatelessWidget {
     }
 
     final Color color = switch (status) {
-      'read'      => context.t.onAccent, // on-accent = read (visible on Marigold)
+      'read' => context.t.onAccent, // on-accent = read (visible on Marigold)
       'delivered' => context.t.onAccent.withValues(alpha: 0.54),
-      _           => context.t.onAccent.withValues(alpha: 0.38), // sent
+      _ => context.t.onAccent.withValues(alpha: 0.38), // sent
     };
 
     if (status == 'sent') return Icon(Icons.check, size: 14, color: color);
@@ -599,8 +607,14 @@ class _TickIndicator extends StatelessWidget {
 // always grey, no sender colour metadata, no bubbles, no long-press.
 
 class _SystemMessageBubble extends StatelessWidget {
-  const _SystemMessageBubble({required this.messageId});
+  const _SystemMessageBubble({
+    required this.messageId,
+    required this.decryptState,
+    required this.ciphertextLength,
+  });
   final String messageId;
+  final String decryptState;
+  final int ciphertextLength;
 
   @override
   Widget build(BuildContext context) {
@@ -622,14 +636,16 @@ class _SystemMessageBubble extends StatelessWidget {
           child: MessageBodyText(
             messageId: messageId,
             styleContext: 'system',
+            decryptState: decryptState,
+            ciphertextLength: ciphertextLength,
             style: TextStyle(
-              fontSize:    12,
-              fontStyle:   FontStyle.italic,
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
               color:       Theme.of(context)
                   .colorScheme
                   .onSurface
                   .withValues(alpha: 0.55),
-              fontWeight:  FontWeight.w500,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),

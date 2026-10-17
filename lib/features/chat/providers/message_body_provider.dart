@@ -160,7 +160,8 @@ final conversationLastMessageProvider =
 
 /// THE body read path (spec §5.1): cache hit → text; miss → joins the
 /// 50ms coalescing window → one `runFor` → emits (null while
-/// key_missing/failed → Task 9 renders the placeholder — never blanks).
+/// key_missing/failed → the body renderer chooses its terminal state — never
+/// blanks).
 ///
 /// autoDispose: an unmounted bubble drops its resolved value (transient
 /// plaintext state); a remount rebuilds through the cache first, then

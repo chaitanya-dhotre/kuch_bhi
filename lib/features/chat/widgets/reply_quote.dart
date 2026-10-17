@@ -16,9 +16,9 @@ import 'message_body_text.dart';
 /// once the dual-truth stamp lands — resolve BOTH, local first.
 final _originalMessageProvider = FutureProvider.autoDispose
     .family<MessagesTableData?, String>((ref, id) async {
-  final dao = ref.read(appDatabaseProvider).messagesDao;
-  return await dao.getMessageByLocalId(id) ?? dao.getMessageByServerId(id);
-});
+      final dao = ref.read(appDatabaseProvider).messagesDao;
+      return await dao.getMessageByLocalId(id) ?? dao.getMessageByServerId(id);
+    });
 
 /// Compact quote shown inside a message bubble (received) or above the
 /// input bar (composing). Pass [compact] = true for the input bar.
@@ -28,8 +28,9 @@ final _originalMessageProvider = FutureProvider.autoDispose
 /// renders a media-aware preview (photo/video thumbnail, voice duration,
 /// document label); a TEXT parent's line comes from
 /// `messageBodyProvider(messageId)` — the same read path as a bubble, so
-/// an unresolved/gone parent renders the keyed skeleton+🔒 placeholder,
-/// never a blank and never raw ciphertext. Falls back to [messageType]
+/// an unresolved/gone parent renders the keyed geometry-preserving placeholder
+/// (with lock/error only for terminal decrypt states), never a blank and never
+/// raw ciphertext. Falls back to [messageType]
 /// only to pick the label when the row isn't found locally.
 ///
 /// [preview] is an OPTIONAL explicit label used solely by the input bar
@@ -39,47 +40,58 @@ class ReplyQuote extends ConsumerWidget {
     super.key,
     this.preview,
     required this.senderName,
-    this.isMine         = false,
-    this.compact        = false,
-    this.messageType    = 'text',
+    this.isMine = false,
+    this.compact = false,
+    this.messageType = 'text',
+    this.decryptState = 'ready',
+    this.ciphertextLength = 0,
     this.replyToId,
     this.conversationId,
     this.onCancel,
   });
 
   /// Optional EXPLICIT label (input bar only — in-memory source).
-  final String?        preview;
-  final String         senderName;
-  final bool           isMine;
-  final bool           compact;
-  final String         messageType;
+  final String? preview;
+  final String senderName;
+  final bool isMine;
+  final bool compact;
+  final String messageType;
+  final String decryptState;
+  final int ciphertextLength;
   /// SERVER id of the original (replied-to) message, if known.
-  final String?        replyToId;
+  final String? replyToId;
   /// Needed to decrypt media thumbnails (conversation key lookup).
-  final String?        conversationId;
-  final VoidCallback?  onCancel;
+  final String? conversationId;
+  final VoidCallback? onCancel;
 
   factory ReplyQuote.fromMessage(Message msg, String senderName, {
     bool isMine = false, bool compact = false, VoidCallback? onCancel,
   }) {
-    final body = msg.decryptedBody ?? '🔒 Encrypted';
+    final body = msg.decryptedBody;
     // Media previews should show a type label, not the (possibly empty) body
-    final preview = switch (msg.type) {
-      'image'    => 'Photo',
-      'video'    => 'Video',
-      'voice'    => body.startsWith('🎤') ? body : '🎤 Voice message',
-      'document' => body.isNotEmpty ? body : 'Document',
-      _          => body.length > 80 ? '${body.substring(0, 80)}…' : body,
+    final String? preview = switch (msg.type) {
+      'image' => 'Photo',
+      'video' => 'Video',
+      'voice' => body?.startsWith('🎤') == true ? body : '🎤 Voice message',
+      'document' => body?.isNotEmpty == true ? body : 'Document',
+      _ =>
+        body == null
+            ? null
+            : body.length > 80
+            ? '${body.substring(0, 80)}…'
+            : body,
     };
     return ReplyQuote(
-      preview:        preview,
-      senderName:     senderName,
-      isMine:         isMine,
-      compact:        compact,
-      messageType:    msg.type,
-      replyToId:      msg.serverId,
+      preview: preview,
+      senderName: senderName,
+      isMine: isMine,
+      compact: compact,
+      messageType: msg.type,
+      decryptState: msg.decryptState,
+      ciphertextLength: msg.ciphertextLength,
+      replyToId: msg.serverId ?? msg.localId,
       conversationId: msg.conversationId,
-      onCancel:       onCancel,
+      onCancel: onCancel,
     );
   }
 
@@ -99,11 +111,11 @@ class ReplyQuote extends ConsumerWidget {
   }
 
   static IconData? _iconFor(String type) => switch (type) {
-    'image'    => Icons.camera_alt_outlined,
-    'video'    => Icons.videocam_outlined,
-    'voice'    => Icons.mic_none,
+    'image' => Icons.camera_alt_outlined,
+    'video' => Icons.videocam_outlined,
+    'voice' => Icons.mic_none,
     'document' => Icons.description_outlined,
-    _          => null,
+    _ => null,
   };
 
   /// Strips a leading media emoji ('🎤 ', '📷 ', …) from a preview string.
@@ -113,11 +125,11 @@ class ReplyQuote extends ConsumerWidget {
   /// The preview line for a CONSTANT label (type labels + explicit input-bar
   /// label) — single line, ellipsised, 12px (the quote's typography).
   static Widget _line(String text, Color color) => Text(
-        text,
-        maxLines:  1,
-        overflow:  TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, color: color),
-      );
+    text,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: TextStyle(fontSize: 12, color: color),
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -154,13 +166,13 @@ class ReplyQuote extends ConsumerWidget {
     final Color iconColor;
     if (isMine && !compact) {
       final onTint = isDark ? context.t.ink : context.t.onAccent;
-      nameColor    = onTint;
+      nameColor = onTint;
       previewColor = onTint.withValues(alpha: 0.80);
-      iconColor    = onTint.withValues(alpha: 0.65);
+      iconColor = onTint.withValues(alpha: 0.65);
     } else {
-      nameColor    = context.t.accent;
+      nameColor = context.t.accent;
       previewColor = context.t.ink.withValues(alpha: 0.80);
-      iconColor    = context.t.ink.withValues(alpha: 0.60);
+      iconColor = context.t.ink.withValues(alpha: 0.60);
     }
 
     // ── Preview line (P7 / spec §3: DERIVED, never a stored string) ────
@@ -185,9 +197,9 @@ class ReplyQuote extends ConsumerWidget {
               original == null ? null : bodyCache.get(original.localId);
           final dur = _stripEmoji(origBody ?? '');
           previewLine = _line(
-              dur.isNotEmpty && dur != 'Voice message'
-                  ? 'Voice message · $dur'
-                  : 'Voice message',
+            dur.isNotEmpty && dur != 'Voice message'
+                ? 'Voice message · $dur'
+                : 'Voice message',
               previewColor);
         case 'document':
           final doc = original == null
@@ -197,8 +209,8 @@ class ReplyQuote extends ConsumerWidget {
         default:
           // text (or the parent row is gone): messageBodyProvider is the
           // single read path. A gone/unresolvable parent resolves null ⇒
-          // the keyed skeleton+🔒 placeholder — never blank, never raw
-          // ciphertext (spec §8 placeholder law; user ruling: never
+          // the keyed geometry-preserving placeholder — never blank, never
+          // raw ciphertext (spec §8 placeholder law; user ruling: never
           // re-introduce ciphertext printing in a quote).
           final parentId = original?.localId ?? replyToId;
           previewLine = parentId == null
@@ -206,6 +218,9 @@ class ReplyQuote extends ConsumerWidget {
               : MessageBodyText(
                   messageId: parentId,
                   styleContext: 'preview',
+                  decryptState: original?.decryptState ?? decryptState,
+                  ciphertextLength:
+                      original?.encryptedBody.length ?? ciphertextLength,
                   style: TextStyle(fontSize: 12, color: previewColor),
                 );
       }
@@ -222,14 +237,14 @@ class ReplyQuote extends ConsumerWidget {
 
     final textColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize:       MainAxisSize.min,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           senderName,
           style: TextStyle(
-            fontSize:   12,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
-            color:      nameColor,
+            color: nameColor,
           ),
         ),
         const SizedBox(height: 2),
@@ -238,10 +253,10 @@ class ReplyQuote extends ConsumerWidget {
     );
 
     Widget quote = Container(
-      margin:  EdgeInsets.only(bottom: compact ? 0 : 6),
+      margin: EdgeInsets.only(bottom: compact ? 0 : 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color:        bg,
+        color: bg,
         borderRadius: BorderRadius.circular(12),
         border: Border(
           left: BorderSide(color: context.t.accent, width: 3),
@@ -264,16 +279,16 @@ class ReplyQuote extends ConsumerWidget {
             const SizedBox(width: 8),
             _QuoteThumb(
               conversationId: conversationId!,
-              serverId:       original!.serverId!,
-              isVideo:        resolvedType == 'video',
-              iconColor:      iconColor,
+              serverId: original!.serverId!,
+              isVideo: resolvedType == 'video',
+              iconColor: iconColor,
             ),
           ],
           if (onCancel != null)
             IconButton(
-              icon:        Icon(Icons.close, size: 18, color: previewColor),
-              onPressed:   onCancel,
-              padding:     EdgeInsets.zero,
+              icon: Icon(Icons.close, size: 18, color: previewColor),
+              onPressed: onCancel,
+              padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
             ),
         ],
@@ -305,8 +320,8 @@ class _QuoteThumb extends ConsumerWidget {
 
   final String conversationId;
   final String serverId;
-  final bool   isVideo;
-  final Color  iconColor;
+  final bool isVideo;
+  final Color iconColor;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -328,7 +343,7 @@ class _QuoteThumb extends ConsumerWidget {
         width: 36, height: 36,
         child: thumbAsync.when(
           loading: () => placeholder,
-          error:   (_, __) => placeholder,
+          error: (_, __) => placeholder,
           data: (media) => media == null
               ? placeholder
               : Image.file(

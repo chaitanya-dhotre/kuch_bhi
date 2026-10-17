@@ -14,6 +14,8 @@ class Message {
     required this.status,
     required this.createdAt,
     this.mediaId,
+    this.decryptState = 'ready',
+    this.ciphertextLength = 0,
   });
 
   final String  localId;
@@ -30,6 +32,13 @@ class Message {
   final String  status; // pending | sent | delivered | read | failed
   final DateTime createdAt;
   final String? mediaId;
+
+  /// UI projection of the row's decrypt lifecycle. Defaults to the legacy
+  /// ready state so existing entity callers remain source-compatible.
+  final String decryptState;
+
+  /// Existing ciphertext length used only for transient placeholder sizing.
+  final int ciphertextLength;
 
   bool get isPending   => status == 'pending';
   bool get isSent      => status == 'sent';
