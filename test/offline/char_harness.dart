@@ -80,6 +80,8 @@ class FakeSecureStorage implements SecureStorageService {
   final Map<String, String> secrets;
   final _overrides = <String, String?>{};
 
+  int readAllCalls = 0;
+
   @override
   Future<String?> read({required String key}) async =>
       _overrides.containsKey(key) ? _overrides[key] : secrets[key];
@@ -102,11 +104,14 @@ class FakeSecureStorage implements SecureStorageService {
   /// the real [SecureStorageService.readAll] semantics, minus the platform
   /// channel. Without it, `noSuchMethod` throws UnimplementedError.
   @override
-  Future<Map<String, String>> readAll() async => {
-        for (final k in secrets.keys) k: secrets[k]!,
-        for (final e in _overrides.entries)
-          if (e.value != null) e.key: e.value!,
-      };
+  Future<Map<String, String>> readAll() async {
+    readAllCalls++;
+    return {
+      for (final k in secrets.keys) k: secrets[k]!,
+      for (final e in _overrides.entries)
+        if (e.value != null) e.key: e.value!,
+    };
+  }
 
   @override
   Future<void> clearSession() async {
@@ -155,9 +160,26 @@ class FakeSecureStorage implements SecureStorageService {
   Future<String?> getPbAuthStore() async =>
       '{"token":"test-token","model":{"id":"$userId"}}';
   @override
-  Future<String?> getPrivateKey() async => null; // DM path unused in tests
+  Future<String?> getPrivateKey() async => _overrides['private_key'];
   @override
-  Future<String?> getLocalPublicKey() async => null;
+  Future<String?> getLocalPublicKey() async => _overrides['local_public_key'];
+  // Keypair persistence for tests that drive real ECDH round-trips
+  // (group_key_local_first_test's envelope fixture calls
+  // EncryptionService.getOrCreateKeyPair).
+  @override
+  Future<void> savePrivateKey(String b64) async => put('private_key', b64);
+  @override
+  Future<void> saveLocalPublicKey(String b64) async =>
+      put('local_public_key', b64);
+  // Derived conversation-key cache (ECDH round-trip fixtures —
+  // group_key_local_first_test drives encryptGroupKeyForMember).
+  @override
+  Future<void> saveContactEncryptionKey(String contactOrConvId, String keyB64) async {
+    put('contact_enc_$contactOrConvId', keyB64);
+  }
+  @override
+  Future<String?> getContactEncryptionKey(String contactOrConvId) =>
+      read(key: 'contact_enc_$contactOrConvId');
 
   @override
   dynamic noSuchMethod(Invocation i) => throw UnimplementedError(

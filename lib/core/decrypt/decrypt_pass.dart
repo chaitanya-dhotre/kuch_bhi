@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:cryptography/cryptography.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show BooleanExpressionOperators, Value;
 import 'package:flutter/foundation.dart';
 
 import '../utils/chunk_ids.dart';
@@ -40,10 +41,16 @@ class DecryptPass {
     required EncryptionService enc,
     required int Function() epoch,
     DeviceKeyStore? deviceKeys,
-  })  : _db = db,
-        _enc = enc,
-        _epoch = epoch,
-        _deviceKeys = deviceKeys;
+  }) : _db = db,
+       _enc = enc,
+       _epoch = epoch,
+       _deviceKeys = deviceKeys {
+    // Local-first decrypt (loading-issue fix): the encryption service
+    // revalidates group keys in the background after answering from the
+    // cache; when that hydration lands NEW versions, re-run exactly the
+    // rows this pass could not open (rotation-while-closed edge).
+    _enc.onGroupKeysRefreshed = _onGroupKeysRefreshed;
+  }
 
   final AppDatabase _db;
   final EncryptionService _enc;
@@ -77,6 +84,49 @@ class DecryptPass {
 
   static const int _inlineLaneMax = 50;
 
+  /// Rows a past [runFor] could NOT open, per conversation — the re-run
+  /// set for a background key hydration that lands new versions
+  /// ([_onGroupKeysRefreshed]). Entries are dropped as soon as any later
+  /// run resolves them.
+  final Map<String, Set<String>> _unresolvedByConv = {};
+
+  /// Conversations whose `grew=true` hydration arrived while no unresolved
+  /// record existed yet (fast refresh beating the apply step) — consumed
+  /// at the end of the next [runFor] that records unresolved rows there.
+  final Set<String> _grewNoticed = {};
+
+  /// Server-side group-key hydration landed MORE versions than the local
+  /// first answer held — re-queue rows the stale set could not open and
+  /// run them again. `failed` verdicts made under an incomplete key set are
+  /// unsound, so they are re-queued (scoped to exactly these ids; the
+  /// spec-§8 terminal rule for genuinely corrupt rows still holds: the
+  /// re-run re-derives `failed` under the FULL key set).
+  Future<void> _rerunAfterKeyGrowth(String convId, Set<String> ids) async {
+    try {
+      await (_db.update(_db.messagesTable)..where(
+            (t) =>
+                t.localId.isIn(ids.toList()) & t.decryptState.equals('failed'),
+          ))
+          .write(
+            const MessagesTableCompanion(decryptState: Value('key_missing')),
+          );
+      debugPrint('[Decrypt] key growth re-run conv=$convId ids=${ids.length}');
+      await runFor(ids.toList());
+    } catch (e) {
+      debugPrint('[Decrypt] post-refresh re-run failed: $e');
+    }
+  }
+
+  void _onGroupKeysRefreshed(String convId, bool grew) {
+    if (!grew) return;
+    final ids = _unresolvedByConv.remove(convId);
+    if (ids == null || ids.isEmpty) {
+      _grewNoticed.add(convId); // apply still running — consumed at its end
+      return;
+    }
+    unawaited(_rerunAfterKeyGrowth(convId, ids));
+  }
+
   /// Decrypts [messageIds] and applies the results.
   ///
   /// Row contract:
@@ -95,13 +145,19 @@ class DecryptPass {
   Future<void> runFor(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
     final epochAtSchedule = _epoch(); // spec §11: captured at schedule
+    // C3/B (review #72): a paused purge landing mid-pass must not be
+    // repopulated by this pass's completion — put is suppressed when the
+    // cache generation moved; the DB verdict still lands (metadata).
+    final purgeGenAtSchedule = bodyCache.generation;
 
     // 1. Load the requested rows (chunked — SQLite bind cap, chunkIds I3).
     final rows = <MessagesTableData>[];
     for (final chunk in chunkIds(messageIds.toSet().toList(), 500)) {
-      rows.addAll(await (_db.select(_db.messagesTable)
-            ..where((t) => t.localId.isIn(chunk)))
-          .get());
+      rows.addAll(
+        await (_db.select(
+          _db.messagesTable,
+        )..where((t) => t.localId.isIn(chunk))).get(),
+      );
     }
 
     // 2. Filter + group by conversation; remember load-time states so the
@@ -130,32 +186,58 @@ class DecryptPass {
     final keyless = <MessagesTableData>[];
     final groups = <_KeyGroup>[];
     final sealed = <MessagesTableData>[];
+    final pendingKeys = <MapEntry<String, List<MessagesTableData>>>[];
     for (final entry in byConv.entries) {
       final (convRows, sealedRows) = _splitSealed(entry.value);
       sealed.addAll(sealedRows);
       if (convRows.isEmpty) continue;
-      final keys = await _resolveKeys(entry.key);
-      if (keys.isEmpty) {
-        keyless.addAll(convRows);
-        continue;
-      }
-      groups.add(_KeyGroup(
-        keys: keys,
-        fingerprints: [for (final key in keys) DecryptPass.fingerprintOf(key)],
-        rows: convRows,
-      ));
+      pendingKeys.add(MapEntry(entry.key, convRows));
     }
-    for (final row in sealed) {
-      final key = await _deviceKey();
-      if (key == null || key.length != 32) {
-        keyless.add(row);
+
+    // C (2026-10-14): resolve every conversation's keys CONCURRENTLY —
+    // the sequential per-conv awaits serialized N platform-channel/storage
+    // hops into the ~2s chat-open lock (30s warm prefetch on M52). The
+    // account id is read ONCE per pass instead of once per conversation,
+    // and EncryptionService's process-lifetime key memory (single-flight
+    // load) keeps concurrent first touches on ONE storage scan.
+    final myId =
+        (await _db.settingsDao.getSetting(AppSettingsKeys.currentUserId)) ??
+        '';
+    final resolved = await Future.wait([
+      for (final entry in pendingKeys) _resolveKeys(entry.key, myId),
+    ]);
+    for (var i = 0; i < pendingKeys.length; i++) {
+      final keys = resolved[i];
+      if (keys.isEmpty) {
+        keyless.addAll(pendingKeys[i].value);
         continue;
       }
-      groups.add(_KeyGroup(
-        keys: [key],
-        fingerprints: [DecryptPass.fingerprintOf(key)],
-        rows: [row],
-      ));
+      groups.add(
+        _KeyGroup(
+          keys: keys,
+          fingerprints: [
+            for (final key in keys) DecryptPass.fingerprintOf(key),
+          ],
+          rows: pendingKeys[i].value,
+        ),
+      );
+    }
+    if (sealed.isNotEmpty) {
+      // One resolve serves every sealed row (same device key each time).
+      final key = await _deviceKey();
+      for (final row in sealed) {
+        if (key == null || key.length != 32) {
+          keyless.add(row);
+          continue;
+        }
+        groups.add(
+          _KeyGroup(
+            keys: [key],
+            fingerprints: [DecryptPass.fingerprintOf(key)],
+            rows: [row],
+          ),
+        );
+      }
     }
 
     // 4. Crypto lane: ≤50 items inline on main, ≥51 via Isolate.run.
@@ -176,12 +258,12 @@ class DecryptPass {
         isolateCalls++;
         final keys = g.keys;
         final fingerprints = g.fingerprints;
-        outcomes.addAll(await Isolate.run(
-            () => _decryptBatch(items, keys, fingerprints)));
+        outcomes.addAll(
+          await Isolate.run(() => _decryptBatch(items, keys, fingerprints)),
+        );
       } else {
         inlineCalls++;
-        outcomes.addAll(
-            await _decryptBatch(items, g.keys, g.fingerprints));
+        outcomes.addAll(await _decryptBatch(items, g.keys, g.fingerprints));
       }
     }
 
@@ -195,10 +277,11 @@ class DecryptPass {
       if (row.decryptState == 'key_missing') continue; // already correct
       if (row.decryptState == kDeviceSealedState) continue; // P8: stay sealed
       if (!_stillValid(epochAtSchedule, 'key_missing write')) return;
-      await (_db.update(_db.messagesTable)
-            ..where((t) => t.localId.equals(row.localId)))
-          .write(const MessagesTableCompanion(
-              decryptState: Value('key_missing')));
+      await (_db.update(
+        _db.messagesTable,
+      )..where((t) => t.localId.equals(row.localId))).write(
+        const MessagesTableCompanion(decryptState: Value('key_missing')),
+      );
     }
     for (final o in outcomes) {
       final id = o['id'] as String;
@@ -214,7 +297,11 @@ class DecryptPass {
       // group key cannot produce.
       if (state == 'ready' && prevStates[id] == kDeviceSealedState) {
         if (!_stillValid(epochAtSchedule, 'cache put $id')) return;
-        bodyCache.put(id, plain!);
+        if (bodyCache.generation == purgeGenAtSchedule) {
+          bodyCache.put(id, plain!);
+        } else {
+          debugPrint('[Msg] cache put $id suppressed — purge mid-pass');
+        }
         applied.add(id);
         continue;
       }
@@ -225,25 +312,58 @@ class DecryptPass {
       final needsWrite = state == 'failed'
           ? true
           : state == 'ready'
-              ? !(prevStates[id] == 'ready' && prevKeyIds[id] == fp)
-              : prevStates[id] != 'key_missing';
+          ? !(prevStates[id] == 'ready' && prevKeyIds[id] == fp)
+          : prevStates[id] != 'key_missing';
       if (needsWrite) {
         if (!_stillValid(epochAtSchedule, 'apply $id')) return;
         final companion = state == 'ready'
             ? MessagesTableCompanion(
-                decryptState: const Value('ready'), keyId: Value(fp))
+                decryptState: const Value('ready'),
+                keyId: Value(fp),
+              )
             : MessagesTableCompanion(decryptState: Value(state));
-        await (_db.update(_db.messagesTable)
-              ..where((t) => t.localId.equals(id)))
-            .write(companion);
+        await (_db.update(
+          _db.messagesTable,
+        )..where((t) => t.localId.equals(id))).write(companion);
       }
       if (state == 'ready') {
         if (!_stillValid(epochAtSchedule, 'cache put $id')) return;
-        bodyCache.put(id, plain!);
+        if (bodyCache.generation == purgeGenAtSchedule) {
+          bodyCache.put(id, plain!);
+        } else {
+          debugPrint('[Msg] cache put $id suppressed — purge mid-pass');
+        }
         applied.add(id);
       }
     }
     if (applied.isNotEmpty) onApplied?.call(applied);
+
+    // Bookkeeping for the background key-refresh retry: drop rows a later
+    // run resolved, add this run's unresolved rows (media/pending rows
+    // excluded — nothing to decrypt), then consume any `grew` notice that
+    // arrived while THIS run was still applying.
+    final appliedIds = applied.toSet();
+    _unresolvedByConv
+      ..updateAll((_, ids) => ids.difference(appliedIds))
+      ..removeWhere((_, ids) => ids.isEmpty);
+    for (final r in rows) {
+      if (r.encryptedBody.isEmpty || r.encryptedBody == '__pending__') {
+        continue;
+      }
+      if (appliedIds.contains(r.localId)) continue;
+      _unresolvedByConv.putIfAbsent(r.conversationId, () => {}).add(r.localId);
+    }
+    final grewConvs = [
+      for (final c in _unresolvedByConv.keys)
+        if (_grewNoticed.contains(c)) c,
+    ];
+    for (final c in grewConvs) {
+      _grewNoticed.remove(c);
+      final ids = _unresolvedByConv.remove(c);
+      if (ids != null && ids.isNotEmpty) {
+        unawaited(_rerunAfterKeyGrowth(c, ids));
+      }
+    }
   }
 
   /// T5 `_stillValid` style: the session that captured [epochAtStart] is
@@ -259,7 +379,8 @@ class DecryptPass {
   /// so it must never be handed the conversation key — that swap would read
   /// as a MAC failure and mark the row terminal.
   (List<MessagesTableData>, List<MessagesTableData>) _splitSealed(
-      List<MessagesTableData> rows) {
+    List<MessagesTableData> rows,
+  ) {
     final convRows = <MessagesTableData>[];
     final sealedRows = <MessagesTableData>[];
     for (final r in rows) {
@@ -286,16 +407,15 @@ class DecryptPass {
   }
 
   /// Conversation key for [convId] without leaving the main isolate's
-  /// storage access: groups read the secure-storage cache (network
-  /// fallback mirrors `_getConvKey`), DMs derive from the db-cached peer
-  /// public key. Any failure ⇒ null ⇒ rows stay/mark `key_missing`.
-  Future<List<List<int>>> _resolveKeys(String convId) async {
+  /// storage access: groups read the process-memory key cache (storage
+  /// scan once per process — C 2026-10-14), DMs derive from the db-cached
+  /// peer public key. Any failure ⇒ empty ⇒ rows stay/mark `key_missing`.
+  /// [myId] is resolved once per runFor pass (C) — callers run these
+  /// concurrently via Future.wait.
+  Future<List<List<int>>> _resolveKeys(String convId, String myId) async {
     try {
       final conv = await _db.conversationsDao.getConversationById(convId);
       if (conv == null) return const [];
-      final myId =
-          (await _db.settingsDao.getSetting(AppSettingsKeys.currentUserId)) ??
-              '';
       if (conv.type == 'group') {
         return await _enc.getOrFetchGroupKeyCandidates(convId, myId);
       }
@@ -312,7 +432,9 @@ class DecryptPass {
   }
 
   Future<String?> _otherMemberId(String convId, String myId) async {
-    final members = await _db.conversationsDao.getMembersForConversation(convId);
+    final members = await _db.conversationsDao.getMembersForConversation(
+      convId,
+    );
     final other = members
         .where((m) => m.userId != myId)
         .map((m) => m.userId)
@@ -331,9 +453,7 @@ class DecryptPass {
   /// rotated, so the computation must be shared, not duplicated.
   static String fingerprintOf(List<int> key) {
     final digest = Sha256().toSync().hashSync(key);
-    return digest.bytes
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    return digest.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 }
 
@@ -360,14 +480,24 @@ Future<List<Map<String, Object?>>> _decryptBatch(
   List<String> fingerprints,
 ) async {
   final out = <Map<String, Object?>>[];
+  final aes = AesGcm.with256bits();
+  final secretKeys = <SecretKey?>[];
+  for (final key in keys) {
+    try {
+      secretKeys.add(await aes.newSecretKeyFromBytes(key));
+    } catch (_) {
+      // Preserve per-candidate failure handling from the decrypt loop.
+      secretKeys.add(null);
+    }
+  }
   for (final item in items) {
     final id = item['id'] as String;
     String? plain;
     var matchedFingerprint = fingerprints.first;
     for (var i = 0; i < keys.length && plain == null; i++) {
+      final secretKey = secretKeys[i];
+      if (secretKey == null) continue;
       try {
-        final aes = AesGcm.with256bits();
-        final secretKey = await aes.newSecretKeyFromBytes(keys[i]);
         final nonce = base64.decode(item['iv'] as String);
         final all = base64.decode(item['ciphertext'] as String);
         final ct = all.sublist(0, all.length - 16);

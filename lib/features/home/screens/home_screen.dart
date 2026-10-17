@@ -29,12 +29,12 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = context.t;
-    final authState    = ref.watch(authProvider).valueOrNull;
+    final authState = ref.watch(authProvider).valueOrNull;
     final user = authState is AuthAuthenticated ? authState.user : null;
     final pendingCount = ref.watch(pendingRequestCountProvider);
-    final convsAsync   = ref.watch(conversationsProvider);
+    final convsAsync = ref.watch(conversationsProvider);
     final friendsAsync = ref.watch(friendshipsProvider);
-    final showBanner   = ref.watch(showBackupBannerProvider).valueOrNull ?? false;
+    final showBanner = ref.watch(showBackupBannerProvider).valueOrNull ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -52,18 +52,22 @@ class HomeScreen extends ConsumerWidget {
               ),
               if (pendingCount > 0)
                 Positioned(
-                  top: 8, right: 8,
+                  top: 8,
+                  right: 8,
                   child: Container(
-                    width: 16, height: 16,
+                    width: 16,
+                    height: 16,
                     decoration: BoxDecoration(
-                      color: t.error, shape: BoxShape.circle,
+                      color: t.error,
+                      shape: BoxShape.circle,
                     ),
                     child: Center(
                       child: Text(
                         '$pendingCount',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onError,
-                          fontSize: 10, fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -77,7 +81,8 @@ class HomeScreen extends ConsumerWidget {
               padding: const EdgeInsets.only(left: 8, right: 16),
               child: _AppAvatar(
                 url: user?.avatarUrl,
-                initials: user?.displayName.substring(0, 1).toUpperCase() ?? 'K',
+                initials:
+                    user?.displayName.substring(0, 1).toUpperCase() ?? 'K',
               ),
             ),
           ),
@@ -125,68 +130,71 @@ class HomeScreen extends ConsumerWidget {
               onRefresh: () async {
                 ref.invalidate(conversationsProvider);
               },
-              // Hold a skeleton until BOTH `conversationsProvider` and
-              // `friendshipsProvider` have produced their first real list.
-              // Firing the empty-state UI the moment conversations returned
-              // while friends was still loading caused a "blank list" flash
-              // on cold start — peer DM rows whose `otherUser` was not yet
-              // cached were filtered out and the friends list was still empty.
-              // NOTE: do NOT add a third provider that watches the conversation
-              // *stream* — a FutureProvider watching a StreamProvider re-runs on
-              // every emit, toggling isLoading and causing the list to flicker
-              // (and races the element lifecycle → defunct-element assertions).
-              child: (convsAsync.isLoading || friendsAsync.isLoading)
-                  ? const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Skeleton(height: 56, radius: 16),
-                          SizedBox(height: 10),
-                          Skeleton(height: 56, radius: 16),
-                          SizedBox(height: 10),
-                          Skeleton(height: 56, radius: 16),
-                          SizedBox(height: 10),
-                          Skeleton(height: 56, radius: 16),
-                        ],
-                      ),
-                    )
-                  : convsAsync.when(
-                      // loading is handled by the outer branch above.
-                      loading: () => const SizedBox.shrink(),
-                      error: (e, _) => Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: StatusBanner(
-                            message: 'Could not load your chats.',
-                            onRetry: () {
-                              ref.invalidate(conversationsProvider);
-                              ref.invalidate(friendshipsProvider);
-                            },
-                          ),
-                        ),
-                      ),
-                      data: (allConvs) => _buildList(
-                        context,
-                        ref,
-                        allConvs,
-                        friendsAsync.asData?.value ?? const [],
-                      ),
+              // Conversations are local-first, so render them as soon as the
+              // stream has data. Friendships may still be establishing their
+              // network/SSE subscription; only hold the empty state until
+              // that first friendship result arrives.
+              child: convsAsync.when(
+                loading: _buildLoadingSkeleton,
+                error: (e, _) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: StatusBanner(
+                      message: 'Could not load your chats.',
+                      onRetry: () {
+                        ref.invalidate(conversationsProvider);
+                        ref.invalidate(friendshipsProvider);
+                      },
                     ),
+                  ),
+                ),
+                data: (allConvs) {
+                  final hasRenderableConversations = allConvs.any(
+                    (conversation) =>
+                        conversation.type != 'direct' ||
+                        conversation.otherUser != null,
+                  );
+                  if (friendsAsync.isLoading && !hasRenderableConversations) {
+                    return _buildLoadingSkeleton();
+                  }
+                  return _buildList(
+                    context,
+                    ref,
+                    allConvs,
+                    friendsAsync.asData?.value ?? const [],
+                  );
+                },
+              ),
             ),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        heroTag:         'fab_main',
-        onPressed:       () => _showNewChatSheet(context, ref),
+        heroTag: 'fab_main',
+        onPressed: () => _showNewChatSheet(context, ref),
         backgroundColor: t.accent,
         foregroundColor: t.onAccent,
-        tooltip:         'New chat',
-        child:           const Icon(Icons.add_comment_outlined),
+        tooltip: 'New chat',
+        child: const Icon(Icons.add_comment_outlined),
       ),
     );
   }
+
+  Widget _buildLoadingSkeleton() => const Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Skeleton(height: 56, radius: 16),
+        SizedBox(height: 10),
+        Skeleton(height: 56, radius: 16),
+        SizedBox(height: 10),
+        Skeleton(height: 56, radius: 16),
+        SizedBox(height: 10),
+        Skeleton(height: 56, radius: 16),
+      ],
+    ),
+  );
 
   Widget _buildList(
     BuildContext context,
@@ -225,7 +233,12 @@ class HomeScreen extends ConsumerWidget {
         ],
         if (newFriends.isNotEmpty) ...[
           const SectionHeader('Friends'),
-          ...newFriends.map((f) => _FriendsTile(entity: f, onTap: () => _openChat(context, ref, f.friend.id))),
+          ...newFriends.map(
+            (f) => _FriendsTile(
+              entity: f,
+              onTap: () => _openChat(context, ref, f.friend.id),
+            ),
+          ),
         ],
       ],
     );
@@ -245,19 +258,19 @@ class HomeScreen extends ConsumerWidget {
           children: [
             // Drag handle.
             Container(
-              width: 36, height: 4,
+              width: 36,
+              height: 4,
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: Theme.of(sheetContext)
-                    .colorScheme
-                    .outline
-                    .withValues(alpha: 0.3),
+                color: Theme.of(
+                  sheetContext,
+                ).colorScheme.outline.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             ListTile(
               leading: const Icon(Icons.person_add_outlined),
-              title:   const Text('Add Friend'),
+              title: const Text('Add Friend'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _showAddFriend(context, ref);
@@ -265,7 +278,7 @@ class HomeScreen extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Icons.group_add_outlined),
-              title:   const Text('New Group'),
+              title: const Text('New Group'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 context.push(AppRoutes.createGroup);
@@ -356,7 +369,9 @@ class _ConversationTile extends ConsumerWidget {
         conversation: conv,
         fallback: fallback,
       ),
-      time: conv.lastMessageAt != null ? _formatTime(conv.lastMessageAt!) : null,
+      time: conv.lastMessageAt != null
+          ? _formatTime(conv.lastMessageAt!)
+          : null,
       unreadCount: conv.unreadCount,
       avatarUrl: conv.isGroup ? conv.iconUrl : conv.avatarUrl,
       isGroup: conv.isGroup,
@@ -365,11 +380,11 @@ class _ConversationTile extends ConsumerWidget {
   }
 
   String _formatTime(DateTime dt) {
-    final now  = DateTime.now();
+    final now = DateTime.now();
     final diff = now.difference(dt);
     if (diff.inDays == 0) return DateFormat('HH:mm').format(dt.toLocal());
     if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7)  return DateFormat('EEE').format(dt.toLocal());
+    if (diff.inDays < 7) return DateFormat('EEE').format(dt.toLocal());
     return DateFormat('dd/MM').format(dt.toLocal());
   }
 }
@@ -385,16 +400,12 @@ class _AppAvatar extends StatelessWidget {
     return CircleAvatar(
       radius: 18,
       backgroundColor: t.accentSoft,
-      backgroundImage:
-          url != null ? CachedNetworkImageProvider(url!) : null,
+      backgroundImage: url != null ? CachedNetworkImageProvider(url!) : null,
       child: url != null
           ? null
           : Text(
               initials,
-              style: TextStyle(
-                color: t.accent,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: t.accent, fontWeight: FontWeight.w700),
             ),
     );
   }
@@ -411,7 +422,7 @@ class _EmptyState extends StatelessWidget {
       subtitle: 'Add friends to start chatting.',
       action: FilledButton.icon(
         onPressed: onAddFriend,
-        icon:  const Icon(Icons.person_add_outlined),
+        icon: const Icon(Icons.person_add_outlined),
         label: const Text('Add a Friend'),
       ),
     );

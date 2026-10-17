@@ -172,8 +172,10 @@ void main() {
     expect(row.decryptState, kDeviceSealedState,
         reason: 'P8: the row declares which key wraps it (device, not group)');
 
-    // Key arrives (peer sync / group-key fetch) BEFORE the drain.
-    h.storage.put('group_key_g1', base64.encode(fixtureGroupKey));
+    // Key arrives (peer sync / group-key fetch) BEFORE the drain. C:
+    // write-through API — a raw storage.put after the memory load is
+    // invisible to reads.
+    await h.encryption.saveGroupKey('g1', fixtureGroupKey);
 
     // A fresh process (relaunch) — the worker is rebuilt. The sealed row
     // unwraps through the DEVICE key (secure storage survives the process),

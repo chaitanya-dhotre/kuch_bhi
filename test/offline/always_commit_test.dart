@@ -129,7 +129,10 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 1100));
 
     // ── Phase 2 — key arrives: the next fetch re-upserts the SAME row.
-    h.storage.put('group_key_g1', base64.encode(fixtureGroupKey));
+    // C: key arrives AFTER the cold fetch already loaded the key memory —
+    // raw storage.put would be invisible to reads; saveGroupKey is the
+    // write-through API (disk + memory).
+    await h.encryption.saveGroupKey('g1', fixtureGroupKey);
     unawaited(repo.watchMessages('g1').first); // warm kick → background re-fetch
     // Phase-2 proof must ride the re-fetch (updatedAt bump), never repair.
     final healed = await h.db.messagesDao

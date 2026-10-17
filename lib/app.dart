@@ -9,6 +9,18 @@ import 'features/settings/providers/theme_provider.dart';
 import 'infrastructure/repositories/message_repository_impl.dart';
 import 'services/presence_service.dart';
 
+/// B (2026-10-14): which lifecycle signal purges the decrypted-body cache.
+///
+/// `paused` = HOME / Recents / screen-off — the app is genuinely in the
+/// background, so spec §3 / amendment 6's intent (never show plaintext in
+/// task switcher, never keep it after HOME) holds. `inactive` fires for the
+/// notification shade and split-screen peek while the app is STILL VISIBLE
+/// — purging there made every shade pull flash locks over live messages.
+/// `detached` keeps the historical no-purge branch (process is dying).
+@visibleForTesting
+bool bodyCachePurgeSignal(AppLifecycleState state) =>
+    state == AppLifecycleState.paused;
+
 class KuchBhiApp extends ConsumerStatefulWidget {
   const KuchBhiApp({super.key});
 
@@ -18,6 +30,11 @@ class KuchBhiApp extends ConsumerStatefulWidget {
 
 class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     with WidgetsBindingObserver {
+  /// F2b: when focus was first lost (stamp on the FIRST non-resumed signal).
+  /// Passed to resyncOnResume so a <60s return takes the light path — one
+  /// aggregate delta query instead of the all-conversation backfill scan.
+  DateTime? _backgroundedAt;
+
   @override
   void initState() {
     super.initState();
@@ -54,19 +71,30 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
         // via its own WidgetsBindingObserver.
         presence.goOnline();
         // Android suspends the SSE socket while backgrounded and events in
-        // that window are silently lost. Reconnect + backfill everything.
-        ref.read(messageRepositoryProvider).resyncOnResume();
+        // that window are silently lost. Reconnect + backfill — a short
+        // away (<60s) takes the light delta path, null/long the full one.
+        final awayFor = _backgroundedAt == null
+            ? null
+            : DateTime.now().difference(_backgroundedAt!);
+        _backgroundedAt = null;
+        ref.read(messageRepositoryProvider).resyncOnResume(awayFor: awayFor);
         // Resume-only throttled token/session refresh (never on navigation).
         ref.read(authProvider.notifier).refreshSessionThrottled();
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
         // App backgrounded or about to be killed.
         // goOffline() also clears current_chat and typing_in.
+        _backgroundedAt ??= DateTime.now(); // first signal wins (F2b)
         presence.goOffline();
-        // Spec §3 / amendment 6: purge decrypted bodies from memory while
-        // backgrounded — `ready` rows safely re-decrypt on the next
-        // provider read (spec §8).
-        bodyCache.clear();
+        // Spec §3 / amendment 6: purge decrypted bodies — but only on a
+        // signal that actually means background (B, 2026-10-14). The
+        // notification shade / split-screen peek emit `inactive` too;
+        // purging there re-decrypted every visible message on each shade
+        // pull (the recurring "locks flash"). `ready` rows safely
+        // re-decrypt on the next provider read (spec §8).
+        if (bodyCachePurgeSignal(state)) {
+          bodyCache.clear();
+        }
       case AppLifecycleState.detached:
         presence.goOffline();
       default:

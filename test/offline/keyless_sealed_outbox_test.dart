@@ -371,7 +371,9 @@ void main() {
             'sealed → ready transition below is the one under test');
 
     // The group key arrives AFTER the launch (peer sync / group-key fetch).
-    h.storage.put('group_key_g1', base64.encode(fixtureGroupKey));
+    // C: write-through API — raw storage.put after the memory load is
+    // invisible to reads.
+    await h.encryption.saveGroupKey('g1', fixtureGroupKey);
 
     // Relaunch — a fresh worker drains against the sealed row.
     repo.outboxWorker.dispose();
@@ -445,7 +447,8 @@ void main() {
     expect(sealed.status, 'pending', reason: 'not failed, not sent: queued');
 
     // The key arrives → the next drain sends, with the correct plaintext.
-    h.storage.put('group_key_g1', base64.encode(fixtureGroupKey));
+    // C: write-through API (memory already loaded in this process).
+    await h.encryption.saveGroupKey('g1', fixtureGroupKey);
     await repo.outboxWorker.drain();
 
     expect(creates, hasLength(1),

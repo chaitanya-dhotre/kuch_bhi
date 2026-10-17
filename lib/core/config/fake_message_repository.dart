@@ -159,7 +159,7 @@ class FakeMessageRepository implements MessageRepository {
   }
 
   @override
-  Future<void> resyncOnResume() async {
+  Future<void> resyncOnResume({Duration? awayFor}) async {
     // app.dart calls this on every cold start / resume. The real impl
     // reconnects SSE sockets + refetches; the fake owns no sockets, so a
     // no-op IS the correct behaviour (loud failure would only add boot

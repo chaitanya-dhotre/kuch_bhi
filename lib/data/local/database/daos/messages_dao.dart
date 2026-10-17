@@ -260,6 +260,44 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
             ]))
           .watch();
 
+  /// #71 Prewarm: the conversation-list preview's row — newest non-deleted
+  /// message, exactly the shape/order `conversationLastMessageProvider`
+  /// (message_body_provider.dart) watches, so the prewarmed row IS the row
+  /// the home list renders. Any type: media/system previews are a constant
+  /// widget-layer label and the caller skips non-text rows.
+  Future<MessagesTableData?> newestVisibleMessage(String conversationId) =>
+      (select(messagesTable)
+            ..where((t) =>
+                t.conversationId.equals(conversationId) &
+                t.isDeletedForEveryone.equals(false) &
+                t.isDeletedForMe.equals(false))
+            ..orderBy([
+              (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+              (t) => OrderingTerm(expression: t.serverId, mode: OrderingMode.desc),
+              (t) => OrderingTerm(expression: t.localId, mode: OrderingMode.desc),
+            ])
+            ..limit(1))
+          .getSingleOrNull();
+
+  /// C1b: server-authoritative createdAt for a confirmed duplicate-create
+  /// recovery. Lands BEFORE the drain-ack stamps serverId — between the
+  /// two writes the row is excluded from [maxServerCreatedAt] (serverId
+  /// still null), so the watermark can never see a device-clock time.
+  Future<void> stampServerCreatedAt(String localId, DateTime createdAt) =>
+      (update(messagesTable)..where((t) => t.localId.equals(localId)))
+          .write(MessagesTableCompanion(createdAt: Value(createdAt)));
+
+  /// F2b: newest server-backed message timestamp — the LOCAL watermark the
+  /// resume delta query filters from. Device clock never participates
+  /// (same rule as sync_cursor.dart: server time only).
+  Future<DateTime?> maxServerCreatedAt() async {
+    final q = selectOnly(messagesTable)
+      ..addColumns([messagesTable.createdAt.max()])
+      ..where(messagesTable.serverId.isNotNull());
+    final row = await q.getSingle();
+    return row.read(messagesTable.createdAt.max());
+  }
+
   // ── Receipts ───────────────────────────────────────────────────
 
   Future<void> upsertReceipt(MessageReceiptsTableCompanion receipt) =>

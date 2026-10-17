@@ -31,7 +31,18 @@ class BodyCache {
     }
   }
 
-  void clear() => _entries.clear();
+  /// B/C3 (review #72): bumped on every clear(). DecryptPass captures it
+  /// at schedule time and refuses to put when it moved — an in-flight
+  /// decrypt completing after a paused purge must not repopulate the
+  /// cache the purge emptied (§3: nothing decrypted survives
+  /// backgrounding).
+  int _generation = 0;
+  int get generation => _generation;
+
+  void clear() {
+    _entries.clear();
+    _generation++;
+  }
 
   int get length => _entries.length;
 }

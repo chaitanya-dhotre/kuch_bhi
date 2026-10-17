@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -13,7 +12,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../data/local/database/app_database.dart';
-import '../../../data/local/secure_storage/secure_storage_service.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/friendship.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -85,7 +83,6 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       final groupService = ref.read(groupCreateServiceProvider);
       final db        = ref.read(appDatabaseProvider);
       final encryption = ref.read(encryptionServiceProvider);
-      final storage   = ref.read(secureStorageProvider);
 
       final selectedFriends = allFriends
           .where((f) => _selectedIds.contains(f.friend.id))
@@ -203,15 +200,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         });
       }
 
-      // Cache own group key
-      await storage.write(
-        key:   'group_key_$convId',
-        value: base64.encode(groupKey),
-      );
-      await storage.write(
-        key:   'group_key_${convId}_1',
-        value: base64.encode(groupKey),
-      );
+      // Cache own group key. C: saveGroupKey = disk + process-memory
+      // write-through (raw storage.write would leave the RAM map stale).
+      await encryption.saveGroupKey(convId, groupKey);
+      await encryption.saveGroupKey(convId, groupKey, version: 1);
 
       // ── e) Build icon URL ─────────────────────────────────────
       final iconField = conv.getStringValue('icon');

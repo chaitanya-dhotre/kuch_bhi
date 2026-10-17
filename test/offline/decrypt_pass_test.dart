@@ -13,7 +13,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:http/http.dart' as http;
@@ -141,7 +140,8 @@ void main() {
     await seedConversationAndKey(h, key: fixtureGroupKey);
     // The compatibility slot contains the current key; the versioned slot is
     // the retained historical key available after a process/cache restart.
-    h.storage.put('group_key_g1_1', base64.encode(historicalKey));
+    // C: write-through API keeps disk and the key memory in agreement.
+    await h.encryption.saveGroupKey('g1', historicalKey, version: 1);
     await _seedText(h.db, localId: 'm_old', cipher: cipher);
 
     final pass = DecryptPass(db: h.db, enc: h.encryption, epoch: () => 0);
@@ -332,5 +332,42 @@ void main() {
     expect(pass.inlineCalls, 1, reason: '≤50 rows decrypt inline on main');
     expect(pass.isolateCalls, 1, reason: 'lane counters are per-call');
     expect(bodyCache.get('s0'), 'search batch');
+  });
+
+  test(
+      'C3/B: paused purge mid-pass — DecryptPass never repopulates the '
+      'cache; the DB verdict still lands', () async {
+    final pre = charHarness();
+    addTearDown(pre.close);
+    final cipher = await pre.encryption
+        .encryptMessage('purged mid-pass', fixtureGroupKey);
+
+    final h = charHarness();
+    addTearDown(h.close);
+    await seedConversationAndKey(h);
+    await _seedText(h.db, localId: 'm_purge', cipher: cipher);
+
+    final pass = DecryptPass(db: h.db, enc: h.encryption, epoch: () => 0);
+
+    // Hold the pass at the apply gate = "result in flight".
+    final gate = Completer<void>();
+    final reached = Completer<void>();
+    pass.beforeApply = () {
+      if (!reached.isCompleted) reached.complete();
+      return gate.future;
+    };
+
+    final run = pass.runFor(const ['m_purge']);
+    await reached.future;
+    bodyCache.clear(); // B: paused purge lands while the pass is held
+    gate.complete();
+    await run;
+
+    expect(bodyCache.get('m_purge'), isNull,
+        reason: 'B/§3 — an in-flight completion must not repopulate a '
+            'cache the purge emptied');
+    final row = (await h.db.messagesDao.getMessageByLocalId('m_purge'))!;
+    expect(row.decryptState, 'ready',
+        reason: 'the DB verdict still lands (metadata, never plaintext)');
   });
 }

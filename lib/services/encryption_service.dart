@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cryptography/cryptography.dart';
@@ -33,7 +34,8 @@ class MissingKeyException implements Exception {
 Future<Map<String, String>> _isoEncrypt(Map<String, dynamic> args) async {
   final aes = AesGcm.with256bits();
   final key = await aes.newSecretKeyFromBytes(
-      (args['key'] as List).cast<int>());
+    (args['key'] as List).cast<int>(),
+  );
   final nonce = aes.newNonce();
   final box = await aes.encrypt(
     utf8.encode(args['plaintext'] as String),
@@ -41,17 +43,15 @@ Future<Map<String, String>> _isoEncrypt(Map<String, dynamic> args) async {
     nonce: nonce,
   );
   final combined = <int>[...box.cipherText, ...box.mac.bytes];
-  return {
-    'ciphertext': base64.encode(combined),
-    'iv': base64.encode(nonce),
-  };
+  return {'ciphertext': base64.encode(combined), 'iv': base64.encode(nonce)};
 }
 
 /// Encrypts raw bytes (for media). Returns base64 ciphertext (incl. MAC) + iv.
 Future<Map<String, String>> _isoEncryptBytes(Map<String, dynamic> args) async {
   final aes = AesGcm.with256bits();
   final key = await aes.newSecretKeyFromBytes(
-      (args['key'] as List).cast<int>());
+    (args['key'] as List).cast<int>(),
+  );
   final nonce = aes.newNonce();
   final box = await aes.encrypt(
     (args['bytes'] as List).cast<int>(),
@@ -59,10 +59,7 @@ Future<Map<String, String>> _isoEncryptBytes(Map<String, dynamic> args) async {
     nonce: nonce,
   );
   final combined = <int>[...box.cipherText, ...box.mac.bytes];
-  return {
-    'ciphertext': base64.encode(combined),
-    'iv': base64.encode(nonce),
-  };
+  return {'ciphertext': base64.encode(combined), 'iv': base64.encode(nonce)};
 }
 
 /// Batch-decrypts many ciphertexts with one key in a single isolate hop.
@@ -106,7 +103,9 @@ Future<Map<String, String?>> _isoDecryptBatch(Map<String, dynamic> args) async {
 Future<List<int>?> _isoDecryptBytes(Map<String, dynamic> args) async {
   try {
     final aes = AesGcm.with256bits();
-    final key = await aes.newSecretKeyFromBytes((args['key'] as List).cast<int>());
+    final key = await aes.newSecretKeyFromBytes(
+      (args['key'] as List).cast<int>(),
+    );
     final nonce = base64.decode(args['iv'] as String);
     final all = (args['bytes'] as List).cast<int>();
     final ct = all.sublist(0, all.length - 16);
@@ -166,7 +165,7 @@ Future<List<int>> _isoPbkdf2(Map<String, dynamic> args) async {
 class EncryptionService {
   EncryptionService(this._storage, this._pbClient);
   final SecureStorageService _storage;
-  final PocketBaseClient     _pbClient;
+  final PocketBaseClient _pbClient;
 
   PocketBase get _pb => _pbClient.pb;
 
@@ -177,7 +176,7 @@ class EncryptionService {
 
   Future<SimpleKeyPairData> getOrCreateKeyPair() async {
     final privB64 = await _storage.getPrivateKey();
-    final pubB64  = await _storage.getLocalPublicKey();
+    final pubB64 = await _storage.getLocalPublicKey();
 
     if (privB64 != null && pubB64 != null) {
       return SimpleKeyPairData(
@@ -191,9 +190,9 @@ class EncryptionService {
     }
 
     // Generate fresh key pair.
-    final keyPair   = await _x25519.newKeyPair();
+    final keyPair = await _x25519.newKeyPair();
     final privBytes = await keyPair.extractPrivateKeyBytes();
-    final pubKey    = await keyPair.extractPublicKey();
+    final pubKey = await keyPair.extractPublicKey();
 
     await _storage.savePrivateKey(base64.encode(privBytes));
     await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
@@ -206,7 +205,7 @@ class EncryptionService {
   }
 
   Future<String> getPublicKeyBase64() async {
-    final kp  = await getOrCreateKeyPair();
+    final kp = await getOrCreateKeyPair();
     final pub = await kp.extractPublicKey();
     return base64.encode(pub.bytes);
   }
@@ -226,21 +225,22 @@ class EncryptionService {
     }
 
     final myKeyPair = await getOrCreateKeyPair();
-    final myPub     = await myKeyPair.extractPublicKey();
+    final myPub = await myKeyPair.extractPublicKey();
 
-    debugPrint('[Enc] Deriving key for conv: $conversationId, theirPub: ${theirPublicKeyBase64.substring(0, 10)}...');
+    debugPrint(
+      '[Enc] Deriving key for conv: $conversationId, theirPub: ${theirPublicKeyBase64.substring(0, 10)}...',
+    );
 
     // ECDH + HKDF runs off the UI isolate.
     final keyBytes = await compute(_isoDeriveKey, {
-      'priv':     await myKeyPair.extractPrivateKeyBytes(),
-      'myPub':    myPub.bytes,
+      'priv': await myKeyPair.extractPrivateKeyBytes(),
+      'myPub': myPub.bytes,
       'theirPub': base64.decode(theirPublicKeyBase64),
-      'salt':     utf8.encode(conversationId),
-      'info':     'kuchbhi-v1',
+      'salt': utf8.encode(conversationId),
+      'info': 'kuchbhi-v1',
     });
 
-    await _storage.saveContactEncryptionKey(
-        cacheKey, base64.encode(keyBytes));
+    await _storage.saveContactEncryptionKey(cacheKey, base64.encode(keyBytes));
     return keyBytes;
   }
 
@@ -252,7 +252,7 @@ class EncryptionService {
   ) async {
     final res = await compute(_isoEncrypt, {
       'plaintext': plaintext,
-      'key':       keyBytes,
+      'key': keyBytes,
     });
     return EncryptResult(ciphertext: res['ciphertext']!, iv: res['iv']!);
   }
@@ -264,7 +264,7 @@ class EncryptionService {
   ) async {
     final res = await compute(_isoEncryptBytes, {
       'bytes': bytes,
-      'key':   keyBytes,
+      'key': keyBytes,
     });
     return EncryptResult(ciphertext: res['ciphertext']!, iv: res['iv']!);
   }
@@ -289,10 +289,7 @@ class EncryptionService {
     List<Map<String, String>> items,
   ) async {
     if (items.isEmpty) return {};
-    return compute(_isoDecryptBatch, {
-      'key':   keyBytes,
-      'items': items,
-    });
+    return compute(_isoDecryptBatch, {'key': keyBytes, 'items': items});
   }
 
   /// Decrypts raw media bytes off the UI isolate. Null on failure.
@@ -303,8 +300,8 @@ class EncryptionService {
   ) async {
     return compute(_isoDecryptBytes, {
       'bytes': bytes,
-      'iv':    iv,
-      'key':   keyBytes,
+      'iv': iv,
+      'key': keyBytes,
     });
   }
   // ── Group key ─────────────────────────────────────────────────
@@ -337,8 +334,8 @@ class EncryptionService {
     String adminPublicKeyBase64,
     String conversationId,
   ) async {
-    final parts      = encryptedKey.split(':');
-    final iv         = parts[0];
+    final parts = encryptedKey.split(':');
+    final iv = parts[0];
     final ciphertext = parts[1];
     final transportKey = await getOrDeriveConversationKey(
       conversationId + '_gk',
@@ -360,7 +357,10 @@ class EncryptionService {
   ) async {
     try {
       final candidates = await getOrFetchGroupKeyCandidates(
-          conversationId, myId, requireCurrent: true);
+        conversationId,
+        myId,
+        requireCurrent: true,
+      );
       if (candidates.isEmpty) throw Exception('No group key found');
       return candidates.first;
     } catch (e) {
@@ -368,36 +368,195 @@ class EncryptionService {
       // publicly-known key. Hard-fail so the caller keeps the message pending.
       debugPrint('[Enc] Failed to fetch group key: $e');
       if (e is MissingKeyException) rethrow;
-      throw MissingKeyException('group key unavailable for $conversationId: $e');
+      throw MissingKeyException(
+        'group key unavailable for $conversationId: $e',
+      );
     }
+  }
+
+  // ── C (2026-10-14): process-lifetime group-key memory ────────────
+  //
+  // Spec §3 governs keys AT REST. The decrypted body cache already keeps
+  // strictly more sensitive plaintext in RAM for the process lifetime, so
+  // caching decoded key material here is inside the threat model. ONE
+  // readAll() per process replaces the per-conversation platform-channel
+  // reads that cost M52 ~30s per warm prefetch and 1–5s per focus return
+  // (each decrypt resolve used to re-read secure storage).
+  //
+  // INVARIANTS:
+  // - Every reader goes through _ensureGroupKeyMemLoaded (single-flight).
+  // - Every writer is write-through: disk first, then the memory slot.
+  //   saveGroupKey awaits the load first so a write can never be swallowed
+  //   by an in-flight initial load.
+  // - Session-scoped wipes MUST call clearAllGroupKeyCache(): the message
+  //   repo session-epoch bump does (logout / account switch — fires on any
+  //   auth identity change, including the null transition after signOut's
+  //   clearSession wipe), and the in-service key wipes below do.
+
+  /// convId → slot → base64. Slot `''` is the compatibility base slot,
+  /// digits are rotation versions. PB record ids contain no underscores,
+  /// so the LAST underscore separates conv id from version slot (a suffix
+  /// that does not parse as int belongs to the conv id itself).
+  Map<String, Map<String, String>> _memGroupKeys = {};
+  Future<void>? _memLoad;
+  int _memGen = 0;
+  bool _memLoaded = false;
+
+  Future<void> _ensureGroupKeyMemLoaded() {
+    if (_memLoaded) return Future<void>.value();
+    final pending = _memLoad;
+    if (pending != null) return pending;
+    late final Future<void> self;
+    self = _loadGroupKeyMem().whenComplete(() {
+      // Failed loads must retry; on success _memLoaded short-circuits.
+      // Never clobber a newer load started after clearAllGroupKeyCache.
+      if (identical(_memLoad, self)) _memLoad = null;
+    });
+    _memLoad = self;
+    return self;
+  }
+
+  Future<void> _loadGroupKeyMem() async {
+    final gen = _memGen;
+    final all = await _storage.readAll();
+    if (gen != _memGen) return; // cleared mid-load — discard stale snapshot
+    final parsed = <String, Map<String, String>>{};
+    for (final entry in all.entries) {
+      if (!entry.key.startsWith('group_key_')) continue;
+      final rest = entry.key.substring('group_key_'.length);
+      final i = rest.lastIndexOf('_');
+      final suffix = i < 0 ? null : rest.substring(i + 1);
+      final versioned = suffix != null && int.tryParse(suffix) != null;
+      final conv = versioned ? rest.substring(0, i) : rest;
+      final slot = versioned ? (suffix as String) : '';
+      (parsed[conv] ??= {})[slot] = entry.value;
+    }
+    _memGroupKeys = parsed;
+    _memLoaded = true;
+  }
+
+  /// Write-through into memory. Callers must have awaited
+  /// [_ensureGroupKeyMemLoaded] first (every hydrate path does, via
+  /// _readLocalCandidates at entry) so the write is visible.
+  void _memPut(String conversationId, String slot, String value) {
+    (_memGroupKeys[conversationId] ??= {})[slot] = value;
+  }
+
+  Future<Map<String, String>> _slotsOf(String conversationId) async {
+    await _ensureGroupKeyMemLoaded();
+    return _memGroupKeys[conversationId] ?? const <String, String>{};
   }
 
   /// Fast local-only lookup used by optimistic enqueue. It must never perform
   /// network I/O on the UI path; the durable outbox drain revalidates the
   /// current server key before publishing ciphertext.
   Future<List<int>?> getCachedGroupKey(String conversationId) async {
-    final base = await _storage.read(key: 'group_key_$conversationId');
-    if (base != null) {
+    final candidates = await _readLocalCandidates(conversationId);
+    return candidates.isEmpty ? null : candidates.values.first;
+  }
+
+  /// Conversations with a background server revalidation already running —
+  /// dedupes the fire-and-forget refresh so one chat open cannot stampede
+  /// duplicate `group_keys.getFullList` calls for the same conversation.
+  final Set<String> _groupKeyRefreshInFlight = {};
+
+  /// Fired after a successful server-side group-key hydration with `grew`
+  /// = the local candidate set gained versions the previous local-first
+  /// answer did not have. DecryptPass wires this to re-run rows the stale
+  /// key set could not open (rotation-while-closed edge).
+  void Function(String conversationId, bool grew)? onGroupKeysRefreshed;
+
+  /// Fire-and-forget server revalidation for the local-first decrypt path.
+  /// Failures are swallowed (offline is the normal case); success flows
+  /// through the network path below, which fires [onGroupKeysRefreshed].
+  void _scheduleGroupKeyRefresh(String conversationId, String myId) {
+    if (!_groupKeyRefreshInFlight.add(conversationId)) return;
+    unawaited(() async {
+      try {
+        await getOrFetchGroupKeyCandidates(
+          conversationId,
+          myId,
+          refreshFromServer: true,
+        );
+      } catch (e) {
+        debugPrint(
+          '[Enc] background group-key refresh failed for $conversationId: $e',
+        );
+      } finally {
+        _groupKeyRefreshInFlight.remove(conversationId);
+      }
+    }());
+  }
+
+  /// Local candidates for [conversationId] — base compatibility slot +
+  /// versioned rotation slots (deduped by bytes, malformed slots ignored).
+  /// No network. C (2026-10-14): served entirely from the process-lifetime
+  /// memory map — zero platform-channel touches after the first load.
+  Future<Map<String, List<int>>> _readLocalCandidates(
+    String conversationId,
+  ) async {
+    final slots = await _slotsOf(conversationId);
+    final cachedCandidates = <String, List<int>>{};
+    final base = slots[''];
+    if (base != null && base.isNotEmpty) {
       try {
         final key = base64.decode(base);
-        if (key.length == 32) return key;
+        if (key.length == 32) cachedCandidates[base] = key;
       } catch (_) {}
     }
-    try {
-      final prefix = 'group_key_${conversationId}_';
-      final entries = (await _storage.readAll()).entries
-          .where((e) => e.key.startsWith(prefix))
-          .toList()
-        ..sort((a, b) => (int.tryParse(b.key.substring(prefix.length)) ?? -1)
-            .compareTo(int.tryParse(a.key.substring(prefix.length)) ?? -1));
-      for (final entry in entries) {
+    // Versioned slots survive rotation and allow offline recovery even when
+    // the single compatibility slot was evicted. Newest version first.
+    final versioned = slots.entries.where((e) => e.key.isNotEmpty).toList()
+      ..sort((a, b) {
+        final av = int.tryParse(a.key) ?? -1;
+        final bv = int.tryParse(b.key) ?? -1;
+        return bv.compareTo(av);
+      });
+    for (final entry in versioned) {
+      try {
+        final key = base64.decode(entry.value);
+        if (key.length == 32) {
+          cachedCandidates.putIfAbsent(entry.value, () => key);
+        }
+      } catch (_) {}
+    }
+    return cachedCandidates;
+  }
+
+  /// True when at least one key for [conversationId] is already resident in
+  /// secure storage — pure local read, no network. The app-start prefetch
+  /// (MessageRepositoryImpl.prefetchGroupKeys) uses this to touch only COLD
+  /// conversations; warm ones cost one storage scan and zero requests.
+  Future<bool> hasLocalGroupKey(String conversationId) async {
+    return (await _readLocalCandidates(conversationId)).isNotEmpty;
+  }
+
+  /// Finds warm group-key caches for [conversationIds]. C (2026-10-14):
+  /// pure memory-map lookup after the one-time process load — the startup
+  /// prefetch no longer scans secure storage at all.
+  Future<Set<String>> getLocalGroupKeyConversationIds(
+    Iterable<String> conversationIds,
+  ) async {
+    final ids = conversationIds.toSet();
+    if (ids.isEmpty) return const <String>{};
+
+    await _ensureGroupKeyMemLoaded();
+    final warm = <String>{};
+    for (final conversationId in ids) {
+      final slots = _memGroupKeys[conversationId];
+      if (slots == null) continue;
+      for (final value in slots.values) {
         try {
-          final key = base64.decode(entry.value);
-          if (key.length == 32) return key;
-        } catch (_) {}
+          if (base64.decode(value).length == 32) {
+            warm.add(conversationId);
+            break;
+          }
+        } catch (_) {
+          // Ignore malformed slots; another retained version may be valid.
+        }
       }
-    } catch (_) {}
-    return null;
+    }
+    return warm;
   }
 
   /// Returns every group-key version currently available to this member.
@@ -406,43 +565,42 @@ class EncryptionService {
   /// but historical messages may require an older key after rotation.  The
   /// server's descending version order is authoritative when online; the
   /// cached key is only an offline fallback. Older rows are retained.
+  ///
+  /// **Display-path latency contract** (loading-issue fix, 2026-10-13): when
+  /// the caller does NOT require the current server key (`requireCurrent:
+  /// false` — every decrypt/repair/read path) and a local candidate exists,
+  /// this returns the local set IMMEDIATELY and revalidates from the server
+  /// in the background (deduped per conversation via
+  /// [_scheduleGroupKeyRefresh]). Blocking the UI decrypt on a
+  /// `group_keys.getFullList` round-trip measured 1–5s per chat open even
+  /// though every key was cached. Send paths pass `requireCurrent: true`
+  /// and keep the old network-first behavior (freshness is load-bearing
+  /// there — see [getOrFetchGroupKey]).
   Future<List<List<int>>> getOrFetchGroupKeyCandidates(
     String conversationId,
     String myId, {
     bool requireCurrent = false,
-  }
-  ) async {
-    final cachedCandidates = <String, List<int>>{};
-    final cached = await _storage.read(key: 'group_key_$conversationId');
-    if (cached != null && cached.isNotEmpty) {
-      try {
-        final key = base64.decode(cached);
-        if (key.length == 32) cachedCandidates[cached] = key;
-      } catch (_) {}
+    bool refreshFromServer = false,
+  }) async {
+    final cachedCandidates = await _readLocalCandidates(conversationId);
+
+    // LOCAL-FIRST (decrypt/display path): a resident candidate answers the
+    // caller now; the server is contacted in the background so rotation
+    // freshness still lands (notify → onGroupKeysRefreshed → stuck-row
+    // re-run). requireCurrent (send/outbox) and explicit
+    // refreshFromServer callers keep the blocking server-authoritative
+    // flow below.
+    if (!requireCurrent &&
+        !refreshFromServer &&
+        cachedCandidates.isNotEmpty &&
+        myId.isNotEmpty) {
+      debugPrint(
+        '[Enc] local-first group keys for $conversationId '
+        '(${cachedCandidates.length}) — network deferred to background',
+      );
+      _scheduleGroupKeyRefresh(conversationId, myId);
+      return cachedCandidates.values.toList();
     }
-    // Versioned slots survive rotation and allow offline recovery even when
-    // the single compatibility slot was evicted. Keys are deduplicated by
-    // bytes below; malformed/stale slots are ignored.
-    try {
-      final prefix = 'group_key_${conversationId}_';
-      final all = await _storage.readAll();
-      final versioned = all.entries
-          .where((entry) => entry.key.startsWith(prefix))
-          .toList()
-        ..sort((a, b) {
-          final av = int.tryParse(a.key.substring(prefix.length)) ?? -1;
-          final bv = int.tryParse(b.key.substring(prefix.length)) ?? -1;
-          return bv.compareTo(av);
-        });
-      for (final entry in versioned) {
-        try {
-          final key = base64.decode(entry.value);
-          if (key.length == 32) {
-            cachedCandidates.putIfAbsent(entry.value, () => key);
-          }
-        } catch (_) {}
-      }
-    } catch (_) {}
 
     // Bare/offline callers may not have a resolved account id yet. Do not
     // turn a valid local key into a network request with user_id=""; the
@@ -455,11 +613,13 @@ class EncryptionService {
     try {
       // Do not cap this at 200. A long-lived group can have more rotations
       // than one page; truncation silently loses oldest decrypt keys.
-      final list = await _pb.collection('group_keys').getFullList(
-        filter: 'conversation_id="$conversationId"&&user_id="$myId"',
-        sort: '-key_version',
-        expand: 'encrypted_by_user_id',
-      );
+      final list = await _pb
+          .collection('group_keys')
+          .getFullList(
+            filter: 'conversation_id="$conversationId"&&user_id="$myId"',
+            sort: '-key_version',
+            expand: 'encrypted_by_user_id',
+          );
       final serverCandidates = <String, List<int>>{};
       final newestVersion = list.isEmpty
           ? null
@@ -487,9 +647,13 @@ class EncryptionService {
               key: 'group_key_${conversationId}_$version',
               value: encoded,
             );
+            _memPut(conversationId, '$version', encoded);
             if (!cachedCurrent) {
               await _storage.write(
-                key: 'group_key_$conversationId', value: encoded);
+                key: 'group_key_$conversationId',
+                value: encoded,
+              );
+              _memPut(conversationId, '', encoded);
               cachedCurrent = true;
             }
           }
@@ -499,19 +663,28 @@ class EncryptionService {
       }
       if (requireCurrent && newestVersion != null && newestKey == null) {
         throw MissingKeyException(
-            'current group key version $newestVersion is unavailable');
+          'current group key version $newestVersion is unavailable',
+        );
       }
       if (serverCandidates.isNotEmpty) {
         // The server list is sorted by key_version descending.
+        final newestEncoded = base64.encode(serverCandidates.values.first);
         await _storage.write(
           key: 'group_key_$conversationId',
-          value: base64.encode(serverCandidates.values.first),
+          value: newestEncoded,
         );
+        _memPut(conversationId, '', newestEncoded);
         final merged = <String, List<int>>{};
         merged.addAll(serverCandidates);
         for (final entry in cachedCandidates.entries) {
           merged.putIfAbsent(entry.key, () => entry.value);
         }
+        // A hydration that landed MORE versions than the local-first answer
+        // held (or than we held at entry) must wake the decrypt layer: rows
+        // the stale set could not open are re-run (DecryptPass wires the
+        // handler and owns the stuck-row retry).
+        final grew = merged.length > cachedCandidates.length;
+        onGroupKeysRefreshed?.call(conversationId, grew);
         return merged.values.toList();
       }
       // A successful empty/undecryptable server response is not an offline
@@ -527,6 +700,78 @@ class EncryptionService {
       throw MissingKeyException('group key unavailable for $conversationId');
     }
     return cachedCandidates.values.toList();
+  }
+
+  // ── Public group-key slot writers (C write-through API) ────────
+  //
+  // External writers must go through these instead of raw storage.write /
+  // storage.delete — otherwise the process-lifetime memory map serves stale
+  // keys for the rest of the session. Known writers: create-group screen,
+  // _rotateGroupKey (message repo), leaveGroup, removal verdict, and the
+  // base-slot self-heal.
+
+  /// Write-through save of one group-key slot (base when [version] is null,
+  /// a rotation version otherwise). Disk first, then memory.
+  Future<void> saveGroupKey(
+    String conversationId,
+    List<int> key, {
+    int? version,
+  }) async {
+    await _ensureGroupKeyMemLoaded();
+    final slot = version?.toString() ?? '';
+    final value = base64.encode(key);
+    await _storage.write(
+      key: slot.isEmpty
+          ? 'group_key_$conversationId'
+          : 'group_key_${conversationId}_$slot',
+      value: value,
+    );
+    _memPut(conversationId, slot, value);
+  }
+
+  /// Mirror of [SecureStorageService.clearCurrentGroupKey] with memory
+  /// write-through: drops the base slot and the NEWEST versioned slot on
+  /// both sides, retaining older versions for historical decrypt (leave /
+  /// member-removal paths).
+  Future<void> clearCurrentGroupKey(String conversationId) async {
+    await _ensureGroupKeyMemLoaded();
+    final slots = _memGroupKeys[conversationId];
+    if (slots == null) return; // nothing on either side
+    await _storage.delete(key: 'group_key_$conversationId');
+    slots.remove('');
+    var newest = -1;
+    for (final s in slots.keys) {
+      final v = int.tryParse(s);
+      if (v != null && v > newest) newest = v;
+    }
+    if (newest >= 0) {
+      await _storage.delete(key: 'group_key_${conversationId}_$newest');
+      slots.remove('$newest');
+    }
+    if (slots.isEmpty) _memGroupKeys.remove(conversationId);
+  }
+
+  /// Self-heal hook: the base compatibility slot alone was stale/corrupt —
+  /// drop it from disk AND memory; versioned slots stay (the follow-up
+  /// refetch re-hydrates a fresh base).
+  Future<void> invalidateGroupKeyBase(String conversationId) async {
+    await _ensureGroupKeyMemLoaded();
+    await _storage.delete(key: 'group_key_$conversationId');
+    final slots = _memGroupKeys[conversationId];
+    if (slots == null) return;
+    slots.remove('');
+    if (slots.isEmpty) _memGroupKeys.remove(conversationId);
+  }
+
+  /// Session-scoped eviction: forget every cached group key in RAM (disk
+  /// untouched). Called from the message-repo session-epoch bump (logout /
+  /// account switch) and from the in-service key wipes below. A load
+  /// already in flight is discarded via the generation counter.
+  void clearAllGroupKeyCache() {
+    _memGen++;
+    _memLoad = null;
+    _memGroupKeys = {};
+    _memLoaded = false;
   }
 
   // ── PIN Backup & Restore ───────────────────────────────────────
@@ -580,10 +825,15 @@ class EncryptionService {
     ];
 
     // Store to PocketBase
-    await _pb.collection('users').update(userId, body: {
-      'private_key_encrypted': base64.encode(encryptedBytes),
-      'private_key_salt': base64.encode(salt),
-    });
+    await _pb
+        .collection('users')
+        .update(
+          userId,
+          body: {
+            'private_key_encrypted': base64.encode(encryptedBytes),
+            'private_key_salt': base64.encode(salt),
+          },
+        );
 
     debugPrint('[Enc] Private key backed up to PocketBase');
   }
@@ -650,9 +900,9 @@ class EncryptionService {
       // unwrappable). Restore is a rollback to the account's ORIGINAL key —
       // peers' existing DM derivations stay valid.
       try {
-        await _pb.collection('users').update(userId, body: {
-          'public_key': base64.encode(pubKey.bytes),
-        });
+        await _pb
+            .collection('users')
+            .update(userId, body: {'public_key': base64.encode(pubKey.bytes)});
       } catch (e) {
         debugPrint('[Enc] Restored pubkey re-upload failed: $e');
       }
@@ -667,8 +917,11 @@ class EncryptionService {
           await _storage.delete(key: key);
         }
       }
+      clearAllGroupKeyCache(); // C: disk wipe must evict the RAM map too
 
-      debugPrint('[Enc] Private key successfully restored and cached keys cleared');
+      debugPrint(
+        '[Enc] Private key successfully restored and cached keys cleared',
+      );
       return true;
     } catch (e) {
       debugPrint('[Enc] Decryption/restore failed: $e');
@@ -692,17 +945,20 @@ class EncryptionService {
     await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
 
     // Upload public key to PocketBase
-    await _pb.collection('users').update(userId, body: {
-      'public_key': base64.encode(pubKey.bytes),
-    });
+    await _pb
+        .collection('users')
+        .update(userId, body: {'public_key': base64.encode(pubKey.bytes)});
 
     // Backup the new key with the new PIN
     await backupPrivateKey(pin);
 
     // Clear all cached conversation keys
     await _storage.clearAllConversationKeys();
+    clearAllGroupKeyCache(); // C: disk wipe must evict the RAM map too
 
-    debugPrint('[Enc] Generated, uploaded, and backed up fresh key pair; cleared cached conversation keys.');
+    debugPrint(
+      '[Enc] Generated, uploaded, and backed up fresh key pair; cleared cached conversation keys.',
+    );
   }
 
   Future<bool> hasLocalPrivateKey() async {

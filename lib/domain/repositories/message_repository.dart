@@ -104,7 +104,10 @@ abstract class MessageRepository {
   /// Full resync after the app returns to the foreground: reconnects the
   /// realtime subscriptions (Android suspends the SSE socket in background)
   /// and refetches recent messages + receipts so nothing stays stale.
-  Future<void> resyncOnResume();
+  /// [awayFor] = how long the app was backgrounded (null = cold start /
+  /// unknown). Under 60s the repo takes a light path — one aggregate delta
+  /// query instead of the all-conversation backfill scan (F2b, 2026-10-14).
+  Future<void> resyncOnResume({Duration? awayFor});
 
   /// Retry all pending (failed) messages.
   Future<void> retryPendingMessages();
