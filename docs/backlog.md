@@ -83,7 +83,7 @@
 ## 3. Architecture / backend (pre-existing)
 
 - `[BACKLOG]` **Key-archive** — from W3/W1 audit findings (kuch-bhi-audit-findings memory); zombie-key lesson recorded.
-- `[BACKLOG]` **FCM `FIS_AUTH_ERROR`** on Redmi `c7e9f10e` — notifications dead; messaging+ticks ride SSE (fcm-not-working memory).
+- `[VERIFIED 2026-10-17]` **FCM `FIS_AUTH_ERROR`** on Redmi `c7e9f10e` — RESOLVED (root cause 2026-07-27: user NextDNS blocking `firebaseinstallations.googleapis.com`; user allowlisted `*.firebaseinstallations.googleapis.com` on both devices). E2E tested today: both devices cold-start → token registered + permission authorized, zero FIS errors; server hook → webhook → Google 200s (also Oct 13/16 logs); synthetic push delivered to BOTH devices in <1s with posted notification (logcat `onNotificationPosted com.chai.kuch_bhi` + shade visible). No code defect. Dependency: the NextDNS allowlist rule must persist. Optional hardening only: in-app FIS-failure visibility banner (deferred from 2026-07).
 - `[BACKLOG]` Server: broken cron hooks, schema gaps (server-topology memory). **Constraint:** never retry PB superuser password/record mutation without explicit ask.
 - `[MINOR]` pb-hook pitfalls already documented (flat hooks, heredoc strips `$app`, opaque-400 ladder, no server date cutoffs).
 
