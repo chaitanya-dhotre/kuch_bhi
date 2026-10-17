@@ -187,4 +187,16 @@ Decision menu above executed as F2 + C + B + Prewarm, then hardened by adversari
 - `[FIXED]` **Review C4** — delta discovery paginates (was single 100-row page).
 - `[RULING]` **Review C2 accepted as tradeoff (NOT fixed)** — light resume skips `_syncStarredMessages`/`_syncDeletedForMe`/`_reconcileReceipts` for convs with no new message rows (per-conv-only syncs). Heals on chat open or ≥60s full path. Cheap future fix: user-scoped single-query variants (tables keyed by user_id; only the conversation_id filter needs dropping).
 - `[MINOR]` Review K1 (killed): unguarded group-key background refresh can re-persist ENCRYPTED keys post-signOut — harmless (keypair retained by design; conv-id namespace disjoint); optional hardening = authStore check before refresh write.
-- `[NEXT]` **In-chat decrypt still perceptible (user-confirmed on release build 2026-10-17)** → loading-UX work: lock icon reserved for permanent key_missing/failed only; neutral skeletons sized from ciphertext length (no layout shift); ~100ms no-flash rule; tap-down predecrypt of last ~30 messages during the open transition; permanent key-loss class ("3 Oct Test") gets its own explicit state, never skeleton. Source: Astra recs §"Loading UX" + §"Alternate loading UX" (audit doc, repo root docs).
+- `[DONE → a70f020]` **In-chat decrypt still perceptible (user-confirmed on release build 2026-10-17)** → loading-UX work, executed as §10.
+
+## 10. Loading-UX arc (2026-10-18) `[DONE]` — commit `a70f020` (pushed)
+
+Lock→skeleton redesign per Astra recs §"Loading UX" (implemented by Astra, reviewed + verified by Claude Code). Attempt-1 rejected via change list (empty bubble, terminal+skeleton mix, text-revert after cache purge, permanent over-reserve, untouched pinned banner, T9.2 red); attempt-2 accepted.
+
+- `[FIXED]` **MessageBodyText state machine** — cache fast-path; 150ms grace (invisible geometry reserve); 100ms `AnimatedSwitcher` fade; skeleton bars sized from ciphertext length (no layout shift); sticky resolved body (`_rememberBody` — purge never reverts text to placeholder); size-lock 100ms then `AnimatedSize` settles to natural layout (no permanent over-reserve).
+- `[FIXED]` **Terminal state** — `key_missing`/`failed` = lock/error icon + "Can't decrypt" label, NEVER skeleton bars. Transient = bars, never a lock.
+- `[FIXED]` **PinnedMessageBanner + ReplyQuote** — same state machine; blanket `'🔒 Encrypted'` fallbacks removed.
+- `[SHIPPED]` Tests: `message_body_text_loading_test`, `pinned_message_banner_loading_test` (new); `placeholder_ui_test` + `read_paths_char_test` updated. Suite 209/209, analyze 0 errors. Device frames 13:46–13:47 confirm skeleton→text and skeleton→"Can't decrypt" (3-Oct class).
+- `[NOTE]` User design note: expected whole-bubble skeleton (chrome skeletonized); accepted current text-inside-real-bubble; whole-bubble variant = optional polish in the UI/UX pass.
+- `[RESIDUAL]` Media-card spinner can spin long (media pipeline, out of scope); 11:55 tofu = device emoji-font gap (out of scope); theoretical `""` body sticks on placeholder (composer blocks).
+- `[OPEN]` **Tap-down predecrypt** (last ~30 messages on chat-open pointer-down) — from Astra recs, not yet implemented; rides with or before the UI/UX pass.
