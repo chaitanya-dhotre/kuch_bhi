@@ -82,6 +82,18 @@ MockClient resyncClient(ResyncFeed feed) => MockClient((req) async {
           for (final id in feed.deletedIds) {'message_id': id},
         ]);
       }
+      // C2 receipt reconcile: the only OWN message in this file is
+      // srv_r1 (C2b) — everything else is u_peer's and never queries.
+      if (req.url.path.contains('/collections/message_receipts/records')) {
+        return envelope([
+          {
+            'message_id': 'srv_r1',
+            'recipient_id': 'u_peer',
+            'delivered_at': '2026-10-07T10:01:00.000Z',
+            'read_at': '2026-10-07T10:01:05.000Z',
+          },
+        ]);
+      }
       if (req.url.path.contains('/collections/conversation_members/records')) {
         final filter = req.url.queryParameters['filter'] ?? '';
         if (filter.contains('user_id=')) {
@@ -474,5 +486,99 @@ void main() {
             'target discovery is capped at perPage otherwise');
     expect(feed.perConv, contains('g2'),
         reason: 'rows past row 100 still yield an actionable target');
+  });
+
+  test(
+      'C2a: light resume with ZERO delta still reconciles starred + '
+      'deleted-for-me flags via USER-scoped queries (quiet convs were '
+      'skipped until chat-open or a ≥60s full resume)', () async {
+    final pre = charHarness();
+    addTearDown(pre.close);
+    final enc =
+        await pre.encryption.encryptMessage('quiet', fixtureGroupKey);
+
+    final feed = ResyncFeed()
+      ..starredIds.add('srv_s1')
+      ..deletedIds.add('srv_d1');
+    final h = charHarness(clientFactory: () => resyncClient(feed));
+    addTearDown(h.close);
+    await seedConversationAndKey(h, withKey: true);
+    await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId: 'm_s1',
+      conversationId: 'g1',
+      senderId: 'u_peer',
+      type: 'text',
+      encryptedBody: enc.ciphertext,
+      iv: enc.iv,
+      serverId: const Value('srv_s1'),
+      decryptState: const Value('ready'),
+      createdAt: DateTime.utc(2026, 10, 7, 10),
+      updatedAt: DateTime.utc(2026, 10, 7, 10),
+    ));
+    await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId: 'm_d1',
+      conversationId: 'g1',
+      senderId: 'u_peer',
+      type: 'text',
+      encryptedBody: enc.ciphertext,
+      iv: enc.iv,
+      serverId: const Value('srv_d1'),
+      decryptState: const Value('ready'),
+      createdAt: DateTime.utc(2026, 10, 7, 11),
+      updatedAt: DateTime.utc(2026, 10, 7, 11),
+    ));
+    // aggregateRecords stays empty ⇒ zero actionable rows ⇒ (before the
+    // fix) zero per-conv fetches ⇒ the per-conv syncs never ran.
+
+    final repo = buildRepo(h);
+    await repo.resyncOnResume(awayFor: const Duration(seconds: 10));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    expect(feed.perConv, isEmpty,
+        reason: 'C2: quiet convs must be covered WITHOUT per-conv fetches');
+    final s = (await h.db.messagesDao.getMessageByLocalId('m_s1'))!;
+    expect(s.isStarred, isTrue,
+        reason: 'user-scoped starred sync must flip quiet-conv rows on '
+            'the light path');
+    final d = (await h.db.messagesDao.getMessageByLocalId('m_d1'))!;
+    expect(d.isDeletedForMe, isTrue,
+        reason: 'user-scoped deleted-for-me sync must flip quiet-conv '
+            'rows on the light path');
+  });
+
+  test(
+      'C2b: light resume reconciles receipt ticks for OWN messages in '
+      'conversations with no new rows (user-scoped)', () async {
+    final pre = charHarness();
+    addTearDown(pre.close);
+    final enc =
+        await pre.encryption.encryptMessage('tick me', fixtureGroupKey);
+
+    final feed = ResyncFeed();
+    final h = charHarness(clientFactory: () => resyncClient(feed));
+    addTearDown(h.close);
+    await seedConversationAndKey(h, withKey: true);
+    await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+      localId: 'm_own',
+      conversationId: 'g1',
+      senderId: 'u_test',
+      type: 'text',
+      encryptedBody: enc.ciphertext,
+      iv: enc.iv,
+      serverId: const Value('srv_r1'),
+      decryptState: const Value('ready'),
+      status: const Value('sent'),
+      createdAt: DateTime.utc(2026, 10, 7, 10),
+      updatedAt: DateTime.utc(2026, 10, 7, 10),
+    ));
+
+    final repo = buildRepo(h);
+    await repo.resyncOnResume(awayFor: const Duration(seconds: 10));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    final row = (await h.db.messagesDao.getMessageByLocalId('m_own'))!;
+    expect(row.status, 'read',
+        reason: 'C2: receipt reconcile must run on the light path — '
+            'server says u_peer read srv_r1');
   });
 }

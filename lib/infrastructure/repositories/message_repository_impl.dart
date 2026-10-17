@@ -806,6 +806,43 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// #74 tap-down predecrypt: kicked by the conversation tile on
+  /// POINTER-DOWN, before navigation — the ~250ms open transition hides
+  /// the runFor, so bubbles that first build during the transition
+  /// resolve from `bodyCache` instead of the coalescer's 50ms window +
+  /// decrypt (tap→text ≤100ms p95 target, Astra recs). Local-only (key
+  /// memory, spec C); the cache-miss filter makes repeat presses and
+  /// already-warm rows free. Never throws into navigation.
+  @override
+  Future<void> predecryptConversation(
+    String conversationId, {
+    int limit = 30,
+  }) async {
+    try {
+      final rows = await db.messagesDao.recentBodyMessages(
+        conversationId,
+        limit: limit,
+      );
+      final ids = [
+        for (final r in rows)
+          if (bodyCache.get(r.localId) == null) r.localId,
+      ];
+      if (ids.isEmpty) {
+        debugPrint('[Msg] tap-predecrypt conv=$conversationId warm '
+            '(0 misses over ${rows.length} rows)');
+        return;
+      }
+      final tapClock = Stopwatch()..start();
+      await decryptPass.runFor(ids);
+      debugPrint(
+        '[Msg] tap-predecrypt conv=$conversationId n=${ids.length} '
+        'ms=${tapClock.elapsedMilliseconds}',
+      );
+    } catch (e) {
+      debugPrint('[Msg] tap-predecrypt failed: $e');
+    }
+  }
+
   /// D2 (loading-issue fix, 2026-10-13): hydrate group-key caches for every
   /// group whose keys are not yet resident, so a chat open NEVER pays a
   /// network round-trip — the video's 1–4s lock window was exactly a cold
@@ -3356,6 +3393,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
   Future<void> _resyncRun({Duration? awayFor}) async {
     final light = awayFor != null && awayFor < _lightResumeCutoff;
+    final resyncClock = Stopwatch()..start();
     debugPrint(
       '[Msg] resyncOnResume — path=${light ? 'light' : 'full'}'
       '${awayFor != null ? ' away=${awayFor.inMilliseconds}ms' : ''}',
@@ -3396,6 +3434,15 @@ class MessageRepositoryImpl implements MessageRepository {
         final targets = await _deltaBackfillTargets(myId);
         debugPrint('[Msg] resync light — delta convs=${targets.length}');
         await _backfillTargets(targets);
+        // C2 (review #72 accepted tradeoff, now closed): the per-conv
+        // star/delete/receipt syncs inside _fetchAndCacheMessages only ran
+        // for TARGET convs — quiet convs waited for chat-open or a ≥60s
+        // full resume. User-scoped variants: one query per table covers
+        // every conv. Target convs get both passes; both are idempotent
+        // no-ops after the first apply (guards in each method).
+        await _syncDeletedForMeUser(myId);
+        await _syncStarredMessagesUser(myId);
+        await _reconcileReceiptsUser(myId);
         await retryPendingMessages();
         for (final convId in _pendingJoinEmitConvIds.toList()) {
           unawaited(_emitJoinedWhenKeyReady(convId, myId));
@@ -3430,6 +3477,11 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     } catch (e) {
       debugPrint('[Msg] resyncOnResume: $e');
+    } finally {
+      // Device measurement anchor: total resume cost incl. the C2
+      // user-scoped syncs (was unmeasurable — no end-of-run marker).
+      debugPrint('[Msg] resync done — path=${light ? 'light' : 'full'}'
+          ' total=${resyncClock.elapsedMilliseconds}ms');
     }
   }
 
@@ -4113,6 +4165,140 @@ class MessageRepositoryImpl implements MessageRepository {
       }
     } catch (e) {
       debugPrint('[Star] syncStarredMessages: $e');
+    }
+  }
+
+  // ── C2 user-scoped variants (review #72 accepted tradeoff, closed) ──
+  //
+  // The per-conversation syncs above run inside `_fetchAndCacheMessages`.
+  // On a LIGHT resume that only backfills conversations with new rows,
+  // quiet conversations' star/delete/tick state never reconciled until
+  // chat-open or a ≥60s full resume. All three backing tables are
+  // user_id-keyed (or user-scoped by nature): ONE query each covers every
+  // conversation — the per-conversation filter simply drops.
+
+  Future<void> _syncDeletedForMeUser(String myId) async {
+    try {
+      final res = await _pb.collection('deleted_messages_for_me').getFullList(
+            filter: 'user_id="$myId"',
+            batch: 200,
+          );
+      final deletedIds = {
+        for (final r in res) r.getStringValue('message_id'),
+      };
+      if (deletedIds.isEmpty) return;
+      final rows =
+          await db.messagesDao.getMessagesByServerIds(deletedIds.toList());
+      for (final row in rows) {
+        // Idempotent: an already-flagged row is never rewritten (the
+        // unconditional companion write would dirty drift on every resume).
+        if (row.serverId == null || row.isDeletedForMe) continue;
+        await ingestBoundary.commit(
+          IngestBatch(
+            upserts: [
+              MessageUpsert(
+                MessagesTableCompanion.insert(
+                  localId: row.localId,
+                  serverId: Value(row.serverId),
+                  conversationId: row.conversationId,
+                  senderId: row.senderId,
+                  type: row.type,
+                  encryptedBody: row.encryptedBody,
+                  iv: row.iv,
+                  replyToId: Value(row.replyToId),
+                  isDeletedForMe: const Value(true),
+                  isDeletedForEveryone: Value(row.isDeletedForEveryone),
+                  isStarred: Value(row.isStarred),
+                  isPinned: Value(row.isPinned),
+                  expiresAt: Value(row.expiresAt),
+                  mediaId: Value(row.mediaId),
+                  status: Value(row.status),
+                  decryptState: Value(row.decryptState),
+                  keyId: Value(row.keyId),
+                  createdAt: row.createdAt,
+                  updatedAt: DateTime.now(),
+                ),
+              ),
+            ],
+          ),
+          IngestSource.fetch,
+        );
+      }
+    } catch (e) {
+      debugPrint('[Delete] syncDeletedForMeUser: $e');
+    }
+  }
+
+  Future<void> _syncStarredMessagesUser(String myId) async {
+    try {
+      final res = await _pb.collection('starred_messages').getFullList(
+            filter: 'user_id="$myId"',
+            batch: 200,
+          );
+      final starredIds = {
+        for (final r in res) r.getStringValue('message_id'),
+      };
+      if (starredIds.isEmpty) return;
+      final rows =
+          await db.messagesDao.getMessagesByServerIds(starredIds.toList());
+      for (final row in rows) {
+        // F2a no-op: already-starred rows are never rewritten.
+        if (row.serverId == null || row.isStarred) continue;
+        await ingestBoundary.commit(
+          IngestBatch(
+            upserts: [
+              MessageUpsert(
+                MessagesTableCompanion.insert(
+                  localId: row.localId,
+                  serverId: Value(row.serverId),
+                  conversationId: row.conversationId,
+                  senderId: row.senderId,
+                  type: row.type,
+                  encryptedBody: row.encryptedBody,
+                  iv: row.iv,
+                  replyToId: Value(row.replyToId),
+                  isDeletedForMe: Value(row.isDeletedForMe),
+                  isDeletedForEveryone: Value(row.isDeletedForEveryone),
+                  isStarred: const Value(true),
+                  isPinned: Value(row.isPinned),
+                  expiresAt: Value(row.expiresAt),
+                  mediaId: Value(row.mediaId),
+                  status: Value(row.status),
+                  decryptState: Value(row.decryptState),
+                  keyId: Value(row.keyId),
+                  createdAt: row.createdAt,
+                  updatedAt: DateTime.now(),
+                ),
+              ),
+            ],
+          ),
+          IngestSource.fetch,
+        );
+      }
+    } catch (e) {
+      debugPrint('[Star] syncStarredMessagesUser: $e');
+    }
+  }
+
+  Future<void> _reconcileReceiptsUser(String myId) async {
+    try {
+      final rows =
+          await db.messagesDao.messagesNeedingReceiptReconcile(myId);
+      // Parallel, chunked: each tick costs up to 3 HTTP round-trips, and
+      // serially that measured ~300ms/row on M52 (6 rows = ~1.8s of a
+      // light resume). Chunks of 8 cut the wall-clock ~4x while staying
+      // a polite burst toward PocketBase.
+      for (var i = 0; i < rows.length; i += 8) {
+        final batch = rows.skip(i).take(8);
+        await Future.wait(batch.map((row) async {
+          final sid = row.serverId;
+          if (sid == null || sid.isEmpty) return;
+          if (row.status == 'read') return; // already terminal
+          await _updateMsgReceiptStatus(row.localId, sid);
+        }));
+      }
+    } catch (e) {
+      debugPrint('[Receipt] reconcileUser: $e');
     }
   }
 

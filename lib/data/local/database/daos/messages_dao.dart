@@ -72,12 +72,66 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       List<String> serverIds) async {
     if (serverIds.isEmpty) return [];
     final out = <MessagesTableData>[];
-    for (final chunk in chunkIds(serverIds, 500)) {
+    for (final c in chunkIds(serverIds, 500)) {
       out.addAll(await (select(messagesTable)
-            ..where((t) => t.serverId.isIn(chunk)))
+            ..where((t) => t.serverId.isIn(c)))
           .get());
     }
     return out;
+  }
+
+  /// #74 tap-down predecrypt: the NEWEST body-rendering rows of a
+  /// conversation — same visibility predicate and order as
+  /// [watchMessages] so the warmed set matches exactly what the chat
+  /// screen is about to build. Media types are excluded server-side of
+  /// the limit: their widgets render no body, so they must never consume
+  /// window slots or decrypt budget.
+  Future<List<MessagesTableData>> recentBodyMessages(
+    String conversationId, {
+    int limit = 30,
+  }) async {
+    final q = select(messagesTable)
+      ..where((t) =>
+          t.conversationId.equals(conversationId) &
+          t.isDeletedForMe.equals(false) &
+          t.isDeletedForEveryone.equals(false) &
+          t.type.isIn(const ['text', 'voice', 'system']))
+      ..orderBy([
+        (t) => OrderingTerm(
+              expression: t.createdAt,
+              mode: OrderingMode.desc,
+            ),
+        (t) => OrderingTerm(
+              expression: t.serverId,
+              mode: OrderingMode.desc,
+            ),
+        (t) => OrderingTerm(
+              expression: t.localId,
+              mode: OrderingMode.desc,
+            ),
+      ])
+      ..limit(limit);
+    return q.get();
+  }
+
+  /// C2 (user-scoped receipt reconcile): MY rows that carry a serverId but
+  /// whose tick is not yet terminal — across ALL conversations, newest
+  /// first. The per-conversation variant walks one conversation; this lets
+  /// a light resume cover the quiet ones in one local query.
+  Future<List<MessagesTableData>> messagesNeedingReceiptReconcile(
+    String senderId, {
+    int limit = 100,
+  }) async {
+    final q = select(messagesTable)
+      ..where((t) =>
+          t.senderId.equals(senderId) &
+          t.serverId.isNotNull() &
+          t.serverId.isNotValue('') &
+          t.status.isNotValue('read') &
+          t.isDeletedForEveryone.equals(false))
+      ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
+      ..limit(limit);
+    return q.get();
   }
 
   /// Upsert keyed on serverId (UNIQUE index target). Used by the FCM

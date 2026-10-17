@@ -148,6 +148,12 @@ class FakeMessageRepository implements MessageRepository {
   Future<bool> hasUsableKey(String conversationId) async => true;
 
   @override
+  Future<void> predecryptConversation(
+    String conversationId, {
+    int limit = 30,
+  }) async {}
+
+  @override
   Future<List<Message>> searchMessages(
     String conversationId,
     String query,

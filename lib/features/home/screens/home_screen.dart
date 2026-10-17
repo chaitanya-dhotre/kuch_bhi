@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -359,23 +361,39 @@ class _ConversationTile extends ConsumerWidget {
     // labels are constants; empty conversation → this fallback). Never a
     // durable plaintext fallback.
     const fallback = 'Tap to open chat';
-    return ChatTile(
-      title: conv.displayName,
-      // Kept for the non-widget call paths / badge math; the visible
-      // subtitle is the provider-driven preview below (spec §8: preview
-      // shows a placeholder until the last body emits, never a blank).
-      subtitle: fallback,
-      subtitleWidget: ConversationPreviewText(
-        conversation: conv,
-        fallback: fallback,
+    // #74: pointer-DOWN (not tap) kicks the predecrypt — the ~250ms open
+    // transition then hides the decrypt work. Listener, NOT GestureDetector
+    // onTapDown: a parent tap recognizer never WINS the arena (the tile's
+    // own tap does), so its onTapDown would never fire. Raw pointer events
+    // dispatch regardless of the arena. A failed/aborted press just warms
+    // cache early; the method swallows its own errors.
+    return Listener(
+      onPointerDown: (_) {
+        debugPrint('[Msg] TAPDOWN fired conv=${conv.id}');
+        unawaited(
+          ref
+              .read(messageRepositoryProvider)
+              .predecryptConversation(conv.id),
+        );
+      },
+      child: ChatTile(
+        title: conv.displayName,
+        // Kept for the non-widget call paths / badge math; the visible
+        // subtitle is the provider-driven preview below (spec §8: preview
+        // shows a placeholder until the last body emits, never a blank).
+        subtitle: fallback,
+        subtitleWidget: ConversationPreviewText(
+          conversation: conv,
+          fallback: fallback,
+        ),
+        time: conv.lastMessageAt != null
+            ? _formatTime(conv.lastMessageAt!)
+            : null,
+        unreadCount: conv.unreadCount,
+        avatarUrl: conv.isGroup ? conv.iconUrl : conv.avatarUrl,
+        isGroup: conv.isGroup,
+        onTap: () => context.push(AppRoutes.chat, extra: conv),
       ),
-      time: conv.lastMessageAt != null
-          ? _formatTime(conv.lastMessageAt!)
-          : null,
-      unreadCount: conv.unreadCount,
-      avatarUrl: conv.isGroup ? conv.iconUrl : conv.avatarUrl,
-      isGroup: conv.isGroup,
-      onTap: () => context.push(AppRoutes.chat, extra: conv),
     );
   }
 

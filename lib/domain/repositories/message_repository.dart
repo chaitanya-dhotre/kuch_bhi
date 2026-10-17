@@ -8,6 +8,13 @@ import '../entities/message.dart';
 import '../entities/user.dart';
 
 abstract class MessageRepository {
+  /// #74 tap-down predecrypt: warm the body cache for the newest [limit]
+  /// body-rendering rows of [conversationId] when its list row is
+  /// PRESSED — the ~250ms open transition hides the decrypt work, so the
+  /// first bubble build resolves straight from cache (Astra rec:
+  /// tap→text ≤100ms p95). Local-only; failures never block navigation.
+  Future<void> predecryptConversation(String conversationId, {int limit = 30});
+
   /// Get or create a direct conversation with another user.
   Future<Conversation> getOrCreateDirectConversation(String otherUserId);
 
