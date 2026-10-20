@@ -7,8 +7,7 @@ import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
 import '../../../domain/entities/user.dart';
-import '../../../infrastructure/media/media_blob_store.dart'
-    show mediaBlobId;
+import '../../../infrastructure/media/media_blob_store.dart' show mediaBlobId;
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/media_upload_service.dart';
 
@@ -58,16 +57,17 @@ class MediaRef {
 /// (spec §9). The wait/retry shape above is unchanged (behavior-preserving
 /// wiring); a queued blob (offline / media row not landed) returns null
 /// exactly like the old network failure did.
-final mediaFileProvider =
-    FutureProvider.family<LocalMediaFile?, MediaRef>((ref, r) async {
+final mediaFileProvider = FutureProvider.family<LocalMediaFile?, MediaRef>((
+  ref,
+  r,
+) async {
   final repo = ref.read(messageRepositoryProvider);
   // Single store instance — built by the repo (key-resolution closure).
   final store = (repo as MessageRepositoryImpl).mediaBlobStore;
 
   // Subscribe BEFORE the first fetch so a media row landing mid-fetch
   // can't slip between "fetch returned null" and "now wait for an event".
-  final mediaArrived =
-      repo.mediaChanges.where((id) => id == r.serverId).first;
+  final mediaArrived = repo.mediaChanges.where((id) => id == r.serverId).first;
 
   final result = await store.requestBlob(r.blobId, 'mediaFileProvider');
   if (result != null) return result;
@@ -83,11 +83,11 @@ final mediaFileProvider =
 
 // ── Messages (reactive Drift stream) ─────────────────────────────────────
 
-final messagesProvider =
-    StreamProvider.family<List<Message>, String>((ref, conversationId) {
-  return ref
-      .watch(messageRepositoryProvider)
-      .watchMessages(conversationId);
+final messagesProvider = StreamProvider.family<List<Message>, String>((
+  ref,
+  conversationId,
+) {
+  return ref.watch(messageRepositoryProvider).watchMessages(conversationId);
 });
 
 // ── Send ──────────────────────────────────────────────────────────────────
@@ -96,29 +96,35 @@ class SendMessageNotifier extends Notifier<bool> {
   @override
   bool build() => false;
 
-  void send({
+  Future<void> send({
     required String conversationId,
     required String text,
     String? replyToLocalId,
-  }) {
+  }) async {
     if (text.trim().isEmpty) return;
+    state = true;
     try {
-      ref.read(messageRepositoryProvider).sendMessage(
-        conversationId: conversationId,
-        plaintext:      text.trim(),
-        replyToLocalId: replyToLocalId,
-      );
+      await ref
+          .read(messageRepositoryProvider)
+          .sendMessage(
+            conversationId: conversationId,
+            plaintext: text.trim(),
+            replyToLocalId: replyToLocalId,
+          );
     } catch (e) {
       // Group-membership gate (#17) — the composer is hidden for
       // removed/left members, but a removal can race an in-flight send.
       // Must never crash the app.
       debugPrint('[Chat] send rejected: $e');
+    } finally {
+      state = false;
     }
   }
 }
 
-final sendMessageProvider =
-    NotifierProvider<SendMessageNotifier, bool>(SendMessageNotifier.new);
+final sendMessageProvider = NotifierProvider<SendMessageNotifier, bool>(
+  SendMessageNotifier.new,
+);
 
 // ── Send media message ─────────────────────────────────────────────────────
 
@@ -138,17 +144,19 @@ class SendMediaMessageNotifier extends Notifier<bool> {
     int? videoHeight,
   }) async {
     try {
-      await ref.read(messageRepositoryProvider).sendMediaMessage(
-        conversationId:  conversationId,
-        mediaType:       mediaType,
-        mediaFile:       mediaFile,
-        thumbnailFile:   thumbnailFile,
-        quality:         quality,
-        durationSeconds: durationSeconds,
-        durationText:    durationText,
-        videoWidth:      videoWidth,
-        videoHeight:     videoHeight,
-      );
+      await ref
+          .read(messageRepositoryProvider)
+          .sendMediaMessage(
+            conversationId: conversationId,
+            mediaType: mediaType,
+            mediaFile: mediaFile,
+            thumbnailFile: thumbnailFile,
+            quality: quality,
+            durationSeconds: durationSeconds,
+            durationText: durationText,
+            videoWidth: videoWidth,
+            videoHeight: videoHeight,
+          );
     } catch (e) {
       // Group-membership gate (#17) — see SendMessageNotifier.send.
       debugPrint('[Chat] media send rejected: $e');
@@ -158,7 +166,8 @@ class SendMediaMessageNotifier extends Notifier<bool> {
 
 final sendMediaMessageProvider =
     NotifierProvider<SendMediaMessageNotifier, bool>(
-        SendMediaMessageNotifier.new);
+      SendMediaMessageNotifier.new,
+    );
 
 // ── Reply context ─────────────────────────────────────────────────────────
 
@@ -167,15 +176,15 @@ final replyProvider = StateProvider<Message?>((ref) => null);
 
 // ── Search ────────────────────────────────────────────────────────────────
 
-final searchActiveProvider  = StateProvider<bool>((ref) => false);
-final searchQueryProvider   = StateProvider<String>((ref) => '');
+final searchActiveProvider = StateProvider<bool>((ref) => false);
+final searchQueryProvider = StateProvider<String>((ref) => '');
 
 // ── Pinned messages ───────────────────────────────────────────────────────
 
-final pinnedMessagesProvider =
-    StreamProvider.autoDispose.family<List<Message>, String>((ref, convId) {
-  return ref.read(messageRepositoryProvider).watchPinnedMessages(convId);
-});
+final pinnedMessagesProvider = StreamProvider.autoDispose
+    .family<List<Message>, String>((ref, convId) {
+      return ref.read(messageRepositoryProvider).watchPinnedMessages(convId);
+    });
 
 // ── Reactions per message ─────────────────────────────────────────────────
 
@@ -183,17 +192,18 @@ final pinnedMessagesProvider =
 /// broadcasts a change for this specific message.
 final reactionsProvider = StreamProvider.autoDispose
     .family<List<ReactionGroup>, String>((ref, serverId) async* {
-  final repo = ref.read(messageRepositoryProvider);
+      final repo = ref.read(messageRepositoryProvider);
 
-  // Emit initial data immediately
-  yield await repo.getReactions(serverId);
+      // Emit initial data immediately
+      yield await repo.getReactions(serverId);
 
-  // Re-emit whenever any reaction changes for THIS message
-  await for (final changedId
-      in repo.reactionsChanges.where((id) => id == serverId)) {
-    yield await repo.getReactions(serverId);
-  }
-});
+      // Re-emit whenever any reaction changes for THIS message
+      await for (final _ in repo.reactionsChanges.where(
+        (id) => id == serverId,
+      )) {
+        yield await repo.getReactions(serverId);
+      }
+    });
 
 class ReactionGroup {
   const ReactionGroup({
@@ -202,9 +212,9 @@ class ReactionGroup {
     required this.isMine,
     this.reactionId,
   });
-  final String  emoji;
-  final int     count;
-  final bool    isMine;
+  final String emoji;
+  final int count;
+  final bool isMine;
   final String? reactionId; // null when isMine is false
 }
 
@@ -219,27 +229,29 @@ final currentUserIdProvider = FutureProvider<String>((ref) async {
 
 final groupMembersProvider = StreamProvider.autoDispose
     .family<List<User>, String>((ref, conversationId) {
-  return ref
-      .watch(messageRepositoryProvider)
-      .watchGroupMembers(conversationId);
-});
+      return ref
+          .watch(messageRepositoryProvider)
+          .watchGroupMembers(conversationId);
+    });
 
 // ── Conversation stream ────────────────────────────────────────────────────
 
 final conversationStreamProvider = StreamProvider.autoDispose
     .family<Conversation?, String>((ref, conversationId) {
-  return ref
-      .watch(messageRepositoryProvider)
-      .watchConversation(conversationId);
-});
+      return ref
+          .watch(messageRepositoryProvider)
+          .watchConversation(conversationId);
+    });
 
 // ── Group-key readiness ──────────────────────────────────────────────────
 //
 /// Emits false while this device has no distributed key for the group
 /// (join accepted, no admin device online yet to rotate); polls every 3s,
 /// stops once ready. DMs are always ready. Gates the composer + banner.
-final groupKeyReadyProvider = StreamProvider.autoDispose
-    .family<bool, String>((ref, conversationId) async* {
+final groupKeyReadyProvider = StreamProvider.autoDispose.family<bool, String>((
+  ref,
+  conversationId,
+) async* {
   final repo = ref.read(messageRepositoryProvider);
   while (true) {
     final ready = await repo.hasUsableKey(conversationId);

@@ -1,0 +1,1523 @@
+<meta charset="utf-8">
+<title>Kuch Bhi Chat Spec</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+  /* ═══ Kuch Bhi — Chat Screen Design Spec (Page 1) ═══
+     Board chrome is warm-neutral; each phone frame is a self-contained
+     theme specimen. Values verbatim from lib/core/theme/tokens.dart.
+     This board is deliberately single-theme (it IS the reference). ═══ */
+  :root {
+    --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3;
+    --ink:#2A2520; --inkSoft:#6E655A; --inkFaint:#9C9284; --line:#E4DDD1;
+    --accent:#EFA00B; --accentPressed:#D98F08; --accentSoft:#FFF3DC;
+    --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D; --info:#4A6FA5;
+    --dBg:#171512; --dSurface:#211E1A; --dSurface2:#2B2823; --dInk:#F3EDE3;
+    --dInkSoft:#9C9284; --dLine:#3B362F; --dAccentSoft:#3A2E14; --dOnAccent:#21260F;
+    --mBody:#C6894F; --mShade:#B27A42; --mSnout:#8B5E3E; --mNostril:#5C3B28; --mFace:#3A2E22;
+    --r-sm:10px; --r-md:16px; --r-lg:20px; --r-xl:24px;
+    --font:"Plus Jakarta Sans", ui-rounded, system-ui, sans-serif;
+    color-scheme: light;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);
+    padding-inline:clamp(16px,4vw,40px);padding-block:clamp(24px,5vw,48px) 64px;margin:0}
+  .wrap{max-width:1180px;margin-inline:auto;display:flex;flex-direction:column;gap:40px}
+  h1{font-size:clamp(24px,4vw,34px);font-weight:800;letter-spacing:-.02em;margin:0;text-wrap:balance}
+  .lede{color:var(--inkSoft);max-width:72ch;margin:8px 0 0;line-height:1.55;font-size:14.5px}
+  .cap{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--inkFaint);margin:0 0 6px}
+  h2{font-size:19px;font-weight:800;margin:0;letter-spacing:-.01em}
+  h3{font-size:14px;font-weight:700;margin:0}
+  .sub{color:var(--inkSoft);font-size:13px;line-height:1.5;margin:6px 0 0;max-width:80ch}
+  section{display:flex;flex-direction:column;gap:16px}
+  .nrule{border:none;border-top:1px solid var(--line);margin:8px 0}
+  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .ic.s{width:13px;height:13px}
+  .ic.m{width:20px;height:20px}
+
+  /* ── phone frames ───────────────────────────── */
+  .phones{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start}
+  .phone{border-radius:var(--r-xl);border:1px solid;display:flex;flex-direction:column;overflow:hidden;min-width:0;font-size:13.5px;position:relative}
+  .phone.light{background:var(--bg);border-color:var(--line);color:var(--ink);
+    --p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);
+    --p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);
+    --p-ink:var(--ink);--p-success:var(--success);--p-error:var(--error)}
+  .phone.dark{background:var(--dBg);border-color:var(--dLine);color:var(--dInk);color-scheme:dark;
+    --p-surface:var(--dSurface);--p-surface2:var(--dSurface2);--p-inkSoft:var(--dInkSoft);--p-inkFaint:var(--dInkSoft);
+    --p-line:var(--dLine);--p-accent:var(--accent);--p-accentSoft:var(--dAccentSoft);--p-onAccent:var(--dOnAccent);
+    --p-ink:var(--dInk);--p-success:var(--success);--p-error:var(--error)}
+  .phead{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 0}
+  .plabel{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--p-inkFaint)}
+  .pchip{font-size:9.5px;font-weight:800;letter-spacing:.1em;padding:3px 8px;border-radius:999px;background:var(--p-surface2);color:var(--p-inkSoft)}
+
+  /* app bar */
+  .ab{display:flex;align-items:center;gap:8px;padding:10px 6px 10px 4px;min-height:52px}
+  .ab .bk{width:32px;height:32px;display:grid;place-items:center;color:var(--p-ink);flex:none}
+  .av{width:36px;height:36px;border-radius:50%;background:var(--p-surface2);display:grid;place-items:center;font-weight:800;color:var(--p-inkSoft);font-size:13px;flex:none;position:relative}
+  .av.sm{width:26px;height:26px;font-size:10px}
+  .av.xs{width:28px;height:28px;font-size:10.5px}
+  .av .gb{position:absolute;right:-2px;bottom:-2px;width:14px;height:14px;border-radius:50%;background:var(--p-surface);display:grid;place-items:center}
+  .av .gb .ic{width:8px;height:8px;stroke:var(--p-accent)}
+  .abt{min-width:0;flex:1}
+  .abn{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .abs{font-size:11.5px;color:var(--p-inkSoft);margin-top:1px;display:flex;align-items:center;gap:5px}
+  .abs.on{color:var(--p-success);font-weight:600}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block}
+  .ab .act{width:34px;height:34px;display:grid;place-items:center;color:var(--p-ink);flex:none}
+  /* search-mode bar */
+  .ab.search{gap:6px}
+  .ab.search .fld{flex:1;display:flex;align-items:center;gap:7px;background:var(--p-surface2);border-radius:999px;padding:8px 12px;color:var(--p-inkFaint);min-width:0}
+  .ab.search .fld .q{color:var(--p-ink);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ab.search .cnt{font-size:12px;color:var(--p-inkSoft);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  /* pinned banner */
+  .pinb{display:flex;align-items:center;gap:9px;padding:8px 12px;background:var(--p-surface);border-bottom:1px solid var(--p-line)}
+  .pinb .ic{stroke:var(--p-accent)}
+  .pinb .pt{min-width:0;flex:1}
+  .pinb .pl{font-size:9.5px;font-weight:800;letter-spacing:.1em;color:var(--p-accent);text-transform:uppercase}
+  .pinb .pp{font-size:12px;color:var(--p-inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .pinb .px{color:var(--p-inkFaint)}
+
+  /* messages */
+  .msgs{display:flex;flex-direction:column;gap:12px;padding:12px 12px 8px;min-height:0}
+  .mtight{margin-top:-8px}
+  .sep{align-self:center;font-size:10.5px;font-weight:600;color:var(--p-inkSoft);background:var(--p-surface2);border-radius:999px;padding:3px 10px;margin:2px 0}
+  .sys{align-self:center;display:flex;align-items:center;gap:6px;font-size:11.5px;font-style:italic;color:var(--p-inkSoft);background:var(--p-surface2);border-radius:var(--r-sm);padding:5px 11px;max-width:86%}
+  .sys .ic{width:12px;height:12px}
+  .mrow{display:flex;align-items:flex-end;gap:8px;max-width:100%}
+  .mrow.mine{align-self:flex-end;justify-content:flex-end}
+  .mrow.them{align-self:flex-start}
+  .bub{max-width:100%;padding:8px 12px;font-size:13.5px;line-height:1.45;border-radius:18px;position:relative;min-width:0;word-break:break-word}
+  .bub.them{background:var(--p-surface);color:var(--p-ink);border-bottom-left-radius:6px}
+  .bub.me{background:var(--p-accent);color:var(--p-onAccent);border-bottom-right-radius:6px}
+  .bub.mid{border-bottom-left-radius:18px;border-bottom-right-radius:18px}
+  .bub.midL{border-bottom-left-radius:18px}
+  .bub.midR{border-bottom-right-radius:18px}
+  .nm{font-size:11.5px;font-weight:700;margin-bottom:2px}
+  .mt{display:flex;align-items:center;gap:4px;justify-content:flex-end;font-size:10px;margin-top:3px;opacity:.66;font-variant-numeric:tabular-nums}
+  .mt.on{opacity:1}
+  .bub.them .mt{color:var(--p-inkSoft)}
+  .ticks{display:inline-flex;align-items:center}
+  .ticks .ic{width:12px;height:12px;stroke-width:2.4}
+  .del{font-style:italic;opacity:.75}
+  /* bubble widths for specimens */
+  .w40{width:40%}.w55{width:55%}.w70{width:70%}.w85{width:85%}.w100{width:100%}
+
+  /* quote inside bubble */
+  .quo{border-left:3px solid var(--p-accent);background:color-mix(in srgb, var(--p-accent) 12%, transparent);border-radius:var(--r-sm);padding:5px 8px;margin-bottom:5px;min-width:0}
+  .bub.them .quo{background:var(--p-accentSoft)}
+  .quo .qn{font-size:10.5px;font-weight:700;color:var(--p-accent)}
+  .bub.me .quo .qn{color:var(--p-onAccent)}
+  .bub.them .quo .qn{color:var(--p-accent)}
+  .quo .qp{font-size:11.5px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:5px;align-items:center}
+  .quo .qp .ic{width:12px;height:12px}
+  .quo .th{width:34px;height:34px;border-radius:8px;background:var(--p-surface2);display:grid;place-items:center;color:var(--p-inkFaint);flex:none}
+  .quorow{display:flex;gap:8px;align-items:center}
+
+  /* media bubbles */
+  .media{width:210px;max-width:100%;border-radius:18px;overflow:hidden;background:var(--p-surface2);position:relative}
+  .media .ph{width:100%;aspect-ratio:4/3;display:grid;place-items:center;color:var(--p-inkFaint)}
+  .media .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .media .cap{padding:7px 11px;font-size:13px;background:var(--p-surface);color:var(--p-ink)}
+  .ovpill{position:absolute;right:6px;bottom:6px;background:rgba(20,16,10,.55);color:#FFF3DC;border-radius:999px;padding:3px 8px;font-size:10px;display:flex;align-items:center;gap:4px}
+  .ovpill .ic{width:11px;height:11px;stroke-width:2.4}
+  .durpill{position:absolute;left:6px;bottom:6px;background:rgba(20,16,10,.55);color:#FFF3DC;border-radius:999px;padding:3px 8px;font-size:10px;display:flex;align-items:center;gap:4px}
+  .expb{position:absolute;right:6px;top:6px;background:var(--p-accentSoft);color:var(--ink);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:700;display:flex;align-items:center;gap:4px}
+  .expb .ic{width:11px;height:11px;stroke:var(--accentPressed)}
+  .playc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:50%;background:rgba(20,16,10,.5);display:grid;place-items:center;color:#FFF3DC}
+  .playc .ic{width:20px;height:20px;fill:currentColor;stroke:none}
+  /* voice bubble */
+  .voice{display:flex;align-items:center;gap:9px;padding:9px 12px;min-width:190px}
+  .vbtn{width:30px;height:30px;border-radius:50%;background:var(--p-surface);color:var(--p-accent);display:grid;place-items:center;flex:none}
+  .bub.them .vbtn{background:var(--p-accent);color:var(--p-onAccent)}
+  .vbtn .ic{width:15px;height:15px}
+  .vbtn .ic.f{fill:currentColor;stroke:none}
+  .vbody{flex:1;min-width:0}
+  .vbar{height:3px;border-radius:2px;background:color-mix(in srgb, currentColor 25%, transparent);position:relative}
+  .vfill{position:absolute;inset:0;width:42%;border-radius:2px;background:currentColor;opacity:.85}
+  .vmeta{display:flex;justify-content:space-between;font-size:10px;opacity:.7;margin-top:4px}
+  .vspd{font-size:10px;font-weight:700;border:1px solid currentColor;border-radius:999px;padding:1px 6px;opacity:.8}
+  /* document bubble */
+  .doc{display:flex;align-items:center;gap:10px;padding:9px 12px;min-width:210px}
+  .dtile{width:38px;height:38px;border-radius:var(--r-sm);background:color-mix(in srgb, currentColor 10%, transparent);display:grid;place-items:center;flex:none}
+  .dtile .ic{width:18px;height:18px}
+  .dbody{min-width:0;flex:1}
+  .dname{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dsize{font-size:10.5px;opacity:.7;margin-top:2px}
+  /* link preview */
+  .lprev{border:1px solid var(--p-line);border-radius:var(--r-sm);overflow:hidden;margin-top:6px;background:var(--p-surface)}
+  .lprev .lth{height:72px;background:var(--p-surface2);display:grid;place-items:center;color:var(--p-inkFaint);font-size:10.5px;font-weight:700;letter-spacing:.06em}
+  .lprev .lb{padding:7px 10px}
+  .lprev .lt{font-size:11.5px;font-weight:700}
+  .lprev .lu{font-size:10.5px;opacity:.7;margin-top:2px}
+  /* reactions */
+  .reax{display:flex;gap:4px;margin:4px 0 0;flex-wrap:wrap}
+  .reax.mine{justify-content:flex-end}
+  .rchip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;background:var(--p-surface);border:1px solid var(--p-line);border-radius:999px;padding:2px 8px;color:var(--p-ink)}
+  .rchip.on{background:var(--p-accentSoft);border-color:color-mix(in srgb, var(--p-accent) 50%, transparent)}
+  .rchip.add{color:var(--p-inkSoft);font-weight:700;padding:2px 8px}
+  /* highlight states */
+  .hl-row{border-radius:12px;padding:2px 0;transition:background .2s}
+  .hl-row.cur{background:color-mix(in srgb, var(--p-accent) 8%, transparent)}
+  .hl-row.mt{background:color-mix(in srgb, var(--p-accent) 4%, transparent)}
+  mark{background:var(--p-accentSoft);color:inherit;border-radius:3px;padding:0 2px}
+  mark.cur{background:color-mix(in srgb, var(--p-accent) 30%, transparent)}
+
+  /* composer */
+  .cmp{display:flex;align-items:center;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));background:var(--p-surface);border-top:1px solid var(--p-line)}
+  .cmp .att{width:36px;height:36px;display:grid;place-items:center;color:var(--p-inkSoft);flex:none}
+  .cfld{flex:1;min-width:0;background:var(--p-surface2);border-radius:999px;padding:9px 14px;color:var(--p-inkFaint);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cfld.typing{color:var(--p-ink)}
+  .cbtn{width:38px;height:38px;border-radius:50%;background:var(--p-accent);color:var(--p-onAccent);display:grid;place-items:center;flex:none}
+  .cbtn.mic{background:var(--p-surface2);color:var(--p-inkSoft)}
+  .cbtn .ic{width:18px;height:18px}
+  /* recording row */
+  .rec{display:flex;align-items:center;gap:10px;flex:1;padding:0 4px}
+  .recdot{width:11px;height:11px;border-radius:50%;background:var(--p-error);flex:none;animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{transform:scale(.72);opacity:.7}50%{transform:scale(1);opacity:1}}
+  .rect{font-size:12.5px;font-weight:700;color:var(--p-error);font-variant-numeric:tabular-nums}
+  .rech{font-size:12px;color:var(--p-inkFaint);margin-left:auto;display:flex;align-items:center;gap:5px}
+  /* upload rows */
+  .upl{flex:1;min-width:0}
+  .upl .l1{display:flex;justify-content:space-between;font-size:12px;color:var(--p-inkSoft);margin-bottom:5px;gap:8px}
+  .upl .bar{height:3px;border-radius:2px;background:var(--p-surface2);overflow:hidden}
+  .upl .bar i{display:block;height:100%;width:38%;background:var(--p-accent);border-radius:2px}
+  .upl .bar.ind i{width:100%;animation:slide 1.2s ease-in-out infinite}
+  @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+  .ucancel{width:32px;height:32px;display:grid;place-items:center;color:var(--p-inkFaint);flex:none}
+  /* restriction */
+  .restrict{display:flex;align-items:center;justify-content:center;gap:7px;padding:16px 12px;font-size:12.5px;color:var(--p-inkFaint);background:var(--p-surface);border-top:1px solid var(--p-line)}
+  /* banners inside phone */
+  .bann{display:flex;align-items:center;gap:8px;background:var(--p-accentSoft);border:1px solid color-mix(in srgb, var(--p-accent) 45%, transparent);border-radius:var(--r-md);padding:8px 11px;font-size:12px;font-weight:600;color:var(--p-ink);margin:0 2px}
+  .bann .ic{stroke:var(--accentPressed)}
+  .bann .rt{margin-left:auto;font-weight:700;color:var(--p-ink);border:1px solid var(--p-line);border-radius:999px;padding:2px 9px;font-size:11px;background:var(--p-surface)}
+  .bann.err{background:color-mix(in srgb, var(--p-error) 8%, transparent);border-color:color-mix(in srgb, var(--p-error) 40%, transparent)}
+  .bann.err .ic{stroke:var(--p-error)}
+  /* fab */
+  .fabscroll{align-self:flex-end;margin:-34px 12px 8px;width:34px;height:34px;border-radius:50%;background:var(--p-surface2);border:1px solid var(--p-line);display:grid;place-items:center;color:var(--p-inkSoft);z-index:3}
+  .fabscroll .ic{width:15px;height:15px}
+  /* skeleton */
+  .sk{background:var(--p-surface2);border-radius:18px;height:34px;animation:sh 1.4s ease-in-out infinite alternate}
+  .sk.c{align-self:center;width:70px;height:16px;border-radius:999px}
+  @keyframes sh{from{opacity:.55}to{opacity:1}}
+  /* empty / mascot */
+  .empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:34px 20px}
+  .empty .et{font-weight:800;font-size:16px;margin-top:10px}
+  .empty .es{font-size:12.5px;color:var(--p-inkSoft);max-width:30ch;line-height:1.5}
+  .capy{animation:breathe 3.4s ease-in-out infinite;transform-origin:50% 100%}
+  @keyframes breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03)}}
+  /* typing dots */
+  .tdots{display:inline-flex;gap:2px}
+  .tdots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:tp 1.2s ease-in-out infinite}
+  .tdots i:nth-child(2){animation-delay:.15s}
+  .tdots i:nth-child(3){animation-delay:.3s}
+  @keyframes tp{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-2px)}}
+
+  /* ── spec panels ─────────────────────────────── */
+  .states{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:16px}
+  .spec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  .spec.dk{background:var(--dSurface);border-color:var(--dLine);color:var(--dInk);
+    --p-surface:var(--dSurface);--p-surface2:var(--dSurface2);--p-inkSoft:var(--dInkSoft);--p-inkFaint:var(--dInkSoft);
+    --p-line:var(--dLine);--p-accent:var(--accent);--p-accentSoft:var(--dAccentSoft);--p-onAccent:var(--dOnAccent);
+    --p-ink:var(--dInk);--p-success:var(--success);--p-error:var(--error);color-scheme:dark}
+  .st{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--inkFaint);display:flex;gap:8px;align-items:center}
+  .st .tag{background:var(--accentSoft);border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);color:var(--accentPressed);border-radius:999px;padding:1px 7px;font-size:9.5px;letter-spacing:.08em}
+  .st .tag.d{background:var(--dAccentSoft);color:#F3C86B;border-color:#5A4A1E}
+  .spec .rule{font-size:11.5px;color:var(--inkSoft);line-height:1.5}
+  .spec.dk .rule{color:var(--dInkSoft)}
+  .spec .rule b{color:var(--ink)}
+  .spec.dk .rule b{color:var(--dInk)}
+  .demo{display:flex;flex-direction:column;gap:10px}
+  .demo.row{flex-direction:row;align-items:center;flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--surface)}
+  .swatch{width:34px;height:34px;border-radius:var(--r-sm);border:1px solid var(--line);position:relative}
+  .swatch span{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:8.5px;color:var(--inkFaint);font-weight:700}
+  .lgd{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--inkSoft);line-height:1.5}
+  .lgd b{color:var(--ink)}
+  .num{position:absolute;width:17px;height:17px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:9.5px;font-weight:800;display:grid;place-items:center;border:2px solid var(--bg);z-index:6}
+  .tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .tbl th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--inkFaint);padding:6px 8px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--inkSoft)}
+  .tbl td:first-child{color:var(--ink);font-weight:600}
+  .tbl tr:last-child td{border-bottom:none}
+  .note{background:var(--accentSoft);border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);border-radius:var(--r-md);padding:12px 14px;font-size:12.5px;line-height:1.55;color:var(--ink)}
+  .note b{font-weight:800}
+  .laws{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--inkSoft)}
+  .laws li{padding-left:14px;position:relative;line-height:1.5}
+  .laws li::before{content:"—";position:absolute;left:0;color:var(--inkFaint)}
+  .laws b{color:var(--ink)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:720px){.grid2{grid-template-columns:1fr}}
+  .sheet{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) var(--r-md) var(--r-md);padding:10px 14px 14px;display:flex;flex-direction:column;gap:4px;position:relative}
+  .sheet .handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 8px}
+  .sitem{display:flex;align-items:center;gap:12px;padding:9px 4px;font-size:13px;font-weight:600;color:var(--ink)}
+  .sitem .ic{color:var(--inkSoft)}
+  .sitem.err{color:var(--error)}
+  .sitem.err .ic{stroke:var(--error)}
+  .sitem.off{opacity:.38}
+  .sitem small{margin-left:auto;font-size:10px;color:var(--inkFaint);font-weight:600}
+  .erow{display:flex;gap:6px;flex-wrap:wrap}
+  .emoji-pick{width:26px;height:26px;display:grid;place-items:center;font-size:17px;border-radius:50%;background:var(--surface2)}
+  @media (prefers-reduced-motion: reduce) {
+    .capy,.sk,.recdot,.upl .bar.ind i,.tdots i{animation:none}
+  }
+</style>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4z"/><path d="M12 13.5V21"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6L3.2 9.4l6.1-.8z"/></symbol>
+  <symbol id="i-star-f" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6L3.2 9.4l6.1-.8z"/></symbol>
+  <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9 17l-5-5 5-5"/><path d="M4 12h11a5 5 0 0 1 5 5v1"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5L5 19"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M22 8l-6 4 6 4V8z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l13 7.5-13 7.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6.5L9.5 17 4 11.5"/></symbol>
+  <symbol id="i-check2" viewBox="0 0 24 24"><path d="M2 13l4 4 9-9.5"/><path d="M9.5 15.5L11.5 17.5 21.5 7"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+  <symbol id="i-attach" viewBox="0 0 24 24"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v5M12 17h.01"/></symbol>
+  <symbol id="i-group" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M15.5 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-padd" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1.5a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V21"/><path d="M19 8v6M16 11h6"/></symbol>
+  <symbol id="i-chev-up" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></symbol>
+  <symbol id="i-chev-dn" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <p class="cap">W3 UI/UX pass · Page 1 of ~10 · design spec</p>
+  <h1>Chat screen — complete design spec</h1>
+  <p class="lede">Every element on the chat page, every state, light and dark. Values are the Warm Pop tokens
+  (<code>lib/core/theme/tokens.dart</code>); laws are binding (see <b>docs/design/00-foundation.md</b> §6 and the
+  acceptance checklist <b>docs/design/pages/chat.md</b>, which Astra implements against and review grades against).
+  Spec flies at phone width (360dp reference); tablet/wide is a later page. The board is a single-theme reference by
+  design — app frames below carry both themes explicitly.</p>
+</header>
+
+<!-- ═══════════ S1 · TOKENS ═══════════ -->
+<section>
+  <p class="cap">S1 · Tokens used by this page</p>
+  <h2>Color · type · shape · motion</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Colors <span class="tag">light</span></span>
+      <div class="demo row" style="gap:12px;row-gap:24px;padding-top:4px">
+        <div class="swatch" style="background:var(--bg)"><span>bg</span></div>
+        <div class="swatch" style="background:var(--surface)"><span>surface</span></div>
+        <div class="swatch" style="background:var(--surface2)"><span>surface2</span></div>
+        <div class="swatch" style="background:var(--accent)"><span>accent</span></div>
+        <div class="swatch" style="background:var(--accentSoft)"><span>accentSoft</span></div>
+        <div class="swatch" style="background:var(--ink)"><span>ink</span></div>
+        <div class="swatch" style="background:var(--inkSoft)"><span>inkSoft</span></div>
+        <div class="swatch" style="background:var(--line)"><span>line</span></div>
+        <div class="swatch" style="background:var(--success)"><span>success</span></div>
+        <div class="swatch" style="background:var(--error)"><span>error</span></div>
+      </div>
+      <div class="rule"><b>Dark:</b> bg #171512 · surface #211E1A · surface2 #2B2823 · ink #F3EDE3 · line #3B362F ·
+      accentSoft #3A2E14 · accent/success/error unchanged.</div>
+    </div>
+    <div class="spec">
+      <span class="st">Type on this page</span>
+      <div class="demo">
+        <div style="font-size:15px;font-weight:700">15 / 700 — app bar name</div>
+        <div style="font-size:13.5px">13.5 / 400 — message body (body scale, chat-tuned step)</div>
+        <div style="font-size:11.5px;font-weight:700">11.5 / 700 — sender name in group</div>
+        <div style="font-size:10.5px;color:var(--inkSoft)">10.5 / 400 — timestamp, meta, captions</div>
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:.12em">9.5 / 800 — LABELS (PINNED, EXPIRES)</div>
+      </div>
+      <div class="rule">System font in-app. Bubbles use the body role; nothing on this page invents a size.
+      Emoji-only bubbles render at 40px (existing #body slot).</div>
+    </div>
+    <div class="spec">
+      <span class="st">Shape &amp; motion</span>
+      <div class="rule"><b>Radius:</b> bubble 18 with <b>6px tail corner</b> (bottom, sender side) · cards/sheets 16–20 ·
+      chips/pills 999 · quote 10.<br>
+      <b>Motion:</b> pressed 150ms · morphs/sheets 250ms · highlight decay 400ms · shimmer 1.2–1.4s loop ·
+      typing dots 1.2s. Reduced-motion: shimmer parks, dots + pulse freeze, highlight still flashes (opacity only).</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S2 · ANATOMY ═══════════ -->
+<section>
+  <p class="cap">S2 · Screen anatomy</p>
+  <h2>Every element, numbered</h2>
+  <div class="grid2">
+    <div class="phone light" style="font-size:13.5px">
+      <span class="num" style="top:26px;left:6px">1</span>
+      <span class="num" style="top:26px;right:6px">2</span>
+      <span class="num" style="top:64px;left:6px">3</span>
+      <span class="num" style="top:100px;left:40px">4</span>
+      <span class="num" style="top:100px;right:6px">5</span>
+      <span class="num" style="top:168px;left:6px">6</span>
+      <span class="num" style="top:238px;left:6px">7</span>
+      <span class="num" style="top:238px;right:6px">8</span>
+      <span class="num" style="top:320px;left:6px">9</span>
+      <span class="num" style="top:372px;right:6px">10</span>
+      <span class="num" style="bottom:74px;left:6px">11</span>
+      <span class="num" style="bottom:30px;left:6px">12</span>
+      <span class="num" style="bottom:30px;right:6px">13</span>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av">M<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+        <div class="abt"><div class="abn">Design Squad</div>
+          <div class="abs">4 members</div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div class="pinb">
+        <svg class="ic s"><use href="#i-pin"/></svg>
+        <div class="pt"><div class="pl">Pinned · 1/2</div><div class="pp">pick marigold, it is warm…</div></div>
+        <svg class="ic s px"><use href="#i-chev-dn"/></svg>
+      </div>
+      <div class="msgs">
+        <div class="sep">Today</div>
+        <div class="mrow them"><div class="av xs">A</div>
+          <div class="bub them" style="max-width:82%"><div class="nm" style="color:#4A6FA5">Aarav</div>
+            did you see the capybara board?
+            <div class="mt">09:41</div></div></div>
+        <div class="mrow mine"><div class="bub me" style="max-width:82%">on my way
+          <div class="mt"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>09:42</div></div></div>
+        <div class="mrow them"><div class="av xs">M</div>
+          <div style="max-width:82%">
+            <div class="bub them"><div class="nm" style="color:#0E9F6E">Meera</div>
+              <div class="quo"><div class="qn">you</div><div class="qp">on my way</div></div>
+              pick marigold
+              <div class="mt">09:44</div></div>
+            <div class="reax"><span class="rchip on">❤️ 2</span><span class="rchip">🥹 1</span><span class="rchip add">＋</span></div>
+          </div></div>
+        <div class="mrow mine"><div class="bub me" style="max-width:82%">
+          <div style="font-size:26px">🎉</div>
+          <div class="mt"><span class="ticks"><svg class="ic"><use href="#i-check"/></svg></span>09:45</div></div></div>
+        <div class="sys"><svg class="ic"><use href="#i-timer"/></svg>Meera turned on disappearing messages</div>
+      </div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld">Message</div>
+        <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+      </div>
+    </div>
+    <div class="lgd">
+      <p><b>1</b> App bar — back, avatar + group glyph badge, name + subtitle (presence / typing / member count), search, dots menu. Tap name/avatar (group) → Group Info.</p>
+      <p><b>2</b> Search action — swaps bar to search mode (S5).</p>
+      <p><b>3</b> Pinned banner — pin icon + label + preview + cycle chevron (S12). No left color stripe.</p>
+      <p><b>4</b> Incoming run — 28px avatar + name on first bubble of a run (groups only), tail corner bottom-left.</p>
+      <p><b>5</b> Outgoing bubble — accent fill, tail bottom-right, time + ticks.</p>
+      <p><b>6</b> Reply quote — inside bubble, accent left rule, sender + one-line preview (S8).</p>
+      <p><b>7</b> Reaction chips — mine highlighted; ghost <b>＋</b> when any reaction exists (S9).</p>
+      <p><b>8</b> Emoji-only bubble — 40px glyph, no chrome, time + ticks below.</p>
+      <p><b>9</b> System / info pill — centered, italic, leading icon (S7).</p>
+      <p><b>10</b> Date separator — pill, “Today / Yesterday / date” (S6).</p>
+      <p><b>11</b> Composer — paperclip, pill field, mic↔send morph (S14).</p>
+      <p><b>12</b> Attach — media &amp; docs sheet (S14).</p>
+      <p><b>13</b> Send / mic — accent FAB when text present, mic when empty.</p>
+      <p>Not drawn here (see S3/S6/S8): loading skeleton, jump highlight, scroll-to-bottom FAB, offline strip.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S3 · FULL-SCREEN STATES ═══════════ -->
+<section>
+  <p class="cap">S3 · Full-screen states</p>
+  <h2>The screen as a whole — light and dark</h2>
+  <div class="sub">Two anchors below: <b>group · light</b> (names + avatars + all bubble types) and <b>1:1 · dark</b>
+  (no sender names, no in-list avatar — the rule the user asked for). Then the non-happy states.</div>
+  <div class="phones">
+
+    <!-- group light -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · Group · default</span><span class="pchip">L</span></div>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+        <div class="abt"><div class="abn">Design Squad</div><div class="abs">4 members</div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div class="msgs" style="flex:1">
+        <div class="sep">Today</div>
+        <div class="mrow them"><div class="av xs">A</div>
+          <div style="max-width:82%"><div class="bub them"><div class="nm" style="color:#4A6FA5">Aarav</div>
+            did you see the capybara board?
+            <div class="mt">09:41</div></div></div></div>
+        <div class="mrow them mtight"><div class="av xs" style="visibility:hidden"></div>
+          <div style="max-width:82%"><div class="bub them midL">and the marigold chips?</div></div></div>
+        <div class="mrow mine"><div class="bub me">on my way
+          <div class="mt"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>09:42</div></div></div>
+        <div class="mrow them"><div class="av xs">M</div>
+          <div style="max-width:82%">
+            <div class="bub them"><div class="nm" style="color:#0E9F6E">Meera</div>
+              <div class="quo"><div class="quorow"><div class="th"><svg class="ic"><use href="#i-photo"/></svg></div>
+                <div style="min-width:0"><div class="qn">you</div><div class="qp">sending the frames in a sec</div></div></div></div>
+              nice, send them after lunch
+              <div class="mt">09:44</div></div>
+            <div class="reax"><span class="rchip on">❤️ 2</span><span class="rchip add">＋</span></div>
+          </div></div>
+        <div class="mrow mine"><div class="media" style="border:2px solid var(--p-accent)">
+          <div class="ph"><svg class="ic m"><use href="#i-photo"/></svg></div>
+          <div class="ovpill"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>09:45</div>
+          <div class="expb"><svg class="ic"><use href="#i-timer"/></svg>1d</div></div></div>
+        <div class="sys"><svg class="ic"><use href="#i-timer"/></svg>Meera turned on disappearing messages</div>
+      </div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld">Message</div>
+        <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+      </div>
+    </div>
+
+    <!-- 1:1 dark -->
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · 1:1 · default</span><span class="pchip">D</span></div>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av">M</div>
+        <div class="abt"><div class="abn">Meera</div>
+          <div class="abs on"><span class="dot"></span>Online</div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div class="msgs" style="flex:1">
+        <div class="sep">Yesterday</div>
+        <div class="mrow them"><div class="bub them">did you see the capybara board?
+          <div class="mt">21:04</div></div></div>
+        <div class="mrow mine"><div class="bub me">on my way
+          <div class="mt"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>21:05</div></div></div>
+        <div class="sep">Today</div>
+        <div class="mrow them"><div class="bub them">pick marigold, it is warm and nobody uses it
+          <div class="mt">09:44</div></div></div>
+        <div class="mrow them"><div class="bub them mid">as a board accent i mean
+          <div class="mt">09:44</div></div></div>
+        <div class="mrow mine"><div class="voice bub me" style="border-radius:18px;border-bottom-right-radius:6px">
+          <span class="vbtn"><svg class="ic"><use href="#i-play"/></svg></span>
+          <div class="vbody"><div class="vbar"><div class="vfill"></div></div>
+            <div class="vmeta"><span>0:04</span><span>0:06</span></div></div>
+          <span class="vspd">1×</span>
+          <div class="mt" style="position:absolute;right:10px;bottom:4px"><span class="ticks"><svg class="ic"><use href="#i-check"/></svg></span></div>
+        </div></div>
+      </div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld typing">Waiting for the frames…</div>
+        <span class="cbtn"><svg class="ic"><use href="#i-send"/></svg></span>
+      </div>
+    </div>
+
+    <!-- search open light -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · Search open</span><span class="pchip">L</span></div>
+      <div class="ab search">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="fld"><svg class="ic s"><use href="#i-search"/></svg><span class="q">marigold</span></div>
+        <span class="cnt">1/2</span>
+        <span class="act"><svg class="ic"><use href="#i-chev-up"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-chev-dn"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-close"/></svg></span>
+      </div>
+      <div class="msgs" style="flex:1;padding-top:4px">
+        <div class="sep">Today</div>
+        <div class="mrow them"><div class="av xs">A</div>
+          <div style="max-width:82%"><div class="bub them"><div class="nm" style="color:#4A6FA5">Aarav</div>
+            did you see the capybara board?
+            <div class="mt">09:41</div></div></div></div>
+        <div class="mrow them hl-row mt">
+          <div class="av xs">M</div>
+          <div class="bub them">
+            <div class="nm" style="color:#0E9F6E">Meera</div>
+            pick <mark>marigold</mark>, it is warm
+            <div class="mt">09:44</div></div></div>
+        <div class="mrow mine hl-row cur" style="padding:2px 6px">
+          <div class="bub me">as a board accent — <mark class="cur">marigold</mark> it is
+          <div class="mt">09:46</div></div></div>
+      </div>
+      <div class="restrict" style="border-top:1px solid var(--p-line)">
+        <svg class="ic s"><use href="#i-search"/></svg>Searching — composer hidden while searching
+      </div>
+    </div>
+
+    <!-- search no results dark -->
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · No results</span><span class="pchip">D</span></div>
+      <div class="ab search">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="fld"><svg class="ic s"><use href="#i-search"/></svg><span class="q">penguin</span></div>
+        <span class="cnt">0/0</span>
+        <span class="act" style="opacity:.35"><svg class="ic"><use href="#i-chev-up"/></svg></span>
+        <span class="act" style="opacity:.35"><svg class="ic"><use href="#i-chev-dn"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-close"/></svg></span>
+      </div>
+      <div class="empty" style="flex:1;justify-content:center">
+        <svg class="capy" width="86" height="78" viewBox="0 0 200 180">
+          <circle cx="80" cy="52" r="12.5" fill="var(--mBody)"/><circle cx="150" cy="58" r="11" fill="var(--mBody)"/>
+          <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--mBody)"/>
+          <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--mSnout)"/>
+          <circle cx="88" cy="66" r="5.5" fill="var(--mFace)"/><circle cx="122" cy="62" r="5.5" fill="var(--mFace)"/>
+          <path d="M84 74q5 5 10 0" stroke="var(--mFace)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        </svg>
+        <div class="et">Nothing found</div>
+        <div class="es">No messages match “penguin”. Try another word.</div>
+      </div>
+      <div class="restrict" style="border-top:1px solid var(--p-line)">
+        <svg class="ic s"><use href="#i-search"/></svg>Searching
+      </div>
+    </div>
+
+    <!-- empty light -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · Empty conversation</span><span class="pchip">L</span></div>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av">M</div>
+        <div class="abt"><div class="abn">Meera</div><div class="abs">Last seen 2h ago</div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div class="empty" style="flex:1;justify-content:center">
+        <svg class="capy" width="108" height="97" viewBox="0 0 200 180" aria-label="Capybara waiting">
+          <circle cx="80" cy="52" r="12.5" fill="var(--mBody)"/><circle cx="150" cy="58" r="11" fill="var(--mBody)"/>
+          <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--mBody)"/>
+          <rect x="52" y="126" width="28" height="24" rx="12" fill="var(--mShade)"/>
+          <rect x="96" y="128" width="30" height="24" rx="12" fill="var(--mShade)"/>
+          <rect x="138" y="126" width="24" height="24" rx="11" fill="var(--mShade)"/>
+          <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--mSnout)"/>
+          <rect x="33" y="78" width="10" height="4.5" rx="2.25" transform="rotate(-20 38 80)" fill="var(--mNostril)"/>
+          <rect x="49" y="75" width="10" height="4.5" rx="2.25" transform="rotate(14 54 77)" fill="var(--mNostril)"/>
+          <path d="M35 114q9 7 18 0" stroke="var(--mNostril)" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <circle cx="88" cy="66" r="5.5" fill="var(--mFace)"/><circle cx="90.5" cy="63.5" r="2" fill="#FFF"/>
+          <circle cx="122" cy="62" r="5.5" fill="var(--mFace)"/><circle cx="124.5" cy="59.5" r="2" fill="#FFF"/>
+        </svg>
+        <div class="et">Say hello to Meera</div>
+        <div class="es">Messages here are end-to-end encrypted. Nobody else can read them.</div>
+      </div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld">Message</div>
+        <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+      </div>
+    </div>
+
+    <!-- loading light -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · Loading</span><span class="pchip">L</span></div>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av"></div>
+        <div class="abt"><div class="abn sk" style="height:14px;width:110px;border-radius:7px"></div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div class="msgs" style="flex:1;gap:10px;padding-top:16px">
+        <div class="sk c"></div>
+        <div class="mrow them"><div class="sk" style="width:62%"></div></div>
+        <div class="mrow mine"><div class="sk" style="width:44%"></div></div>
+        <div class="mrow them"><div class="sk" style="width:74%"></div></div>
+        <div class="mrow mine"><div class="sk" style="width:52%;height:88px"></div></div>
+        <div class="mrow them"><div class="sk" style="width:58%"></div></div>
+      </div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld">Message</div>
+        <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+      </div>
+    </div>
+
+    <!-- error dark -->
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · Error</span><span class="pchip">D</span></div>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av">M</div>
+        <div class="abt"><div class="abn">Meera</div><div class="abs">Offline</div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div class="msgs" style="flex:1;justify-content:center;padding:14px">
+        <div class="bann err"><svg class="ic s"><use href="#i-warn"/></svg>
+          Couldn’t load this chat.<span class="rt">Retry</span></div>
+      </div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld">Message</div>
+        <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+      </div>
+    </div>
+
+    <!-- offline light -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · Offline strip</span><span class="pchip">L</span></div>
+      <div class="ab">
+        <span class="bk"><svg class="ic"><use href="#i-back"/></svg></span>
+        <div class="av">M</div>
+        <div class="abt"><div class="abn">Meera</div><div class="abs">Last seen just now</div></div>
+        <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-dots"/></svg></span>
+      </div>
+      <div style="padding:8px 10px 0"><div class="bann"><svg class="ic s"><use href="#i-warn"/></svg>
+        You’re offline — messages will send when you’re back.<span class="rt">Retry now</span></div></div>
+      <div class="msgs" style="flex:1">
+        <div class="mrow them"><div class="bub them">did you see the capybara board?
+          <div class="mt">21:04</div></div></div>
+        <div class="mrow mine"><div class="bub me">sending when i’m back
+          <div class="mt"><span class="ticks"><svg class="ic"><use href="#i-clock"/></svg></span>21:06</div></div></div>
+      </div>
+      <div class="fabscroll"><svg class="ic"><use href="#i-down"/></svg></div>
+      <div class="cmp">
+        <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+        <div class="cfld">Message</div>
+        <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+      </div>
+    </div>
+
+  </div>
+  <div class="note"><b>Reading rules.</b> Loading = shape-matching skeleton (never a bare spinner). Terminal decrypt =
+  lock + “Can’t decrypt” (never skeleton — foundation §6). Offline = accentSoft strip with retry, never alarm-red.
+  Error = inline banner with retry inside the list area, composer stays usable.</div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S4 · APP BAR ═══════════ -->
+<section>
+  <p class="cap">S4 · App bar (default mode)</p>
+  <h2>One bar, four subtitle variants</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink);--p-success:var(--success)">
+      <span class="st">1:1 · presence variants</span>
+      <div class="demo">
+        <div class="ab" style="padding-left:0"><div class="av">M</div>
+          <div class="abt"><div class="abn">Meera</div><div class="abs on"><span class="dot"></span>Online</div></div></div>
+        <div class="ab" style="padding-left:0"><div class="av">M</div>
+          <div class="abt"><div class="abn">Meera</div><div class="abs" style="color:var(--info);font-weight:600"><span class="tdots"><i></i><i></i><i></i></span>typing…</div></div></div>
+        <div class="ab" style="padding-left:0"><div class="av">M</div>
+          <div class="abt"><div class="abn">Meera</div><div class="abs">In chat</div></div></div>
+        <div class="ab" style="padding-left:0"><div class="av">M</div>
+          <div class="abt"><div class="abn">Meera</div><div class="abs">Last seen 2h ago</div></div></div>
+      </div>
+      <div class="rule"><b>Subtitle truth order:</b> typing… → In chat → Online → Last seen → Offline.
+      Online carries a 6px success dot; typing gets animated dots + info color; others plain inkSoft. Never two states at once.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink);--p-success:var(--success)">
+      <span class="st">Group · member count</span>
+      <div class="demo">
+        <div class="ab" style="padding-left:0"><div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+          <div class="abt"><div class="abn">Design Squad</div><div class="abs">4 members</div></div></div>
+        <div class="ab" style="padding-left:0"><div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+          <div class="abt"><div class="abn">Design Squad</div><div class="abs">1 member</div></div></div>
+      </div>
+      <div class="rule"><b>Group:</b> avatar + group-glyph badge; subtitle = live member count (singular/plural). No presence for groups.
+      Tap avatar/name (group) → Group Info; (1:1) → Profile. 48dp targets.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Actions &amp; targets</span>
+      <div class="lgd">
+        <p><b>Back</b> 32dp glyph, 48dp target — system back gesture always works (never intercepted).</p>
+        <p><b>Search</b> 34dp glyph → S5 mode swap (crossfade 150ms ms — MorphBar: name block ↔ field).</p>
+        <p><b>Dots</b> → S17 menu sheet.</p>
+        <p><b>Overflow names:</b> name ellipsizes; avatar never shrinks. Bar height 52dp, bg = page bg (no elevation line).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S5 · SEARCH ═══════════ -->
+<section>
+  <p class="cap">S5 · Search mode</p>
+  <h2>Open, results, no-results, exit</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Bar · open state</span>
+      <div class="ab search" style="padding-left:0">
+        <div class="fld"><svg class="ic s"><use href="#i-search"/></svg><span class="q">marigold</span></div>
+        <span class="cnt">1/2</span>
+        <span class="act"><svg class="ic"><use href="#i-chev-up"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-chev-dn"/></svg></span>
+        <span class="act"><svg class="ic"><use href="#i-close"/></svg></span>
+      </div>
+      <div class="rule"><b>Swap:</b> back-arrow remains; name block crossfades into pill field (150ms); field autofocuses,
+      keyboard up. <b>Counter</b> “i/N” tabular-nums; chevrons step prev/next match; typing ≥1 char starts a <b>200ms-debounced</b>
+      search (generation-token cancels stale runs). <b>Composer + pinned banner hide during search</b> (established behavior,
+      now explicit); close (✕) restores both with the same 150ms crossfade.</div>
+      <div class="rule"><b>Empty query:</b> no counter, no chevrons, list un-highlighted. <b>Typing:</b> no spinner —
+      highlight lands when results arrive; stale matches clear immediately.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Match rendering</span>
+      <div class="demo">
+        <div class="hl-row mt" style="padding:4px"><div class="bub them" style="max-width:100%">pick <mark>marigold</mark>, it is warm</div></div>
+        <div class="hl-row cur" style="padding:4px"><div class="bub me" style="max-width:100%">as a board accent — <mark class="cur">marigold</mark> it is</div></div>
+      </div>
+      <div class="rule"><b>Two levels:</b> current match = row tint accent@8% + in-text mark accent@30%; other matches = row accent@4% + mark
+      accentSoft. Row tint animates 200ms; the tint is <b>flashing on jump</b> for all jump sources (S16) — search keeps the
+      persistent tint while the query lives. <b>In-text mark is new</b> (today: row-only).</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">No results</span>
+      <div class="demo" style="align-items:center;text-align:center;padding:8px 0">
+        <svg class="capy" width="64" height="58" viewBox="0 0 200 180">
+          <circle cx="80" cy="52" r="12.5" fill="var(--mBody)"/><circle cx="150" cy="58" r="11" fill="var(--mBody)"/>
+          <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--mBody)"/>
+          <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--mSnout)"/>
+          <circle cx="88" cy="66" r="5.5" fill="var(--mFace)"/><circle cx="122" cy="62" r="5.5" fill="var(--mFace)"/>
+          <path d="M84 74q5 5 10 0" stroke="var(--mFace)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        </svg>
+        <div style="font-weight:800;font-size:14px">Nothing found</div>
+        <div class="rule" style="max-width:28ch">Mascot (sleepy mood) + “No messages match ‘{q}’.” List dims to 40% beneath — results region never looks broken.</div>
+      </div>
+    </div>
+    <div class="spec" style="background:var(--surface2)">
+      <span class="st">Search mechanics (pinned)</span>
+      <ul class="laws">
+        <li>Decrypt-on-query via <b>#body</b> — every searched body goes through <b>C1/MessageBodyText</b>; never raw ciphertext, never a stored index.</li>
+        <li>Ephemeral — nothing persisted; closing search clears query + matches.</li>
+        <li>Match navigation wraps (last→first→…); Enter/Next-keyboard = next match.</li>
+        <li>Keyboard stays up through next/prev; only close dismisses it.</li>
+        <li><b>Terminal/key_missing bodies are searchable only by their decrypted text</b> — no match on placeholder labels.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S6 · LIST SHELL ═══════════ -->
+<section>
+  <p class="cap">S6 · Message list shell</p>
+  <h2>Scroll, separators, load-more, scroll-to-latest</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Date separator</span>
+      <div class="demo" style="align-items:center;gap:6px">
+        <span class="sep" style="align-self:center">Today</span>
+        <span class="sep" style="align-self:center">Yesterday</span>
+        <span class="sep" style="align-self:center">12 October 2026</span>
+      </div>
+      <div class="rule">Pill surface2, 10.5/600 inkSoft, centered, 12px radius… wait — <b>999 pill</b> (round). Inserted above the <b>first</b> message of each day.
+      Labels: Today · Yesterday · “d MMMM” (this year) · “d MMMM y” (older + always includes year when ≠ current). Rollover at midnight re-renders while open.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Load older · history ends</span>
+      <div class="demo">
+        <div style="height:3px;border-radius:2px;background:var(--surface2);overflow:hidden;position:relative"><i style="display:block;height:100%;width:100%;background:var(--accent);border-radius:2px;animation:slide 1.2s ease-in-out infinite"></i></div>
+        <div class="rule" style="text-align:center;margin-top:4px">top bar while loading (3px accent, indeterminate)</div>
+        <div class="sys" style="margin-top:6px">This is the beginning of your chat with Meera</div>
+      </div>
+      <div class="rule">Pull-up near top (≤200px) auto-loads 40 older messages; while loading show the 3px bar.
+      When the server has no more rows: one-time centered system pill <b>“This is the beginning of your chat”</b> — then the bar never appears again. New (previously absent) end-marker.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Scroll-to-latest FAB</span>
+      <div class="demo row" style="justify-content:center">
+        <span class="fabscroll" style="margin:0;position:static"><svg class="ic"><use href="#i-down"/></svg></span>
+        <span class="fabscroll" style="margin:0;position:static;border-color:color-mix(in srgb, var(--accent) 55%, transparent);color:var(--accent)"><svg class="ic"><use href="#i-down"/></svg><span style="position:absolute;transform:translate(14px,-12px);width:16px;height:16px;border-radius:50%;background:var(--accent);color:var(--onAccent);font-size:9px;font-weight:800;display:grid;place-items:center">3</span></span>
+      </div>
+      <div class="rule">Appears when scrolled >1 viewport from newest: 34dp circle surface2 + line border; accent ring + count badge when unread arrived below.
+      Tap → 250ms animateTo newest. Keyboard-open → auto-scrolls to keep latest visible (reverse-list contract; today missing).</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Sender runs (group only)</span>
+      <div class="demo">
+        <div class="mrow them"><div class="av xs">A</div>
+          <div style="display:flex;flex-direction:column;gap:3px;max-width:80%">
+            <div class="bub them" style="border-radius:18px;border-bottom-left-radius:18px"><div class="nm" style="color:#4A6FA5">Aarav</div>did you see the board?</div>
+            <div class="bub them" style="border-radius:18px">and the marigold chips?</div>
+            <div class="bub them" style="border-radius:18px;border-bottom-left-radius:6px">third one, i mean</div>
+            <div class="mt" style="justify-content:flex-start;opacity:.66;padding-left:2px">09:44</div>
+          </div></div>
+      </div>
+      <div class="rule"><b>New rule:</b> consecutive messages from one sender (≤2 min apart) form a run — avatar + name on the <b>first</b> bubble only,
+      middle bubbles square-ish (18/18 except tail side = 18), last bubble gets the tail + timestamp. 1:1 = same mechanics minus avatar/name.
+      Runs never cross a date separator.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S7 · BUBBLES ═══════════ -->
+<section>
+  <p class="cap">S7 · Bubble anatomy</p>
+  <h2>Text · emoji · system — the three chrome forms</h2>
+  <div class="grid2">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Text bubble · all states</span>
+      <div class="demo">
+        <div class="mrow mine"><div class="bub me">regular outgoing, one line<div class="mt"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>09:42</div></div></div>
+        <div class="mrow them"><div class="bub them">incoming — long text wraps here and keeps a comfortable measure even when the content runs on for a while so the bubble can’t become a wall<div class="mt">09:43</div></div></div>
+        <div class="mrow mine"><div class="bub me del">🚫 Message deleted</div></div>
+        <div class="mrow mine"><div class="bub me" style="outline:2px solid color-mix(in srgb, var(--accent) 55%, transparent)">selected for multi-select (S15)</div></div>
+        <div class="mrow them"><div class="bub them" style="background:var(--p-error);color:#fff"><div class="nm" style="color:#fff">Failed to send</div>
+          could not encrypt — tap for details<div class="mt" style="color:#fff;opacity:.85"><svg class="ic s"><use href="#i-warn"/></svg>Retry · Delete</div></div></div>
+      </div>
+      <ul class="laws">
+        <li><b>Radius:</b> 18; tail corner 6 (mine bottom-right, theirs bottom-left). Max width 84%.</li>
+        <li><b>Mine:</b> accent fill + onAccent text. <b>Theirs:</b> surface + ink. Shadow: one warm layer ink@6% (mine only).</li>
+        <li><b>Timestamp:</b> 10.5/400, in-bubble bottom-right, mine onAccent@66%, theirs inkSoft@66%; + tick glyph when mine.</li>
+        <li><b>Long tokens:</b> URLs/words wrap (<code>word-break:break-word</code>); never horizontal overflow.</li>
+        <li><b>No forwarded/edited labels exist today</b> — if added later they sit as an 11px inkSoft line above the body (out of scope, not designed here).</li>
+      </ul>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Emoji-only &amp; system</span>
+      <div class="demo">
+        <div class="mrow mine"><div style="text-align:right"><div style="font-size:40px;line-height:1.15">🎉</div><div class="mt" style="color:var(--inkSoft)"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>09:45</div></div></div>
+        <div class="mrow mine"><div style="text-align:right"><div style="font-size:40px;line-height:1.15">🎉🥳</div><div class="mt" style="color:var(--inkSoft)">09:46</div></div></div>
+        <div class="sys"><svg class="ic"><use href="#i-timer"/></svg>Meera turned on disappearing messages</div>
+        <div class="sys"><svg class="ic"><use href="#i-group"/></svg>Aarav joined the group</div>
+        <div class="sys"><svg class="ic"><use href="#i-person"/></svg>Meera left</div>
+        <div class="sys"><svg class="ic"><use href="#i-lock"/></svg>Encryption keys rotated</div>
+      </div>
+      <ul class="laws">
+        <li><b>Emoji-only</b> (1–3 glyphs, no other chars): no chrome, 40px, time+tick below on page bg. Both sides same size; alignment mine right / theirs left. 4+ glyphs stay inside a normal bubble.</li>
+        <li><b>System pills:</b> centered, surface2, italic 11.5, radius 10, leading 12px icon, max 86%. No long-press, no swipe, no reactions. Not deletable-ui.</li>
+        <li><b>Icon taxonomy (new):</b> timer = disappearing · group = join/leave · person = member events · lock = key/encryption · info = completion. Same 16px stroke set as everywhere.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S8 · REPLY ═══════════ -->
+<section>
+  <p class="cap">S8 · Reply system</p>
+  <h2>Quote in bubble · composer strip · swipe gesture</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">In-bubble quote</span>
+      <div class="demo">
+        <div class="mrow them"><div class="bub them">
+          <div class="quo"><div class="qn">you</div><div class="qp">on my way to the studio now</div></div>
+          the marigold one, right?<div class="mt">09:44</div></div></div>
+        <div class="mrow mine"><div class="bub me">
+          <div class="quo"><div class="quorow"><div class="th"><svg class="ic"><use href="#i-photo"/></svg></div>
+            <div style="min-width:0"><div class="qn">Meera</div><div class="qp">sending the frames in a sec</div></div></div></div>
+          just sent them over<div class="mt"><span class="ticks"><svg class="ic"><use href="#i-check"/></svg></span>09:45</div></div></div>
+        <div class="mrow them"><div class="bub them del">
+          <div class="quo" style="opacity:.6"><div class="qn">you</div><div class="qp">old message</div></div>
+          🚫 Message deleted</div></div>
+      </div>
+      <ul class="laws">
+        <li>Quote: 3px accent left rule, radius 10, sender 10.5/700 + one-line preview (ellipsis).</li>
+        <li>Mine-on-accent: quote bg = white@12%; theirs: accentSoft. Deleted parent: quote dims 60% + preview “Message deleted”.</li>
+        <li>Media parent → 34px thumb (image/video) or type icon + label; body always via #body 'preview' (never stored string).</li>
+        <li><b>Tap quote → jump to parent</b> (S16 flash). Unavailable parent → toast “Message not in this chat”.</li>
+      </ul>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Composer strip + swipe</span>
+      <div class="demo">
+        <div style="border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden">
+          <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 11px;border-bottom:1px solid var(--line);background:var(--surface2)">
+            <div style="width:3px;align-self:stretch;border-radius:2px;background:var(--accent)"></div>
+            <div style="min-width:0;flex:1">
+              <div style="font-size:10.5px;font-weight:700;color:var(--accent)">Replying to Meera</div>
+              <div style="font-size:11.5px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">pick marigold, it is warm</div>
+            </div>
+            <span style="color:var(--inkFaint);flex:none"><svg class="ic s"><use href="#i-close"/></svg></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px">
+            <span style="color:var(--inkSoft)"><svg class="ic m"><use href="#i-attach"/></svg></span>
+            <div style="flex:1;background:var(--surface2);border-radius:999px;padding:9px 14px;color:var(--inkFaint);font-size:13px">Message</div>
+            <span style="width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--onAccent);display:grid;place-items:center"><svg class="ic"><use href="#i-send"/></svg></span>
+          </div>
+        </div>
+        <div class="demo row" style="gap:18px;justify-content:center;padding:6px 0">
+          <div style="position:relative;width:150px">
+            <div class="bub them" style="transform:translateX(26px);border-bottom-left-radius:6px;opacity:.55">did you see…</div>
+            <span style="position:absolute;left:0;top:50%;transform:translateY(-50%);color:var(--accent)"><svg class="ic m"><use href="#i-reply"/></svg></span>
+          </div>
+        </div>
+      </div>
+      <ul class="laws">
+        <li><b>Strip</b> (new sender label — was literal “Reply”): shows real name + preview, appears above composer; cancel clears.</li>
+        <li>Strip hidden state is only while recording; after recording ends the strip returns (reply context never silently lost).</li>
+        <li><b>Swipe:</b> right-drag on any bubble, clamp 80, icon fades/scales in to 72px threshold → medium haptic → strip appears with 150ms slide. Sends once per gesture (elastic 180ms back). Swipe works both directions of the screen for both sides (established).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S9 · REACTIONS ═══════════ -->
+<section>
+  <p class="cap">S9 · Reactions</p>
+  <h2>Chips under bubble · detail sheet · add affordance</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Chips</span>
+      <div class="demo">
+        <div class="reax" style="justify-content:flex-start"><span class="rchip on">❤️ 2</span><span class="rchip">🥹 1</span><span class="rchip add">＋</span></div>
+        <div class="reax" style="justify-content:flex-start"><span class="rchip">👍 1</span><span class="rchip">🔥 4</span><span class="rchip add">＋</span></div>
+      </div>
+      <ul class="laws">
+        <li>Chips sit 4px under the bubble, aligned to bubble side. Mine-reacted: accentSoft + accent@50% border; others surface + line.</li>
+        <li><b>Pop on change (new):</b> chip scales 1→1.12→1 (250ms spring) when count changes; reduced-motion = instant.</li>
+        <li><b>Tap = toggle</b> (new — was sheet-open): tap mine removes, tap other adds. <b>Long-press chip = detail sheet.</b></li>
+        <li><b>Ghost ＋</b> appears when ≥1 reaction exists (new): tap opens the 32-emoji mini picker popover anchored to chip row (same set as long-press sheet).</li>
+      </ul>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Detail sheet</span>
+      <div class="demo">
+        <div class="sheet">
+          <div class="handle"></div>
+          <div style="font-weight:800;font-size:14px">❤️ 2 reactions</div>
+          <div class="sitem" style="padding:6px 4px"><div class="av sm" style="width:30px;height:30px">M</div>Meera</div>
+          <div class="sitem" style="padding:6px 4px"><div class="av sm" style="width:30px;height:30px">A</div>Aarav</div>
+          <div class="sitem err" style="padding:6px 4px"><div class="av sm" style="width:30px;height:30px">Y</div>You<small style="color:var(--error)">Remove</small></div>
+        </div>
+      </div>
+      <div class="rule">Sheet: radius 20 top, 16px side padding, avatars real images (new — was generic glyph), own row shows Remove in error color.
+      Tapping outside dismisses; swiping down dismisses.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S10 · TICK LEGEND ═══════════ -->
+<section>
+  <p class="cap">S10 · Delivery ticks — ONE canonical legend</p>
+  <h2>One language for every bubble and media type</h2>
+  <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+    <div class="demo row" style="gap:22px;row-gap:14px">
+      <span class="chip"><svg class="ic s" style="stroke:var(--inkFaint)"><use href="#i-clock"/></svg>queued (offline)</span>
+      <span class="chip"><span style="width:13px;height:13px;border-radius:50%;border:2px solid var(--inkFaint);border-top-color:transparent;display:inline-block"></span>sending…</span>
+      <span class="chip"><svg class="ic s" style="stroke:var(--inkSoft)"><use href="#i-check"/></svg>sent</span>
+      <span class="chip"><svg class="ic s" style="stroke:var(--inkSoft);opacity:.54"><use href="#i-check2"/></svg>delivered</span>
+      <span class="chip"><svg class="ic s" style="stroke:var(--info)"><use href="#i-check2"/></svg>read</span>
+      <span class="chip" style="color:var(--error);border-color:var(--error)"><svg class="ic s" style="stroke:var(--error)"><use href="#i-warn"/></svg>failed</span>
+    </div>
+    <ul class="laws">
+      <li><b>Read (new):</b> double-check in <b>info blue</b> — today read is same-color as delivered (54% vs 100% opacity); color distinguishes at a glance.</li>
+      <li>Delivered opacity 54%; sent solid inkSoft; all ticks ≤13px, 2.4 stroke.</li>
+      <li>Every surface with a tick (text bubble, emoji pair, image/video overlay pill, voice, document) uses THIS set — one widget, no local variants.</li>
+      <li>Failed on any type → warn glyph + error color + the row-level retry affordance (S18).</li>
+    </ul>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S11 · DECRYPT BODY ═══════════ -->
+<section>
+  <p class="cap">S11 · Encrypted body rendering (C1 / MessageBodyText) — preserves a70f020</p>
+  <h2>Skeleton → text · terminal states</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Transient (decrypting)</span>
+      <div class="demo">
+        <div class="mrow mine"><div class="bub me"><div class="sk" style="height:12px;width:150px;border-radius:6px;background:color-mix(in srgb, var(--onAccent) 22%, transparent)"></div>
+          <div class="sk" style="height:12px;width:96px;border-radius:6px;margin-top:6px;background:color-mix(in srgb, var(--onAccent) 22%, transparent)"></div></div></div>
+      </div>
+      <div class="rule">Bars sized from <b>ciphertext length only</b> (never plaintext), alpha 0.10 during first 150ms → 0.18; mine-on-accent uses onAccent at same alphas.
+      Pop-in swap to text = 100ms fade. <b>Whole-bubble skeleton is now APPROVED</b> (user’s optional-polish note): while transient, the bubble chrome also renders as a skeleton shell — radius/color identical to a resolved bubble, bars inside. Terminal states still render on REAL chrome (below) — never a skeleton shell.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Terminal — can’t decrypt</span>
+      <div class="demo">
+        <div class="mrow them"><div class="bub them" style="display:flex;align-items:center;gap:7px;color:var(--inkSoft)">
+          <svg class="ic" style="stroke:var(--inkSoft)"><use href="#i-lock"/></svg><span style="font-size:12.5px">Can’t decrypt</span></div></div>
+        <div class="mrow them"><div class="bub them" style="display:flex;align-items:center;gap:7px;color:var(--error)">
+          <svg class="ic" style="stroke:var(--error)"><use href="#i-warn"/></svg><span style="font-size:12.5px">Can’t decrypt</span></div></div>
+      </div>
+      <ul class="laws">
+        <li>key_missing → lock glyph + “Can’t decrypt”; failed → warn glyph + same words. <b>Real bubble chrome</b>, inkSoft/error text, 12.5px.</li>
+        <li>Never skeleton, never blank, never ciphertext. These rows are searchable/jumpable targets but never match a text query.</li>
+        <li><b>New:</b> a 12px inkFaint sub-line “Ask them to resend” sits under the label (guidance the old state lacked).</li>
+      </ul>
+    </div>
+    <div class="spec" style="background:var(--surface2)">
+      <span class="st">Pinned behavior laws (from a70f020)</span>
+      <ul class="laws">
+        <li>Cache fast-path synchronous on first frame; own-sent bodies never flash a placeholder.</li>
+        <li>Sticky last-body: purge/empty emission never reverts text to bars.</li>
+        <li>100ms size-lock then AnimatedSize settle; no permanent over-reserve.</li>
+        <li>ReplyQuote + pinned banner preview share this exact machine ('preview' slot).</li>
+        <li>Reduced-motion: swaps/settles become instant; bars still appear.</li>
+        <li>Mandatory re-run gates: <code>message_body_text_loading_test</code>, <code>pinned_message_banner_loading_test</code>, <code>placeholder_ui_test</code>, <code>read_paths_char_test</code>, <code>sealed_preview_test</code>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S12 · PINNED BANNER ═══════════ -->
+<section>
+  <p class="cap">S12 · Pinned message banner</p>
+  <h2>States · jump vs cycle</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Single &amp; multi</span>
+      <div class="demo">
+        <div class="pinb" style="border:1px solid var(--line);border-radius:var(--r-md);border-bottom:1px solid var(--line)">
+          <svg class="ic s"><use href="#i-pin"/></svg>
+          <div class="pt"><div class="pl">Pinned</div><div class="pp">pick marigold, it is warm…</div></div>
+        </div>
+        <div class="pinb" style="border:1px solid var(--line);border-radius:var(--r-md)">
+          <svg class="ic s"><use href="#i-pin"/></svg>
+          <div class="pt"><div class="pl">Pinned · 2/2</div><div class="pp">🎤 Voice · 0:06</div></div>
+          <span style="display:flex;color:var(--p-inkFaint)"><svg class="ic s"><use href="#i-chev-up"/></svg><svg class="ic s"><use href="#i-chev-dn"/></svg></span>
+        </div>
+        <div class="pinb" style="border:1px solid var(--line);border-radius:var(--r-md)">
+          <svg class="ic s"><use href="#i-pin"/></svg>
+          <div class="pt"><div class="pl">Pinned</div><div class="pp" style="display:flex;align-items:center;gap:5px;color:var(--p-inkSoft)"><svg class="ic s" style="stroke:var(--p-inkFaint)"><use href="#i-lock"/></svg>Can’t decrypt</div></div>
+        </div>
+      </div>
+      <ul class="laws">
+        <li><b>No left color stripe</b> (was 3px accent bar — foundation bans side stripes). Pin glyph carries the accent instead.</li>
+        <li>Full-width surface strip, bottom hairline line@100%, threads decrypt state into preview (never “🔒 Encrypted”).</li>
+        <li><b>Chevrons = cycle without jumping</b> (new, fixes tap-conflation): ▲▼ step through pins in place.</li>
+        <li><b>Tap on preview text = jump</b> (S16 flash). Tap on chevrons never jumps.</li>
+        <li>Hidden during search (S5); reappears on close. Height 44dp.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S13 · MEDIA ═══════════ -->
+<section>
+  <p class="cap">S13 · Media bubbles — every type</p>
+  <h2>Image · video · voice · document · link preview · optimistic · expiry</h2>
+  <div class="phones">
+
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · media stack</span><span class="pchip">L</span></div>
+      <div class="msgs" style="flex:1">
+        <!-- IMAGE -->
+        <div class="mrow them"><div class="media">
+          <div class="ph"><svg class="ic m"><use href="#i-photo"/></svg></div>
+          <div class="ovpill"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span>09:45</div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--inkFaint);margin-top:-6px">image · 4:3 thumb → tap opens viewer</div>
+        <!-- VIDEO -->
+        <div class="mrow mine"><div class="media" style="background:var(--accent)">
+          <div class="ph" style="color:color-mix(in srgb, var(--onAccent) 45%, transparent)"><svg class="ic m"><use href="#i-video"/></svg></div>
+          <span class="playc"><svg class="ic"><use href="#i-play"/></svg></span>
+          <span class="durpill"><svg class="ic"><use href="#i-video"/></svg>0:24</span>
+          <div class="ovpill"><span class="ticks"><svg class="ic"><use href="#i-check"/></svg></span>09:46</div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--inkFaint);margin-top:-6px">video · play overlay + duration · tap → viewer</div>
+        <!-- VOICE -->
+        <div class="mrow them"><div class="bub them voice" style="padding-right:34px">
+          <span class="vbtn"><svg class="ic f"><use href="#i-play"/></svg></span>
+          <div class="vbody"><div class="vbar"><div class="vfill"></div></div>
+            <div class="vmeta"><span>0:04</span><span>0:12</span></div></div>
+          <span class="vspd">1×</span>
+          <div class="mt" style="position:absolute;right:10px;top:7px"><svg class="ic s" style="stroke:var(--p-inkFaint)"><use href="#i-timer"/></svg></div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--inkFaint);margin-top:-6px">voice · play + speed pill + progress + expiry glyph</div>
+        <!-- DOC -->
+        <div class="mrow mine"><div class="bub me doc" style="padding-right:12px">
+          <span class="dtile"><svg class="ic"><use href="#i-doc"/></svg></span>
+          <div class="dbody"><div class="dname">brand-guidelines-v3.pdf</div><div class="dsize">2.4 MB · PDF</div></div>
+          <svg class="ic" style="opacity:.75"><use href="#i-down"/></svg>
+          <div class="mt" style="position:absolute;right:10px;bottom:4px"><span class="ticks"><svg class="ic"><use href="#i-check2"/></svg></span></div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--inkFaint);margin-top:-6px">document · type tile + name + size + download</div>
+        <!-- LINK PREVIEW -->
+        <div class="mrow them"><div class="bub them" style="min-width:220px">
+          check this board <span style="color:var(--info);text-decoration:underline;text-underline-offset:2px">kokonutui.com/dock</span>
+          <div class="lprev"><div class="lth">PREVIEW IMAGE</div>
+            <div class="lb"><div class="lt">Kokonut UI — Dock component</div><div class="lu">kokonutui.com</div></div></div>
+          <div class="mt">09:47</div>
+        </div></div>
+        <!-- OPTIMISTIC -->
+        <div class="mrow mine"><div class="bub me" style="display:flex;align-items:center;gap:9px;color:var(--onAccent)">
+          <span class="dtile" style="background:color-mix(in srgb, var(--onAccent) 14%, transparent)"><svg class="ic" style="stroke:var(--onAccent)"><use href="#i-doc"/></svg></span>
+          <span style="font-size:12.5px;font-weight:600">brand-guidelines-v3.pdf</span>
+          <span style="width:13px;height:13px;border-radius:50%;border:2px solid color-mix(in srgb, var(--onAccent) 55%, transparent);border-top-color:transparent;display:inline-block"></span>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--inkFaint);margin-top:-6px">optimistic (uploading) — type tile + name, spinner. Was a generic 140px box.</div>
+      </div>
+    </div>
+
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · expiry &amp; failure states</span><span class="pchip">D</span></div>
+      <div class="msgs" style="flex:1">
+        <div class="mrow them"><div class="media">
+          <div class="ph"><svg class="ic m"><use href="#i-photo"/></svg></div>
+          <div class="expb"><svg class="ic"><use href="#i-timer"/></svg>23h</div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--dInkSoft);margin-top:-6px">unified ExpiryBadge — top-right, all media types</div>
+        <div class="mrow them"><div class="media" style="width:210px">
+          <div class="ph" style="opacity:.5;display:flex;flex-direction:column;gap:5px;color:var(--dInkSoft)"><svg class="ic m" style="stroke:var(--dInkSoft)"><use href="#i-timer"/></svg><span style="font-size:10.5px;font-weight:700">Media expired</span></div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--dInkSoft);margin-top:-6px">expired — one placeholder pattern for img/vid/voice/doc</div>
+        <div class="mrow mine"><div class="bub me" style="background:var(--p-error)"><div class="dname" style="font-size:12px">report.pdf</div>
+          <div class="mt" style="color:#fff;opacity:.9"><svg class="ic s"><use href="#i-warn"/></svg>Failed — tap to retry</div></div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--dInkSoft);margin-top:-6px">media send failure — error fill + retry hint</div>
+        <div class="mrow them"><div class="media" style="width:210px">
+          <div class="ph" style="opacity:.6"><div style="width:22px;height:22px;border-radius:50%;border:2.5px solid var(--dInkSoft);border-top-color:transparent"></div></div>
+          <div class="ovpill" style="background:rgba(20,16,10,.7)">Downloading 68%</div>
+        </div></div>
+        <div class="rule" style="font-size:10.5px;color:var(--dInkSoft);margin-top:-6px">download progress (new: was spinner-only)</div>
+      </div>
+    </div>
+
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Media laws</span>
+      <ul class="laws">
+        <li><b>Width:</b> image/video 210dp max, aspect-preserved (AR from media dims); voice ≥190dp; doc ≥210dp. Side margins: <b>12 both sides + 64 on the far side</b> — fixes the video 12/12 inconsistency.</li>
+        <li><b>Overlay pill</b> (time+tick) identical on image/video; black@55%, cream text 10px. Mine bubble = accent 2px ring (not a fill) so media colors stay true.</li>
+        <li><b>Voice:</b> play circle 30, bar 3px, speed pill cycles 1×→1.5×→2×, remaining time left / total right. Expiry as 12px timer glyph in the header row (replaces long text label).</li>
+        <li><b>Document:</b> 38 tile, name wraps 2 lines max, size + type. Download = down-arrow; in-flight = 13px spinner replacing arrow.</li>
+        <li><b>Link preview:</b> first URL auto-preview card (72px thumb + title + domain). No thumb → surface2 block with domain monogram. Caption text stays the bubble body; URL renders info-blue underlined.</li>
+        <li><b>Optimistic placeholder (new):</b> per-type — image = 160×120 skeleton block; video = same + play ghost; voice = full voice row with spinner on play; doc = tile + name + spinner. <b>Never one generic box.</b></li>
+        <li><b>Expiry:</b> one <code>ExpiryBadge</code> (timer + “23h”/“1d”) top-right on every type; expired content = one placeholder (dim + glyph + “Media expired”). Replaces today’s three divergent patterns.</li>
+        <li><b>Handoff:</b> image/video tap → MediaViewerScreen (Hero, full-res, download action). Chat never plays video inline.</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S14 · COMPOSER ═══════════ -->
+<section>
+  <p class="cap">S14 · Composer — every mode</p>
+  <h2>Normal · recording · voice preview · uploads · attach · restriction</h2>
+  <div class="phones">
+
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · input modes</span><span class="pchip">L</span></div>
+      <div style="display:flex;flex-direction:column;gap:0;margin-top:auto">
+        <div class="rule" style="padding:8px 14px 2px;font-size:10.5px;color:var(--inkFaint)">normal · empty (mic) ↔ typed (send)</div>
+        <div class="cmp" style="border-top:none">
+          <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+          <div class="cfld">Message</div>
+          <span class="cbtn mic"><svg class="ic"><use href="#i-mic"/></svg></span>
+        </div>
+        <div class="cmp">
+          <span class="att"><svg class="ic m"><use href="#i-attach"/></svg></span>
+          <div class="cfld typing">pick marigold, it is warm|</div>
+          <span class="cbtn"><svg class="ic"><use href="#i-send"/></svg></span>
+        </div>
+        <div class="rule" style="padding:8px 14px 2px;font-size:10.5px;color:var(--inkFaint)">recording · pulse + timer + slide-to-cancel</div>
+        <div class="cmp" style="background:color-mix(in srgb, var(--error) 6%, var(--surface))">
+          <span class="recdot"></span>
+          <div class="rec"><div class="rect">0:07</div>
+            <div class="rech"><svg class="ic s"><use href="#i-chev-up"/></svg>Slide to cancel</div></div>
+          <span class="cbtn"><svg class="ic"><use href="#i-send"/></svg></span>
+        </div>
+        <div class="rule" style="padding:8px 14px 2px;font-size:10.5px;color:var(--inkFaint)">voice preview · before send</div>
+        <div class="cmp">
+          <span class="att"><svg class="ic"><use href="#i-close"/></svg></span>
+          <div class="cfld" style="display:flex;align-items:center;gap:8px">
+            <span style="color:var(--accent)"><svg class="ic s f" style="fill:currentColor;stroke:none"><use href="#i-play"/></svg></span>
+            <span class="vbar" style="flex:1"><span class="vfill"></span></span>
+            <span style="font-size:11px;font-variant-numeric:tabular-nums">0:07</span>
+          </div>
+          <span class="cbtn"><svg class="ic"><use href="#i-send"/></svg></span>
+        </div>
+        <div class="rule" style="padding:8px 14px 2px;font-size:10.5px;color:var(--inkFaint)">uploads · determinate (video) &amp; indeterminate (photo/doc) — with cancel</div>
+        <div class="cmp">
+          <div class="upl" style="padding:0 2px">
+            <div class="l1"><span>Compressing video… 62%</span></div>
+            <div class="bar"><i style="width:62%"></i></div>
+          </div>
+          <span class="ucancel"><svg class="ic"><use href="#i-close"/></svg></span>
+        </div>
+        <div class="cmp">
+          <div class="upl" style="padding:0 2px">
+            <div class="l1"><span>Sending photo…</span></div>
+            <div class="bar ind"><i></i></div>
+          </div>
+          <span class="ucancel"><svg class="ic"><use href="#i-close"/></svg></span>
+        </div>
+        <div class="rule" style="padding:8px 14px 2px;font-size:10.5px;color:var(--inkFaint)">restriction · read-only composer</div>
+        <div class="restrict"><svg class="ic s"><use href="#i-lock"/></svg>Only admins can send messages here</div>
+      </div>
+    </div>
+
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · attach sheets</span><span class="pchip">D</span></div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding:10px">
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="sitem"><svg class="ic"><use href="#i-photo"/></svg>Camera</div>
+          <div class="sitem"><svg class="ic"><use href="#i-photo"/></svg>Photo library</div>
+          <div class="sitem"><svg class="ic"><use href="#i-video"/></svg>Record video</div>
+          <div class="sitem"><svg class="ic"><use href="#i-video"/></svg>Video library</div>
+          <div class="sitem"><svg class="ic"><use href="#i-doc"/></svg>Document</div>
+        </div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div style="font-weight:800;font-size:13px;padding:0 4px 6px">Send quality</div>
+          <div class="sitem"><svg class="ic"><use href="#i-photo"/></svg>Normal<small>720p · 60% · 1280px</small></div>
+          <div class="sitem" style="color:var(--p-accent)"><svg class="ic" style="stroke:var(--p-accent)"><use href="#i-photo"/></svg>High<small style="color:var(--p-accent)">1080p · 90% · 2560px</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Composer laws</span>
+      <ul class="laws">
+        <li><b>Attach icon = paperclip</b> (was image-glyph while opening all media). 36dp glyph / 48dp target.</li>
+        <li><b>Mic↔send morph (new):</b> 250ms scale/fade swap inside one 38dp slot as the field goes empty↔non-empty; no layout shift.</li>
+        <li>Field: surface2 pill, radius 999, 1–5 lines, 15px text max-height cap. Send = accent FAB; while sending, spinner replaces icon (fix dead <code>isLoading</code> wiring).</li>
+        <li><b>Recording:</b> pulse dot 11 (1.6s), timer error-colored tabular, threshold copy “Release to cancel” when dragX < −80; auto-stop 5:00; <1s discards with toast “Hold to record”. Only LAST-MINUTE (<10s) shows warning tint.</li>
+        <li><b>Voice preview:</b> discard ✕ left, play/progress/pause, remaining mm:ss, send right. Recording is mono with scroll freeze (list cannot move while recording).</li>
+        <li><b>Upload rows:</b> one at a time (existing); each now carries ✕ cancel. Cancel → toast “Upload cancelled”. Video = determinate %; photo/doc = indeterminate.</li>
+        <li><b>Draft persistence (new):</b> per-conversation in-memory draft survives leaving and re-entering the chat (not persisted to disk).</li>
+        <li><b>Keyboard contract (new):</b> focus restores to field on return from attach sheets; reverse list keeps latest message visible above keyboard; field max 5 lines then internal scroll.</li>
+        <li><b>Restriction:</b> replaces composer with lock-glyph line — the three strings stay (no-key / left-group / admins-only), styled 12.5px inkFaint, centered, 16dp padding.</li>
+        <li><b>Attach sheet + quality sheet:</b> same sheet language everywhere (radius 20 top, drag handle, 13px 600 rows, 20px icons).</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S15 · LONG-PRESS ═══════════ -->
+<section>
+  <p class="cap">S15 · Long-press menu (shared — this SAME sheet serves home long-press later)</p>
+  <h2>Reactions · actions · offline · multi-select</h2>
+  <div class="grid2">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Sheet · full</span>
+      <div class="demo">
+        <div class="sheet">
+          <div class="handle"></div>
+          <div style="font-size:11.5px;color:var(--inkSoft);padding:0 6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b style="color:var(--ink)">Meera:</b> pick marigold, it is warm…</div>
+          <div class="erow" style="padding:2px 2px 8px">
+            <span class="emoji-pick">❤️</span><span class="emoji-pick">😂</span><span class="emoji-pick">👍</span><span class="emoji-pick">🔥</span><span class="emoji-pick">🥹</span><span class="emoji-pick">🎉</span><span class="emoji-pick">👀</span><span class="emoji-pick" style="font-size:13px;color:var(--inkFaint)">＋</span>
+          </div>
+          <div class="sitem"><svg class="ic"><use href="#i-reply"/></svg>Reply</div>
+          <div class="sitem"><svg class="ic"><use href="#i-copy"/></svg>Copy text</div>
+          <div class="sitem"><svg class="ic"><use href="#i-star"/></svg>Star</div>
+          <div class="sitem"><svg class="ic"><use href="#i-pin"/></svg>Pin</div>
+          <div class="sitem"><svg class="ic"><use href="#i-info"/></svg>Select</div>
+          <div class="sitem err"><svg class="ic"><use href="#i-trash"/></svg>Delete for me</div>
+          <div class="sitem err"><svg class="ic"><use href="#i-trash"/></svg>Delete for everyone</div>
+        </div>
+      </div>
+      <div class="rule"><b>New:</b> message-text preview header (sender + first line), Select entry (multi-select), haptic on open.
+      32-emoji row scrolls horizontally; ＋ widens to full picker. Reply always; Copy only when a body exists (never on media-only).</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Offline &amp; selection</span>
+      <div class="demo">
+        <div class="sheet" style="background:var(--surface2)">
+          <div class="sitem off"><svg class="ic"><use href="#i-pin"/></svg>Pin<small>Available online</small></div>
+          <div class="sitem off"><svg class="ic"><use href="#i-trash"/></svg>Delete for everyone<small>Available online</small></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;background:var(--accentSoft);border-radius:var(--r-md);padding:8px 12px">
+          <span style="font-weight:800;font-size:13px;color:var(--accentPressed)">2 selected</span>
+          <span style="margin-left:auto;display:flex;gap:14px;color:var(--ink)">
+            <svg class="ic"><use href="#i-reply"/></svg><svg class="ic"><use href="#i-copy"/></svg><svg class="ic"><use href="#i-star"/></svg><svg class="ic"><use href="#i-trash"/></svg><svg class="ic"><use href="#i-close"/></svg>
+          </span>
+        </div>
+        <div class="rule">Multi-select (new): long-press → Select, or menu → Select. Tapping bubbles toggles accent ring + soft fill; the app bar swaps to the action strip above (count + actions); system back exits selection first.</div>
+      </div>
+      <ul class="laws">
+        <li>Offline-disabled rows: 38% opacity + right-aligned “Available online” — never hidden, so discovery survives.</li>
+        <li>Delete (both scopes) → confirm dialog with destructive styling; Delete-for-everyone only mine + on-server.</li>
+        <li>Action feedback: snackbar on star/pin/delete outcomes; pin failure → error toast.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S16 · JUMP ═══════════ -->
+<section>
+  <p class="cap">S16 · Jump-to-message — the landing highlight (user-requested)</p>
+  <h2>One flash for every jump source</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">0ms → 400ms → done</span>
+      <div class="demo" style="flex-direction:row;gap:12px;align-items:stretch">
+        <div style="flex:1"><div class="bub them" style="background:color-mix(in srgb, var(--accent) 26%, var(--surface))">pick marigold…</div><div class="rule" style="text-align:center;font-size:10px">0ms · accent@26%</div></div>
+        <div style="flex:1"><div class="bub them" style="background:color-mix(in srgb, var(--accent) 12%, var(--surface))">pick marigold…</div><div class="rule" style="text-align:center;font-size:10px">~200ms · @12%</div></div>
+        <div style="flex:1"><div class="bub them">pick marigold…</div><div class="rule" style="text-align:center;font-size:10px">400ms · resolved</div></div>
+      </div>
+      <div class="rule" style="margin-top:6px">The <b>bubble chrome</b> flashes (not the row) — accent tint decaying 26% → 0 over 400ms ease-out; the bubble arrives centered (existing ensureVisible). Reduced-motion: single 200ms fade, same tint.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Sources &amp; failures</span>
+      <ul class="laws">
+        <li>Sources: search next/prev · pinned banner tap · reply-quote tap · starred screen onJump. <b>All identical</b> — one widget (<code>_HighlightWrapper</code> promoted to a real flash).</li>
+        <li>Target not rendered → estimate scroll → post-frame refine → flash. Target off-device → fetch + poll ≤2s, <b>inline “Finding message…” toast after 1s</b> (new), then flash or fail.</li>
+        <li>Fail → toast “Message not found in this chat”. Never a silent no-op.</li>
+        <li>Search keeps its persistent row tint <i>plus</i> the flash on land.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S17 · DOTS MENU ═══════════ -->
+<section>
+  <p class="cap">S17 · Dots menu + disappearing dialog</p>
+  <h2>Destination list, styled like home</h2>
+  <div class="grid2">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Menu (sheet, not Material popup)</span>
+      <div class="demo">
+        <div class="sheet">
+          <div class="sitem"><svg class="ic"><use href="#i-photo"/></svg>Media &amp; Docs</div>
+          <div class="sitem"><svg class="ic"><use href="#i-star-f"/></svg>Starred Messages</div>
+          <div class="sitem"><svg class="ic"><use href="#i-group"/></svg>Group Info</div>
+          <div class="sitem"><svg class="ic"><use href="#i-timer"/></svg>Disappearing Messages<small>1 day</small></div>
+        </div>
+      </div>
+      <div class="rule">Custom Warm Pop sheet (radius 20) replaces the Material popup; each row gets its icon; Disappearing shows the <b>current value</b> as trailing text (new). Group-only row absent in 1:1. All rows 48dp targets.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Disappearing dialog (new chrome)</span>
+      <div class="demo">
+        <div class="sheet" style="border-radius:var(--r-lg)">
+          <div style="font-weight:800;font-size:14px;padding:2px 6px 6px">Disappearing messages</div>
+          <div class="sitem"><span style="width:18px;color:var(--accent)"><svg class="ic"><use href="#i-check"/></svg></span>Off</div>
+          <div class="sitem"><span style="width:18px;color:var(--accent)"><svg class="ic"><use href="#i-check"/></svg></span>24 hours</div>
+          <div class="sitem"><span style="width:18px"></span>7 days</div>
+          <div class="sitem"><span style="width:18px"></span>30 days</div>
+          <div class="rule" style="padding:6px 6px 2px">Applies to <b>new messages only</b> — existing stay. Changing posts the system pill (S7).</div>
+        </div>
+      </div>
+      <div class="rule"><b>New:</b> checkmark on current selection (was missing), subtitle line under the title, Cancel affordance (tap-out). Confirm still = snackbar “Disappearing: 1 day”.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S18 · FAILURE & OFFLINE ═══════════ -->
+<section>
+  <p class="cap">S18 · Failure &amp; offline vocabulary</p>
+  <h2>One treatment, everywhere</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink);--p-error:var(--error)">
+      <span class="st">Message-level</span>
+      <div class="demo">
+        <div class="bann err" style="margin:0"><svg class="ic s"><use href="#i-warn"/></svg>
+          Failed to send — tap for details.<span class="rt">Retry</span></div>
+        <div class="chip" style="border-color:var(--error);color:var(--error)"><svg class="ic s" style="stroke:var(--error)"><use href="#i-warn"/></svg>outbox failed (bubble shows warn tick)</div>
+      </div>
+      <div class="rule">Terminal failure lives ON the bubble (error fill + warn tick + Retry/Delete row inside the bubble) — the separate banner attaches to <b>queued</b> non-terminal sends so retry is one tap.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Screen-level</span>
+      <div class="demo">
+        <div class="bann" style="margin:0"><svg class="ic s"><use href="#i-warn"/></svg>Offline — messages send when you’re back.<span class="rt">Retry</span></div>
+        <div class="rule">Strip sits above the list (below pinned), accentSoft, retry right. Auto-clears on reconnect with 250ms fade. Never pushes the composer.</div>
+      </div>
+    </div>
+    <div class="spec" style="background:var(--surface2)">
+      <span class="st">Copy rules</span>
+      <ul class="laws">
+        <li>“Couldn’t load this chat.” + Retry (error) — replaces raw `Error: $e`.</li>
+        <li>“You’re offline — messages will send when you’re back.” (never alarm-red).</li>
+        <li>“Message not found in this chat.” (jump) · “Ask them to resend” (terminal decrypt sub-line).</li>
+        <li>Errors name the problem and the recovery; no codes in UI.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S19 · MASCOT ═══════════ -->
+<section>
+  <p class="cap">S19 · Mascot placement matrix (chat page)</p>
+  <h2>Capybara appears here — and only here</h2>
+  <div class="states">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Placements</span>
+      <table class="tbl">
+        <tr><th>Where</th><th>Mood</th><th>Size</th><th>Text pairing</th></tr>
+        <tr><td>Empty conversation</td><td>neutral (idle breathe)</td><td>108×97</td><td>“Say hello to {name}” + encryption line</td></tr>
+        <tr><td>Search — no results</td><td>sleepy</td><td>64×58</td><td>“Nothing found”</td></tr>
+        <tr><td>Chat load error</td><td>key (sympathetic)</td><td>72×65</td><td>“Couldn’t load this chat.” + Retry</td></tr>
+        <tr><td>Restricted composer (no key)</td><td>lock glyph only</td><td>—</td><td>keeps the 3 rule strings</td></tr>
+      </table>
+      <div class="rule">Mascot NEVER: inside bubbles, behind text, in the app bar, or as a loading state. Reduced-motion parks breathe/blink.</div>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Empty-state specimen</span>
+      <div class="empty" style="padding:14px">
+        <svg class="capy" width="92" height="83" viewBox="0 0 200 180">
+          <circle cx="80" cy="52" r="12.5" fill="var(--mBody)"/><circle cx="150" cy="58" r="11" fill="var(--mBody)"/>
+          <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--mBody)"/>
+          <rect x="52" y="126" width="28" height="24" rx="12" fill="var(--mShade)"/>
+          <rect x="96" y="128" width="30" height="24" rx="12" fill="var(--mShade)"/>
+          <rect x="138" y="126" width="24" height="24" rx="11" fill="var(--mShade)"/>
+          <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--mSnout)"/>
+          <rect x="33" y="78" width="10" height="4.5" rx="2.25" transform="rotate(-20 38 80)" fill="var(--mNostril)"/>
+          <rect x="49" y="75" width="10" height="4.5" rx="2.25" transform="rotate(14 54 77)" fill="var(--mNostril)"/>
+          <path d="M35 114q9 7 18 0" stroke="var(--mNostril)" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <circle cx="88" cy="66" r="5.5" fill="var(--mFace)"/><circle cx="90.5" cy="63.5" r="2" fill="#FFF"/>
+          <circle cx="122" cy="62" r="5.5" fill="var(--mFace)"/><circle cx="124.5" cy="59.5" r="2" fill="#FFF"/>
+        </svg>
+        <div class="et">Say hello to Meera</div>
+        <div class="es">Messages here are end-to-end encrypted. Nobody else can read them.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ S20 · A11Y & SCOPE ═══════════ -->
+<section>
+  <p class="cap">S20 · Accessibility, motion, scope</p>
+  <h2>Floor + what is NOT in this page</h2>
+  <div class="grid2">
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">A11y floor (chat page)</span>
+      <ul class="laws">
+        <li>Every icon-only control: 48dp target + <code>Semantics</code> label (back/search/dots/attach/send/mic/chevrons) — today zero labels exist.</li>
+        <li>Contrast: body ink on surface ≥4.5:1; onAccent on accent ≥4.5:1 (checked both themes — inkSoft-on-accent at 66% used for timestamps passes ≥4.5 as alpha-composited; engine check in review).</li>
+        <li>Message rows expose a merged semantics label: sender + body/type + time + status — one swipe reads a row.</li>
+        <li>Reduced-motion: shimmer parks · typing dots freeze · pulse freezes · highlight = single fade · spring pops instant.</li>
+        <li>Text scale 1.3 must not clip app bar, ticks, or chip rows (review capture at font_scale 1.3).</li>
+      </ul>
+    </div>
+    <div class="spec light" style="--p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);--p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);--p-ink:var(--ink)">
+      <span class="st">Out of scope on this page (declared, not designed)</span>
+      <ul class="laws">
+        <li>Forward / Edit / message-info — menu shows Select now; the other three stay later.</li>
+        <li>Voice waveform + scrub · GIF/sticker tray · in-text URL linkify beyond first-URL card · typing-indicator broadcast to others.</li>
+        <li>video_player_screen.dart dead path — canonical = MediaViewerScreen; cleanup is a backlog item, not this page.</li>
+        <li>Media-card spinner duration + emoji-font tofu — loading-UX accepted residuals (backlog §10), not regressions to fix here.</li>
+        <li>Multi-attachment batch queue — composer keeps one-at-a-time.</li>
+        <li>Tablet/wide layout — later page.</li>
+      </ul>
+      <div class="note" style="margin-top:4px"><b>Pass =</b> checklist <code>chat.md</code> all items ✓ + suite green (baseline 213/213) + analyze 0 errors + light/dark device captures on M52 (Redmi S2 for frame check).</div>
+    </div>
+  </div>
+</section>
+
+</div>

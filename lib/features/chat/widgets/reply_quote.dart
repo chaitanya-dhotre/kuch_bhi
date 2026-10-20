@@ -58,14 +58,20 @@ class ReplyQuote extends ConsumerWidget {
   final String messageType;
   final String decryptState;
   final int ciphertextLength;
+
   /// SERVER id of the original (replied-to) message, if known.
   final String? replyToId;
+
   /// Needed to decrypt media thumbnails (conversation key lookup).
   final String? conversationId;
   final VoidCallback? onCancel;
 
-  factory ReplyQuote.fromMessage(Message msg, String senderName, {
-    bool isMine = false, bool compact = false, VoidCallback? onCancel,
+  factory ReplyQuote.fromMessage(
+    Message msg,
+    String senderName, {
+    bool isMine = false,
+    bool compact = false,
+    VoidCallback? onCancel,
   }) {
     final body = msg.decryptedBody;
     // Media previews should show a type label, not the (possibly empty) body
@@ -133,8 +139,6 @@ class ReplyQuote extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     // ── Resolve the original message from Drift (if we have its id) ─────
     MessagesTableData? original;
     if (replyToId != null) {
@@ -142,46 +146,23 @@ class ReplyQuote extends ConsumerWidget {
     }
     final String resolvedType = original?.type ?? _fallbackType;
 
-    // ── Background ──────────────────────────────────────────────
-    // Sent bubble reply    : warm white tint on the marigold sent bubble.
-    // Received bubble      : accentSoft (cream/brown, theme-aware) inset.
-    // Input bar (compact)  : adaptive surface container
-    final Color bg;
-    if (compact) {
-      bg = Theme.of(context).colorScheme.surfaceContainerHighest;
-    } else if (isMine) {
-      // Subtle inset on the accent-filled sent bubble — same trick as the
-      // bubble's own separator (ink @ 6%), kept visible via white tint.
-      bg = Colors.white.withValues(alpha: 0.18);
-    } else {
-      bg = context.t.accentSoft; // light cream / dark warm brown
-    }
+    // All quotes use the same token surface language as the floating
+    // composer, regardless of whether they sit in a sent bubble or the input.
+    final bg = context.t.surface2;
 
     // ── Text colours ────────────────────────────────────────────
-    // Sent bubble  → on the white tint: dark onAccent in light mode, light
-    //                ink in dark mode (tint over dark scaffold = mid grey).
-    // Received + compact → theme ink (already correct in both brightnesses).
-    final Color nameColor;
-    final Color previewColor;
-    final Color iconColor;
-    if (isMine && !compact) {
-      final onTint = isDark ? context.t.ink : context.t.onAccent;
-      nameColor = onTint;
-      previewColor = onTint.withValues(alpha: 0.80);
-      iconColor = onTint.withValues(alpha: 0.65);
-    } else {
-      nameColor = context.t.accent;
-      previewColor = context.t.ink.withValues(alpha: 0.80);
-      iconColor = context.t.ink.withValues(alpha: 0.60);
-    }
+    final nameColor = context.t.accent;
+    final previewColor = context.t.ink.withValues(alpha: 0.80);
+    final iconColor = context.t.inkSoft;
 
     // ── Preview line (P7 / spec §3: DERIVED, never a stored string) ────
     // An explicit [preview] (input bar, built in memory from the reply
     // provider) wins. Otherwise everything derives from the parent row:
     // media → CONSTANT type labels; voice/document → the session body
     // cache with a constant fallback (never blank); text → THE PROVIDER.
-    final String? explicit =
-        (preview == null || preview!.isEmpty) ? null : preview;
+    final String? explicit = (preview == null || preview!.isEmpty)
+        ? null
+        : preview;
     final Widget previewLine;
     if (explicit != null) {
       previewLine = _line(explicit, previewColor);
@@ -193,14 +174,16 @@ class ReplyQuote extends ConsumerWidget {
           previewLine = _line('Video', previewColor);
         case 'voice':
           // T9/P7: row bodies live in the session cache only.
-          final origBody =
-              original == null ? null : bodyCache.get(original.localId);
+          final origBody = original == null
+              ? null
+              : bodyCache.get(original.localId);
           final dur = _stripEmoji(origBody ?? '');
           previewLine = _line(
             dur.isNotEmpty && dur != 'Voice message'
                 ? 'Voice message · $dur'
                 : 'Voice message',
-              previewColor);
+            previewColor,
+          );
         case 'document':
           final doc = original == null
               ? ''
@@ -254,44 +237,67 @@ class ReplyQuote extends ConsumerWidget {
 
     Widget quote = Container(
       margin: EdgeInsets.only(bottom: compact ? 0 : 6),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border(
-          left: BorderSide(color: context.t.accent, width: 3),
-        ),
+        borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+        border: Border.all(color: context.t.line),
       ),
-      child: Row(
-        mainAxisSize: compact ? MainAxisSize.max : MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 16, color: iconColor),
-            const SizedBox(width: 6),
-          ],
-          // Compact (input bar): stretch full width so the cancel button
-          // sits at the right edge. Bubble quote: size to content.
-          if (compact)
-            Expanded(child: textColumn)
-          else
-            Flexible(child: textColumn),
-          if (showThumb) ...[
-            const SizedBox(width: 8),
-            _QuoteThumb(
-              conversationId: conversationId!,
-              serverId: original!.serverId!,
-              isVideo: resolvedType == 'video',
-              iconColor: iconColor,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm - 1),
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                mainAxisSize: compact ? MainAxisSize.max : MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 16, color: iconColor),
+                    const SizedBox(width: 6),
+                  ],
+                  // Compact (input bar): stretch full width so the cancel
+                  // button sits at the right edge. Bubble quote: size to content.
+                  if (compact)
+                    Expanded(child: textColumn)
+                  else
+                    Flexible(child: textColumn),
+                  if (showThumb) ...[
+                    const SizedBox(width: 8),
+                    _QuoteThumb(
+                      conversationId: conversationId!,
+                      serverId: original!.serverId!,
+                      isVideo: resolvedType == 'video',
+                      iconColor: iconColor,
+                    ),
+                  ],
+                  if (onCancel != null)
+                    IconButton(
+                      tooltip: 'Cancel reply',
+                      icon: Icon(Icons.close, size: 18, color: previewColor),
+                      onPressed: onCancel,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 48,
+                        minHeight: 48,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Positioned.fill(
+              left: 0,
+              right: null,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ColoredBox(
+                  color: context.t.accent,
+                  child: const SizedBox(width: 3),
+                ),
+              ),
             ),
           ],
-          if (onCancel != null)
-            IconButton(
-              icon: Icon(Icons.close, size: 18, color: previewColor),
-              onPressed: onCancel,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-        ],
+        ),
       ),
     );
 
@@ -326,21 +332,25 @@ class _QuoteThumb extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final thumbAsync = ref.watch(
-        mediaFileProvider(MediaRef(conversationId, serverId, thumb: true)));
+      mediaFileProvider(MediaRef(conversationId, serverId, thumb: true)),
+    );
 
     final placeholder = Container(
-      width: 36, height: 36,
-      color: Colors.black.withValues(alpha: 0.15),
+      width: 36,
+      height: 36,
+      color: context.t.ink.withValues(alpha: 0.15),
       child: Icon(
         isVideo ? Icons.videocam_outlined : Icons.image_outlined,
-        size: 18, color: iconColor,
+        size: 18,
+        color: iconColor,
       ),
     );
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: SizedBox(
-        width: 36, height: 36,
+        width: 36,
+        height: 36,
         child: thumbAsync.when(
           loading: () => placeholder,
           error: (_, __) => placeholder,
@@ -348,7 +358,8 @@ class _QuoteThumb extends ConsumerWidget {
               ? placeholder
               : Image.file(
                   media.file,
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => placeholder,
                 ),

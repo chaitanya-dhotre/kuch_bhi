@@ -1,32 +1,39 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
-import '../../../core/theme/tokens.dart';
+import 'expiry_badge.dart';
 
 String _formatSize(dynamic raw) {
   final bytes = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
-  if (bytes <= 0)        return '';
-  if (bytes < 1024)      return '${bytes} B';
-  if (bytes < 1048576)   return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  if (bytes <= 0) return '';
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KB';
   return '${(bytes / 1048576).toStringAsFixed(1)} MB';
+}
+
+String _formatType(String fileName, String? mimeType) {
+  final mime = mimeType?.trim();
+  if (mime != null && mime.isNotEmpty) return mime;
+  final dot = fileName.lastIndexOf('.');
+  if (dot < 0 || dot == fileName.length - 1) return 'File';
+  return '${fileName.substring(dot + 1).toUpperCase()} file';
 }
 
 IconData _docIcon(String fileName) {
   final ext = fileName.split('.').last.toLowerCase();
   return switch (ext) {
-    'pdf'                            => Icons.picture_as_pdf_outlined,
-    'doc' || 'docx'                  => Icons.description_outlined,
-    'xls' || 'xlsx'                  => Icons.table_chart_outlined,
-    'ppt' || 'pptx'                  => Icons.slideshow_outlined,
-    'zip' || 'rar' || '7z' || 'gz'   => Icons.folder_zip_outlined,
-    'txt' || 'md'                    => Icons.text_snippet_outlined,
-    _                                => Icons.insert_drive_file_outlined,
+    'pdf' => Icons.picture_as_pdf_outlined,
+    'doc' || 'docx' => Icons.description_outlined,
+    'xls' || 'xlsx' => Icons.table_chart_outlined,
+    'ppt' || 'pptx' => Icons.slideshow_outlined,
+    'zip' || 'rar' || '7z' || 'gz' => Icons.folder_zip_outlined,
+    'txt' || 'md' => Icons.text_snippet_outlined,
+    _ => Icons.insert_drive_file_outlined,
   };
 }
 
@@ -39,15 +46,17 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
     required this.serverId,
     required this.isMine,
     required this.isDark,
+    this.runEnd = true,
     this.status,
     this.createdAt,
   });
 
-  final String    conversationId;
-  final String    serverId;
-  final bool      isMine;
-  final bool      isDark;
-  final String?   status;
+  final String conversationId;
+  final String serverId;
+  final bool isMine;
+  final bool isDark;
+  final bool runEnd;
+  final String? status;
   final DateTime? createdAt;
 
   @override
@@ -55,8 +64,7 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
       _DocumentMessageBubbleState();
 }
 
-class _DocumentMessageBubbleState
-    extends ConsumerState<DocumentMessageBubble> {
+class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
   bool _isDownloading = false;
 
   Future<void> _open() async {
@@ -64,16 +72,19 @@ class _DocumentMessageBubbleState
     setState(() => _isDownloading = true);
     try {
       // Media is E2E-encrypted: fetch + decrypt to a local file, then open it.
-      final media = await ref.read(mediaFileProvider(
-          MediaRef(widget.conversationId, widget.serverId)).future);
+      final media = await ref.read(
+        mediaFileProvider(
+          MediaRef(widget.conversationId, widget.serverId),
+        ).future,
+      );
       if (media == null) throw Exception('File unavailable');
       await OpenFile.open(media.file.path);
     } catch (e) {
       debugPrint('[DocBubble] open error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open file: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open file: $e')));
       }
     } finally {
       if (mounted) setState(() => _isDownloading = false);
@@ -82,271 +93,178 @@ class _DocumentMessageBubbleState
 
   @override
   Widget build(BuildContext context) {
-    final mediaAsync = ref.watch(mediaFileProvider(
-        MediaRef(widget.conversationId, widget.serverId)));
-    final bg        = widget.isMine
-        ? context.t.accent
-        : widget.isDark
-            ? context.t.surface
-            : context.t.surface;
+    final mediaAsync = ref.watch(
+      mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
+    );
+    return ChatBubbleFrame(
+      isMine: widget.isMine,
+      runEnd: widget.runEnd,
+      fillWidth: true,
+      padding: const EdgeInsets.only(bottom: 8),
+      showTimestamp: true,
+      timestampOverlay: false,
+      timestampPadding: const EdgeInsets.symmetric(horizontal: 12),
+      createdAt: widget.createdAt,
+      status: widget.status,
+      child: mediaAsync.when(
+        loading: () => _shimmer(),
+        error: (_, __) => _errorTile(),
+        data: (media) {
+          if (media == null) return _errorTile();
+          final fileName = media.fileName ?? 'file';
+          final size = _formatSize(
+            media.file.existsSync() ? media.file.lengthSync() : 0,
+          );
+          final type = _formatType(fileName, media.mimeType);
+          final expiresAt = media.expiresAt;
 
-    return Align(
-      alignment: widget.isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: EdgeInsets.only(
-          left:   widget.isMine ? 64 : 12,
-          right:  widget.isMine ? 12 : 64,
-          top:    2,
-          bottom: 2,
-        ),
-        constraints: const BoxConstraints(maxWidth: 280),
-        decoration: BoxDecoration(
-          color:        bg,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color:      Colors.black.withValues(alpha: 0.06),
-              blurRadius: 4,
-              offset:     const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: mediaAsync.when(
-          loading: () => _shimmer(),
-          error:   (_, __) => _errorTile(),
-          data: (media) {
-            if (media == null) return _errorTile();
-            final fileName   = media.fileName ?? 'file';
-            final size       = _formatSize(media.file.existsSync()
-                ? media.file.lengthSync()
-                : 0);
-            final expiresAt  = media.expiresAt;
-
-            if (isExpired(expiresAt)) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.timer_off_outlined,
-                        color: widget.isMine
-                            ? context.t.onAccent
-                            : context.t.inkSoft,
-                        size: 22),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Media expired',
-                      style: TextStyle(
-                        color: widget.isMine
-                            ? context.t.onAccent.withValues(alpha: 0.54)
-                            : context.t.inkSoft,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            return InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: _open,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ── File info row ─────────────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 40, height: 40,
-                          decoration: BoxDecoration(
-                            color:        widget.isMine
-                                ? context.t.onAccent.withValues(alpha: 0.16)
-                                : context.t.accent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            _docIcon(fileName),
-                            color:  widget.isMine
-                                ? context.t.onAccent
-                                : context.t.accent,
-                            size:   22,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize:       MainAxisSize.min,
-                            children: [
-                              Text(
-                                fileName,
-                                maxLines:  2,
-                                overflow:  TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize:   13,
-                                  fontWeight: FontWeight.w500,
-                                  color:      widget.isMine
-                                      ? context.t.onAccent
-                                      : Theme.of(context).colorScheme.onSurface,
-                                ),
-                              ),
-                              if (size.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  size,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color:    widget.isMine
-                                        ? context.t.onAccent
-                                            .withValues(alpha: 0.70)
-                                        : Theme.of(context)
-                                            .colorScheme
-                                            .onSurface
-                                            .withValues(alpha: 0.55),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _isDownloading
-                            ? SizedBox(
-                                width: 20, height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color:       context.t.accent,
-                                ),
-                              )
-                            : Icon(
-                                Icons.download_outlined,
-                                size:  20,
-                                color: widget.isMine
-                                    ? context.t.onAccent.withValues(alpha: 0.70)
-                                    : context.t.accent,
-                              ),
-                      ],
-                    ),
-                  ),
-                  // ── Timestamp + tick row ──────────────────────────
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (expiresAt != null && expiryBadgeText(expiresAt) != null) ...[
-                          Text(
-                            expiryBadgeText(expiresAt)!,
-                            style: TextStyle(
-                              fontSize: 9,
-                              // on marigold (sent) accent-on-accent would be
-                              // invisible — flip to onAccent; received keeps accent.
-                              color: widget.isMine
-                                  ? context.t.onAccent
-                                  : context.t.accent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                        ],
-                        if (widget.createdAt != null)
-                          Text(
-                            DateFormat('HH:mm').format(widget.createdAt!.toLocal()),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: widget.isMine
-                                  ? context.t.onAccent.withValues(alpha: 0.60)
-                                  : Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withValues(alpha: 0.4),
-                            ),
-                          ),
-                        if (widget.isMine && widget.status != null) ...[
-                          const SizedBox(width: 4),
-                          _DocTickIndicator(status: widget.status!),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          if (isExpired(expiresAt)) {
+            return const ExpiredPlaceholder(
+              glyph: Icons.timer_off_outlined,
+              decorate: false,
             );
-          },
-        ),
+          }
+
+          final expiryLabel = compactExpiryLabel(expiresAt);
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Semantics(
+                button: true,
+                label: 'Open document $fileName',
+                child: InkWell(
+                  borderRadius: ChatBubbleGeometry.radius(
+                    isMine: widget.isMine,
+                    runEnd: widget.runEnd,
+                  ),
+                  onTap: _open,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // ── File info row ─────────────────────────────────
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: widget.isMine
+                                    ? context.t.onAccent.withValues(alpha: 0.16)
+                                    : context.t.accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                _docIcon(fileName),
+                                color: widget.isMine
+                                    ? context.t.onAccent
+                                    : context.t.accent,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    fileName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: widget.isMine
+                                          ? context.t.onAccent
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  if (size.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                  ],
+                                  Text(
+                                    [
+                                      if (size.isNotEmpty) size,
+                                      type,
+                                    ].join(' · '),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: widget.isMine
+                                          ? context.t.onAccent.withValues(
+                                              alpha: 0.70,
+                                            )
+                                          : Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withValues(alpha: 0.55),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _isDownloading
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: context.t.accent,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.download_outlined,
+                                    size: 20,
+                                    color: widget.isMine
+                                        ? context.t.onAccent.withValues(
+                                            alpha: 0.70,
+                                          )
+                                        : context.t.accent,
+                                  ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (expiryLabel != null) ExpiryBadge(label: expiryLabel),
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _shimmer() => Shimmer.fromColors(
-        baseColor:      context.t.line,
-        highlightColor: context.t.surface2,
-        child: Container(
-          height:           68,
-          decoration: BoxDecoration(
-            color:        context.t.line,
-            borderRadius: BorderRadius.circular(18),
-          ),
-        ),
-      );
+    baseColor: context.t.line,
+    highlightColor: context.t.surface2,
+    child: const SizedBox(height: 68, width: double.infinity),
+  );
 
   Widget _errorTile() => Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.broken_image_outlined,
-                color: context.t.inkFaint, size: 24),
-            const SizedBox(width: 8),
-            Text(
-              'File unavailable',
-              style: TextStyle(
-                color: widget.isMine
-                    ? context.t.onAccent.withValues(alpha: 0.70)
-                    : context.t.inkSoft,
-                fontSize: 13,
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.all(12),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.broken_image_outlined, color: context.t.inkFaint, size: 24),
+        const SizedBox(width: 8),
+        Text(
+          'File unavailable',
+          style: TextStyle(
+            color: widget.isMine
+                ? context.t.onAccent.withValues(alpha: 0.70)
+                : context.t.inkSoft,
+            fontSize: 13,
+          ),
         ),
-      );
-}
-
-// ── Tick indicator ────────────────────────────────────────────────────────────
-
-class _DocTickIndicator extends StatelessWidget {
-  const _DocTickIndicator({required this.status});
-  final String status;
-
-  @override
-  Widget build(BuildContext context) {
-    // Mirrors message_bubble _TickIndicator (renders inside the sent
-    // marigold bubble only) — onAccent family, never raw white.
-    if (status == 'pending') {
-      return SizedBox(
-        width: 10, height: 10,
-        child: CircularProgressIndicator(
-            strokeWidth: 1.5,
-            color: context.t.onAccent.withValues(alpha: 0.54)),
-      );
-    }
-    if (status == 'failed') {
-      return Icon(Icons.error_outline, size: 12, color: context.t.error);
-    }
-    final Color color = switch (status) {
-      'read'      => context.t.onAccent,
-      'delivered' => context.t.onAccent.withValues(alpha: 0.54),
-      _           => context.t.onAccent.withValues(alpha: 0.38),
-    };
-    if (status == 'read' || status == 'delivered') {
-      return Icon(Icons.done_all, size: 12, color: color);
-    }
-    if (status == 'sent') return Icon(Icons.done, size: 12, color: color);
-    return Icon(Icons.schedule, size: 12, color: color);
-  }
+      ],
+    ),
+  );
 }

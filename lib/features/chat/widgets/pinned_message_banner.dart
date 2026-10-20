@@ -11,10 +11,12 @@ class PinnedMessageBanner extends ConsumerStatefulWidget {
     super.key,
     required this.conversationId,
     this.onTap,
+    this.onCycle,
   });
 
   final String conversationId;
   final void Function(Message)? onTap;
+  final VoidCallback? onCycle;
 
   @override
   ConsumerState<PinnedMessageBanner> createState() =>
@@ -46,10 +48,7 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
   }
 
   Widget _previewWidget(BuildContext context, Message msg) {
-    final previewStyle = TextStyle(
-      fontSize: 12,
-      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-    );
+    final previewStyle = TextStyle(fontSize: 12, color: context.t.inkSoft);
     final terminal =
         msg.decryptState == 'key_missing' || msg.decryptState == 'failed';
 
@@ -83,57 +82,68 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
       data: (messages) {
         if (messages.isEmpty) return const SizedBox.shrink();
 
-        final msg = messages[_index % messages.length];
-        return GestureDetector(
-          onTap: () {
-            widget.onTap?.call(msg);
-            if (messages.length > 1) {
-              setState(() => _index = (_index + 1) % messages.length);
-            }
-          },
+        final currentIndex = _index % messages.length;
+        final msg = messages[currentIndex];
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
           child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.outline.withValues(alpha: 0.15),
+              color: context.t.surface,
+              border: Border.all(color: context.t.line),
+              borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+              boxShadow: [
+                BoxShadow(
+                  color: context.t.ink.withValues(alpha: 0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
-                left: BorderSide(color: context.t.accent, width: 3),
-              ),
+              ],
             ),
             child: Row(
               children: [
                 Icon(Icons.push_pin, size: 14, color: context.t.accent),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        messages.length > 1
-                            ? 'Pinned Message ${_index + 1}/${messages.length}'
-                            : 'Pinned Message',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: context.t.accent,
-                        ),
+                  child: InkWell(
+                    onTap: () => widget.onTap?.call(msg),
+                    borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            messages.length > 1
+                                ? 'Pinned · ${currentIndex + 1}/${messages.length}'
+                                : 'Pinned · 1/1',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: context.t.accent,
+                            ),
+                          ),
+                          _previewWidget(context, msg),
+                        ],
                       ),
-                      _previewWidget(context, msg),
-                    ],
+                    ),
                   ),
                 ),
                 if (messages.length > 1)
-                  Icon(
-                    Icons.keyboard_arrow_up,
-                    size: 16,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.4),
+                  IconButton(
+                    tooltip: 'Next pinned message',
+                    constraints: const BoxConstraints(
+                      minWidth: 48,
+                      minHeight: 48,
+                    ),
+                    color: context.t.inkSoft,
+                    onPressed: () {
+                      widget.onCycle?.call();
+                      if (widget.onCycle == null) {
+                        setState(() => _index = (_index + 1) % messages.length);
+                      }
+                    },
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 20),
                   ),
               ],
             ),

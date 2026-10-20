@@ -67,8 +67,40 @@ void main() {
     await tester.pump();
 
     expect(find.text("Can't decrypt"), findsOneWidget);
+    expect(find.text('Ask them to resend'), findsOneWidget);
     expect(find.byIcon(Icons.error_outline), findsOneWidget);
     expect(find.byKey(const ValueKey('body-skeleton-96')), findsNothing);
+  });
+
+  testWidgets('terminal preview is one line without resend instruction', (
+    tester,
+  ) async {
+    final body = Completer<String?>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [messageBodyProvider.overrideWith((ref, id) => body.future)],
+        child: MaterialApp(
+          theme: warmPopLight(),
+          home: const Scaffold(
+            body: MessageBodyText(
+              messageId: 'preview-terminal',
+              styleContext: 'preview',
+              decryptState: 'failed',
+              ciphertextLength: 96,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+
+    expect(find.text("Can't decrypt"), findsOneWidget);
+    expect(find.text('Ask them to resend'), findsNothing);
+    final terminalText = tester.widget<Text>(find.text("Can't decrypt"));
+    expect(terminalText.maxLines, 1);
+    expect(terminalText.overflow, TextOverflow.ellipsis);
+    expect(find.byIcon(Icons.error_outline), findsOneWidget);
   });
 
   testWidgets('keeps the last body when the provider later returns null', (

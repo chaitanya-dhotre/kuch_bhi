@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
@@ -22,6 +23,7 @@ import 'reaction_bar.dart';
 import 'reply_quote.dart';
 import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
+import 'expiry_badge.dart';
 
 // 5 deterministic sender name colors — Warm Pop tokens only (no violet/
 // indigo; spec veto). Names render on t.surface. Light surface needs dark
@@ -49,6 +51,61 @@ Color _colorForSender(String senderId, Brightness brightness) {
   return palette[senderId.hashCode.abs() % palette.length];
 }
 
+String _messageTypeLabel(String type) => switch (type) {
+  'image' => 'Photo',
+  'video' => 'Video',
+  'voice' => 'Voice message',
+  'document' => 'Document',
+  'poll' => 'Poll',
+  'system' => 'System message',
+  _ => 'Message',
+};
+
+String _messageBodyLabel(Message message, String resolvedBody) {
+  if (message.isDeletedForEveryone) return 'Message deleted';
+  if (message.decryptState == 'key_missing' ||
+      message.decryptState == 'failed') {
+    return "Can't decrypt";
+  }
+
+  final body = resolvedBody.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (message.type == 'text' || message.type == 'system') {
+    return body.isEmpty ? _messageTypeLabel(message.type) : body;
+  }
+  return _messageTypeLabel(message.type);
+}
+
+String _messageRowSemanticsLabel({
+  required Message message,
+  required bool isMine,
+  required String senderName,
+  required String resolvedBody,
+}) {
+  final sender = isMine
+      ? 'You'
+      : senderName.trim().isEmpty
+      ? 'Unknown sender'
+      : senderName.trim();
+  final body = _messageBodyLabel(message, resolvedBody);
+  final time = DateFormat('HH:mm').format(message.createdAt.toLocal());
+  final status = message.status.trim().isEmpty ? 'unknown' : message.status;
+  return 'From $sender. $body. Time $time. Status $status.';
+}
+
+Widget _messageRowSemantics({
+  required String label,
+  required Widget child,
+  required bool preserveChildNodes,
+}) => Semantics(
+  // Text-only rows collapse into one semantic leaf. Rows with media,
+  // reactions, reply quotes, or retry controls keep explicit child nodes so
+  // their labelled actions remain independently reachable.
+  container: true,
+  explicitChildNodes: preserveChildNodes,
+  label: label,
+  child: child,
+);
+
 class MessageBubble extends ConsumerWidget {
   const MessageBubble({
     super.key,
@@ -56,6 +113,12 @@ class MessageBubble extends ConsumerWidget {
     required this.isMine,
     this.senderName = 'Unknown',
     this.isGroup = false,
+    this.runStart = true,
+    this.runEnd = true,
+    this.searchQuery,
+    this.searchCurrent = false,
+    this.selected = false,
+    this.onSelect,
     this.onReply,
     this.onReplyTap,
   });
@@ -64,6 +127,12 @@ class MessageBubble extends ConsumerWidget {
   final bool isMine;
   final String senderName;
   final bool isGroup;
+  final bool runStart;
+  final bool runEnd;
+  final String? searchQuery;
+  final bool searchCurrent;
+  final bool selected;
+  final VoidCallback? onSelect;
   final VoidCallback? onReply;
   final VoidCallback? onReplyTap;
 
@@ -74,19 +143,30 @@ class MessageBubble extends ConsumerWidget {
     // for own-sent), a miss watches the family and rebuilds when it emits.
     // `resolved` stays null while unresolved → branch to the placeholder-
     // rendering surfaces below (never ciphertext, never a blank).
-    final String? resolved = bodyCache.get(message.localId) ??
+    final String? resolved =
+        bodyCache.get(message.localId) ??
         ref.watch(messageBodyProvider(message.localId)).valueOrNull;
     final body = resolved ?? '';
     final emojiOnly = isEmojiOnly(body) && message.type == 'text';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final url = extractFirstUrl(body);
+    final rowSemanticsLabel = _messageRowSemanticsLabel(
+      message: message,
+      isMine: isMine,
+      senderName: senderName,
+      resolvedBody: body,
+    );
 
     // ── System / info bubbles — no reply, no long-press, no sender meta ─
     if (message.type == 'system') {
-      return _SystemMessageBubble(
-        messageId: message.localId,
-        decryptState: message.decryptState,
-        ciphertextLength: message.ciphertextLength,
+      return _messageRowSemantics(
+        label: rowSemanticsLabel,
+        preserveChildNodes: false,
+        child: _SystemMessageBubble(
+          messageId: message.localId,
+          decryptState: message.decryptState,
+          ciphertextLength: message.ciphertextLength,
+        ),
       );
     }
 
@@ -113,22 +193,28 @@ class MessageBubble extends ConsumerWidget {
         message: message,
         isMine: isMine,
         senderName: senderName,
+        onSelect: onSelect,
       ),
       child: Column(
-        crossAxisAlignment:
-            isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isMine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           // ── Group sender name ────────────────────────────────
-          if (isGroup && !isMine)
+          if (isGroup && !isMine && runStart)
             Padding(
               padding: const EdgeInsets.only(left: 14, bottom: 1, top: 4),
-              child: Text(
-                senderName,
-                style: TextStyle(
-                  fontSize: 12, // plan floor: labels ≥ w600 12px
-                  fontWeight: FontWeight.w600,
-                  color:      _colorForSender(message.senderId,
-                      Theme.of(context).brightness),
+              child: ExcludeSemantics(
+                child: Text(
+                  senderName,
+                  style: TextStyle(
+                    fontSize: 12, // plan floor: labels ≥ w600 12px
+                    fontWeight: FontWeight.w600,
+                    color: _colorForSender(
+                      message.senderId,
+                      Theme.of(context).brightness,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -143,11 +229,9 @@ class MessageBubble extends ConsumerWidget {
             GestureDetector(
               onTap: onReplyTap,
               child: Padding(
-                padding: EdgeInsets.only(
-                  left: isMine ? 64 : 12,
-                  right: isMine ? 12 : 64,
-                  top: 2,
-                ),
+                padding: ChatBubbleGeometry.margin(
+                  isMine: isMine,
+                ).copyWith(bottom: 0),
                 child: ReplyQuote(
                   // The quote shows WHO was replied to, not who sent THIS message.
                   // If I sent this message, I replied to the other user → show their name.
@@ -164,122 +248,73 @@ class MessageBubble extends ConsumerWidget {
 
           // ── Bubble ──────────────────────────────────────────
           if (message.type == 'voice' && message.serverId != null)
-            Align(
-              alignment:
-                  isMine ? Alignment.centerRight : Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: isMine ? 64 : 12,
-                  right: isMine ? 12 : 64,
-                  top: 2,
-                  bottom: 2,
-                ),
-                child: VoiceMessageBubble(
-                  conversationId: message.conversationId,
-                  serverId: message.serverId!,
-                  isMine: isMine,
-                  durationText: resolved,
-                  status: message.status,
-                  createdAt: message.createdAt,
-                ),
-              ),
+            VoiceMessageBubble(
+              conversationId: message.conversationId,
+              serverId: message.serverId!,
+              isMine: isMine,
+              runEnd: runEnd,
+              durationText: resolved,
+              status: message.status,
+              createdAt: message.createdAt,
             )
           else if (message.type == 'image' && message.serverId != null)
-            Align(
-              alignment:
-                  isMine ? Alignment.centerRight : Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: isMine ? 64 : 12,
-                  right: isMine ? 12 : 64,
-                  top: 2,
-                  bottom: 2,
-                ),
-                child: ImageMessageBubble(
-                  conversationId: message.conversationId,
-                  serverId: message.serverId!,
-                  isMine: isMine,
-                  isDark: isDark,
-                  status: message.status,
-                  createdAt: message.createdAt,
-                ),
-              ),
+            ImageMessageBubble(
+              conversationId: message.conversationId,
+              serverId: message.serverId!,
+              isMine: isMine,
+              isDark: isDark,
+              runEnd: runEnd,
+              status: message.status,
+              createdAt: message.createdAt,
             )
           else if (message.type == 'video' && message.serverId != null)
-            Align(
-              alignment:
-                  isMine ? Alignment.centerRight : Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: isMine ? 64 : 12,
-                  right: isMine ? 12 : 64,
-                  top: 2,
-                  bottom: 2,
-                ),
-                child: VideoMessageBubble(
-                  conversationId: message.conversationId,
-                  serverId: message.serverId!,
-                  isMine: isMine,
-                  isDark: isDark,
-                  status: message.status,
-                  createdAt: message.createdAt,
-                ),
-              ),
+            VideoMessageBubble(
+              conversationId: message.conversationId,
+              serverId: message.serverId!,
+              isMine: isMine,
+              isDark: isDark,
+              runEnd: runEnd,
+              status: message.status,
+              createdAt: message.createdAt,
             )
           else if (message.type == 'document' && message.serverId != null)
-            Align(
-              alignment:
-                  isMine ? Alignment.centerRight : Alignment.centerLeft,
-              child: DocumentMessageBubble(
-                conversationId: message.conversationId,
-                serverId: message.serverId!,
+            DocumentMessageBubble(
+              conversationId: message.conversationId,
+              serverId: message.serverId!,
+              isMine: isMine,
+              isDark: isDark,
+              runEnd: runEnd,
+              status: message.status,
+              createdAt: message.createdAt,
+            )
+          else if (message.serverId == null &&
+              const {
+                'image',
+                'video',
+                'voice',
+                'document',
+              }.contains(message.type))
+            // Optimistic upload in flight (serverId not stamped yet). Keep
+            // the shape/type recognizable without changing the data layer.
+            ExcludeSemantics(
+              child: _OptimisticMediaPlaceholder(
+                type: message.type,
                 isMine: isMine,
-                isDark: isDark,
+                runEnd: runEnd,
                 status: message.status,
                 createdAt: message.createdAt,
               ),
             )
-          else if (message.serverId == null &&
-              const {'image', 'video', 'voice', 'document'}
-                  .contains(message.type))
-            // Optimistic upload in flight (serverId not stamped yet) —
-            // spinner placeholder, never ciphertext or an empty bubble.
-            Align(
-              alignment:
-                  isMine ? Alignment.centerRight : Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: isMine ? 64 : 12,
-                  right: isMine ? 12 : 64,
-                  top: 2,
-                  bottom: 2,
-                ),
-                child: Container(
-                  width: 140,
-                  height: 140,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Center(
-                    child: SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    ),
-                  ),
-                ),
-              ),
-            )
           else if (emojiOnly)
-            _EmojiOnlyBubble(message: message, isMine: isMine)
+            _EmojiOnlyBubble(message: message, isMine: isMine, runEnd: runEnd)
           else
             _TextBubble(
               message: message,
               isMine: isMine,
-              isDark: isDark,
+              runEnd: runEnd,
+              skeletonShell: resolved == null && !message.isDeletedForEveryone,
+              highlightQuery: searchQuery,
+              highlightCurrent: searchCurrent,
               url: url,
             ),
 
@@ -297,17 +332,234 @@ class MessageBubble extends ConsumerWidget {
               errorClass: terminalOp.errorClass,
               onRetry: () =>
                   ref.read(messageRepositoryProvider).retryOp(terminalOp.opId),
-              onDiscard: () =>
-                  ref.read(messageRepositoryProvider).discardOp(terminalOp.opId),
+              onDiscard: () => ref
+                  .read(messageRepositoryProvider)
+                  .discardOp(terminalOp.opId),
             ),
         ],
       ),
     );
 
-    return SwipeToReply(
+    Widget content = SwipeToReply(
       isMine: isMine,
       onReply: onReply ?? () {},
       child: bubble,
+    );
+
+    if (isGroup && !isMine) {
+      final trimmedName = senderName.trim();
+      final initial = trimmedName.isEmpty
+          ? '?'
+          : trimmedName.substring(0, 1).toUpperCase();
+      content = Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          SizedBox(
+            width: 28,
+            child: runStart
+                ? CircleAvatar(
+                    radius: 14,
+                    backgroundColor: context.t.surface2,
+                    child: ExcludeSemantics(
+                      child: Text(
+                        initial,
+                        style: TextStyle(
+                          color: context.t.inkSoft,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          const SizedBox(width: 8),
+          Flexible(child: content),
+        ],
+      );
+    }
+
+    if (selected) {
+      content = Container(
+        decoration: BoxDecoration(
+          color: context.t.accent.withValues(alpha: 0.08),
+          border: Border.all(color: context.t.accent.withValues(alpha: 0.55)),
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+        ),
+        child: content,
+      );
+    }
+
+    final hasInteractiveChildren =
+        terminalOp != null ||
+        message.replyToId != null ||
+        url != null ||
+        message.serverId != null;
+    return _messageRowSemantics(
+      label: rowSemanticsLabel,
+      preserveChildNodes: hasInteractiveChildren,
+      child: content,
+    );
+  }
+}
+
+/// Per-type optimistic media shell. It deliberately stays presentation-only:
+/// the real media widgets take over as soon as the server id is stamped.
+class _OptimisticMediaPlaceholder extends StatelessWidget {
+  const _OptimisticMediaPlaceholder({
+    required this.type,
+    required this.isMine,
+    required this.runEnd,
+    required this.status,
+    required this.createdAt,
+  });
+
+  final String type;
+  final bool isMine;
+  final bool runEnd;
+  final String status;
+  final DateTime createdAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final shellColor = isMine
+        ? context.t.accent.withValues(alpha: 0.18)
+        : context.t.surface2;
+    final mediaType = type == 'video' ? 'video' : 'image';
+    final mediaSkeleton = ConstrainedBox(
+      constraints: const BoxConstraints(
+        maxWidth: ChatBubbleGeometry.mediaMaxWidth,
+      ),
+      child: AspectRatio(
+        aspectRatio: mediaType == 'video' ? 16 / 9 : 4 / 3,
+        child: _OptimisticSkeletonBox(
+          baseColor: context.t.surface2,
+          highlightColor: context.t.line,
+        ),
+      ),
+    );
+
+    if (type == 'image' || type == 'video') {
+      return ChatBubbleFrame(
+        isMine: isMine,
+        runEnd: runEnd,
+        background: shellColor,
+        showShadow: false,
+        showTimestamp: true,
+        createdAt: createdAt,
+        status: status,
+        padding: EdgeInsets.zero,
+        child: mediaSkeleton,
+      );
+    }
+
+    final content = switch (type) {
+      'voice' => _OptimisticVoiceContent(isMine: isMine),
+      _ => _OptimisticDocumentContent(isMine: isMine),
+    };
+    return ChatBubbleFrame(
+      isMine: isMine,
+      runEnd: runEnd,
+      background: shellColor,
+      showShadow: false,
+      fillWidth: true,
+      showTimestamp: true,
+      timestampOverlay: false,
+      createdAt: createdAt,
+      status: status,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [content]),
+    );
+  }
+}
+
+class _OptimisticSkeletonBox extends StatelessWidget {
+  const _OptimisticSkeletonBox({
+    required this.baseColor,
+    required this.highlightColor,
+  });
+
+  final Color baseColor;
+  final Color highlightColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = ColoredBox(color: baseColor);
+    if (MediaQuery.disableAnimationsOf(context)) return surface;
+
+    return Shimmer.fromColors(
+      baseColor: baseColor,
+      highlightColor: highlightColor,
+      child: surface,
+    );
+  }
+}
+
+class _OptimisticVoiceContent extends StatelessWidget {
+  const _OptimisticVoiceContent({required this.isMine});
+
+  final bool isMine;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = isMine ? context.t.onAccent : context.t.accent;
+    return Row(
+      children: [
+        SizedBox.square(
+          dimension: 30,
+          child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: SizedBox(
+            height: 10,
+            child: _OptimisticSkeletonBox(
+              baseColor: foreground.withValues(alpha: 0.16),
+              highlightColor: foreground.withValues(alpha: 0.30),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OptimisticDocumentContent extends StatelessWidget {
+  const _OptimisticDocumentContent({required this.isMine});
+
+  final bool isMine;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = isMine ? context.t.onAccent : context.t.accent;
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: foreground.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(Icons.insert_drive_file_outlined, color: foreground),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Uploading document…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: foreground.withValues(alpha: 0.76),
+              fontSize: 13,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox.square(
+          dimension: 18,
+          child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+        ),
+      ],
     );
   }
 }
@@ -339,11 +591,9 @@ class TerminalFailureBanner extends StatelessWidget {
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: EdgeInsets.only(
-          left: isMine ? 64 : 12,
-          right: isMine ? 12 : 64,
-          top: 2,
-          bottom: 2,
+        margin: ChatBubbleGeometry.margin(isMine: isMine),
+        constraints: BoxConstraints(
+          maxWidth: ChatBubbleGeometry.maxWidth(context),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
@@ -418,52 +668,44 @@ class TerminalFailureBanner extends StatelessWidget {
 // ── Emoji-only (no bubble, large font) ────────────────────────────────────
 
 class _EmojiOnlyBubble extends StatelessWidget {
-  const _EmojiOnlyBubble({required this.message, required this.isMine});
+  const _EmojiOnlyBubble({
+    required this.message,
+    required this.isMine,
+    required this.runEnd,
+  });
   final Message message;
   final bool isMine;
+  final bool runEnd;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: isMine ? 64 : 12,
-          right: isMine ? 12 : 64,
-          top: 2,
-          bottom: 2,
-        ),
-        child: Column(
-          crossAxisAlignment:
-              isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            MessageBodyText(
+    return ChatBubbleFrame(
+      isMine: isMine,
+      runEnd: runEnd,
+      chrome: false,
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: isMine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          ExcludeSemantics(
+            child: MessageBodyText(
               messageId: message.localId,
               styleContext: 'emoji',
               decryptState: message.decryptState,
               ciphertextLength: message.ciphertextLength,
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  DateFormat('HH:mm').format(message.createdAt.toLocal()),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.4),
-                  ),
-                ),
-                if (isMine) ...[
-                  const SizedBox(width: 4),
-                  _TickIndicator(status: message.status),
-                ],
-              ],
+          ),
+          if (runEnd) ...[
+            const SizedBox(height: ChatBubbleGeometry.metadataGap),
+            ChatBubbleTimestamp(
+              isMine: isMine,
+              createdAt: message.createdAt,
+              status: message.status,
             ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -475,44 +717,39 @@ class _TextBubble extends StatelessWidget {
   const _TextBubble({
     required this.message,
     required this.isMine,
-    required this.isDark,
+    required this.runEnd,
+    required this.skeletonShell,
+    this.highlightQuery,
+    this.highlightCurrent = false,
     this.url,
   });
 
   final Message message;
   final bool isMine;
-  final bool isDark;
+  final bool runEnd;
+  final bool skeletonShell;
+  final String? highlightQuery;
+  final bool highlightCurrent;
   final String? url;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: EdgeInsets.only(
-          left: isMine ? 64 : 12,
-          right: isMine ? 12 : 64,
-          top: 2,
-          bottom: 2,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isMine ? context.t.accent : context.t.surface,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: context.t.ink.withValues(alpha: 0.06),
-              blurRadius: 4,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (message.isDeletedForEveryone)
-              Text(
+    return ChatBubbleFrame(
+      isMine: isMine,
+      runEnd: runEnd,
+      background: skeletonShell
+          ? (isMine
+                ? context.t.accent.withValues(alpha: 0.18)
+                : context.t.surface2)
+          : null,
+      showShadow: !skeletonShell,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (message.isDeletedForEveryone)
+            ExcludeSemantics(
+              child: Text(
                 '🚫 Message deleted',
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
@@ -521,79 +758,33 @@ class _TextBubble extends StatelessWidget {
                       ? context.t.onAccent.withValues(alpha: 0.7)
                       : context.t.inkSoft,
                 ),
-              )
-            else
-              MessageBodyText(
+              ),
+            )
+          else
+            ExcludeSemantics(
+              child: MessageBodyText(
                 messageId: message.localId,
                 styleContext: isMine ? 'bubble.mine' : 'bubble',
                 decryptState: message.decryptState,
                 ciphertextLength: message.ciphertextLength,
+                skeletonShell: skeletonShell,
+                highlightQuery: highlightQuery,
+                highlightCurrent: highlightCurrent,
               ),
+            ),
 
-            // Link preview
-            if (url != null && !message.isDeletedForEveryone)
-              LinkPreviewCard(url: url!),
+          // Link preview
+          if (url != null && !message.isDeletedForEveryone)
+            LinkPreviewCard(url: url!),
 
-            const SizedBox(height: 2),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  DateFormat('HH:mm').format(message.createdAt.toLocal()),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isMine
-                        ? context.t.onAccent.withValues(alpha: 0.6)
-                        : context.t.inkFaint,
-                  ),
-                ),
-                if (isMine) ...[
-                  const SizedBox(width: 4),
-                  _TickIndicator(status: message.status),
-                ],
-              ],
+          if (runEnd) ...[
+            const SizedBox(height: ChatBubbleGeometry.metadataGap),
+            ChatBubbleTimestamp(
+              isMine: isMine,
+              createdAt: message.createdAt,
+              status: message.status,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Tick indicator ────────────────────────────────────────────────────────
-
-class _TickIndicator extends StatelessWidget {
-  const _TickIndicator({required this.status});
-  final String status;
-
-  @override
-  Widget build(BuildContext context) {
-    if (status == 'pending') {
-      return SizedBox(
-        width: 12, height: 12,
-        child: CircularProgressIndicator(
-          strokeWidth: 1.5,
-            color: context.t.onAccent.withValues(alpha: 0.54)),
-      );
-    }
-    if (status == 'failed') {
-      return Icon(Icons.error_outline, size: 14, color: context.t.error);
-    }
-
-    final Color color = switch (status) {
-      'read' => context.t.onAccent, // on-accent = read (visible on Marigold)
-      'delivered' => context.t.onAccent.withValues(alpha: 0.54),
-      _ => context.t.onAccent.withValues(alpha: 0.38), // sent
-    };
-
-    if (status == 'sent') return Icon(Icons.check, size: 14, color: color);
-
-    return SizedBox(
-      width: 18,
-      child: Stack(
-        children: [
-          Icon(Icons.check, size: 14, color: color),
-          Positioned(left: 5, child: Icon(Icons.check, size: 14, color: color)),
         ],
       ),
     );
@@ -624,28 +815,28 @@ class _SystemMessageBubble extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color:  Theme.of(context)
-                .colorScheme
-                .surfaceContainerHighest
-                .withValues(alpha: 0.5),
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(10),
           ),
           // T9: system bodies ride the same placeholder law — cache-resident
           // local emits paint instantly; an unresolved id shows the keyed
           // placeholder inside the pill (never a blank narrative row).
-          child: MessageBodyText(
-            messageId: messageId,
-            styleContext: 'system',
-            decryptState: decryptState,
-            ciphertextLength: ciphertextLength,
-            style: TextStyle(
-              fontSize: 12,
-              fontStyle: FontStyle.italic,
-              color:       Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.55),
-              fontWeight: FontWeight.w500,
+          child: ExcludeSemantics(
+            child: MessageBodyText(
+              messageId: messageId,
+              styleContext: 'system',
+              decryptState: decryptState,
+              ciphertextLength: ciphertextLength,
+              style: TextStyle(
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.55),
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ),

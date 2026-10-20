@@ -1,0 +1,931 @@
+<meta charset="utf-8">
+<title>Kuch Bhi Home Spec</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>
+  /* ═══ Kuch Bhi — Home Screen Design Spec (Page 2) ═══
+     Board chrome warm-neutral; each phone frame is a self-contained
+     theme specimen. Tokens verbatim from lib/core/theme/tokens.dart.
+     Deliberately single-theme board (IS the reference), like chat.html. ═══ */
+  :root {
+    --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3;
+    --ink:#2A2520; --inkSoft:#6E655A; --inkFaint:#9C9284; --line:#E4DDD1;
+    --accent:#EFA00B; --accentPressed:#D98F08; --accentSoft:#FFF3DC;
+    --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D; --info:#4A6FA5;
+    --dBg:#171512; --dSurface:#211E1A; --dSurface2:#2B2823; --dInk:#F3EDE3;
+    --dInkSoft:#9C9284; --dLine:#3B362F; --dAccentSoft:#3A2E14; --dOnAccent:#21260F;
+    --mBody:#C6894F; --mShade:#B27A42; --mSnout:#8B5E3E; --mNostril:#5C3B28; --mFace:#3A2E22;
+    --r-sm:10px; --r-md:16px; --r-lg:20px; --r-xl:24px;
+    --font:"Plus Jakarta Sans", ui-rounded, system-ui, sans-serif;
+    color-scheme: light;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);
+    padding-inline:clamp(16px,4vw,40px);padding-block:clamp(24px,5vw,48px) 64px;margin:0}
+  .wrap{max-width:1180px;margin-inline:auto;display:flex;flex-direction:column;gap:40px}
+  h1{font-size:clamp(24px,4vw,34px);font-weight:800;letter-spacing:-.02em;margin:0;text-wrap:balance}
+  .lede{color:var(--inkSoft);max-width:72ch;margin:8px 0 0;line-height:1.55;font-size:14.5px}
+  .cap{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--inkFaint);margin:0 0 6px}
+  h2{font-size:19px;font-weight:800;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--inkSoft);font-size:13px;line-height:1.5;margin:6px 0 0;max-width:80ch}
+  section{display:flex;flex-direction:column;gap:16px}
+  .nrule{border:none;border-top:1px solid var(--line);margin:8px 0}
+  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .ic.s{width:13px;height:13px}
+  .ic.m{width:20px;height:20px}
+  .ic.f{fill:currentColor;stroke:none}
+
+  .phones{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start}
+  .phone{border-radius:var(--r-xl);border:1px solid;display:flex;flex-direction:column;overflow:hidden;min-width:0;font-size:13.5px;position:relative}
+  .phone.light{background:var(--bg);border-color:var(--line);color:var(--ink);
+    --p-surface:var(--surface);--p-surface2:var(--surface2);--p-inkSoft:var(--inkSoft);--p-inkFaint:var(--inkFaint);
+    --p-line:var(--line);--p-accent:var(--accent);--p-accentSoft:var(--accentSoft);--p-onAccent:var(--onAccent);
+    --p-ink:var(--ink);--p-success:var(--success);--p-error:var(--error)}
+  .phone.dark{background:var(--dBg);border-color:var(--dLine);color:var(--dInk);color-scheme:dark;
+    --p-surface:var(--dSurface);--p-surface2:var(--dSurface2);--p-inkSoft:var(--dInkSoft);--p-inkFaint:var(--dInkSoft);
+    --p-line:var(--dLine);--p-accent:var(--accent);--p-accentSoft:var(--dAccentSoft);--p-onAccent:var(--dOnAccent);
+    --p-ink:var(--dInk);--p-success:var(--success);--p-error:var(--error)}
+  .phead{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 0}
+  .plabel{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--p-inkFaint)}
+  .pchip{font-size:9.5px;font-weight:800;letter-spacing:.1em;padding:3px 8px;border-radius:999px;background:var(--p-surface2);color:var(--p-inkSoft)}
+  .body{display:flex;flex-direction:column;gap:10px;padding:10px 12px 12px;flex:1;min-height:0}
+
+  /* home app bar */
+  .hab{display:flex;align-items:center;gap:6px;padding:10px 8px 8px 14px;min-height:56px}
+  .hab .ht{font-size:21px;font-weight:800;letter-spacing:-.02em;flex:1;min-width:0}
+  .hab .ha{position:relative;width:40px;height:40px;display:grid;place-items:center;color:var(--p-ink);flex:none}
+  .rbadge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--error);color:#FFF;font-size:9.5px;font-weight:800;display:grid;place-items:center;border:2px solid var(--bg)}
+  .rbadge.clamp{min-width:20px}
+  .me-av{width:36px;height:36px;border-radius:50%;background:var(--p-accentSoft);display:grid;place-items:center;font-weight:800;color:var(--accentPressed);font-size:14px;flex:none;position:relative}
+  .me-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+  /* backup banner */
+  .bkb{display:flex;align-items:center;gap:9px;background:var(--p-accentSoft);border-radius:var(--r-md);padding:9px 8px 9px 12px;font-size:12.5px;font-weight:600;color:var(--p-ink);cursor:pointer}
+  .bkb .ic{stroke:var(--accentPressed)}
+  .bkb .bx{width:32px;height:32px;display:grid;place-items:center;color:var(--p-inkSoft);flex:none}
+
+  /* search pill */
+  .spill{display:flex;align-items:center;gap:8px;height:42px;border-radius:999px;background:var(--p-surface);border:1px solid var(--p-line);padding:0 14px;color:var(--p-inkFaint);font-size:13.5px;min-width:0}
+  .spill.focus{border:1.5px solid var(--p-accent);padding:0 13.5px;color:var(--p-ink)}
+  .spill .sx{margin-left:auto;color:var(--p-inkFaint);width:32px;height:32px;display:grid;place-items:center;margin-right:-8px}
+  .spill.focus .q{color:var(--p-ink);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* section header */
+  .sh{font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--p-inkFaint);padding:8px 4px 2px;display:flex;align-items:center;gap:8px}
+  .sh .n{background:var(--p-surface2);border-radius:999px;padding:1px 7px;font-size:10px;color:var(--p-inkSoft)}
+
+  /* tiles */
+  .tile{display:flex;gap:12px;align-items:center;background:var(--p-surface);border-radius:var(--r-md);padding:10px 12px;min-width:0;position:relative}
+  .av{width:40px;height:40px;border-radius:50%;background:var(--p-surface2);display:grid;place-items:center;font-weight:800;color:var(--p-inkSoft);font-size:15px;flex:none;position:relative}
+  .av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+  .av .gb{position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;border-radius:50%;background:var(--p-bg,var(--bg));display:grid;place-items:center;border:2px solid var(--p-surface)}
+  .phone.dark .av .gb{background:var(--dBg)}
+  .av .gb .ic{width:9px;height:9px;stroke:var(--p-accent)}
+  .av .pd{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--p-success);border:2.5px solid var(--p-surface)}
+  .tt{flex:1;min-width:0}
+  .tn{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;min-width:0}
+  .tn .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tn .pin{color:var(--p-inkFaint);flex:none;display:flex}
+  .tn .pin .ic{width:12px;height:12px}
+  .tp{font-size:12.5px;color:var(--p-inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;display:flex;gap:6px;align-items:center;min-width:0}
+  .tp .g{color:var(--p-accent);font-weight:700;flex:none}
+  .tp .emo{font-size:12px}
+  .tp.unread{color:var(--p-ink);font-weight:600}
+  .tm{font-size:11px;color:var(--p-inkFaint);align-self:flex-start;margin-top:3px;white-space:nowrap;flex:none}
+  .tm.unread{color:var(--p-accent);font-weight:700}
+  .ubadge{background:var(--accent);color:var(--onAccent);font-size:11px;font-weight:800;min-width:22px;height:22px;padding:0 6px;border-radius:999px;display:grid;place-items:center;flex:none;margin-left:auto}
+  .ubadge.clamp{min-width:34px}
+  .smline{font-size:12.5px;color:var(--p-inkSoft);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .smline.on{color:var(--p-success);font-weight:600}
+
+  /* FAB */
+  .fab{width:56px;height:56px;border-radius:var(--r-md);background:var(--accent);color:var(--onAccent);display:grid;place-items:center;box-shadow:0 8px 20px rgba(239,160,11,.35);align-self:flex-end;margin-top:auto;z-index:4}
+  .fab .ic{width:24px;height:24px}
+
+  /* sheet */
+  .sheet{background:var(--p-surface);border:1px solid var(--p-line);border-radius:var(--r-lg) var(--r-lg) var(--r-md) var(--r-md);padding:10px 14px 14px;display:flex;flex-direction:column;gap:2px;position:relative;color:var(--p-ink)}
+  .sheet .handle{width:36px;height:4px;border-radius:2px;background:var(--p-line);margin:0 auto 8px}
+  .sitem{display:flex;align-items:center;gap:12px;padding:11px 4px;font-size:13.5px;font-weight:600;color:var(--p-ink)}
+  .sitem .ic{color:var(--p-inkSoft)}
+  .sitem.err{color:var(--p-error)}
+  .sitem.err .ic{stroke:var(--p-error)}
+  .sitem small{margin-left:auto;font-size:10.5px;color:var(--p-inkFaint);font-weight:600}
+  .sitem .acc{color:var(--p-accent);margin-left:auto;font-size:11px;font-weight:700}
+
+  /* banners / states */
+  .bann{display:flex;align-items:center;gap:8px;background:var(--p-accentSoft);border:1px solid color-mix(in srgb, var(--accent) 45%, transparent);border-radius:var(--r-md);padding:9px 12px;font-size:12.5px;font-weight:600;color:var(--p-ink)}
+  .bann .ic{stroke:var(--accentPressed)}
+  .bann .rt{margin-left:auto;font-weight:700;color:var(--p-ink);border:1px solid var(--p-line);border-radius:999px;padding:3px 10px;font-size:11px;background:var(--p-surface);flex:none}
+  .sk{background:var(--p-surface2);border-radius:var(--r-md);animation:sh 1.4s ease-in-out infinite alternate}
+  @keyframes sh{from{opacity:.55}to{opacity:1}}
+  .skt{display:flex;gap:12px;align-items:center;background:var(--p-surface);border-radius:var(--r-md);padding:10px 12px}
+  .skt .sc{width:40px;height:40px;border-radius:50%;background:var(--p-surface2);flex:none;animation:sh 1.4s ease-in-out infinite alternate}
+  .skt .sl{height:12px;border-radius:6px;background:var(--p-surface2);animation:sh 1.4s ease-in-out infinite alternate}
+  .empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:34px 20px}
+  .empty .et{font-weight:800;font-size:17px;margin-top:10px}
+  .empty .es{font-size:13px;color:var(--p-inkSoft);max-width:30ch;line-height:1.5}
+  .capy{animation:breathe 3.4s ease-in-out infinite;transform-origin:50% 100%}
+  @keyframes breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03)}}
+  .cta{margin-top:12px;background:var(--accent);color:var(--onAccent);border-radius:var(--r-sm);padding:11px 18px;font-size:14px;font-weight:700;display:inline-flex;gap:8px;align-items:center;justify-content:center}
+  .pull{display:flex;justify-content:center;padding-top:2px}
+  .pull .sp{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--p-accent);border-top-color:transparent;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .states{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:16px}
+  .spec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  .st{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--inkFaint);display:flex;gap:8px;align-items:center}
+  .st .tag{background:var(--accentSoft);border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);color:var(--accentPressed);border-radius:999px;padding:1px 7px;font-size:9.5px;letter-spacing:.08em}
+  .spec .rule{font-size:11.5px;color:var(--inkSoft);line-height:1.5}
+  .spec .rule b{color:var(--ink)}
+  .demo{display:flex;flex-direction:column;gap:10px}
+  .demo.row{flex-direction:row;align-items:center;flex-wrap:wrap}
+  .swatch{width:34px;height:34px;border-radius:var(--r-sm);border:1px solid var(--line);position:relative}
+  .swatch span{position:absolute;bottom:-16px;left:0;right:0;text-align:center;font-size:8.5px;color:var(--inkFaint);font-weight:700}
+  .lgd{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--inkSoft);line-height:1.5}
+  .lgd b{color:var(--ink)}
+  .num{position:absolute;width:17px;height:17px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:9.5px;font-weight:800;display:grid;place-items:center;border:2px solid var(--bg);z-index:6}
+  .tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .tbl th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--inkFaint);padding:6px 8px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--inkSoft)}
+  .tbl td:first-child{color:var(--ink);font-weight:600}
+  .tbl tr:last-child td{border-bottom:none}
+  .note{background:var(--accentSoft);border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);border-radius:var(--r-md);padding:12px 14px;font-size:12.5px;line-height:1.55;color:var(--ink)}
+  .note b{font-weight:800}
+  .laws{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--inkSoft)}
+  .laws li{padding-left:14px;position:relative;line-height:1.5}
+  .laws li::before{content:"—";position:absolute;left:0;color:var(--inkFaint)}
+  .laws b{color:var(--ink)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:720px){.grid2{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion: reduce) {
+    .capy,.sk,.skt .sc,.skt .sl,.pull .sp{animation:none}
+  }
+</style>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-padd" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1.5a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V21"/><path d="M19 8v6M16 11h6"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></symbol>
+  <symbol id="i-group" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M15.5 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-group-add" viewBox="0 0 24 24"><path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M19 8v6M16 11h6"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v5M12 17h.01"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-comment" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4z"/><path d="M12 13.5V21"/></symbol>
+  <symbol id="i-pin-f" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4z"/><path d="M12 13.5V21"/></symbol>
+  <symbol id="i-check-c" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5L5 19"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M22 8l-6 4 6 4V8z"/></symbol>
+  <symbol id="i-chev-dn" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <p class="cap">W3 UI/UX pass · Page 2 of ~10 · design spec</p>
+  <h1>Home (conversation list) — complete design spec</h1>
+  <p class="lede">Every element on the home surface, every state, light and dark. Tokens/laws =
+  <b>docs/design/00-foundation.md</b>; shared components = <b>docs/design/10-registry.md</b>; grading =
+  <b>docs/design/pages/home.md</b>. Base mockup: <code>docs/mockups/2026-10-05-home-chat.html</code> (light Home
+  frame — approved W3 board). Cross-page law: the conversation long-press sheet is the SAME sheet language as
+  chat's C4 — defined once, imported twice. Chat-screen laws that live on home tiles (P7 previews, tap-down
+  predecrypt) are pinned in home.md §Laws.</p>
+</header>
+
+<!-- ═══════════ H1 · TOKENS ═══════════ -->
+<section>
+  <p class="cap">H1 · Tokens used by this page</p>
+  <h2>Color · type · shape (chat-identical vocabulary)</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Colors <span class="tag">light + dark</span></span>
+      <div class="demo row" style="gap:12px;row-gap:24px;padding-top:4px">
+        <div class="swatch" style="background:var(--bg)"><span>bg</span></div>
+        <div class="swatch" style="background:var(--surface)"><span>surface</span></div>
+        <div class="swatch" style="background:var(--surface2)"><span>surface2</span></div>
+        <div class="swatch" style="background:var(--accent)"><span>accent</span></div>
+        <div class="swatch" style="background:var(--accentSoft)"><span>accentSoft</span></div>
+        <div class="swatch" style="background:var(--inkSoft)"><span>inkSoft</span></div>
+        <div class="swatch" style="background:var(--error)"><span>error</span></div>
+        <div class="swatch" style="background:var(--success)"><span>success</span></div>
+      </div>
+      <div class="rule" style="margin-top:8px">Dark swaps bg/surface/surface2/ink/line/accentSoft per foundation §2.
+      accent + success + error unchanged across themes.</div>
+    </div>
+    <div class="spec">
+      <span class="st">Type on this page</span>
+      <div class="demo">
+        <div style="font-size:21px;font-weight:800;letter-spacing:-.02em">21 / 800 — “Kuch Bhi” title</div>
+        <div style="font-size:15px;font-weight:700">15 / 700 — tile name</div>
+        <div style="font-size:13px;font-weight:700">13 / 700 — “Add a Friend” CTA</div>
+        <div style="font-size:12.5px;color:var(--inkSoft)">12.5 / 400 — preview line</div>
+        <div style="font-size:11px;font-weight:600;letter-spacing:.1em">11 / 600 — section headers</div>
+        <div style="font-size:11px;color:var(--inkFaint)">11 / 400 — time meta</div>
+      </div>
+      <div class="rule">No invented sizes; matches chat page vocabulary. System font in-app.</div>
+    </div>
+    <div class="spec">
+      <span class="st">Shape &amp; motion</span>
+      <div class="rule"><b>Radius:</b> tiles/sheet-handle cards 16 · sheets 20 top · pills 999 · banner 16.<br>
+      <b>Motion:</b> shimmer 1.2–1.4s loop · search focus 150ms · sheet 250ms · banner dismiss 250ms fade ·
+      FAB press 150ms. Reduced-motion parks shimmer (already in R11) — new anims follow chat S20 rules.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H2 · ANATOMY ═══════════ -->
+<section>
+  <p class="cap">H2 · Screen anatomy</p>
+  <h2>Every element, numbered</h2>
+  <div class="grid2">
+    <div class="phone light" style="font-size:13.5px">
+      <span class="num" style="top:24px;left:50%;transform:translateX(-50%)">1</span>
+      <span class="num" style="top:22px;right:56px">2</span>
+      <span class="num" style="top:22px;right:8px">3</span>
+      <span class="num" style="top:76px;left:6px">4</span>
+      <span class="num" style="top:134px;left:6px">5</span>
+      <span class="num" style="top:176px;left:6px">6</span>
+      <span class="num" style="top:222px;left:6px">7</span>
+      <span class="num" style="top:222px;right:6px">8</span>
+      <span class="num" style="top:320px;left:6px">9</span>
+      <span class="num" style="top:368px;left:6px">10</span>
+      <span class="num" style="bottom:14px;right:8px">11</span>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg><span class="rbadge">3</span></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="bkb"><svg class="ic s"><use href="#i-warn"/></svg>
+          <span style="flex:1">Backup your encryption key to restore messages after reinstall. Tap to set up.</span>
+          <span class="bx"><svg class="ic s"><use href="#i-close"/></svg></span>
+        </div>
+        <div class="spill"><svg class="ic s"><use href="#i-search"/></svg>Search chats</div>
+        <div class="sh">Chats <span class="n">4</span></div>
+        <div class="tile">
+          <div class="av">A<img hidden></div>
+          <div class="tt"><div class="tn"><span class="pin"><svg class="ic"><use href="#i-pin-f"/></svg></span><span class="txt">Aarav</span></div>
+            <div class="tp unread">Sounds good, see you at 8</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none">
+            <span class="tm unread">09:42</span><span class="ubadge">2</span></div>
+        </div>
+        <div class="tile">
+          <div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div><span class="pd"></span></div>
+          <div class="tt"><div class="tn"><span class="txt">Design Squad</span></div>
+            <div class="tp"><span class="g">Meera:</span> the new build looks clean</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none">
+            <span class="tm">09:15</span></div>
+        </div>
+        <div class="tile">
+          <div class="av">P</div>
+          <div class="tt"><div class="tn"><span class="txt">Priya</span></div>
+            <div class="tp"><span class="emo">📷</span> Photo</div></div>
+          <div style="flex:none"><span class="tm">Yesterday</span></div>
+        </div>
+        <div class="sh">Friends <span class="n">1</span></div>
+        <div class="tile">
+          <div class="av">R<span class="pd"></span></div>
+          <div class="tt"><div class="tn"><span class="txt">Rohan</span></div>
+            <div class="smline on">Online</div></div>
+        </div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+    <div class="lgd">
+      <p><b>1</b> Title “Kuch Bhi” (21/800) — root shell, no back.</p>
+      <p><b>2</b> Friend-requests action — count badge (error), <b>clamped 99+</b>, Semantics-labelled → /friend-requests.</p>
+      <p><b>3</b> Profile avatar (accentSoft + initial/photo) → /profile. 48dp target.</p>
+      <p><b>4</b> Backup banner (conditional) — WHOLE strip is one tap target → /backup-pin/setup; ✕ = 7-day dismiss (law).</p>
+      <p><b>5</b> Search pill <b>(new — mockup-approved, code absent)</b> → H5.</p>
+      <p><b>6</b> Section header + <b>count</b> (new) — “Chats”.</p>
+      <p><b>7</b> Pinned tile — pin glyph before name (data+sort already exist, indicator was missing); unread: accent time + bold preview + 99+ badge.</p>
+      <p><b>8</b> Group tile — glyph badge on avatar + <b>presence dot</b> (mutually exclusive corner slots); preview = <b>“Sender:” prefix</b> (mockup law) + media label.</p>
+      <p><b>9</b> Friends header + count.</p>
+      <p><b>10</b> Friend tile — presence dot on avatar + “Online” success subtitle (both, by design).</p>
+      <p><b>11</b> FAB 56dp radius 16 accent → new-chat sheet (H9).</p>
+      <p>Preview line (7/8) is DERIVED at render (P7 law) — never a stored string. Press anywhere on a tile = tap-down predecrypt (law L5 in home.md).</p>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H3 · FULL-SCREEN STATES ═══════════ -->
+<section>
+  <p class="cap">H3 · Full-screen states</p>
+  <h2>The screen as a whole — light and dark</h2>
+  <div class="sub">Anchors: <b>light · default</b> (banner + search + sections) and <b>dark · default</b>.
+  Then every non-happy state. Skeleton anatomy is NEW (avatar circle + lines — was flat 56px blocks).</div>
+  <div class="phones">
+
+    <!-- light default -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · default</span><span class="pchip">L</span></div>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg><span class="rbadge">3</span></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="bkb"><svg class="ic s"><use href="#i-warn"/></svg>
+          <span style="flex:1">Backup your encryption key to restore messages after reinstall. Tap to set up.</span>
+          <span class="bx"><svg class="ic s"><use href="#i-close"/></svg></span>
+        </div>
+        <div class="spill"><svg class="ic s"><use href="#i-search"/></svg>Search chats</div>
+        <div class="sh">Chats <span class="n">3</span></div>
+        <div class="tile">
+          <div class="av">A</div>
+          <div class="tt"><div class="tn"><span class="pin"><svg class="ic"><use href="#i-pin-f"/></svg></span><span class="txt">Aarav</span></div>
+            <div class="tp unread">Sounds good, see you at 8</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none">
+            <span class="tm unread">09:42</span><span class="ubadge">2</span></div>
+        </div>
+        <div class="tile">
+          <div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+          <div class="tt"><div class="tn"><span class="txt">Design Squad</span></div>
+            <div class="tp"><span class="g">Meera:</span> the new build looks clean</div></div>
+          <div style="flex:none"><span class="tm">09:15</span></div>
+        </div>
+        <div class="tile">
+          <div class="av">P</div>
+          <div class="tt"><div class="tn"><span class="txt">Priya</span></div>
+            <div class="tp"><span class="emo">📷</span> Photo</div></div>
+          <div style="flex:none"><span class="tm">Yesterday</span></div>
+        </div>
+        <div class="sh">Friends <span class="n">1</span></div>
+        <div class="tile">
+          <div class="av">R<span class="pd"></span></div>
+          <div class="tt"><div class="tn"><span class="txt">Rohan</span></div>
+            <div class="smline on">Online</div></div>
+        </div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+
+    <!-- dark default -->
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · default</span><span class="pchip">D</span></div>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="spill"><svg class="ic s"><use href="#i-search"/></svg>Search chats</div>
+        <div class="sh">Chats <span class="n">2</span></div>
+        <div class="tile">
+          <div class="av">M<img hidden></div>
+          <div class="tt"><div class="tn"><span class="txt">Meera</span></div>
+            <div class="tp">🎤 Voice message</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none">
+            <span class="tm">21:04</span><span class="ubadge clamp">99+</span></div>
+        </div>
+        <div class="tile">
+          <div class="av">FS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+          <div class="tt"><div class="tn"><span class="txt">Flutter Squad</span></div>
+            <div class="tp"><span class="g">you:</span> pushed the fix, please pull</div></div>
+          <div style="flex:none"><span class="tm">Tue</span></div>
+        </div>
+        <div class="sh">Friends <span class="n">1</span></div>
+        <div class="tile">
+          <div class="av">S</div>
+          <div class="tt"><div class="tn"><span class="txt">Sara</span></div>
+            <div class="smline">Tap to start chatting</div></div>
+        </div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+
+    <!-- search open -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · search open</span><span class="pchip">L</span></div>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="spill focus"><svg class="ic s"><use href="#i-search"/></svg><span class="q">desig</span>
+          <span class="sx"><svg class="ic s"><use href="#i-close"/></svg></span></div>
+        <div class="sh">Chats <span class="n">1</span></div>
+        <div class="tile" style="outline:1.5px solid color-mix(in srgb, var(--accent) 55%, transparent)">
+          <div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+          <div class="tt"><div class="tn"><span class="txt">Design Squad</span></div>
+            <div class="tp"><span class="g">Meera:</span> the new build looks clean</div></div>
+          <div style="flex:none"><span class="tm">09:15</span></div>
+        </div>
+        <div class="sh">Friends <span class="n">0</span></div>
+        <div style="font-size:12px;color:var(--inkFaint);text-align:center;padding:10px">No friends match “desig”</div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+
+    <!-- empty -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · empty</span><span class="pchip">L</span></div>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="spill"><svg class="ic s"><use href="#i-search"/></svg>Search chats</div>
+        <div class="empty" style="flex:1;justify-content:center">
+          <svg class="capy" width="130" height="117" viewBox="0 0 200 180" aria-label="Capybara waiting">
+            <circle cx="80" cy="52" r="12.5" fill="var(--mBody)"/><circle cx="150" cy="58" r="11" fill="var(--mBody)"/>
+            <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--mBody)"/>
+            <rect x="52" y="126" width="28" height="24" rx="12" fill="var(--mShade)"/>
+            <rect x="96" y="128" width="30" height="24" rx="12" fill="var(--mShade)"/>
+            <rect x="138" y="126" width="24" height="24" rx="11" fill="var(--mShade)"/>
+            <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--mSnout)"/>
+            <rect x="33" y="78" width="10" height="4.5" rx="2.25" transform="rotate(-20 38 80)" fill="var(--mNostril)"/>
+            <rect x="49" y="75" width="10" height="4.5" rx="2.25" transform="rotate(14 54 77)" fill="var(--mNostril)"/>
+            <path d="M35 114q9 7 18 0" stroke="var(--mNostril)" stroke-width="4" fill="none" stroke-linecap="round"/>
+            <circle cx="88" cy="66" r="5.5" fill="var(--mFace)"/><circle cx="90.5" cy="63.5" r="2" fill="#FFF"/>
+            <circle cx="122" cy="62" r="5.5" fill="var(--mFace)"/><circle cx="124.5" cy="59.5" r="2" fill="#FFF"/>
+          </svg>
+          <div class="et">No chats yet</div>
+          <div class="es">Add friends to start chatting.</div>
+          <div class="cta"><svg class="ic"><use href="#i-padd"/></svg>Add a Friend</div>
+        </div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+
+    <!-- loading -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · loading</span><span class="pchip">L</span></div>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="sh">Chats</div>
+        <div class="skt"><div class="sc"></div><div style="flex:1;display:flex;flex-direction:column;gap:7px">
+          <div class="sl" style="width:45%"></div><div class="sl" style="width:75%;height:10px"></div></div></div>
+        <div class="skt"><div class="sc"></div><div style="flex:1;display:flex;flex-direction:column;gap:7px">
+          <div class="sl" style="width:60%"></div><div class="sl" style="width:55%;height:10px"></div></div></div>
+        <div class="skt"><div class="sc"></div><div style="flex:1;display:flex;flex-direction:column;gap:7px">
+          <div class="sl" style="width:38%"></div><div class="sl" style="width:68%;height:10px"></div></div></div>
+        <div class="skt"><div class="sc"></div><div style="flex:1;display:flex;flex-direction:column;gap:7px">
+          <div class="sl" style="width:52%"></div><div class="sl" style="width:48%;height:10px"></div></div></div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+
+    <!-- error + offline -->
+    <div class="phone dark">
+      <div class="phead"><span class="plabel">Dark · error &amp; offline</span><span class="pchip">D</span></div>
+      <div class="body">
+        <div class="hab">
+          <span class="ht">Kuch Bhi</span>
+          <span class="ha"><svg class="ic m"><use href="#i-padd"/></svg></span>
+          <span class="me-av">K</span>
+        </div>
+        <div class="bann"><svg class="ic s"><use href="#i-warn"/></svg>
+          You’re offline — messages will send when you’re back.<span class="rt">Retry</span></div>
+        <div class="bann" style="background:color-mix(in srgb, var(--p-error) 8%, transparent);border-color:color-mix(in srgb, var(--p-error) 40%, transparent)">
+          <svg class="ic s" style="stroke:var(--p-error)"><use href="#i-warn"/></svg>
+          Couldn’t load your chats.<span class="rt">Retry</span></div>
+        <div class="empty" style="flex:1;justify-content:center;padding-top:8px">
+          <svg class="capy" width="84" height="76" viewBox="0 0 200 180">
+            <circle cx="80" cy="52" r="12.5" fill="var(--mBody)"/><circle cx="150" cy="58" r="11" fill="var(--mBody)"/>
+            <rect x="28" y="48" width="146" height="96" rx="46" fill="var(--mBody)"/>
+            <rect x="21" y="66" width="50" height="66" rx="23" fill="var(--mSnout)"/>
+            <circle cx="88" cy="66" r="5.5" fill="var(--mFace)"/><circle cx="122" cy="62" r="5.5" fill="var(--mFace)"/>
+            <path d="M84 74q5 5 10 0" stroke="var(--mFace)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+          </svg>
+          <div class="et" style="font-size:15px">Couldn’t load your chats</div>
+          <div class="es">Check your connection and try again.</div>
+        </div>
+        <div class="fab"><svg class="ic"><use href="#i-comment"/></svg></div>
+      </div>
+    </div>
+
+    <!-- pull-to-refresh -->
+    <div class="phone light">
+      <div class="phead"><span class="plabel">Light · pull-to-refresh</span><span class="pchip">L</span></div>
+      <div class="body">
+        <div class="pull"><div class="sp"></div></div>
+        <div class="sh">Chats <span class="n">2</span></div>
+        <div class="tile">
+          <div class="av">A</div>
+          <div class="tt"><div class="tn"><span class="txt">Aarav</span></div>
+            <div class="tp">see you at 8</div></div>
+          <div style="flex:none"><span class="tm">09:42</span></div>
+        </div>
+        <div class="tile">
+          <div class="av">P</div>
+          <div class="tt"><div class="tn"><span class="txt">Priya</span></div>
+            <div class="tp"><span class="emo">📷</span> Photo</div></div>
+          <div style="flex:none"><span class="tm">Yesterday</span></div>
+        </div>
+        <div class="rule" style="font-size:11px;color:var(--inkFaint);text-align:center;margin-top:auto">accent spinner · refreshes conversations AND friendships</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="note"><b>Reading rules.</b> Loading = tile-shaped skeleton (circle + 2 lines), never flat blocks;
+  error = named copy + Retry + mascot (foundation §6); offline = accentSoft strip (chat S18 language — same
+  treatment, now on home too); empty keeps app copy + mascot + one CTA, and the list becomes
+  <b>always-scrollable</b> so pull-to-refresh works there too (today it can't).</div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H4 · APP BAR ═══════════ -->
+<section>
+  <p class="cap">H4 · App bar</p>
+  <h2>Title · requests badge · profile avatar</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Requests badge states</span>
+      <div class="demo row" style="gap:18px">
+        <span class="ha" style="position:relative;color:var(--ink)"><svg class="ic m"><use href="#i-padd"/></svg></span>
+        <span class="ha" style="position:relative;color:var(--ink)"><svg class="ic m"><use href="#i-padd"/></svg><span class="rbadge">3</span></span>
+        <span class="ha" style="position:relative;color:var(--ink)"><svg class="ic m"><use href="#i-padd"/></svg><span class="rbadge">12</span></span>
+        <span class="ha" style="position:relative;color:var(--ink)"><svg class="ic m"><use href="#i-padd"/></svg><span class="rbadge clamp">99+</span></span>
+      </div>
+      <div class="rule"><b>Clamp (new):</b> 1–99 shown raw in 16dp circle; ≥100 → pill “99+”. Keeps 2px ring on
+      bg color. Error fill + white text (intent = attention, not accent). Combines friend + group requests (existing
+      provider). <b>Semantics (new):</b> label “{n} pending requests” / “No pending requests”.</div>
+    </div>
+    <div class="spec">
+      <span class="st">Profile avatar</span>
+      <div class="demo row" style="gap:14px">
+        <span class="me-av">K</span>
+        <span class="me-av" style="background:var(--surface2);color:var(--inkSoft)">Y</span>
+        <span class="me-av" style="background:var(--surface2);color:var(--inkSoft);border:1.5px solid var(--accent)">Y</span>
+      </div>
+      <div class="rule">Initial-on-accentSoft (self, distinct from others' surface2 avatars) OR photo.
+      Pressed = accent ring (new). Tap → /profile, 48dp target, Semantics “Your profile”.
+      <b>Unification (new):</b> home's private _AppAvatar folds into R1 <code>AppAvatar</code> with a new
+      optional <code>accentSoft</code> flag — one avatar component, two fills (registry amendment recorded).</div>
+    </div>
+    <div class="spec">
+      <span class="st">Title + bar law</span>
+      <ul class="laws">
+        <li>“Kuch Bhi” 21/800, letter-spacing −0.02 — static, never collapses (root shell, no scroll trick).</li>
+        <li>Bar bg = page bg, no elevation line (chat S4 law — same shell language both pages).</li>
+        <li>Right cluster order: requests, avatar (gap ≥8dp, targets 48dp).</li>
+        <li>During badge loading: show NOTHING (no 0-badge flash pop-in — current valueOrNull→0 pops; new: hold).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H5 · SEARCH ═══════════ -->
+<section>
+  <p class="cap">H5 · Search pill (new — approved mockup, absent in code)</p>
+  <h2>Closed · focused · filtering · no results</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Closed</span>
+      <div class="demo"><div class="spill"><svg class="ic s"><use href="#i-search"/></svg>Search chats</div></div>
+      <div class="rule">Full-width pill under app bar (42dp, radius 999, surface + line border — R8 language but
+      home-owned copy). Always visible (no icon-collapse mode — this list is short and scan-first).</div>
+    </div>
+    <div class="spec">
+      <span class="st">Focused / typing</span>
+      <div class="demo">
+        <div class="spill focus"><svg class="ic s"><use href="#i-search"/></svg><span class="q">desig</span>
+          <span class="sx"><svg class="ic s"><use href="#i-close"/></svg></span></div>
+      </div>
+      <div class="rule">Focus = accent border 1.5px (R8). Typing = live local filter, <b>no debounce needed</b>
+      (in-memory). ✕ (only when text) clears + refocuses. Keyboard open → FAB hides (M3 default) and returns on dismiss.</div>
+    </div>
+    <div class="spec">
+      <span class="st">Filter rules</span>
+      <ul class="laws">
+        <li>Match = case-insensitive substring on <b>conversation display name</b> + friend names. NOT previews
+        (previews decrypt — searching them would couple filter to #body; deliberate no).</li>
+        <li>Filters BOTH sections in place; section headers stay, counts update live; hidden sections collapse entirely.</li>
+        <li>Matches render in matching tiles normally (no highlight marks on home — chat owns mark language).</li>
+        <li>No results → per-section line “No chats match ‘{q}’.” / “No friends match ‘{q}’.” (12px inkFaint, centered);
+        if both empty → single centered line + mascot NOT shown (empty-state mascot = zero-data only).</li>
+        <li>Clearing search restores exact scroll position. Ephemeral — never persisted.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H6 · LIST STRUCTURE ═══════════ -->
+<section>
+  <p class="cap">H6 · List structure</p>
+  <h2>Sections · pinned · ordering · time</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Sections + headers</span>
+      <div class="demo">
+        <div class="sh" style="padding-left:0">Chats <span class="n">4</span></div>
+        <div class="sh" style="padding-left:0">Friends <span class="n">2</span></div>
+      </div>
+      <ul class="laws">
+        <li>Headers = R9 SectionHeader + <b>live count pill</b> (new, surface2 chip). Counts follow search filter.</li>
+        <li>Chats only when ≥1 renderable conv; Friends only when ≥1 new friend (both-zero → empty state, H3).</li>
+        <li>Filter laws stay: unsynced DMs (otherUser null) hidden from Chats (they live under Friends); friends
+        with an active DM excluded from Friends (law L8 in home.md).</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Ordering + pinned indicator</span>
+      <div class="demo">
+        <div class="tile" style="padding:8px 12px"><div class="av" style="width:34px;height:34px;font-size:13px">A</div>
+          <div class="tt"><div class="tn" style="font-size:14px"><span class="pin"><svg class="ic"><use href="#i-pin-f"/></svg></span><span class="txt">Aarav · pinned first</span></div></div></div>
+        <div class="tile" style="padding:8px 12px"><div class="av" style="width:34px;height:34px;font-size:13px">P</div>
+          <div class="tt"><div class="tn" style="font-size:14px"><span class="txt">Priya · recency</span></div></div></div>
+      </div>
+      <ul class="laws">
+        <li><b>DB order stands</b> (is_pinned DESC, last_message_at DESC — silent today). <b>New:</b> 12px pin glyph
+        (inkFaint) before the name on pinned rows — the indicator the data already deserves.</li>
+        <li>Pin is LOCAL-only today (no sync). Long-press toggle lands in H8; until pinned, sorting already works —
+        visual only.</li>
+        <li>No “Pinned” subsection header (rows float to top of Chats, glyph carries meaning — less chrome).</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Time rules (pinned — law L12)</span>
+      <table class="tbl">
+        <tr><th>Gap</th><th>Render</th></tr>
+        <tr><td>today</td><td><code>HH:mm</code> (device locale 24h as-is)</td></tr>
+        <tr><td>yesterday</td><td><code>Yesterday</code></td></tr>
+        <tr><td>&lt; 7 days</td><td><code>EEE</code> (Mon…)</td></tr>
+        <tr><td>older</td><td><code>dd/MM</code> — <b>SHOULD:</b> + year if ≠ current year (flagged, low-risk add)</td></tr>
+        <tr><td>no last message</td><td>time hidden entirely (existing)</td></tr>
+      </table>
+      <div class="rule">Time sits top-right of the tile meta column; unread flips it to accent + 700.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H7 · TILE ANATOMY ═══════════ -->
+<section>
+  <p class="cap">H7 · Tile anatomy (R6 ChatTile — one component, four faces)</p>
+  <h2>Conversation · group · friend · unread</h2>
+  <div class="grid2">
+    <div class="spec">
+      <span class="st">Faces side by side</span>
+      <div class="demo">
+        <div class="tile"><div class="av">A<span class="pd"></span></div>
+          <div class="tt"><div class="tn"><span class="txt">Aarav</span></div><div class="tp unread">see you at 8</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none">
+            <span class="tm unread">09:42</span><span class="ubadge">2</span></div></div>
+        <div class="tile"><div class="av">DS<div class="gb"><svg class="ic"><use href="#i-group"/></svg></div></div>
+          <div class="tt"><div class="tn"><span class="txt">Design Squad</span></div>
+            <div class="tp"><span class="g">Meera:</span> new build looks clean</div></div>
+          <div style="flex:none"><span class="tm">09:15</span></div></div>
+        <div class="tile"><div class="av">P</div>
+          <div class="tt"><div class="tn"><span class="txt">Priya</span></div><div class="tp"><span class="emo">📷</span> Photo</div></div>
+          <div style="flex:none"><span class="tm">Yesterday</span></div></div>
+        <div class="tile"><div class="av">R<span class="pd"></span></div>
+          <div class="tt"><div class="tn"><span class="txt">Rohan · friend face</span></div><div class="smline on">Online</div></div></div>
+      </div>
+      <div class="rule">Tile: surface, radius 16, pad 10/12, pressed = ripple (existing InkWell).
+      Avatar 40dp + corner slots: <b>group glyph</b> (bg disc + accent glyph) OR <b>presence dot</b> (success,
+ 2.5px surface ring) — mutually exclusive by construction (groups have no peer presence).</div>
+    </div>
+    <div class="spec">
+      <span class="st">Laws per part</span>
+      <ul class="laws">
+        <li><b>Name:</b> 15/700 ellipsis. Fallbacks stay: group ?? ‘Group’, peer ?? ‘Unknown’, empty ?? ‘?’.</li>
+        <li><b>Preview (P7 — law L1):</b> derived via ConversationPreviewText ONLY. Text = #body 'preview'
+        (placeholder key law L4); media/system = exact constants (law L3: 📷 Photo / 🎬 Video / 🎤 Voice message /
+        📎 Document / 📊 Poll / New message); no row = exact fallback ‘Tap to open chat’ (law L2).</li>
+        <li><b>Group sender prefix (new, mockup law):</b> group previews render “{Name}: {derived}” — prefix is a
+        sibling Text before the preview widget (placeholder keys untouched). “you:” for own last message. 1:1 never prefixed.</li>
+        <li><b>Unread (new rules):</b> preview ink+600, time accent+700, AppBadge accent pill — three signals, all token-driven.
+        <b>Badge clamp (new):</b> ≥100 → “99+” (R2 amendment, applies to app-bar badge too).</li>
+        <li><b>Presence dot (new):</b> DM avatar shows success dot when entity online (null-safe: no dot when unknown).
+        Friend tiles keep “Online” subtitle TOO (dot = glance, subtitle = read).</li>
+        <li><b>Friend face:</b> string subtitle “Online” (success) / “Tap to start chatting” (inkSoft) — unchanged copy.</li>
+        <li><b>Long-press:</b> wired → H8 sheet (today: param exists, never passed — new). Tap still opens chat; Listener predecrypt law untouched (law L5).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H8 · LONG-PRESS SHEET ═══════════ -->
+<section>
+  <p class="cap">H8 · Conversation long-press sheet (shared sheet language — C4 family)</p>
+  <h2>Pin · mark read — and what waits</h2>
+  <div class="grid2">
+    <div class="spec">
+      <span class="st">Sheet — conversation actions</span>
+      <div class="demo">
+        <div class="sheet">
+          <div class="handle"></div>
+          <div style="display:flex;gap:10px;align-items:center;padding:2px 4px 8px;min-width:0">
+            <div class="av" style="width:32px;height:32px;font-size:12px">A</div>
+            <div style="min-width:0"><div style="font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Aarav</div>
+              <div style="font-size:11px;color:var(--p-inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sounds good, see you at 8</div></div>
+          </div>
+          <div class="sitem"><svg class="ic"><use href="#i-pin"/></svg>Pin conversation<span class="acc">On</span></div>
+          <div class="sitem"><svg class="ic"><use href="#i-check-c"/></svg>Mark as read</div>
+          <div class="sitem"><svg class="ic"><use href="#i-info"/></svg>Conversation info</div>
+        </div>
+      </div>
+      <div class="rule">SAME chrome as chat's long-press sheet (handle, header, 13.5/600 rows, 48dp targets) —
+      one visual ideology, two action sets. Header = avatar + name + newest preview (derived string).
+      Haptic on open (chat L2). Conversation info: group → Group Settings; 1:1 → peer profile.</div>
+    </div>
+    <div class="spec">
+      <span class="st">Actions reality-check</span>
+      <table class="tbl">
+        <tr><th>Action</th><th>Data today</th><th>Ruling</th></tr>
+        <tr><td>Pin/Unpin</td><td>✓ DAO setPinned (orphaned)</td><td><b>MUST</b> — wire + glyph (H6)</td></tr>
+        <tr><td>Mark as read</td><td>✓ markConversationRead</td><td><b>MUST</b> — shows only when unread &gt; 0</td></tr>
+        <tr><td>Conversation info</td><td>✓ routes exist</td><td><b>MUST</b> — destination per type</td></tr>
+        <tr><td>Mute</td><td>column only, no API</td><td><b>DEFERRED</b> (data task first) — not this page</td></tr>
+        <tr><td>Delete / Archive</td><td>nothing</td><td><b>OUT OF SCOPE</b> — backlog</td></tr>
+        <tr><td>Select mode</td><td>nothing</td><td><b>OUT OF SCOPE</b> — chat's selection is per-message</td></tr>
+      </table>
+      <ul class="laws">
+        <li>Pin toggle: immediate sort-to-top + snackbar “Pinned”/“Unpinned” (local-only, no undo needed — reversible).</li>
+        <li>Offline: no offline-gating needed (all three are local/nav actions — contrast with chat's L3).</li>
+        <li>Sheet = ONE widget with an action-list parameter (registry C4 gains a variant — recorded amendment).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H9 · FAB + SHEET ═══════════ -->
+<section>
+  <p class="cap">H9 · FAB + new-chat sheet</p>
+  <h2>One FAB, one sheet</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">FAB</span>
+      <div class="demo row" style="gap:16px;align-items:center">
+        <span class="fab" style="margin:0;align-self:auto"><svg class="ic"><use href="#i-comment"/></svg></span>
+        <span class="rule" style="max-width:24ch">56dp · radius 16 · accent/onAccent · shadow accent@35% · tooltip “New chat”</span>
+      </div>
+      <ul class="laws">
+        <li>ONE FAB, ONE primary action (android rule). Never stacks, never a second FAB.</li>
+        <li>Hides while search focused (H5); always visible otherwise incl. empty state (it's the CTA twin of the empty button).</li>
+        <li>Press: 150ms scale 0.96 (spec; matches pressed-token motion).</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">New-chat sheet</span>
+      <div class="demo">
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="sitem"><svg class="ic"><use href="#i-padd"/></svg>Add Friend</div>
+          <div class="sitem"><svg class="ic"><use href="#i-group-add"/></svg>New Group</div>
+        </div>
+      </div>
+      <div class="rule">Restyle only: current sheet has 16px radius + no handle contrast — align to shared sheet
+      language (20px top, drag handle, 13.5/600 rows, icons already present). Rows → AddFriendSheet / /create-group
+      (existing nav, law L11). No new rows (invite-link/share-profile = backlog).</div>
+    </div>
+    <div class="spec">
+      <span class="st">Empty-state CTA (R7)</span>
+      <div class="demo" style="align-items:center">
+        <span class="cta" style="margin:0"><svg class="ic"><use href="#i-padd"/></svg>Add a Friend</span>
+      </div>
+      <div class="rule">Mascot 130 (neutral, breathe), title “No chats yet”, subtitle “Add friends to start chatting.”
+      (app copy kept — mockup wording differed; app copy wins to avoid test churn), CTA opens the SAME AddFriendSheet
+      as FAB row 1. No second mascot elsewhere (foundation §6).</div>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H10 · BACKUP BANNER ═══════════ -->
+<section>
+  <p class="cap">H10 · Backup banner</p>
+  <h2>One strip, two targets, law-pinned</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Visible</span>
+      <div class="demo">
+        <div class="bkb"><svg class="ic s"><use href="#i-warn"/></svg>
+          <span style="flex:1">Backup your encryption key to restore messages after reinstall. Tap to set up.</span>
+          <span class="bx"><svg class="ic s"><use href="#i-close"/></svg></span></div>
+      </div>
+      <ul class="laws">
+        <li>Copy EXACT (law L7) — verbatim string, not paraphrase.</li>
+        <li><b>Whole-strip tap</b> (new target, law intent kept): any tap except ✕ → /backup-pin/setup (was text-only).</li>
+        <li>✕ = dismiss writes backup_reminder_dismissed_at + invalidate (law L7) — 7-day window unchanged (law L6).
+        Strip exits with 250ms fade.</li>
+        <li>Visibility = P6 tri-state gate exactly as-is (law L6): local key ∧ backup strictly false ∧ not dismissed ≤7d.</li>
+        <li>Load flash: provider “unknown” currently pops the banner in after resolve — <b>new:</b> hold hidden until
+        first true value (no flash-in).</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Placement</span>
+      <ul class="laws">
+        <li>Top of body, above search pill (it outranks search — key-loss prevention > lookup). Full-width inset 12,
+        radius 16, accentSoft fill.</li>
+        <li>Never renders over the list when dismissed — no reserved gap.</li>
+        <li>No success/counterpart banner (backup-done confirmation lives on the setup screen — out of scope here).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H11 · BODY STATE RULES ═══════════ -->
+<section>
+  <p class="cap">H11 · Body state rules (beyond the H3 specimens)</p>
+  <h2>Loading · error · offline · refresh</h2>
+  <div class="states">
+    <div class="spec">
+      <span class="st">Loading skeleton (NEW anatomy)</span>
+      <ul class="laws">
+        <li>Per row: 40px circle + name bar (45–60% width) + preview bar (50–75%) — tile-shaped, not flat 56px blocks (foundation §6: mirror final layout).</li>
+        <li>4 rows + “Chats” header bar; shimmer 1.4s (R11), parks under reduced-motion.</li>
+        <li>Trigger law stays (law L9): conversations loading, OR friends-loading with zero renderable convs.</li>
+        <li>Skeleton→content: instant swap (no crossfade — content is the truth).</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Error + offline</span>
+      <ul class="laws">
+        <li>Error = mascot(key mood) + “Couldn’t load your chats” + “Check your connection and try again.” + Retry
+        (invalidates conversations + friendships — law L9). Replaces bare centered StatusBanner; copy replaces nothing
+        that tests pin? — <b>flagged:</b> law L9 pins the old string ‘Could not load your chats.’ via StatusBanner —
+        test update expected, listed in home.md gates.</li>
+        <li>Offline strip = chat S18 exact language + Retry (NEW on home). Sits above error block when both true;
+        clears 250ms on reconnect.</li>
+        <li>Partial failure (friends error, chats OK) → inline mini StatusBanner above Friends header, chats untouched (SHOULD).</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Pull-to-refresh</span>
+      <ul class="laws">
+        <li>Accent spinner (not Material default color) — token-driven.</li>
+        <li>Refreshes <b>conversations AND friendships</b> (new — today only convs; friend tiles could lag).</li>
+        <li>Empty state becomes always-scrollable (AlwaysScrollableScrollPhysics) — refresh reachable on empty (new fix).</li>
+        <li>Failed refresh = silent (stream error surfaces via H3 error block) — no toast spam.</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Scroll perf (W3 frame-drop rule)</span>
+      <ul class="laws">
+        <li><b>ListView → ListView.builder</b> (SHOULD): unbounded current children list; item keys for reorder
+        animations when pin toggles.</li>
+        <li>No per-tile async work on build (avatar cache hits only — standing frame-drop rule).</li>
+        <li>Pin toggle animates row move 250ms (implicit — AnimatedList or simple rebuild; no bounce spring).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="nrule">
+
+<!-- ═══════════ H12 · A11Y + SCOPE ═══════════ -->
+<section>
+  <p class="cap">H12 · Accessibility, motion, scope</p>
+  <h2>Floor + what is NOT on this page</h2>
+  <div class="grid2">
+    <div class="spec">
+      <span class="st">A11y floor (home)</span>
+      <ul class="laws">
+        <li>Semantics labels: title actions (“{n} pending requests”, “Your profile”), FAB “New chat” (tooltip doubles),
+        search field “Search chats”, pin glyph (“Pinned”), presence dot merged into tile label.</li>
+        <li>Tile semantics = one swipe: “{name}, {preview or Online}, {time}, {n} unread, pinned”.</li>
+        <li>Contrast: accent time/badge onAccent ≥4.5 both themes; success “Online” on surface ≥4.5 (checked —
+        success on white ≈3.4:1 → <b>subtitle “Online” uses success at w600 13px = large-ish text; flagged for
+        engine check; fallback inkSoft+success dot only if it fails</b>).</li>
+        <li>Reduced-motion: shimmer parks (existing), pin move instant, banner fade instant.</li>
+        <li>font_scale 1.3 capture: title + badges + pill must not clip.</li>
+      </ul>
+    </div>
+    <div class="spec">
+      <span class="st">Out of scope (declared)</span>
+      <ul class="laws">
+        <li>Mute (no API) · Delete/Archive conv (no data) · Select mode · swipe actions on tiles.</li>
+        <li>Invite-link / share-profile rows in new-chat sheet.</li>
+        <li>Sender-prefix for previews of non-text types (constants already carry the type; prefix only on text).</li>
+        <li>Sticky headers, collapse-on-scroll app bar, FAB badge.</li>
+        <li>AddFriendSheet internals beyond boundary (its own states inventoried but specced on page 8 — sheets).</li>
+        <li>Offline banner > companion/call states — chat S18 owns the copy; this page reuses it verbatim.</li>
+      </ul>
+      <div class="note" style="margin-top:4px"><b>Pass =</b> checklist <code>home.md</code> all MUSTs ✓ + suite green
+      (baseline 213/213 + any updates listed) + analyze 0 errors + light/dark device captures on M52
+      (+ Redmi S2 scroll smoke). No commit until user PASS.</div>
+    </div>
+  </div>
+</section>
+
+</div>

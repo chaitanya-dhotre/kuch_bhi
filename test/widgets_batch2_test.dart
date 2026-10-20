@@ -9,44 +9,98 @@ import 'package:kuch_bhi/core/widgets/status_banner.dart';
 import 'package:kuch_bhi/features/mascot/capybara.dart';
 
 Widget host(Widget child) => MaterialApp(
-    theme: warmPopLight(), home: Scaffold(body: Center(child: child)));
+  theme: warmPopLight(),
+  home: Scaffold(body: Center(child: child)),
+);
 
 void main() {
   testWidgets('empty state carries the mascot + copy', (tester) async {
-    await tester.pumpWidget(host(
-        const EmptyState(title: 'No chats yet', subtitle: 'Add a friend')));
+    await tester.pumpWidget(
+      host(const EmptyState(title: 'No chats yet', subtitle: 'Add a friend')),
+    );
     expect(find.byType(Capybara), findsOneWidget);
     expect(find.text('No chats yet'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('banner + tile render; skeleton survives reduced motion',
-      (tester) async {
-    await tester.pumpWidget(host(const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          StatusBanner(message: 'Offline'),
-          SettingsTile(icon: Icons.settings, title: 'Settings'),
-        ])));
+  testWidgets('banner + tile render; skeleton survives reduced motion', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StatusBanner(message: 'Offline'),
+            SettingsTile(icon: Icons.settings, title: 'Settings'),
+          ],
+        ),
+      ),
+    );
     expect(find.text('Offline'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(
+      MaterialApp(
         theme: warmPopLight(),
         home: Scaffold(
-            body: Center(
-                child: MediaQuery(
-            data: const MediaQueryData(disableAnimations: true),
-            child: const Column(
+          body: Center(
+            child: MediaQuery(
+              data: const MediaQueryData(disableAnimations: true),
+              child: const Column(
                 mainAxisSize: MainAxisSize.min,
-                children: [Skeleton(height: 20)]))))));
+                children: [Skeleton(height: 20)],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 600));
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('skeleton duration changes restart motion and preserve parking', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(const Skeleton(duration: Duration(seconds: 1))),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.pumpWidget(
+      host(const Skeleton(duration: Duration(seconds: 2))),
+    );
+    await tester.pump();
+    expect(tester.hasRunningAnimations, isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: warmPopLight(),
+        home: Scaffold(
+          body: MediaQuery(
+            data: const MediaQueryData(disableAnimations: true),
+            child: const Skeleton(duration: Duration(seconds: 2)),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(tester.hasRunningAnimations, isFalse);
+
+    await tester.pumpWidget(
+      host(const Skeleton(duration: Duration(seconds: 2))),
+    );
+    await tester.pump();
+    expect(tester.hasRunningAnimations, isTrue);
+  });
+
   testWidgets('empty state accepts a custom mascot slot', (tester) async {
-    await tester.pumpWidget(host(const EmptyState(
-        title: 'No chats yet', mascot: Text('custom-mascot'))));
+    await tester.pumpWidget(
+      host(
+        const EmptyState(title: 'No chats yet', mascot: Text('custom-mascot')),
+      ),
+    );
     expect(find.text('custom-mascot'), findsOneWidget);
     expect(find.byType(Capybara), findsNothing);
     await tester.pumpWidget(const SizedBox());

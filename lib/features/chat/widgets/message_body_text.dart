@@ -29,6 +29,9 @@ class MessageBodyText extends ConsumerStatefulWidget {
     required this.styleContext,
     this.decryptState = 'ready',
     this.ciphertextLength = 0,
+    this.skeletonShell = false,
+    this.highlightQuery,
+    this.highlightCurrent = false,
     this.style,
   });
 
@@ -36,6 +39,9 @@ class MessageBodyText extends ConsumerStatefulWidget {
   final String styleContext;
   final String decryptState;
   final int ciphertextLength;
+  final bool skeletonShell;
+  final String? highlightQuery;
+  final bool highlightCurrent;
   final TextStyle? style;
 
   /// The placeholder's finder key — brief tests pin
@@ -121,6 +127,8 @@ class _MessageBodyTextState extends ConsumerState<MessageBodyText> {
         styleContext: widget.styleContext,
         metrics: metrics,
         lockSize: lockSize,
+        highlightQuery: widget.highlightQuery,
+        highlightCurrent: widget.highlightCurrent,
       );
     } else {
       content = _BodyPlaceholder(
@@ -129,6 +137,7 @@ class _MessageBodyTextState extends ConsumerState<MessageBodyText> {
         styleContext: widget.styleContext,
         decryptState: widget.decryptState,
         ciphertextLength: widget.ciphertextLength,
+        skeletonShell: widget.skeletonShell,
       );
     }
 
@@ -177,6 +186,8 @@ class _ResolvedBody extends StatefulWidget {
     required this.styleContext,
     required this.metrics,
     required this.lockSize,
+    required this.highlightQuery,
+    required this.highlightCurrent,
   });
 
   final String body;
@@ -185,6 +196,8 @@ class _ResolvedBody extends StatefulWidget {
   final String styleContext;
   final _PlaceholderMetrics metrics;
   final bool lockSize;
+  final String? highlightQuery;
+  final bool highlightCurrent;
 
   @override
   State<_ResolvedBody> createState() => _ResolvedBodyState();
@@ -231,13 +244,28 @@ class _ResolvedBodyState extends State<_ResolvedBody> {
 
   @override
   Widget build(BuildContext context) {
-    final text = Text(
-      widget.body,
-      key: ValueKey('body-text-${widget.messageId}'),
-      style: widget.style,
-      maxLines: widget.styleContext == 'preview' ? 1 : null,
-      overflow: widget.styleContext == 'preview' ? TextOverflow.ellipsis : null,
-    );
+    final query = widget.highlightQuery?.trim() ?? '';
+    final text = query.isEmpty
+        ? Text(
+            widget.body,
+            key: ValueKey('body-text-${widget.messageId}'),
+            style: widget.style,
+            maxLines: widget.styleContext == 'preview' ? 1 : null,
+            overflow: widget.styleContext == 'preview'
+                ? TextOverflow.ellipsis
+                : null,
+          )
+        : Text.rich(
+            TextSpan(
+              style: widget.style,
+              children: _highlightSpans(context, widget.body, query),
+            ),
+            key: ValueKey('body-text-${widget.messageId}'),
+            maxLines: widget.styleContext == 'preview' ? 1 : null,
+            overflow: widget.styleContext == 'preview'
+                ? TextOverflow.ellipsis
+                : null,
+          );
     final child = _locked
         ? ConstrainedBox(
             constraints: BoxConstraints(
@@ -254,6 +282,36 @@ class _ResolvedBodyState extends State<_ResolvedBody> {
       child: child,
     );
   }
+
+  List<InlineSpan> _highlightSpans(
+    BuildContext context,
+    String body,
+    String query,
+  ) {
+    final lowerBody = body.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final markStyle = widget.style.copyWith(
+      backgroundColor: widget.highlightCurrent
+          ? context.t.accent.withValues(alpha: 0.30)
+          : context.t.accentSoft,
+    );
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    while (cursor < body.length) {
+      final match = lowerBody.indexOf(lowerQuery, cursor);
+      if (match < 0) {
+        spans.add(TextSpan(text: body.substring(cursor)));
+        break;
+      }
+      if (match > cursor) {
+        spans.add(TextSpan(text: body.substring(cursor, match)));
+      }
+      final end = match + query.length;
+      spans.add(TextSpan(text: body.substring(match, end), style: markStyle));
+      cursor = end;
+    }
+    return spans;
+  }
 }
 
 /// A transient body paints its estimated neutral skeleton immediately. The
@@ -267,12 +325,14 @@ class _BodyPlaceholder extends StatefulWidget {
     required this.styleContext,
     required this.decryptState,
     required this.ciphertextLength,
+    required this.skeletonShell,
   });
 
   final TextStyle style;
   final String styleContext;
   final String decryptState;
   final int ciphertextLength;
+  final bool skeletonShell;
 
   @override
   State<_BodyPlaceholder> createState() => _BodyPlaceholderState();
@@ -334,6 +394,10 @@ class _BodyPlaceholderState extends State<_BodyPlaceholder> {
     final t = context.t;
     final dim = widget.style.color ?? t.inkSoft;
     if (_terminal) {
+      final isBubbleContext =
+          widget.styleContext == 'bubble' ||
+          widget.styleContext == 'bubble.mine';
+      final isPreviewContext = widget.styleContext == 'preview';
       final terminalStyle = widget.style.copyWith(
         color: dim,
         fontSize: (widget.style.fontSize ?? 15).clamp(11.0, 15.0).toDouble(),
@@ -343,17 +407,42 @@ class _BodyPlaceholderState extends State<_BodyPlaceholder> {
       return Row(
         key: const ValueKey('body-terminal-decrypt'),
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            widget.decryptState == 'failed'
-                ? Icons.error_outline
-                : Icons.lock_outline,
-            size: 14,
-            color: dim.withValues(alpha: 0.75),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              widget.decryptState == 'failed'
+                  ? Icons.error_outline
+                  : Icons.lock_outline,
+              size: 14,
+              color: dim.withValues(alpha: 0.75),
+            ),
           ),
           const SizedBox(width: 6),
-          Text("Can't decrypt", style: terminalStyle),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Can't decrypt",
+                style: terminalStyle,
+                maxLines: isPreviewContext ? 1 : null,
+                overflow: isPreviewContext ? TextOverflow.ellipsis : null,
+              ),
+              if (isBubbleContext) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Ask them to resend',
+                  style: TextStyle(
+                    color: t.inkFaint,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       );
     }
@@ -377,13 +466,29 @@ class _BodyPlaceholderState extends State<_BodyPlaceholder> {
         bars.add(SizedBox(height: metrics.lineGap));
       }
     }
-    final skeleton = Column(
-      key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
+    final skeletonBody = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: bars,
     );
-    return skeleton;
+    if (!widget.skeletonShell) {
+      return KeyedSubtree(
+        key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
+        child: skeletonBody,
+      );
+    }
+
+    return Container(
+      key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: widget.styleContext == 'bubble.mine'
+            ? t.accent.withValues(alpha: 0.18)
+            : t.surface2,
+        borderRadius: BorderRadius.circular(WarmPopTokens.radiusBubble),
+      ),
+      child: skeletonBody,
+    );
   }
 }
 

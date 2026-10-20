@@ -15,57 +15,79 @@ class LinkPreviewCard extends ConsumerWidget {
     final metaAsync = ref.watch(linkPreviewServiceProvider(url));
 
     return metaAsync.when(
-      loading: () => const SizedBox(height: 4),
-      error:   (_, __) => const SizedBox.shrink(),
-      data: (meta) {
-        if (meta == null) return const SizedBox.shrink();
-        return GestureDetector(
-          onTap: () => launchUrl(Uri.parse(url),
-              mode: LaunchMode.externalApplication),
-          child: Container(
-            margin: const EdgeInsets.only(top: 8),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
-              border: Border(
-                left: BorderSide(color: context.t.accent, width: 3),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  meta.title,
-                  maxLines:  2,
-                  overflow:  TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize:   13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (meta.description != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    meta.description!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ],
-                const SizedBox(height: 2),
-                Text(
-                  Uri.parse(url).host,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color:    context.t.accent,
-                  ),
-                ),
-              ],
-            ),
+      loading: () => _buildCard(context, null),
+      error: (_, __) => _buildCard(context, null),
+      data: (meta) => _buildCard(context, meta),
+    );
+  }
+
+  Widget _buildCard(BuildContext context, LinkPreview? meta) {
+    final uri = Uri.tryParse(url);
+    final domain = uri?.host.isNotEmpty == true ? uri!.host : url;
+    final title = meta?.title.trim().isNotEmpty == true ? meta!.title : domain;
+
+    return Semantics(
+      container: true,
+      button: true,
+      label: 'Open link $domain',
+      child: GestureDetector(
+        onTap: () => launchUrl(
+          uri ?? Uri.parse(url),
+          mode: LaunchMode.externalApplication,
+        ),
+        child: Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: context.t.surface,
+            border: Border.all(color: context.t.line),
+            borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
           ),
-        );
-      },
+          child: Row(
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: context.t.surface2,
+                  borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+                ),
+                child: Icon(Icons.link, color: context.t.inkFaint, size: 24),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.t.ink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      domain,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.t.info,
+                        fontSize: 10.5,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

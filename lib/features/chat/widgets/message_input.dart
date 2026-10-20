@@ -30,14 +30,16 @@ class MessageInput extends ConsumerStatefulWidget {
     this.isLoading = false,
     this.canSendMessages = true,
     this.restrictionMessage,
+    this.replySenderName,
   });
 
   final void Function(String) onSend;
-  final String                conversationId;
-  final VoidCallback?         onTyping;
-  final bool                  isLoading;
-  final bool                  canSendMessages;
-  final String?               restrictionMessage;
+  final String conversationId;
+  final VoidCallback? onTyping;
+  final bool isLoading;
+  final bool canSendMessages;
+  final String? restrictionMessage;
+  final String? replySenderName;
 
   @override
   ConsumerState<MessageInput> createState() => _MessageInputState();
@@ -45,57 +47,95 @@ class MessageInput extends ConsumerStatefulWidget {
 
 class _MessageInputState extends ConsumerState<MessageInput>
     with SingleTickerProviderStateMixin {
-  final _ctrl      = TextEditingController();
-  bool  _hasText   = false;
+  static final Map<String, String> _drafts = {};
+  final _ctrl = TextEditingController();
+  bool _hasText = false;
 
   // ── Recording ────────────────────────────────────────────────
-  final _recorder        = AudioRecorder();
+  final _recorder = AudioRecorder();
   _VoiceState _voiceState = _VoiceState.idle;
-  Timer?      _timer;
-  int         _elapsedSec = 0;
-  String?     _tempPath;
-  bool        _cancelled  = false;
-  double      _dragOffsetX = 0;
+  Timer? _timer;
+  int _elapsedSec = 0;
+  String? _tempPath;
+  bool _cancelled = false;
+  double _dragOffsetX = 0;
+  bool _stopInProgress = false;
 
   // ── Preview ──────────────────────────────────────────────────
   String? _previewDuration; // e.g. '0:42'
-  bool    _isSendingVoice = false;
+  bool _isSendingVoice = false;
 
   // ── Image upload ─────────────────────────────────────────────
   bool _isUploadingImage = false;
 
   // ── Video upload ─────────────────────────────────────────────
-  bool   _isUploadingVideo    = false;
+  bool _isUploadingVideo = false;
   double _videoCompressProgress = 0.0;
 
   // ── Document upload ───────────────────────────────────────────
   bool _isUploadingDoc = false;
+  int _uploadGeneration = 0;
+
+  final _focusNode = FocusNode();
 
   // ── Pulse animation ──────────────────────────────────────────
   late AnimationController _pulseCtrl;
-  late Animation<double>   _pulseAnim;
+  late Animation<double> _pulseAnim;
+  bool _pulseMotionInitialized = false;
+  bool _pulseReducedMotion = false;
 
   @override
   void initState() {
     super.initState();
+    _ctrl.text = _drafts[widget.conversationId] ?? '';
+    _hasText = _ctrl.text.trim().isNotEmpty;
     _ctrl.addListener(() {
       final has = _ctrl.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
+      if (_ctrl.text.isEmpty) {
+        _drafts.remove(widget.conversationId);
+      } else {
+        _drafts[widget.conversationId] = _ctrl.text;
+      }
       if (has) widget.onTyping?.call();
     });
 
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.7, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
     );
+    _pulseAnim = Tween<double>(
+      begin: 0.7,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    if (_pulseMotionInitialized && reducedMotion == _pulseReducedMotion) {
+      return;
+    }
+
+    _pulseMotionInitialized = true;
+    _pulseReducedMotion = reducedMotion;
+    if (reducedMotion) {
+      _pulseCtrl
+        ..stop()
+        ..value = 1.0;
+    } else {
+      _pulseCtrl.repeat(reverse: true);
+    }
   }
 
   @override
   void dispose() {
+    if (_ctrl.text.isNotEmpty) {
+      _drafts[widget.conversationId] = _ctrl.text;
+    }
     _ctrl.dispose();
+    _focusNode.dispose();
     _timer?.cancel();
     _pulseCtrl.dispose();
     _recorder.dispose();
@@ -121,82 +161,141 @@ class _MessageInputState extends ConsumerState<MessageInput>
   }
 
   Future<void> _startRecording() async {
+    if (_voiceState != _VoiceState.idle || _isSendingVoice) return;
+
     final status = await Permission.microphone.request();
+    if (!mounted) return;
     if (!status.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone permission denied')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Microphone permission denied')),
+      );
       return;
     }
 
-    final tmpDir = await getTemporaryDirectory();
-    final path   = '${tmpDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    try {
+      final tmpDir = await getTemporaryDirectory();
+      final path =
+          '${tmpDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
-
-    setState(() {
-      _voiceState  = _VoiceState.recording;
-      _tempPath    = path;
-      _elapsedSec  = 0;
-      _cancelled   = false;
-      _dragOffsetX = 0;
-    });
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() => _elapsedSec++);
-      // Auto-stop at 5 minutes (spec §6.5).
-      if (_elapsedSec >= AppConstants.maxVoiceMessageSeconds) {
-        _stopRecording();
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+      if (!mounted) {
+        await _recorder.stop();
+        return;
       }
-    });
+
+      setState(() {
+        _voiceState = _VoiceState.recording;
+        _tempPath = path;
+        _elapsedSec = 0;
+        _cancelled = false;
+        _dragOffsetX = 0;
+        _stopInProgress = false;
+      });
+
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() => _elapsedSec++);
+        // Auto-stop at 5 minutes (spec §6.5).
+        if (_elapsedSec >= AppConstants.maxVoiceMessageSeconds) {
+          _stopRecording();
+        }
+      });
+    } catch (_) {
+      _deleteFileQuietly(_tempPath);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start recording')),
+        );
+      }
+    }
   }
 
   Future<void> _stopRecording({bool cancelled = false}) async {
+    if (_voiceState != _VoiceState.recording || _stopInProgress) return;
+
+    _stopInProgress = true;
     _timer?.cancel();
     _timer = null;
 
     final elapsed = _elapsedSec; // capture before reset
-    final path    = await _recorder.stop();
+    final wasCancelled = cancelled || _cancelled;
 
-    if (cancelled || _cancelled || elapsed < 1) {
-      if (path != null) {
-        try { File(path).deleteSync(); } catch (_) {}
+    try {
+      final path = await _recorder.stop();
+      final filePath = path ?? _tempPath;
+
+      if (wasCancelled || elapsed < 1) {
+        _deleteFileQuietly(filePath);
+        if (!mounted) return;
+        setState(() {
+          _voiceState = _VoiceState.idle;
+          _elapsedSec = 0;
+          _tempPath = null;
+          _dragOffsetX = 0;
+          _cancelled = false;
+        });
+        if (!wasCancelled && elapsed < 1) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Hold to record'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+        return;
       }
+
+      if (!mounted) {
+        _deleteFileQuietly(filePath);
+        return;
+      }
+
+      final duration = _formatDuration(elapsed);
       setState(() {
-        _voiceState  = _VoiceState.idle;
-        _elapsedSec  = 0;
-        _tempPath    = null;
+        _voiceState = _VoiceState.preview;
+        _previewDuration = duration;
+        _tempPath = filePath;
         _dragOffsetX = 0;
+        _cancelled = false;
       });
-      if (!cancelled && !_cancelled && elapsed < 1 && mounted) {
+    } catch (_) {
+      _deleteFileQuietly(_tempPath);
+      if (mounted) {
+        setState(() {
+          _voiceState = _VoiceState.idle;
+          _elapsedSec = 0;
+          _tempPath = null;
+          _dragOffsetX = 0;
+          _cancelled = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Hold to record'),
-            duration: Duration(seconds: 1),
-          ),
+          const SnackBar(content: Text('Could not save voice message')),
         );
       }
-      return;
+    } finally {
+      _stopInProgress = false;
     }
+  }
 
-    final duration = _formatDuration(elapsed);
-    setState(() {
-      _voiceState      = _VoiceState.preview;
-      _previewDuration = duration;
-      _dragOffsetX     = 0;
-    });
+  void _deleteFileQuietly(String? path) {
+    if (path == null) return;
+    try {
+      File(path).deleteSync();
+    } catch (_) {}
   }
 
   void _discardPreview() {
     if (_tempPath != null) {
-      try { File(_tempPath!).deleteSync(); } catch (_) {}
+      try {
+        File(_tempPath!).deleteSync();
+      } catch (_) {}
     }
     setState(() {
-      _voiceState      = _VoiceState.idle;
-      _tempPath        = null;
+      _voiceState = _VoiceState.idle;
+      _tempPath = null;
       _previewDuration = null;
     });
   }
@@ -206,30 +305,32 @@ class _MessageInputState extends ConsumerState<MessageInput>
     setState(() => _isSendingVoice = true);
 
     try {
-      final file     = File(_tempPath!);
-      final durSecs  = _durationTextToSeconds(_previewDuration ?? '0:00');
+      final file = File(_tempPath!);
+      final durSecs = _durationTextToSeconds(_previewDuration ?? '0:00');
 
       // Repository handles message creation first, then media upload
       // File cleanup happens in _uploadMediaMessage after upload completes
-      await ref.read(sendMediaMessageProvider.notifier).send(
-        conversationId:  widget.conversationId,
-        mediaType:       'voice',
-        mediaFile:       file,
-        durationSeconds: durSecs,
-        durationText:    _previewDuration,
-      );
+      await ref
+          .read(sendMediaMessageProvider.notifier)
+          .send(
+            conversationId: widget.conversationId,
+            mediaType: 'voice',
+            mediaFile: file,
+            durationSeconds: durSecs,
+            durationText: _previewDuration,
+          );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send voice: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send voice: $e')));
       }
     } finally {
       if (mounted) {
         setState(() {
-          _isSendingVoice  = false;
-          _voiceState      = _VoiceState.idle;
-          _tempPath        = null;
+          _isSendingVoice = false;
+          _voiceState = _VoiceState.idle;
+          _tempPath = null;
           _previewDuration = null;
         });
       }
@@ -259,6 +360,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
         if (picked == null) return;
         final quality = await _showQualityPicker(isVideo: false);
         if (quality == null) return;
+        _focusNode.requestFocus();
         await _sendImage(File(picked.path), quality);
         break;
 
@@ -273,18 +375,20 @@ class _MessageInputState extends ConsumerState<MessageInput>
         if (picked == null) return;
         final quality = await _showQualityPicker(isVideo: true);
         if (quality == null) return;
+        _focusNode.requestFocus();
         await _sendVideo(File(picked.path), quality);
         break;
 
       case 'document':
         final result = await FilePicker.platform.pickFiles(
-          type:               FileType.any,
-          allowMultiple:      false,
-          withReadStream:     false,
+          type: FileType.any,
+          allowMultiple: false,
+          withReadStream: false,
         );
         if (result == null || result.files.isEmpty) return;
         final path = result.files.single.path;
         if (path == null) return;
+        _focusNode.requestFocus();
         await _sendDocument(File(path));
         break;
     }
@@ -293,6 +397,13 @@ class _MessageInputState extends ConsumerState<MessageInput>
   Future<String?> _showSourcePicker() {
     return showModalBottomSheet<String>(
       context: context,
+      backgroundColor: context.t.surface,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(WarmPopTokens.radiusLg),
+        ),
+      ),
       builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -331,6 +442,13 @@ class _MessageInputState extends ConsumerState<MessageInput>
   Future<String?> _showQualityPicker({required bool isVideo}) {
     return showModalBottomSheet<String>(
       context: context,
+      backgroundColor: context.t.surface,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(WarmPopTokens.radiusLg),
+        ),
+      ),
       builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -339,7 +457,10 @@ class _MessageInputState extends ConsumerState<MessageInput>
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
                 isVideo ? 'Video Quality' : 'Image Quality',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             ListTile(
@@ -361,55 +482,78 @@ class _MessageInputState extends ConsumerState<MessageInput>
   }
 
   Future<void> _sendImage(File original, String quality) async {
+    final generation = ++_uploadGeneration;
     setState(() => _isUploadingImage = true);
 
     try {
       final compressed = await ref
           .read(mediaUploadServiceProvider)
           .compressImage(original, quality);
+      if (!_isUploadActive(generation)) {
+        _deleteFileQuietly(compressed.path);
+        return;
+      }
 
       final thumbnail = await ref
           .read(mediaUploadServiceProvider)
           .generateImageThumbnail(compressed);
+      if (!_isUploadActive(generation)) {
+        _deleteFileQuietly(compressed.path);
+        _deleteFileQuietly(thumbnail.path);
+        return;
+      }
 
-      await ref.read(sendMediaMessageProvider.notifier).send(
-        conversationId: widget.conversationId,
-        mediaType:      'image',
-        mediaFile:      compressed,
-        thumbnailFile:  thumbnail,
-        quality:        quality,
-      );
+      await ref
+          .read(sendMediaMessageProvider.notifier)
+          .send(
+            conversationId: widget.conversationId,
+            mediaType: 'image',
+            mediaFile: compressed,
+            thumbnailFile: thumbnail,
+            quality: quality,
+          );
     } catch (e) {
+      if (!mounted || generation != _uploadGeneration) return;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send image: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send image: $e')));
       }
     } finally {
-      if (mounted) setState(() => _isUploadingImage = false);
+      if (_isUploadActive(generation)) {
+        setState(() => _isUploadingImage = false);
+      }
     }
   }
 
   Future<void> _sendDocument(File docFile) async {
+    final generation = ++_uploadGeneration;
     setState(() => _isUploadingDoc = true);
     try {
-      await ref.read(sendMediaMessageProvider.notifier).send(
-        conversationId: widget.conversationId,
-        mediaType:      'document',
-        mediaFile:      docFile,
-      );
+      if (!_isUploadActive(generation)) return;
+      await ref
+          .read(sendMediaMessageProvider.notifier)
+          .send(
+            conversationId: widget.conversationId,
+            mediaType: 'document',
+            mediaFile: docFile,
+          );
     } catch (e) {
+      if (!mounted || generation != _uploadGeneration) return;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send document: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send document: $e')));
       }
     } finally {
-      if (mounted) setState(() => _isUploadingDoc = false);
+      if (_isUploadActive(generation)) {
+        setState(() => _isUploadingDoc = false);
+      }
     }
   }
 
   Future<void> _sendVideo(File original, String quality) async {
+    final generation = ++_uploadGeneration;
     setState(() {
       _isUploadingVideo = true;
       _videoCompressProgress = 0.0;
@@ -417,7 +561,9 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
     // Subscribe to compression progress
     final sub = VideoCompress.compressProgress$.subscribe((progress) {
-      if (mounted) setState(() => _videoCompressProgress = progress / 100);
+      if (_isUploadActive(generation)) {
+        setState(() => _videoCompressProgress = progress / 100);
+      }
     });
 
     try {
@@ -425,124 +571,280 @@ class _MessageInputState extends ConsumerState<MessageInput>
       final thumbnail = await ref
           .read(mediaUploadServiceProvider)
           .generateVideoThumbnail(original);
+      if (!_isUploadActive(generation)) {
+        _deleteFileQuietly(thumbnail.path);
+        return;
+      }
 
       final compressed = await ref
           .read(mediaUploadServiceProvider)
           .compressVideo(original, quality);
+      if (!_isUploadActive(generation)) {
+        _deleteFileQuietly(compressed.path);
+        _deleteFileQuietly(thumbnail.path);
+        return;
+      }
 
       // Get video duration and dimensions from compressed file
       final info = await VideoCompress.getMediaInfo(compressed.path);
-      final durationSec   = (info.duration ?? 0) ~/ 1000;
-      final videoWidth    = info.width;
-      final videoHeight   = info.height;
+      if (!_isUploadActive(generation)) {
+        _deleteFileQuietly(compressed.path);
+        _deleteFileQuietly(thumbnail.path);
+        return;
+      }
+      final durationSec = (info.duration ?? 0) ~/ 1000;
+      final videoWidth = info.width;
+      final videoHeight = info.height;
 
-      await ref.read(sendMediaMessageProvider.notifier).send(
-        conversationId: widget.conversationId,
-        mediaType:      'video',
-        mediaFile:      compressed,
-        thumbnailFile:  thumbnail,
-        quality:        quality,
-        durationSeconds: durationSec,
-        videoWidth:      videoWidth,
-        videoHeight:     videoHeight,
-      );
+      await ref
+          .read(sendMediaMessageProvider.notifier)
+          .send(
+            conversationId: widget.conversationId,
+            mediaType: 'video',
+            mediaFile: compressed,
+            thumbnailFile: thumbnail,
+            quality: quality,
+            durationSeconds: durationSec,
+            videoWidth: videoWidth,
+            videoHeight: videoHeight,
+          );
     } catch (e) {
+      if (!mounted || generation != _uploadGeneration) return;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send video: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send video: $e')));
       }
     } finally {
       sub.unsubscribe();
-      if (mounted) setState(() => _isUploadingVideo = false);
+      if (_isUploadActive(generation)) {
+        setState(() => _isUploadingVideo = false);
+      }
     }
+  }
+
+  bool _isUploadActive(int generation) =>
+      mounted && generation == _uploadGeneration;
+
+  void _cancelUpload(String type) {
+    _uploadGeneration++;
+    if (type == 'video') VideoCompress.cancelCompression();
+    if (!mounted) return;
+    setState(() {
+      _isUploadingImage = false;
+      _isUploadingVideo = false;
+      _isUploadingDoc = false;
+      _videoCompressProgress = 0;
+    });
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Upload cancelled')));
+  }
+
+  BoxDecoration _floatingPanelDecoration(BuildContext context) => BoxDecoration(
+    color: context.t.surface,
+    border: Border.all(color: context.t.line),
+    borderRadius: BorderRadius.circular(WarmPopTokens.radiusLg),
+    boxShadow: [
+      BoxShadow(
+        color: context.t.ink.withValues(alpha: 0.10),
+        blurRadius: 14,
+        offset: const Offset(0, 4),
+      ),
+    ],
+  );
+
+  Widget _floatingPanel(BuildContext context, Widget child) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        child: SizedBox(
+          width: double.infinity,
+          child: DecoratedBox(
+            decoration: _floatingPanelDecoration(context),
+            child: child,
+          ),
+        ),
+      ),
+    );
   }
 
   // ── Build ─────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final reply  = ref.watch(replyProvider);
+    final reply = ref.watch(replyProvider);
 
-    final restriction = widget.restrictionMessage ??
+    final restriction =
+        widget.restrictionMessage ??
         (!widget.canSendMessages ? 'Only admins can send messages' : null);
 
     if (restriction != null) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        child: Text(
-          restriction,
-          textAlign: TextAlign.center,
-          style: TextStyle(color: context.t.inkFaint, fontSize: 13),
+      return _floatingPanel(
+        context,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_outline, size: 16, color: context.t.inkFaint),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  restriction,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: context.t.inkFaint, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return Container(
-      color: context.t.surface,
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Reply preview bar
-            if (reply != null && _voiceState == _VoiceState.idle)
-              Container(
-                padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
-                child: ReplyQuote.fromMessage(
-                  reply,
-                  'Reply',
-                  compact: true,
-                  onCancel: () => ref.read(replyProvider.notifier).state = null,
+    return _floatingPanel(
+      context,
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Reply preview bar
+          if (reply != null && _voiceState == _VoiceState.idle)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+              child: ReplyQuote.fromMessage(
+                reply,
+                widget.replySenderName ?? 'them',
+                compact: true,
+                onCancel: () => ref.read(replyProvider.notifier).state = null,
+              ),
+            ),
+
+          if (_voiceState == _VoiceState.recording)
+            _RecordingRow(
+              elapsed: _elapsedSec,
+              dragOffsetX: _dragOffsetX,
+              pulseAnim: _pulseAnim,
+              onDragUpdate: (dx) {
+                setState(() {
+                  _dragOffsetX = dx;
+                  _cancelled = dx < -80;
+                });
+              },
+              onStop: () => _stopRecording(cancelled: _cancelled),
+            )
+          else if (_voiceState == _VoiceState.preview)
+            _VoicePreviewRow(
+              filePath: _tempPath!,
+              duration: _previewDuration ?? '0:00',
+              isSending: _isSendingVoice,
+              onDiscard: _discardPreview,
+              onSend: _sendVoice,
+            )
+          else if (_isUploadingImage)
+            _ImageUploadRow(onCancel: () => _cancelUpload('image'))
+          else if (_isUploadingVideo)
+            _VideoUploadRow(
+              progress: _videoCompressProgress,
+              onCancel: () => _cancelUpload('video'),
+            )
+          else if (_isUploadingDoc)
+            _DocUploadRow(onCancel: () => _cancelUpload('document'))
+          else
+            _NormalInputRow(
+              ctrl: _ctrl,
+              focusNode: _focusNode,
+              hasText: _hasText,
+              isLoading: widget.isLoading,
+              onAttach: _onAttachPressed,
+              onSend: _send,
+              onMicLongPressStart: _startRecording,
+              onMicLongPressMoveUpdate: (dx) {
+                setState(() {
+                  _dragOffsetX = dx;
+                  _cancelled = dx < -80;
+                });
+              },
+              onMicLongPressEnd: () => _stopRecording(cancelled: _cancelled),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComposerAction extends StatelessWidget {
+  const _ComposerAction({
+    super.key,
+    required this.tooltip,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.icon,
+    this.onTap,
+    this.onLongPressStart,
+    this.onLongPressMoveUpdate,
+    this.onLongPressEnd,
+  });
+
+  final String tooltip;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final Widget icon;
+  final VoidCallback? onTap;
+  final GestureLongPressStartCallback? onLongPressStart;
+  final GestureLongPressMoveUpdateCallback? onLongPressMoveUpdate;
+  final GestureLongPressEndCallback? onLongPressEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null || onLongPressStart != null;
+    return Tooltip(
+      message: tooltip,
+      excludeFromSemantics: true,
+      triggerMode: onLongPressStart == null
+          ? TooltipTriggerMode.longPress
+          : TooltipTriggerMode.manual,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: tooltip,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            onLongPressStart: onLongPressStart,
+            onLongPressMoveUpdate: onLongPressMoveUpdate,
+            onLongPressEnd: onLongPressEnd,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: backgroundColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: backgroundColor.withValues(alpha: 0.24),
+                      blurRadius: 7,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Center(
+                    child: ExcludeSemantics(
+                      child: IconTheme(
+                        data: IconThemeData(color: foregroundColor),
+                        child: icon,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-
-            if (_voiceState == _VoiceState.recording)
-              _RecordingRow(
-                elapsed:     _elapsedSec,
-                dragOffsetX: _dragOffsetX,
-                pulseAnim:   _pulseAnim,
-                onDragUpdate: (dx) {
-                  setState(() => _dragOffsetX = dx);
-                  if (dx < -80) {
-                    setState(() => _cancelled = true);
-                  }
-                },
-                onStop: () => _stopRecording(cancelled: _cancelled),
-              )
-            else if (_voiceState == _VoiceState.preview)
-              _VoicePreviewRow(
-                filePath:      _tempPath!,
-                duration:      _previewDuration ?? '0:00',
-                isSending:     _isSendingVoice,
-                onDiscard:     _discardPreview,
-                onSend:        _sendVoice,
-              )
-            else if (_isUploadingImage)
-              _ImageUploadRow()
-            else if (_isUploadingVideo)
-              _VideoUploadRow(
-                progress: _videoCompressProgress,
-              )
-            else if (_isUploadingDoc)
-              _DocUploadRow()
-            else
-              _NormalInputRow(
-                ctrl:          _ctrl,
-                hasText:       _hasText,
-                isLoading:     widget.isLoading,
-                onAttach:      _onAttachPressed,
-                onSend:        _send,
-                onMicLongPressStart:  _startRecording,
-                onMicLongPressMoveUpdate: (dx) {
-                  setState(() => _dragOffsetX += dx);
-                  if (_dragOffsetX < -80) {
-                    setState(() => _cancelled = true);
-                  }
-                },
-                onMicLongPressEnd: () => _stopRecording(cancelled: _cancelled),
-              ),
-          ],
+            ),
+          ),
         ),
       ),
     );
@@ -554,6 +856,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
 class _NormalInputRow extends StatelessWidget {
   const _NormalInputRow({
     required this.ctrl,
+    required this.focusNode,
     required this.hasText,
     required this.isLoading,
     required this.onAttach,
@@ -563,14 +866,15 @@ class _NormalInputRow extends StatelessWidget {
     required this.onMicLongPressEnd,
   });
 
-  final TextEditingController   ctrl;
-  final bool                    hasText;
-  final bool                    isLoading;
-  final VoidCallback            onAttach;
-  final VoidCallback            onSend;
-  final VoidCallback            onMicLongPressStart;
-  final void Function(double)   onMicLongPressMoveUpdate;
-  final VoidCallback            onMicLongPressEnd;
+  final TextEditingController ctrl;
+  final FocusNode focusNode;
+  final bool hasText;
+  final bool isLoading;
+  final VoidCallback onAttach;
+  final VoidCallback onSend;
+  final VoidCallback onMicLongPressStart;
+  final void Function(double) onMicLongPressMoveUpdate;
+  final VoidCallback onMicLongPressEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -579,21 +883,21 @@ class _NormalInputRow extends StatelessWidget {
       child: Row(
         children: [
           // Attachment button — always visible
-          IconButton(
-            onPressed: onAttach,
-            icon: Icon(
-              Icons.image_outlined,
-              color: context.t.inkFaint,
-            ),
-            tooltip: 'Attach photo',
-            visualDensity: VisualDensity.compact,
+          _ComposerAction(
+            tooltip: 'Attach file',
+            backgroundColor: context.t.surface2,
+            foregroundColor: context.t.inkSoft,
+            icon: const Icon(Icons.attach_file, size: 21),
+            onTap: onAttach,
           ),
-          const SizedBox(width: 2),
+          const SizedBox(width: 8),
           Expanded(
             child: Container(
+              constraints: const BoxConstraints(minHeight: 48),
               decoration: BoxDecoration(
                 color: context.t.surface2,
-                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: context.t.line),
+                borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
               ),
               child: Row(
                 children: [
@@ -601,14 +905,18 @@ class _NormalInputRow extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: ctrl,
-                      minLines:   1,
-                      maxLines:   5,
+                      focusNode: focusNode,
+                      minLines: 1,
+                      maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText:       'Message',
-                        border:         InputBorder.none,
-                        isDense:        true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 10),
+                      cursorColor: context.t.accent,
+                      style: TextStyle(fontSize: 15, color: context.t.ink),
+                      decoration: InputDecoration(
+                        hintText: 'Message',
+                        hintStyle: TextStyle(color: context.t.inkFaint),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
                       ),
                       onSubmitted: (_) => onSend(),
                     ),
@@ -619,32 +927,44 @@ class _NormalInputRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          if (hasText)
-            FloatingActionButton.small(
-              onPressed:       onSend,
-              backgroundColor: context.t.accent,
-              elevation:       0,
-              child: isLoading
-                  ? SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2, color: context.t.onAccent,
-                      ),
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: AnimatedSwitcher(
+              duration: WarmPopTokens.motionBase,
+              transitionBuilder: (child, animation) =>
+                  ScaleTransition(scale: animation, child: child),
+              child: hasText
+                  ? _ComposerAction(
+                      key: const ValueKey('send-action'),
+                      tooltip: 'Send message',
+                      backgroundColor: context.t.accent,
+                      foregroundColor: context.t.onAccent,
+                      onTap: isLoading ? null : onSend,
+                      icon: isLoading
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: context.t.onAccent,
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, size: 20),
                     )
-                  : Icon(Icons.send_rounded, color: context.t.onAccent, size: 20),
-            )
-          else
-            GestureDetector(
-              onLongPressStart:       (_) => onMicLongPressStart(),
-              onLongPressMoveUpdate:  (d) => onMicLongPressMoveUpdate(d.offsetFromOrigin.dx),
-              onLongPressEnd:         (_) => onMicLongPressEnd(),
-              child: FloatingActionButton.small(
-                onPressed:       null,
-                backgroundColor: context.t.accent,
-                elevation:       0,
-                child: Icon(Icons.mic, color: context.t.onAccent, size: 22),
-              ),
+                  : _ComposerAction(
+                      key: const ValueKey('mic-action'),
+                      tooltip: 'Record voice message',
+                      backgroundColor: context.t.accent,
+                      foregroundColor: context.t.onAccent,
+                      onLongPressStart: (_) => onMicLongPressStart(),
+                      onLongPressMoveUpdate: (d) =>
+                          onMicLongPressMoveUpdate(d.offsetFromOrigin.dx),
+                      onLongPressEnd: (_) => onMicLongPressEnd(),
+                      icon: const Icon(Icons.mic, size: 22),
+                    ),
             ),
+          ),
         ],
       ),
     );
@@ -662,11 +982,11 @@ class _RecordingRow extends StatelessWidget {
     required this.onStop,
   });
 
-  final int               elapsed;
-  final double            dragOffsetX;
+  final int elapsed;
+  final double dragOffsetX;
   final Animation<double> pulseAnim;
   final void Function(double) onDragUpdate;
-  final VoidCallback      onStop;
+  final VoidCallback onStop;
 
   String _fmt(int s) => '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
 
@@ -677,51 +997,49 @@ class _RecordingRow extends StatelessWidget {
       onPointerUp: (_) => onStop(),
       child: GestureDetector(
         onHorizontalDragUpdate: (d) => onDragUpdate(dragOffsetX + d.delta.dx),
-        onHorizontalDragEnd:  (_) => onStop(),
+        onHorizontalDragEnd: (_) => onStop(),
+        onHorizontalDragCancel: onStop,
         child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            ScaleTransition(
-              scale: pulseAnim,
-              child: Icon(Icons.mic, color: context.t.error, size: 28),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              _fmt(elapsed),
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: context.t.error,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              ScaleTransition(
+                scale: pulseAnim,
+                child: Icon(Icons.mic, color: context.t.error, size: 28),
               ),
-            ),
-            const Spacer(),
-            AnimatedOpacity(
-              opacity: cancelled ? 0.3 : 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.chevron_left,
-                    color: context.t.inkSoft,
-                    size: 18,
-                  ),
-                  Text(
-                    cancelled ? 'Release to cancel' : 'Slide to cancel',
-                    style: TextStyle(
+              const SizedBox(width: 12),
+              Text(
+                _fmt(elapsed),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: context.t.error,
+                ),
+              ),
+              const Spacer(),
+              AnimatedOpacity(
+                opacity: cancelled ? 0.3 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.chevron_left,
                       color: context.t.inkSoft,
-                      fontSize: 13,
+                      size: 18,
                     ),
-                  ),
-                ],
+                    Text(
+                      cancelled ? 'Release to cancel' : 'Slide to cancel',
+                      style: TextStyle(color: context.t.inkSoft, fontSize: 13),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 // ── Voice preview row ──────────────────────────────────────────────────────
@@ -735,9 +1053,9 @@ class _VoicePreviewRow extends StatefulWidget {
     required this.onSend,
   });
 
-  final String       filePath;
-  final String       duration;
-  final bool         isSending;
+  final String filePath;
+  final String duration;
+  final bool isSending;
   final VoidCallback onDiscard;
   final VoidCallback onSend;
 
@@ -747,10 +1065,10 @@ class _VoicePreviewRow extends StatefulWidget {
 
 class _VoicePreviewRowState extends State<_VoicePreviewRow> {
   final _player = AudioPlayer();
-  bool    _isPlaying = false;
-  bool    _isLoading = false;
+  bool _isPlaying = false;
+  bool _isLoading = false;
   Duration _position = Duration.zero;
-  Duration _total    = Duration.zero;
+  Duration _total = Duration.zero;
 
   @override
   void initState() {
@@ -763,8 +1081,8 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
     });
     _player.playerStateStream.listen((state) {
       if (!mounted) return;
-      final playing = state.playing &&
-          state.processingState != ProcessingState.completed;
+      final playing =
+          state.playing && state.processingState != ProcessingState.completed;
       setState(() => _isPlaying = playing);
       if (state.processingState == ProcessingState.completed) {
         _player.seek(Duration.zero);
@@ -894,18 +1212,21 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
           const SizedBox(width: 8),
 
           // Send button
-          FloatingActionButton.small(
-            onPressed:       widget.isSending ? null : widget.onSend,
+          _ComposerAction(
+            tooltip: 'Send voice message',
             backgroundColor: context.t.accent,
-            elevation:       0,
-            child: widget.isSending
+            foregroundColor: context.t.onAccent,
+            onTap: widget.isSending ? null : widget.onSend,
+            icon: widget.isSending
                 ? SizedBox(
-                    width: 18, height: 18,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2, color: context.t.onAccent,
+                      strokeWidth: 2,
+                      color: context.t.onAccent,
                     ),
                   )
-                : Icon(Icons.send_rounded, color: context.t.onAccent, size: 20),
+                : const Icon(Icons.send_rounded, size: 20),
           ),
         ],
       ),
@@ -916,8 +1237,9 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
 // ── Image upload progress row ──────────────────────────────────────────────
 
 class _ImageUploadRow extends StatelessWidget {
-  const _ImageUploadRow();
+  const _ImageUploadRow({required this.onCancel});
 
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -925,11 +1247,7 @@ class _ImageUploadRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          Icon(
-            Icons.image_outlined,
-            color: context.t.inkFaint,
-            size: 22,
-          ),
+          Icon(Icons.image_outlined, color: context.t.inkFaint, size: 22),
           const SizedBox(width: 12),
           const Expanded(
             child: Column(
@@ -945,6 +1263,11 @@ class _ImageUploadRow extends StatelessWidget {
               ],
             ),
           ),
+          IconButton(
+            onPressed: onCancel,
+            tooltip: 'Cancel upload',
+            icon: Icon(Icons.close, color: context.t.inkSoft),
+          ),
         ],
       ),
     );
@@ -954,9 +1277,10 @@ class _ImageUploadRow extends StatelessWidget {
 // ── Video upload progress row ──────────────────────────────────────────────
 
 class _VideoUploadRow extends StatelessWidget {
-  const _VideoUploadRow({required this.progress});
+  const _VideoUploadRow({required this.progress, required this.onCancel});
 
   final double progress;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -965,11 +1289,7 @@ class _VideoUploadRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          Icon(
-            Icons.videocam_outlined,
-            color: context.t.inkFaint,
-            size: 22,
-          ),
+          Icon(Icons.videocam_outlined, color: context.t.inkFaint, size: 22),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -980,15 +1300,15 @@ class _VideoUploadRow extends StatelessWidget {
                   children: [
                     const Text(
                       'Compressing video…',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const Spacer(),
                     Text(
                       '$pct%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.t.inkFaint,
-                      ),
+                      style: TextStyle(fontSize: 12, color: context.t.inkFaint),
                     ),
                   ],
                 ),
@@ -1000,6 +1320,11 @@ class _VideoUploadRow extends StatelessWidget {
               ],
             ),
           ),
+          IconButton(
+            onPressed: onCancel,
+            tooltip: 'Cancel upload',
+            icon: Icon(Icons.close, color: context.t.inkSoft),
+          ),
         ],
       ),
     );
@@ -1009,8 +1334,9 @@ class _VideoUploadRow extends StatelessWidget {
 // ── Document upload progress row ───────────────────────────────────────────
 
 class _DocUploadRow extends StatelessWidget {
-  const _DocUploadRow();
+  const _DocUploadRow({required this.onCancel});
 
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -1018,11 +1344,7 @@ class _DocUploadRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          Icon(
-            Icons.attach_file_outlined,
-            color: context.t.inkFaint,
-            size: 22,
-          ),
+          Icon(Icons.attach_file_outlined, color: context.t.inkFaint, size: 22),
           const SizedBox(width: 12),
           const Expanded(
             child: Column(
@@ -1037,6 +1359,11 @@ class _DocUploadRow extends StatelessWidget {
                 LinearProgressIndicator(minHeight: 3),
               ],
             ),
+          ),
+          IconButton(
+            onPressed: onCancel,
+            tooltip: 'Cancel upload',
+            icon: Icon(Icons.close, color: context.t.inkSoft),
           ),
         ],
       ),
