@@ -647,7 +647,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
     borderRadius: BorderRadius.circular(WarmPopTokens.radiusLg),
     boxShadow: [
       BoxShadow(
-        color: context.t.ink.withValues(alpha: 0.10),
+        color: context.t.shadow,
         blurRadius: 14,
         offset: const Offset(0, 4),
       ),

@@ -64,7 +64,7 @@ class ChatBubbleGeometry {
     if (!enabled || !isMine) return const [];
     return [
       BoxShadow(
-        color: context.t.ink.withValues(alpha: 0.06),
+        color: context.t.shadow,
         blurRadius: 4,
         offset: const Offset(0, 1),
       ),

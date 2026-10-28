@@ -1095,7 +1095,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
         boxShadow: [
           BoxShadow(
-            color: context.t.ink.withValues(alpha: 0.08),
+            color: context.t.shadow,
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),

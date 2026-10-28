@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_badge.dart';
 import '../../../core/widgets/chat_tile.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -561,7 +562,6 @@ class _RequestsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final label = count > 0 ? '$count pending requests' : 'No pending requests';
     return Semantics(
       button: true,
@@ -576,32 +576,7 @@ class _RequestsButton extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               const Icon(Icons.person_add_alt_1_outlined),
-              if (count > 0)
-                Positioned(
-                  top: -7,
-                  right: -8,
-                  child: Container(
-                    constraints: BoxConstraints(
-                      minWidth: count >= 100 ? 22 : 16,
-                      minHeight: 16,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 3),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: t.error,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: t.bg, width: 2),
-                    ),
-                    child: Text(
-                      count >= 100 ? '99+' : '$count',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onError,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
+              Positioned(top: -7, right: -8, child: AppBadge(count: count)),
             ],
           ),
         ),

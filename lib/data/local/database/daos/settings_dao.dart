@@ -25,6 +25,10 @@ class SettingsDao extends DatabaseAccessor<AppDatabase>
         ),
       );
 
+  /// Delete a single key (no-op when absent).
+  Future<void> deleteSetting(String key) =>
+      (delete(appSettingsTable)..where((t) => t.key.equals(key))).go();
+
   Stream<String?> watchSetting(String key) =>
       (select(appSettingsTable)..where((t) => t.key.equals(key)))
           .watchSingleOrNull()

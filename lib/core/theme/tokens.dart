@@ -36,6 +36,40 @@ class WarmPopTokens {
   static const error = Color(0xFFE5484D);
   static const info = Color(0xFF4A6FA5);
 
+  // Elevation — foundation §4: warm-tinted soft shadow, max 2 layers.
+  // The shadow COLOR is theme-dependent (never `ink`: ink is near-white in
+  // dark, which renders a white halo around elevated cards). Light =
+  // warm rgba(52,42,28) — matches the board's `0 2px 8px rgba(52,42,28,.10)`.
+  // Dark = rgba(0,0,0,.35) per the board's dark `--cardShadow`.
+  static const shadowLight = Color(0x1A342A1C); // rgba(52,42,28,.10)
+  static const shadowDark = Color(0x59000000); // rgba(0,0,0,.35)
+
+  /// AMOLED shadow — a faint LIGHT edge.
+  ///
+  /// The AMOLED theme paints its surfaces pure black, so a black shadow is
+  /// invisible on them: a raised card would have no elevation cue at all
+  /// (and the card surface itself is the same black as the page ground).
+  /// A faint light edge keeps the card readable on pure black, which is the
+  /// same cue the ink-derived shadow used to give.
+  static const shadowAmoled = Color(0x0AF3EDE3); // rgba(243,237,227,.04)
+
+  /// The single card shadow layer (foundation §4: max 2 shadow layers).
+  ///
+  /// Rendered with an explicit `BoxShadow`, NOT Material's `elevation`:
+  /// Material routes its shadow through the engine's tonal path, which
+  /// paints a shadow materially weaker than the token's literal alpha
+  /// (measured ~7× weaker in a pixel probe) — a card built with
+  /// `Material(elevation: 2, shadowColor: …)` does NOT match the board's
+  /// `0 2px 8px rgba(52,42,28,.10)`. The explicit layer paints the token's
+  /// alpha exactly.
+  static List<BoxShadow> cardShadow(Color color) => [
+        BoxShadow(
+          color: color,
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ];
+
   // Mascot (constant across themes)
   static const mascotBody = Color(0xFFC6894F);
   static const mascotShade = Color(0xFFB27A42);
@@ -80,10 +114,15 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     required this.success,
     required this.error,
     required this.info,
+    required this.shadow,
   });
 
   final Color bg, surface, surface2, ink, inkSoft, inkFaint, line, accent,
       accentPressed, accentSoft, onAccent, success, error, info;
+
+  /// Elevation shadow color (foundation §4). Never derive a shadow from
+  /// [ink] — ink is near-white in dark, which halos elevated cards.
+  final Color shadow;
 
   static const light = ColorTokens(
     bg: WarmPopTokens.bg,
@@ -100,6 +139,7 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     success: WarmPopTokens.success,
     error: WarmPopTokens.error,
     info: WarmPopTokens.info,
+    shadow: WarmPopTokens.shadowLight,
   );
 
   static const dark = ColorTokens(
@@ -117,6 +157,7 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     success: WarmPopTokens.success,
     error: WarmPopTokens.error,
     info: WarmPopTokens.info,
+    shadow: WarmPopTokens.shadowDark,
   );
 
   @override
@@ -135,6 +176,7 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     Color? success,
     Color? error,
     Color? info,
+    Color? shadow,
   }) =>
       ColorTokens(
         bg: bg ?? this.bg,
@@ -151,6 +193,7 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
         success: success ?? this.success,
         error: error ?? this.error,
         info: info ?? this.info,
+        shadow: shadow ?? this.shadow,
       );
 
   @override
@@ -171,6 +214,7 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
       success: Color.lerp(success, other.success, t)!,
       error: Color.lerp(error, other.error, t)!,
       info: Color.lerp(info, other.info, t)!,
+      shadow: Color.lerp(shadow, other.shadow, t)!,
     );
   }
 }

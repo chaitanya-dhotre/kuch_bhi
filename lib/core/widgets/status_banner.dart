@@ -36,7 +36,7 @@ class StatusBanner extends StatelessWidget {
               onPressed: onRetry,
               style: TextButton.styleFrom(
                   foregroundColor: t.ink,
-                  minimumSize: const Size(0, 32),
+                  minimumSize: const Size(0, 48),
                   padding: const EdgeInsets.symmetric(horizontal: 8)),
               child: const Text('Retry',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),

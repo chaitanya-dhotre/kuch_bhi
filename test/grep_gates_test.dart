@@ -106,6 +106,74 @@ void main() {
     }
   });
 
+  test('requests feature follows token, loading, and L4 screen gates', () {
+    final files = Directory('lib/features/friend_requests')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .toList();
+    expect(files, isNotEmpty);
+    for (final f in files) {
+      final src = f.readAsStringSync();
+      expect(src.contains('colorScheme'), isFalse, reason: f.path);
+      expect(src.contains('withValues(alpha'), isFalse, reason: f.path);
+      expect(src.contains('Error loading requests'), isFalse, reason: f.path);
+    }
+
+    final screen =
+        File('lib/features/friend_requests/screens/friend_requests_screen.dart')
+            .readAsStringSync();
+    expect(screen.contains('CircularProgressIndicator'), isFalse);
+    expect(screen.contains('_repository_impl.dart'), isFalse);
+  });
+
+  test('no shadow is painted with ink (registry T1 / foundation §4)', () {
+    // A shadow color derived from `ink` renders a WHITE halo in the dark
+    // theme (ink is #F3EDE3 there). Raised surfaces must read the elevation
+    // token instead — `context.t.shadow`.
+    //
+    // Scanned app-wide: the Requests page is where the defect was found, but
+    // the contract is global.
+    //
+    // The check is per BoxShadow BLOCK (not per line): the shadow color
+    // usually sits on the line AFTER `BoxShadow(`.
+    final hits = <String>[];
+    // Exemptions: a surface that IS ink (dark-on-dark card) may cast an ink
+    // shadow — that is a deliberate dark shadow, not a halo.
+    const exemptions = {
+      'lib/features/auth/screens/backup_pin_screen.dart', // dark card on dark
+    };
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (exemptions.contains(f.path)) continue;
+      final lines = f.readAsStringSync().split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (!lines[i].contains('BoxShadow(')) continue;
+        // Look at the next few lines — the color follows the constructor.
+        final block =
+            lines.sublist(i, (i + 4).clamp(0, lines.length)).join('\n');
+        // Any shadow color derived from ink is banned: the withValues form
+        // (ink.withValues(alpha: …)), the bare token form (color: t.ink),
+        // and the static-token form (WarmPopTokens.ink).
+        final usesInk = block.contains('ink.withValues') ||
+            block.contains('WarmPopTokens.ink') ||
+            RegExp(r'color:\s*(context\.t|t|WarmPopTokens)\.ink\b')
+                .hasMatch(block);
+        if (usesInk) {
+          hits.add('${f.path}:${i + 1}: ${lines[i].trim()}');
+        }
+      }
+      // Material's elevation shadow must not use ink either.
+      if (RegExp(r'shadowColor:\s*(context\.t|WarmPopTokens)\.ink')
+          .hasMatch(f.readAsStringSync())) {
+        hits.add('${f.path}: shadowColor uses ink');
+      }
+    }
+    expect(hits, isEmpty, reason: 'shadow painted with ink: $hits');
+  });
+
   test('no AppColors remains in lib (except the file itself, deleted)', () {
     final hits = Directory('lib')
         .listSync(recursive: true)

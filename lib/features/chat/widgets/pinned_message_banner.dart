@@ -94,7 +94,7 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
               borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
               boxShadow: [
                 BoxShadow(
-                  color: context.t.ink.withValues(alpha: 0.08),
+                  color: context.t.shadow,
                   blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),

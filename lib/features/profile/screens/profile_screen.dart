@@ -161,7 +161,7 @@ class ProfileScreen extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: WarmPopTokens.ink.withValues(alpha: 0.06),
+                    color: context.t.shadow,
                     blurRadius: 20,
                     offset: const Offset(0, 4),
                   ),

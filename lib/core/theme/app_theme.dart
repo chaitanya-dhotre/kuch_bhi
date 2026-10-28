@@ -8,7 +8,11 @@ ThemeData warmPopLight() => _build(ColorTokens.light, Brightness.light);
 ThemeData warmPopDark({bool amoled = false}) =>
     _build(amoled ? const ColorTokens(
       bg: Colors.black,
-      surface: Color(0xFF000000),
+      // A raised card needs a surface that differs from the page ground.
+      // With bg == surface == pure black the card was invisible (and a
+      // black shadow on black gives no elevation cue either) — the card
+      // now sits on a near-black surface with a faint light edge.
+      surface: Color(0xFF0A0908),
       surface2: Color(0xFF0D0D0D),
       ink: WarmPopTokens.inkDark,
       inkSoft: WarmPopTokens.inkSoftDark,
@@ -21,6 +25,7 @@ ThemeData warmPopDark({bool amoled = false}) =>
       success: WarmPopTokens.success,
       error: WarmPopTokens.error,
       info: WarmPopTokens.info,
+      shadow: WarmPopTokens.shadowAmoled,
     ) : ColorTokens.dark, Brightness.dark);
 
 ThemeData _build(ColorTokens c, Brightness brightness) {

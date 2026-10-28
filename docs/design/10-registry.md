@@ -19,10 +19,16 @@ ThemeExtension); geometry via `WarmPopTokens` statics. No hardcoded color.
 | R6 | `ChatTile` | `chat_tile.dart` | `title`, `subtitle`/`subtitleWidget`, `avatarUrl`, `time`, `unreadCount`, `isGroup`, `onTap`, `onLongPress` | home row; 40px avatar, group glyph disc, AppBadge unread |
 | R7 | `EmptyState` | `empty_state.dart` | `title`, `subtitle?`, `action?`, `withMascot`, `mood` (CapyMood), `mascot?` | mascot slot precedence: custom > Capybara(mood) > none; NEVER inside bubbles |
 | R8 | `SearchField` | `search_field.dart` | `onChanged`, `hint?`, `controller?` | 44px pill; focused = accent 1.5px border |
-| R9 | `SectionHeader` | `section_header.dart` | `String title` | 11px w600 inkFaint list label |
+| R9 | `SectionHeader` | `section_header.dart` | `String title`, `count?` | 11px w600 inkFaint list label; optional surface2 count pill |
 | R10 | `SettingsTile` | `settings_tile.dart` | `icon`, `title`, `subtitle?`, `onTap?`, `trailing?` | ≥56px row, surface2 icon well |
 | R11 | `Skeleton` | `skeleton.dart` | `height`, `width?`, `radius=8`, `duration=1200ms` | shimmer surface2↔line; page-specific duration may be supplied (Home uses 1400ms); parks under reduced-motion |
-| R12 | `StatusBanner` | `status_banner.dart` | `message`, `leading?`, `onRetry?` | accentSoft strip + accent@45% border; optional Retry |
+| R12 | `StatusBanner` | `status_banner.dart` | `message`, `leading?`, `onRetry?` | accentSoft strip + accent@45% border; optional Retry (amendment: Retry min-h 48 — the 48dp tap-target floor applies to every action on the page) |
+
+## Theme tokens (`lib/core/theme/tokens.dart`)
+
+| ID | Token | Path | Contract |
+|---|---|---|---|
+| T1 | `WarmPopTokens.shadowLight` / `shadowDark` / `shadowAmoled` + `cardShadow(color)` | `tokens.dart` | Elevation shadow (foundation §4): light `rgba(52,42,28,.10)`, dark `rgba(0,0,0,.35)`. Raised cards read `context.t.shadow` — NEVER `context.t.ink`, which is near-white in dark and renders a white halo around elevated surfaces. Use `WarmPopTokens.cardShadow(t.shadow)` (one explicit BoxShadow layer) rather than Material's `elevation`, which routes the shadow through the engine's tonal path and paints materially weaker than the token (measured ~7× weaker). AMOLED uses `shadowAmoled` (a faint LIGHT edge) because its surfaces are pure black — a black shadow there gives no elevation cue. Grep-gated app-wide. |
 
 ## Chat-domain shared pieces (single definitions; reused across pages)
 
