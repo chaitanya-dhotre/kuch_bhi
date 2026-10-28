@@ -24,6 +24,16 @@ abstract class MessageRepository {
   /// Watch messages in a conversation (real-time, paginated).
   Stream<List<Message>> watchMessages(String conversationId);
 
+  /// How many rows in [conversationId] exist but are NOT renderable because
+  /// their body cannot be decrypted (backlog §170 fix b).
+  ///
+  /// `watchMessages` hides them (spec D1 — ciphertext never reaches a bubble),
+  /// so a conversation with only undecryptable history yields an empty list
+  /// that is indistinguishable at the screen from a brand-new chat. This count
+  /// is what lets the empty state say "old messages need re-sharing" instead
+  /// of "Say hello". Never exposes ciphertext or plaintext — just a number.
+  Future<int> countUndecryptable(String conversationId);
+
   /// Send a text message.
   ///
   /// P7 (spec §3): there is deliberately NO `replyPreview` parameter — a

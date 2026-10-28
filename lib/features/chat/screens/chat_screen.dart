@@ -650,11 +650,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       onRetry: () => ref.invalidate(messagesProvider(_cid)),
                     ),
                     data: (_) => items.isEmpty
-                        ? EmptyState(
-                            title: 'Say hello to ${conv.displayName}',
-                            subtitle:
-                                'Messages here are end-to-end encrypted. Nobody else can read them.',
-                            mascot: const Capybara(size: Size(108, 97)),
+                        ? _ChatEmptyState(
+                            displayName: conv.displayName,
+                            hidden: ref
+                                .watch(undecryptableCountProvider(_cid))
+                                .value,
                           )
                         : _searchActive &&
                               _searchCtrl.text.trim().isNotEmpty &&
@@ -1335,6 +1335,40 @@ class ChatLoadError extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Empty chat, or history this device can no longer decrypt.
+///
+/// An empty list used to render "Say hello" unconditionally, which is wrong for
+/// a conversation whose rows are all `pending`/`key_missing` (backlog §170):
+/// those rows are hidden by design — ciphertext must never reach a bubble — so
+/// a group with 75 unrecoverable rows looked brand-new. [hidden] > 0 means
+/// "history exists but cannot be decrypted", which is the honest copy.
+class _ChatEmptyState extends StatelessWidget {
+  const _ChatEmptyState({required this.displayName, this.hidden});
+
+  final String displayName;
+  final int? hidden;
+
+  @override
+  Widget build(BuildContext context) {
+    if (chatEmptyKind(hidden) == ChatEmptyKind.undecryptable) {
+      return EmptyState(
+        title: 'Older messages unavailable',
+        subtitle:
+            'These messages were encrypted with a key this device no longer '
+            'has. Ask a group admin to re-share them.',
+        mood: CapyMood.sleepy,
+        mascot: const Capybara(mood: CapyMood.sleepy, size: Size(64, 58)),
+      );
+    }
+    return EmptyState(
+      title: 'Say hello to $displayName',
+      subtitle:
+          'Messages here are end-to-end encrypted. Nobody else can read them.',
+      mascot: const Capybara(size: Size(108, 97)),
     );
   }
 }

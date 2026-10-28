@@ -168,6 +168,7 @@ class MessageRepositoryImpl implements MessageRepository {
       bodyCache.clear();
       _cutoffCache.clear(); // identity changed — group cutoffs are per-user
       _removalMissCounts.clear(); // and removal verdicts are per-user too
+      _repairMissCounts.clear(); // and the repair give-up count is per-user
       // P8 (F1 fix): the device-local outbox key lives in a
       // session-scoped secure-storage slot, so the in-memory copy is
       // session-scoped too. Without this, the next keyless enqueue in the
@@ -916,6 +917,24 @@ class MessageRepositoryImpl implements MessageRepository {
     return _messagesStream(conversationId);
   }
 
+  /// Backlog §170 fix (b): the count behind the "old messages need
+  /// re-sharing" empty state. Shares [getUndecryptableRows]'s query with the
+  /// repair pass, which is the point — the same rows the repair pass cannot
+  /// decrypt are the rows the screen must stop reporting as "nothing here".
+  /// Returns a number only; ciphertext and plaintext never leave the DB.
+  @override
+  Future<int> countUndecryptable(String conversationId) async {
+    try {
+      final rows = await db.messagesDao.getUndecryptableRows(
+        conversationId,
+        limit: 500,
+      );
+      return rows.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   Stream<List<Message>> _messagesStream(String conversationId) async* {
     // Peek at the current local cache once to choose the cold vs warm path.
     final cached = await db.messagesDao.watchMessages(conversationId).first;
@@ -958,7 +977,33 @@ class MessageRepositoryImpl implements MessageRepository {
   /// still lands on the very next sync after that.
   static const int _removalConfirmMisses = 2;
 
-  void _invalidateCutoff(String convId) => _cutoffCache.remove(convId);
+  /// Consecutive repair passes per conversation that healed NOTHING
+  /// (backlog §170). A row stuck on a key this device can never obtain is
+  /// unrecoverable, and the pass used to retry it on every single open
+  /// forever. After [_repairGiveUp] fruitless passes the row is left alone
+  /// until the key actually arrives (which invalidates via
+  /// [_invalidateCutoff]-style reset below). Session-scoped: cleared on
+  /// identity change.
+  final Map<String, int> _repairMissCounts = {};
+
+  /// Fruitless passes before a row is left to the banner path. 2 forgives a
+  /// transient heal race; an unrecoverable row stops costing an open.
+  static const int _repairGiveUp = 2;
+
+  /// How many times the repair pass has actually run per conversation
+  /// (backlog §170). Readable so a test can prove the give-up budget stops
+  /// the retries — the pass has no other observable seam.
+  @visibleForTesting
+  final Map<String, int> debugRepairRuns = {};
+
+
+  /// Drops the cached group cutoff for [convId] and reopens the repair
+  /// budget: every caller of this is a membership/key change, which is exactly
+  /// when a row previously given up on might now be healable (backlog §170).
+  void _invalidateCutoff(String convId) {
+    _cutoffCache.remove(convId);
+    _repairMissCounts.remove(convId);
+  }
 
   Future<DateTime?> _groupCutoff(String convId) async {
     if (_cutoffCache.containsKey(convId)) return _cutoffCache[convId];
@@ -3973,7 +4018,18 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> _repairUndecrypted(String conversationId) async {
     try {
       final rows = await db.messagesDao.getUndecryptableRows(conversationId);
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        // Nothing left to heal — the give-up count no longer applies.
+        _repairMissCounts.remove(conversationId);
+        return;
+      }
+      // Backlog §170 (c): stop paying for rows we have already proven we
+      // cannot heal. Two fruitless passes is one forgiven transient race.
+      if ((_repairMissCounts[conversationId] ?? 0) >= _repairGiveUp) return;
+      // Counted AFTER the cap so the number is work actually done, not
+      // entries short-circuited by the budget.
+      debugRepairRuns[conversationId] =
+          (debugRepairRuns[conversationId] ?? 0) + 1;
       final epoch = _sessionEpoch;
       final myId = await _myId();
       if (myId.isEmpty) return;
@@ -3981,8 +4037,12 @@ class MessageRepositoryImpl implements MessageRepository {
       try {
         keys = await _getConvKeyCandidates(conversationId, myId);
       } on MissingKeyException {
+        // No key on this device at all — the definitive key-loss case, and
+        // exactly the row this budget exists to stop retrying.
+        _accountRepair(conversationId, 0);
         return;
       }
+      var decrypted = 0;
       for (final row in rows) {
         if (!sessionStillValid(
           epochAtStart: epoch,
@@ -4005,6 +4065,7 @@ class MessageRepositoryImpl implements MessageRepository {
           }
         }
         if (plain != null) {
+          decrypted++;
           bodyCache.put(row.localId, plain);
           await (db.update(
             db.messagesTable,
@@ -4016,12 +4077,35 @@ class MessageRepositoryImpl implements MessageRepository {
           );
         }
       }
+      // Report what ACTUALLY decrypted. The old line logged rows.length — the
+      // number ATTEMPTED — so a pass that healed nothing still claimed to have
+      // healed every row, and the key-loss class was invisible in the logs.
       debugPrint(
         '[Enc] repair pass decrypted '
-        '${rows.length} stuck row(s) in $conversationId',
+        '$decrypted of ${rows.length} stuck row(s) in $conversationId',
       );
+      _accountRepair(conversationId, decrypted);
     } catch (e) {
       debugPrint('[Enc] repair pass failed: $e');
+      // A fruitless attempt is still a fruitless attempt.
+      _accountRepair(conversationId, 0);
+    }
+  }
+
+  /// Counts a finished repair pass toward [conversationId]'s give-up budget.
+  ///
+  /// Called from every exit path, because the pass has several early returns
+  /// (no key available, session changed) that are all fruitless — counting
+  /// only the full loop would leave the budget permanently at zero and the
+  /// cap unreachable.
+  void _accountRepair(String conversationId, int decrypted) {
+    if (decrypted == 0) {
+      final misses = (_repairMissCounts[conversationId] ?? 0) + 1;
+      _repairMissCounts[conversationId] = misses;
+    } else {
+      // A healed row proves the key situation can change — start the
+      // transient-race budget again rather than stopping at the first row.
+      _repairMissCounts.remove(conversationId);
     }
   }
 

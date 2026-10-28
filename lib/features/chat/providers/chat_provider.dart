@@ -90,6 +90,19 @@ final messagesProvider = StreamProvider.family<List<Message>, String>((
   return ref.watch(messageRepositoryProvider).watchMessages(conversationId);
 });
 
+/// How many rows in the conversation are hidden because their body cannot be
+/// decrypted (backlog §170 fix b).
+///
+/// Read only when the visible list is EMPTY, so an ordinary chat never pays
+/// for it. Lets the empty state distinguish a brand-new conversation from one
+/// whose history this device can no longer decrypt.
+final undecryptableCountProvider = FutureProvider.family<int, String>((
+  ref,
+  conversationId,
+) {
+  return ref.watch(messageRepositoryProvider).countUndecryptable(conversationId);
+});
+
 // ── Send ──────────────────────────────────────────────────────────────────
 
 class SendMessageNotifier extends Notifier<bool> {

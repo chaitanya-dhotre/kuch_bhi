@@ -39,3 +39,17 @@ bool _canJoin(Message newer, Message older) {
 
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// What the chat's empty state must say (backlog §170 fix b).
+enum ChatEmptyKind { brandNew, undecryptable }
+
+/// An empty list means one of two different things, and they read very
+/// differently to the person looking at them. Pure so the widget stays a
+/// renderer and the decision is testable without pumping it.
+///
+/// Rows whose body cannot be decrypted are hidden by design (spec D1 —
+/// ciphertext must never reach a bubble), so a conversation whose history is
+/// entirely unrecoverable yields the same empty list as a new one. [hidden] is
+/// the count of those rows; anything above zero means history exists.
+ChatEmptyKind chatEmptyKind(int? hidden) =>
+    (hidden ?? 0) > 0 ? ChatEmptyKind.undecryptable : ChatEmptyKind.brandNew;
