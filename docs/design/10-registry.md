@@ -20,8 +20,9 @@ ThemeExtension); geometry via `WarmPopTokens` statics. No hardcoded color.
 | R7 | `EmptyState` | `empty_state.dart` | `title`, `subtitle?`, `action?`, `withMascot`, `mood` (CapyMood), `mascot?` | mascot slot precedence: custom > Capybara(mood) > none; NEVER inside bubbles |
 | R8 | `SearchField` | `search_field.dart` | `onChanged`, `hint?`, `controller?` | 44px pill; focused = accent 1.5px border |
 | R9 | `SectionHeader` | `section_header.dart` | `String title`, `count?` | 11px w600 inkFaint list label; optional surface2 count pill |
-| R10 | `SettingsTile` | `settings_tile.dart` | `icon`, `title`, `subtitle?`, `onTap?`, `trailing?` | ≥56px row, surface2 icon well |
+| R10 | `SettingsTile` | `settings_tile.dart` | `icon`, `title`, `subtitle?`, `onTap?`, `trailing?`, `destructive=false` | ≥56px row, surface2 icon well. **R10a:** `destructive: true` renders an error ICON in the well with an INK title (foundation C4 — error text fails 4.5:1 on light) |
 | R11 | `Skeleton` | `skeleton.dart` | `height`, `width?`, `radius=8`, `duration=1200ms` | shimmer surface2↔line; page-specific duration may be supplied (Home uses 1400ms); parks under reduced-motion |
+| R3a | `BusySpinner` | `busy_spinner.dart` | `size=18`, `strokeWidth=2` | the 18px busy ring for per-row busy states; parks as a static surface2 ring under reduced motion. The one sanctioned spinner in features whose source is grep-gated against `CircularProgressIndicator` (page 4, 2026-10-29) |
 | R12 | `StatusBanner` | `status_banner.dart` | `message`, `leading?`, `onRetry?` | accentSoft strip + accent@45% border; optional Retry (amendment: Retry min-h 48 — the 48dp tap-target floor applies to every action on the page) |
 
 ## Theme tokens (`lib/core/theme/tokens.dart`)
@@ -38,6 +39,9 @@ ThemeExtension); geometry via `WarmPopTokens` statics. No hardcoded color.
 | C2 | `ReplyQuote` | `lib/features/chat/widgets/reply_quote.dart` | in-bubble (full) + composer (compact) modes; body via C1 `'preview'`; tap → jump to parent |
 | C3 | `PinnedMessageBanner` | `lib/features/chat/widgets/pinned_message_banner.dart` | threads decryptState; media rows = type constants; tap → jump (+cycle when >1) |
 | C4 | `showMessageMenu` (long-press sheet) | `lib/features/chat/widgets/message_context_menu.dart` | THE long-press menu — same sheet language for home long-press (page 2 spec references, never reimplements); amendment: exported conversation action-list variant shares the chrome |
+| C4a | `showActionSheet({context, header?, actions})` | `lib/features/chat/widgets/message_context_menu.dart` | The shared action-sheet chrome pulled out of `showConversationMenu`, which now calls it — ONE sheet for Home long-press and page-4 member actions (page 4, 2026-10-29) |
+| C4b | `ConversationMenuAction.destructive` (default false) | `lib/features/chat/widgets/message_context_menu.dart` | error icon + ink label (foundation C4) |
+| C11 | `showDisappearingDialog(context, ref, conversationId)` + `disappearingDurationLabel(seconds)` | `lib/features/chat/widgets/disappearing_dialog.dart` | ONE disappearing dialog for chat's menu and Group Info's row; checkmark is ink; the write is awaited with try/catch → failure toast (page 4, 2026-10-29) |
 | C5 | `SwipeToReply` | `lib/features/chat/widgets/swipe_to_reply.dart` | right-drag clamp 80px, threshold 72px, mediumImpact haptic, elastic 180ms |
 | C6 | Tick indicator (canonical set) | defined in `chat.md` §10; impl lives in `message_bubble.dart` `_TickIndicator` + `_VoiceTick`/`_DocTick`/media variants → **converge to one legend** | pending spinner / failed(error) / sent(1) / delivered(2@54%) / read(2 full) / scheduled(clock) |
 | C7 | Expiry affordance (unify) | today divergent: `ExpiryBadge` (img/vid), text label (voice/doc), `ExpiredMediaPlaceholder` | spec: ONE `ExpiryBadge` pill, top-right on all media; expired content = one `ExpiredMediaPlaceholder` pattern |

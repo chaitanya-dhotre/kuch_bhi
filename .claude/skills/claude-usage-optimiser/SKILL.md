@@ -10,7 +10,7 @@ description: Routes work across the three available pools — Claude Pro (judgme
 | Pool | Budget | Role |
 |---|---|---|
 | **Claude (Pro)** | shared limit, scarce | Judgment: grading, adversarial verification, races/crypto/security, PASS gates, commit messages |
-| **Astra 6 / Sol 6.1** (ChatGPT) | 10M tok/day | Implementation of written specs (the established pipeline: spec + checklist → Astra implements → Claude grades). Access: **Omnirush desktop app** (`/usr/bin/omnirush`) — GUI-only, every CLI subcommand boots the desktop runtime, so dispatch is manual: the user pastes Claude's brief into the Omnirush UI |
+| **Astra 6 / Sol 6.1** (ChatGPT) | 10M tok/day | Implementation of written specs (the established pipeline: spec + checklist → Astra implements → Claude grades). Access: **Omnirush desktop app** (`/usr/bin/omnirush`) — GUI-only, every CLI subcommand boots the desktop runtime, so dispatch is manual: the user pastes Claude's brief into the Omnirush UI. **⚠ Omnirush DOWN for maintenance until 2026-11-02 17:30 IST** — until then route its work to Mimo (downtime protocol step 4); after that time, assume it is back |
 | **Mimo 2.6 Flash** (freebuff) | 5h unlimited window/day | Mechanical bulk: doc/backlog edits, lint/import fixes, scaffolds, sweeps, renaming. Access: **freebuff CLI** (`/usr/bin/freebuff`, v0.2.34) — interactive TUI, NO headless `-p`/`--print` mode (confirmed 2026-10-29); dispatch = `freebuff --cwd /home/chaitanyadhotre/kuch_bhi --trust-agents` in a terminal + paste the brief. It has DIRECT repo access (reads/writes code, runs tests), unlike Omnirush models — so Mimo briefs can be thinner than Astra briefs |
 
 ## Routing table
@@ -42,14 +42,15 @@ External models know NOTHING about this repo. Every handoff must be self-contain
 4. The gates THEY must run themselves (`flutter test`, `flutter analyze`).
 5. One closing line: "Claude grades the result; do not claim PASS."
 
-Delivery: hand the brief to the user as a copy-paste block. Astra/Sol → Omnirush UI (GUI-only, confirmed 2026-10-29). Mimo → `freebuff --cwd /home/chaitanyadhotre/kuch_bhi --trust-agents` terminal paste (TUI-only, no headless flag). Never re-probe either CLI for dispatch modes — both confirmed 2026-10-29.
+Delivery: hand the brief to the user as a copy-paste block. Astra/Sol → Omnirush UI (GUI-only, confirmed 2026-10-29). Mimo → `freebuff --cwd /home/chaitanyadhotre/kuch_bhi --trust-agents` terminal paste (TUI-only, no headless flag). Never re-probe either CLI for dispatch modes — both confirmed 2026-10-29. An Astra brief reused for Mimo needs no attachment list (Mimo reads the repo); paste only the part below the brief's `---` line.
 
 ## When a limit is hit (downtime protocol)
 
 1. Write the current state into the work-log (done / proven / next step) — never leave it in chat only.
 2. Mechanical leftovers → Mimo; already-specified implementation → Astra. Both can continue WITHOUT Claude.
 3. Grading / PASS / commit wait for the next Claude window. The no-commit-without-PASS rule never bends.
-4. If Astra is down: Claude implements directly (slower, pipeline continues). If Mimo is down: those items fold to Astra.
+4. If Astra is down: **Mimo implements** against the same spec + checklist (it has repo access; worked on Page 4, 2026-10-29). Claude implements directly only when both are down. If Mimo is down: its items fold to Astra.
+5. When Mimo stands in for Astra, Claude's grading adds one cheap check, because Mimo is the zero-judgment tier and `--trust-agents` lets it write anywhere: diff every code path the spec freezes (e.g. E2E key code) against HEAD at function level, plus `git log` (no stray commits) and `git diff --stat` (no files outside the brief's list). Do this before reading anything else.
 
 ## Cost rules (learned the expensive way this project)
 

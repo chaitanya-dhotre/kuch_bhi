@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group Info — Page 4 board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (requests.html drifted a few hexes; this board does not). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8A7A5F;margin:0 0 8px}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:340px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.appbar .ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.appbar .act{font-size:15px;font-weight:600;padding:0 14px;height:40px;display:flex;align-items:center;border-radius:16px;color:var(--ink)}
+.appbar .act.off{color:var(--inkFaint)}
+.body{padding:4px 0 16px}
+.hdr{display:flex;flex-direction:column;align-items:center;padding:12px 16px 8px}
+.big{width:96px;height:96px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;position:relative}
+.big .cam{position:absolute;right:0;bottom:0;width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid var(--bg)}
+.big .scrim{position:absolute;inset:0;border-radius:999px;background:rgba(42,37,32,.45);display:flex;align-items:center;justify-content:center}
+.gname{font-size:20px;line-height:26px;font-weight:700;margin-top:12px;display:flex;align-items:center;gap:6px}
+.gname .pen{font-size:15px;color:var(--inkSoft)}
+.gcount{font-size:13px;color:var(--inkSoft);margin-top:2px}
+.sect{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px}
+.sect .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkFaint)}
+.sect .r{display:flex;gap:8px;align-items:center}
+.pill{background:var(--surface2);color:var(--inkSoft);border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px}
+.addbtn{height:36px;border-radius:999px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:var(--accentSoft);color:var(--ink)}
+.list{background:var(--surface);margin:0 12px;border-radius:16px;border:1px solid var(--line);overflow:hidden}
+.m{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 6px 8px 12px;border-top:1px solid var(--line)}
+.m:first-child{border-top:0}
+.av{width:40px;height:40px;border-radius:999px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
+.who{flex:1;min-width:0}
+.who .nm{font-size:16px;line-height:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+.who .mt{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:11px;line-height:14px;font-weight:600;background:var(--accentSoft);color:var(--ink);border-radius:999px;padding:2px 8px;flex:0 0 auto}
+.more{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:18px;flex:0 0 auto}
+.spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:999px;animation:sp .8s linear infinite;margin:15px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tbtn{height:40px;padding:0 12px;border-radius:16px;display:flex;align-items:center;font-size:14px;font-weight:600;color:var(--ink)}
+.dim{opacity:.38}
+.hint{font-size:12px;color:var(--inkFaint);padding:0 16px;text-align:right}
+.st{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-top:1px solid var(--line)}
+.st:first-child{border-top:0}
+.st .well{width:36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
+.st .tt{flex:1;min-width:0}
+.st .tt .a{font-size:15px;font-weight:600;line-height:20px}
+.st .tt .b{font-size:13px;color:var(--inkSoft);line-height:18px}
+.st .tr{font-size:13px;color:var(--inkSoft)}
+.st.danger .well{color:var(--error)}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--line);position:relative;flex:0 0 auto}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:999px;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.on{background:var(--accent)}
+.sw.on::after{left:21px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border:1px solid rgba(239,160,11,.45);border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 12px}
+.banner .retry{margin-left:auto;font-weight:700;min-height:36px;display:flex;align-items:center;padding:0 6px}
+.offline{display:flex;gap:8px;align-items:center;background:var(--accentSoft);color:var(--ink);font-size:13px;padding:8px 16px}
+.sk{background:var(--surface2);border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sh 1.4s infinite}
+.wrap.dark .sk::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.sheet{background:var(--surface);border-radius:20px 20px 0 0;padding:8px 0 12px;box-shadow:var(--cardShadow);border:1px solid var(--line)}
+.handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet .sh{display:flex;align-items:center;gap:12px;padding:4px 16px 12px;border-bottom:1px solid var(--line)}
+.sheet .row1{display:flex;align-items:center;gap:14px;min-height:52px;padding:0 20px;font-size:15px;font-weight:600}
+.sheet .row1 .ic{width:24px;text-align:center;color:var(--inkSoft)}
+.sheet .row1.danger .ic{color:var(--error)}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;box-shadow:var(--cardShadow);border:1px solid var(--line);color:var(--ink)}
+.dlg .t{font-size:20px;font-weight:700;line-height:26px}
+.dlg .s{font-size:15px;color:var(--inkSoft);margin-top:8px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.secondary{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.text{height:40px;color:var(--ink)}
+.btn.wide{width:100%}
+.btn.off{background:var(--surface2);color:var(--inkFaint);border:0}
+.chk{width:24px;height:24px;border-radius:999px;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:13px;margin-right:10px}
+.chk.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 10px;border-bottom:1px solid var(--line)}
+.achip{height:36px;border-radius:999px;background:var(--accentSoft);border:1.5px solid var(--accent);display:flex;align-items:center;gap:6px;padding:0 6px 0 4px;font-size:13px;font-weight:600}
+.achip .av{width:28px;height:28px;font-size:12px}
+.search{margin:8px 16px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 16px;color:var(--inkFaint);font-size:15px;gap:8px}
+.field{margin:0 16px;border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;background:var(--surface)}
+.field.focus{border-color:var(--accent)}
+.field .lb{font-size:11px;font-weight:600;color:var(--inkSoft)}
+.field .v{font-size:16px;margin-top:2px}
+.field .ph{color:var(--inkFaint)}
+.cnt{font-size:12px;color:var(--inkFaint);text-align:right;padding:4px 18px 0}
+.err{display:flex;gap:10px;margin:12px 16px 0;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13px;line-height:18px}
+.err .ic{color:var(--error)}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 18px 30px}
+.capy{width:120px;height:106px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:54px;margin-bottom:14px}
+.empty .t{font-size:28px;font-weight:700;line-height:34px}
+.empty .t.sm{font-size:20px;line-height:26px}
+.empty .s{font-size:15px;color:var(--inkSoft);margin-top:8px;max-width:260px;line-height:22px}
+.empty .btn{margin-top:18px}
+.toast{position:absolute;left:14px;right:14px;bottom:14px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+.tblwrap{overflow-x:auto}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<h1>Group Info + Create Group — Page 4 board</h1>
+<p class="sub">Kuch Bhi · Warm Pop · Authority: <code>docs/design/00-foundation.md</code> → <code>docs/design/10-registry.md</code> → checklist <code>group-info.md</code>.
+Board sections <b>G1–G15</b> (G = Group, page-local). Light shown plain; dark in dark inset frames. This is an audit of what exists, not a new design: <code>group_settings_screen.dart</code> (755 lines) + <code>create_group_screen.dart</code> (625 lines), audited 2026-10-29. Neither screen has a test today. <b>G15 lists every difference from the current code.</b></p>
+
+<!-- G1 -->
+<div class="band">
+<header><span class="n">G1</span><h2>Tokens, laws &amp; what the audit found</h2></header>
+<div class="row">
+  <div style="flex:1;min-width:260px"><h3>Type (foundation §3 only)</h3><div style="font-size:20px;font-weight:700">Group name / app bar 20/26 w700</div><div style="font-size:16px;font-weight:600">Member name 16/22 w600</div><div style="font-size:15px">Row title 15/22 · body copy</div><div style="font-size:13px;color:#6E655A">Meta 13/18 — inkSoft</div><div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#9C9284">SECTION LABEL 11/14 w600 — R9</div></div>
+  <div style="flex:1;min-width:260px"><h3>Shape / space</h3><div style="font-size:13px">Group avatar <b>96</b> on both screens (today it is 100 on Group Info and 112 on Create; 96 = 24·4) · member avatar 40 (R1 radius 20)<br>Grouped list: surface, <code>radiusMd 16</code>, 1px line between rows, 12 side inset<br>Rows ≥56 (members 60) · sheet radius <code>radiusLg 20</code> · dialog <code>radiusXl 24</code><br>Banned literals found today: <code>circular(4)</code> (admin chip), <code>circular(10)</code>, <code>circular(14)</code></div></div>
+  <div style="flex:1;min-width:260px"><h3>Contrast finding (C4)</h3><div style="font-size:13px">Accent as <b>text</b> on light surfaces = <b>2.0–2.2 : 1</b>. That fails. Today the screens set "You", "Admin", "Invite pending" and the "Next" label as accent text → these become ink/inkSoft text, and accent stays a fill.<br><code>error</code> text on light surface = <b>3.91 : 1</b>, which fails body copy → destructive rows show an error-coloured <b>icon</b> (non-text, needs ≥3:1, passes) with an <b>ink</b> label. See deferred decision 3.</div></div>
+</div>
+<div class="note"><b>Laws on this page:</b> L2 compose only R1 avatar, R3 button, R4 chip, R5 toast, R7 empty state, R8 search, R9 section header, R10 settings tile, R11 skeleton, R12 status banner, C4 action sheet. L3: the disappearing dialog exists TWICE today (chat's version has the checkmark; Group Info's copy does not), so extract one. L4: <code>group_settings_screen.dart</code> imports <code>message_repository_impl.dart</code> and calls the repository from widget callbacks → move the calls onto a notifier (Requests I4 precedent). C3: 9 uses of <code>colorScheme…withValues(alpha)</code> across the two screens → <code>context.t.*</code>.</div>
+<div class="note warn"><b>E2E boundary. Do not touch any of this:</b> <code>_createGroup</code> steps (a) to (f) (key validation, key generation and wrapping, <code>group_keys</code> writes, rollback), <code>removeMemberFromGroup</code> / <code>leaveGroup</code> bodies (both call <code>_rotateGroupKey</code>), <code>sendGroupInvite</code> server logic. The UI <em>wraps</em> these; it never re-orders or re-implements them. Lost-keypair orphan rows are a known, accepted gap: see learning <code>.trail/learnings/2026-10-28-group-key-rotation-keeps-history-only-chaitanya.md</code> (user ruled 2026-10-29: not worth fixing). The only change allowed inside <code>_createGroup</code> is the exception <b>type</b> at the two "no encryption key" throw sites (G11).</div>
+</div>
+
+<!-- G2 -->
+<div class="band">
+<header><span class="n">G2</span><h2>Group Info — full-screen states</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Loading — R11 shape-matching skeleton</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Group Info</div></div>
+      <div class="body"><div class="hdr"><div class="sk" style="width:96px;height:96px;border-radius:999px"></div><div class="sk" style="width:150px;height:18px;margin-top:14px"></div><div class="sk" style="width:80px;height:12px;margin-top:8px"></div></div>
+      <div class="sect"><div class="sk" style="width:70px;height:10px"></div></div>
+      <div class="list">
+        <div class="m"><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:55%;height:14px"></div><div class="sk" style="width:30%;height:10px;margin-top:7px"></div></div></div>
+        <div class="m"><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:45%;height:14px"></div><div class="sk" style="width:25%;height:10px;margin-top:7px"></div></div></div>
+        <div class="m"><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:60%;height:14px"></div><div class="sk" style="width:35%;height:10px;margin-top:7px"></div></div></div>
+      </div></div></div>
+    <div class="note">Replaces the full-screen <code>CircularProgressIndicator</code> (:422-426). The members and conversation streams are Drift-backed, so this shows for about one frame. It still must not be a spinner (foundation §6).</div>
+  </div>
+
+  <div class="wrap"><span class="tag">Member view (not admin)</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Group Info</div></div>
+      <div class="body"><div class="hdr"><div class="big">W</div><div class="gname">Weekend Trekkers</div><div class="gcount">4 members</div></div>
+      <div class="sect"><span class="lab">Members</span><span class="pill">4</span></div>
+      <div class="list">
+        <div class="m"><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">You</div></div></div>
+        <div class="m"><div class="av">R</div><div class="who"><div class="nm">Rohan Mehta <span class="chip">Admin</span></div><div class="mt">@rohan</div></div></div>
+        <div class="m"><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">@kab.k</div></div></div>
+        <div class="m"><div class="av">M</div><div class="who"><div class="nm">Mira Joshi</div><div class="mt">@mira_j</div></div></div>
+      </div>
+      <div class="sect"><span class="lab">Settings</span></div>
+      <div class="list">
+        <div class="st"><div class="well">⏱</div><div class="tt"><div class="a">Disappearing Messages</div></div><div class="tr">Off ›</div></div>
+        <div class="st"><div class="well">🖼</div><div class="tt"><div class="a">Media &amp; Docs</div></div><div class="tr">›</div></div>
+        <div class="st danger"><div class="well">⎋</div><div class="tt"><div class="a">Leave Group</div></div></div>
+      </div></div></div>
+    <div class="note"><b>Fixes in this view:</b> Media &amp; Docs is hidden from non-admins today (:700). It becomes visible to every member. Disappearing follows the chat menu, which already lets any member change it (deferred decision 2).</div>
+  </div>
+
+  <div class="wrap dark"><span class="tag">Dark — admin view</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Group Info</div></div>
+      <div class="body"><div class="hdr"><div class="big">W<div class="cam">📷</div></div><div class="gname">Weekend Trekkers <span class="pen">✎</span></div><div class="gcount">4 members</div></div>
+      <div class="sect"><span class="lab">Members</span><div class="r"><span class="pill">4</span><span class="addbtn">＋ Add</span></div></div>
+      <div class="list">
+        <div class="m"><div class="av">R</div><div class="who"><div class="nm">Rohan Mehta <span class="chip">Admin</span></div><div class="mt">You</div></div></div>
+        <div class="m"><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">@avni</div></div><div class="more">⋮</div></div>
+        <div class="m"><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">@kab.k</div></div><div class="more">⋮</div></div>
+      </div>
+      <div class="sect"><span class="lab">Invites</span><span class="pill">1</span></div>
+      <div class="list"><div class="m"><div class="av">D</div><div class="who"><div class="nm">Dee</div><div class="mt">Invite pending</div></div><div class="tbtn">Cancel</div></div></div>
+      <div class="sect"><span class="lab">Settings</span></div>
+      <div class="list">
+        <div class="st"><div class="well">🔒</div><div class="tt"><div class="a">Only Admins Can Message</div><div class="b">Members cannot send messages</div></div><div class="sw"></div></div>
+        <div class="st"><div class="well">⏱</div><div class="tt"><div class="a">Disappearing Messages</div></div><div class="tr">7 days ›</div></div>
+      </div></div></div>
+  </div>
+
+  <div class="wrap"><span class="tag">Left / removed — read-only (SHOULD banner)</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Group Info</div></div>
+      <div class="banner"><span>ⓘ</span><span>You're no longer in this group.</span></div>
+      <div class="body"><div class="hdr"><div class="big">W</div><div class="gname">Weekend Trekkers</div><div class="gcount">3 members</div></div>
+      <div class="sect"><span class="lab">Members</span><span class="pill">3</span></div>
+      <div class="list"><div class="m"><div class="av">R</div><div class="who"><div class="nm">Rohan Mehta <span class="chip">Admin</span></div><div class="mt">@rohan</div></div></div><div class="m"><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">@kab.k</div></div></div></div>
+      <div class="sect"><span class="lab">Settings</span></div>
+      <div class="list"><div class="st"><div class="well">🖼</div><div class="tt"><div class="a">Media &amp; Docs</div></div><div class="tr">›</div></div></div>
+      </div></div>
+    <div class="note">Same as today: no edit affordances, no actions, no Leave. New: an R12 banner (SHOULD) and Media &amp; Docs kept, because local media still exists.</div>
+  </div>
+
+  <div class="wrap"><span class="tag">Members stream error — not "0 members"</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Group Info</div></div>
+      <div class="body"><div class="hdr"><div class="big">W</div><div class="gname">Weekend Trekkers</div></div>
+      <div class="banner"><span>⚠</span><span>Couldn't load members.</span><span class="retry">Retry</span></div></div></div>
+    <div class="note">Today <code>membersAsync.asData?.value ?? []</code> (:412) turns an error into "0 members", and <code>isAdmin</code> becomes false. That is a false empty state. When there is an error, the header renders from the conversation, the member count is hidden, and the R12 banner's Retry invalidates <code>groupMembersProvider</code>.</div>
+  </div>
+</div>
+</div>
+
+<!-- G3 -->
+<div class="band">
+<header><span class="n">G3</span><h2>App bar &amp; canvas (both screens)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Element</th><th>Group Info</th><th>Create Group</th></tr>
+<tr><td>Scaffold bg</td><td colspan="2"><code>context.t.bg</code> explicit on every Scaffold, including the loading and error ones (today none set it)</td></tr>
+<tr><td>Title</td><td><b>Group Info</b> 20/26 w700 (kept)</td><td>Both steps <b>New Group</b>. Step 2 today says "Group Info", which collides with the other screen's title</td></tr>
+<tr><td>Back</td><td>48dp ink, pops</td><td>Step 2 back <b>and the system back gesture</b> return to step 1 with the selection kept (<code>PopScope</code>). Back is blocked while creating</td></tr>
+<tr><td>Actions</td><td>none</td><td>Step 1: <b>Next</b> = R3 <code>text</code> variant. Disabled when 0 selected (R3 disabled tokens, not <code>colorScheme…withValues(alpha: 0.3)</code> :380)</td></tr>
+<tr><td>Routes</td><td colspan="2">Unchanged: <code>/create-group</code> (home new-chat sheet → <b>New Group</b>), <code>/group-settings</code> plus chat's <code>_openConversationInfo</code> push (chat A4)</td></tr>
+</table></div>
+</div>
+
+<!-- G4 -->
+<div class="band">
+<header><span class="n">G4</span><h2>Group Info header — photo, name, count</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Admin, idle</span><div class="frame" style="width:220px"><div class="hdr"><div class="big">W<div class="cam">📷</div></div><div class="gname">Weekend Trekkers <span class="pen">✎</span></div><div class="gcount">4 members</div></div></div></div>
+  <div class="wrap"><span class="tag">Photo uploading</span><div class="frame" style="width:220px"><div class="hdr"><div class="big">W<div class="scrim"><div class="spin" style="border-color:rgba(255,255,255,.35);border-top-color:#fff"></div></div></div><div class="gname">Weekend Trekkers <span class="pen">✎</span></div><div class="gcount">4 members</div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · 1 member · empty name</span><div class="frame dark" style="width:220px"><div class="hdr"><div class="big">G</div><div class="gname">Group</div><div class="gcount">1 member</div></div></div></div>
+  <div class="wrap" style="flex:1;min-width:280px"><span class="tag">Rename dialog</span>
+    <div class="dlg"><div class="t">Edit Group Name</div><div class="field focus" style="margin:14px 0 0"><div class="lb">Group name</div><div class="v">Weekend Trekkers</div></div><div class="cnt" style="padding-right:2px">16/50</div><div class="acts"><div class="btn text">Cancel</div><div class="btn primary">Save</div></div></div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>Photo</td><td>R1 <code>AppAvatar</code> radius 48. Initial falls back through the R1 contract, so an <b>empty name gives "G"</b> (today <code>conv.name ?? 'Group'</code> lets <code>''</code> through, and <code>substring(0,1)</code> :451 throws a RangeError). Camera badge 32dp accent/onAccent with a 2px bg ring, admin only. The tap target is the whole 96 disc, with semantics <b>"Change group photo"</b></td></tr>
+<tr><td>Uploading</td><td>Disc shows an ink@45% scrim + 18px spinner and taps are blocked until done. Failure → R5 toast <b>Couldn't update. Try again.</b> (today: <code>Failed to update icon: $e</code> :55)</td></tr>
+<tr><td>Name</td><td>20/26 w700, centred, max 2 lines, ellipsis. Admin: a pencil glyph in inkSoft (not accent) and the row is a ≥48h tap target labelled <b>"Edit group name"</b></td></tr>
+<tr><td>Rename</td><td>Dialog from theme (radiusXl 24); field radiusMd 16, accent focus border, 50 max; <b>Save</b> = R3 primary, disabled when trimmed empty or unchanged. Dispose the controller (it leaks today, :62). Failure → same toast (today <code>Failed to update name: $e</code> :95)</td></tr>
+<tr><td>Count</td><td><b>{n} members</b>, singular <b>1 member</b> (today always plural, :513). Counts non-left members. inkSoft 13/18 (today <code>colorScheme.onSurface@0.5</code>)</td></tr>
+</table></div>
+</div>
+
+<!-- G5 -->
+<div class="band">
+<header><span class="n">G5</span><h2>Members list — row anatomy, order, roles</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light — admin viewing</span><div class="frame" style="width:320px;padding:10px 0">
+    <div class="sect" style="padding-top:4px"><span class="lab">Members</span><div class="r"><span class="pill">5</span><span class="addbtn">＋ Add</span></div></div>
+    <div class="list">
+      <div class="m"><div class="av">R</div><div class="who"><div class="nm">Rohan Mehta <span class="chip">Admin</span></div><div class="mt">You</div></div></div>
+      <div class="m"><div class="av">S</div><div class="who"><div class="nm">Sana Q <span class="chip">Admin</span></div><div class="mt">@sanaq</div></div><div class="more">⋮</div></div>
+      <div class="m"><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">@avni</div></div><div class="more">⋮</div></div>
+      <div class="m"><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">@kab.k</div></div><div class="spin"></div></div>
+      <div class="m"><div class="av">?</div><div class="who"><div class="nm">Unknown</div><div class="mt">Profile not synced</div></div><div class="more">⋮</div></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark — same rows</span><div class="frame dark" style="width:320px;padding:10px 0">
+    <div class="sect" style="padding-top:4px"><span class="lab">Members</span><div class="r"><span class="pill">3</span><span class="addbtn">＋ Add</span></div></div>
+    <div class="list">
+      <div class="m"><div class="av">R</div><div class="who"><div class="nm">Rohan Mehta <span class="chip">Admin</span></div><div class="mt">You</div></div></div>
+      <div class="m"><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">@avni</div></div><div class="more">⋮</div></div>
+      <div class="m"><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">@kab.k</div></div><div class="more">⋮</div></div>
+    </div></div></div>
+  <div style="flex:1;min-width:280px"><div class="tblwrap"><table>
+    <tr><th>Rule</th><th>Spec</th></tr>
+    <tr><td>Order</td><td><b>You first</b>, then admins A→Z, then members A→Z (case-insensitive displayName). Today the order is whatever Drift returns, so it is not deterministic. Left members are never listed (unchanged)</td></tr>
+    <tr><td>Avatar</td><td>R1 40dp, decorative (excluded from semantics). Replaces the 3 hand-rolled <code>CircleAvatar</code>s</td></tr>
+    <tr><td>Name</td><td>16/22 w600 ink, ellipsis; empty → <b>Unknown</b>. Admin chip = micro 11/14 w600, accentSoft fill, <b>ink</b> text, pill radius (today accent text on accentSoft = 1.97:1 ✗ and <code>circular(4)</code>)</td></tr>
+    <tr><td>Meta</td><td>Self: <b>You</b> in inkSoft (today accent, 2.16:1 ✗). Others: <b>@username</b> inkSoft (new; today there is no subtitle)</td></tr>
+    <tr><td>Trailing</td><td>Admin viewer, other rows only: 48dp ⋮ button labelled <b>"Options for {name}"</b>. <b>Long-pressing or tapping the row opens the same sheet</b> (G6). Not admin, or your own row: nothing, and the row is not tappable</td></tr>
+    <tr><td>Busy</td><td>While an action for that row is in flight, the trailing area becomes an 18px spinner and the row ignores taps. Other rows stay live. A second tap does nothing</td></tr>
+    <tr><td>Header</td><td>R9 <b>Members</b> + count pill. Admin: an <b>＋ Add</b> chip (36h pill, accentSoft fill, ink label, 48dp hit area) replaces the bare accent <code>IconButton</code> (:543); the MEMBERS header was hand-rolled at 14px (:530-540) and there is a second <code>_sectionHeader</code> helper (:390). Both go → R9</td></tr>
+  </table></div></div>
+</div>
+</div>
+
+<!-- G6 -->
+<div class="band">
+<header><span class="n">G6</span><h2>Member actions — C4 action sheet + confirms</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Sheet — admin on a member</span>
+    <div class="frame" style="background:rgba(42,37,32,.35)"><div style="height:120px"></div>
+      <div class="sheet"><div class="handle"></div>
+        <div class="sh"><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">@avni · Member</div></div></div>
+        <div class="row1"><span class="ic">★</span>Make Admin</div>
+        <div class="row1 danger"><span class="ic">⊖</span>Remove from Group</div>
+      </div></div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — admin on another admin (2+ admins)</span>
+    <div class="frame dark" style="background:rgba(0,0,0,.5)"><div style="height:120px"></div>
+      <div class="sheet"><div class="handle"></div>
+        <div class="sh"><div class="av">S</div><div class="who"><div class="nm">Sana Q</div><div class="mt">@sanaq · Admin</div></div></div>
+        <div class="row1"><span class="ic">☆</span>Remove Admin</div>
+        <div class="row1 danger"><span class="ic">⊖</span>Remove from Group</div>
+      </div></div>
+  </div>
+  <div class="wrap"><span class="tag">Remove confirm</span>
+    <div class="dlg"><div class="t">Remove from Group</div><div class="s">Remove Avni Rao from the group?</div><div class="acts"><div class="btn text">Cancel</div><div class="btn secondary"><span style="color:var(--error)">⊖</span>Remove</div></div></div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — leave confirm, sole admin (SHOULD line)</span>
+    <div class="dlg dark"><div class="t">Leave Group?</div><div class="s">You will lose access to this group and its messages.<br>Kabir will become the admin.</div><div class="acts"><div class="btn text">Cancel</div><div class="btn secondary"><span style="color:var(--error)">⎋</span>Leave</div></div></div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Rule</th><th>Spec</th></tr>
+<tr><td>Chrome</td><td>Reuses the C4 action-list sheet language (radiusLg 20, handle, icon rows ≥52h). Amendment <b>C4a</b>: pull the body of <code>showConversationMenu</code> out into <code>showActionSheet({header, actions})</code>, which both callers use. Amendment <b>C4b</b>: <code>ConversationMenuAction.destructive</code> (error icon, ink label). Replaces <code>PopupMenuButton</code> (:289)</td></tr>
+<tr><td>Rows shown</td><td>Member target: <b>Make Admin</b>. Admin target: <b>Remove Admin</b> only when admins &gt; 1 (unchanged rule :335). Always <b>Remove from Group</b>. Never on your own row (unchanged :284)</td></tr>
+<tr><td>Confirms</td><td>Remove → dialog (copy kept). Make/Remove Admin: no confirm (unchanged). The destructive confirm button = R3 secondary with an error icon and ink label (C4 contrast, deferred decision 3)</td></tr>
+<tr><td>Outcomes</td><td>Success toasts (new): <b>{name} is now an admin</b> · <b>{name} is no longer an admin</b> · <b>{name} removed</b>. The row then updates from the Drift stream. Failure: <b>Couldn't update. Try again.</b> (today <code>Operation failed: $e</code> :324)</td></tr>
+<tr><td>Timeouts</td><td>Promote/demote: bounded 8s, like the Requests R2e lesson (PocketBase HTTP has no timeout, so a blackholed socket would lock the row's busy state forever). <b>Remove and Leave rotate the key inside the repository</b>, so the UI waits up to 30s. On timeout it unlocks with the toast <b>Still working — this can take a moment.</b> and the stream shows the real result. The UI timeout never cancels or retries the repository call</td></tr>
+<tr><td>Leave</td><td>Settings row (G9) → confirm → busy (row spinner, page blocked) → pop to chat (unchanged). Failure toast as above (today <code>Failed to leave group: $e</code> :376). SHOULD: when you are the only admin and other members exist, add the line <b>{name} will become the admin.</b>, naming the earliest-joined member (the same rule <code>leaveGroup</code> applies :3279-3285, read-only)</td></tr>
+</table></div>
+</div>
+
+<!-- G7 -->
+<div class="band">
+<header><span class="n">G7</span><h2>Invites section (admin only)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Pending + declined</span><div class="frame" style="width:320px;padding:6px 0 12px">
+    <div class="sect"><span class="lab">Invites</span><span class="pill">2</span></div>
+    <div class="list">
+      <div class="m"><div class="av">D</div><div class="who"><div class="nm">Dee</div><div class="mt">🕓 Invite pending</div></div><div class="tbtn">Cancel</div></div>
+      <div class="m"><div class="av">T</div><div class="who"><div class="nm">Tara</div><div class="mt">Declined</div></div><div class="tbtn">Re-invite</div></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark — row busy + load error</span><div class="frame dark" style="width:320px;padding:6px 0 12px">
+    <div class="sect"><span class="lab">Invites</span><span class="pill">1</span></div>
+    <div class="list"><div class="m"><div class="av">D</div><div class="who"><div class="nm">Dee</div><div class="mt">🕓 Invite pending</div></div><div class="spin"></div></div></div>
+    <div class="banner"><span>⚠</span><span>Couldn't load invites.</span><span class="retry">Retry</span></div>
+  </div></div>
+  <div style="flex:1;min-width:280px"><div class="tblwrap"><table>
+    <tr><th>Rule</th><th>Spec</th></tr>
+    <tr><td>Source</td><td><code>pendingInvitesProvider</code> stays network-only (no offline cache this pass). Rows with status <code>accepted</code> are hidden (unchanged :614)</td></tr>
+    <tr><td>Visibility</td><td>R9 header <b>Invites</b> + count. Renders only when there is ≥1 row <b>or</b> an error. Today an error is swallowed into <code>?? const []</code> (:613), so admins never see it → R12 banner <b>Couldn't load invites.</b> + Retry (invalidates the provider). While it loads, show nothing (the section is optional)</td></tr>
+    <tr><td>Row</td><td>R1 40 + name (fallback <b>@username</b>, then <b>Unknown</b>) + inkSoft meta <b>Invite pending</b> / <b>Declined</b>. No accent or error text colour</td></tr>
+    <tr><td>Actions</td><td>R3 <code>text</code> variant: <b>Cancel</b> (pending) / <b>Re-invite</b> (declined). Per-row busy lock, 8s bound. Success: Cancel exits silently; Re-invite toasts <b>Invite sent</b>. Failure: <b>Couldn't update. Try again.</b> (today <code>Cancel failed: $e</code> / <code>Re-invite failed: $e</code>)</td></tr>
+    <tr><td>Boundary</td><td>The invitee-side card (accept/decline) is page 3's InviteCard and is not touched. <code>sendGroupInvite</code>'s idempotent upsert is unchanged</td></tr>
+  </table></div></div>
+</div>
+</div>
+
+<!-- G8 -->
+<div class="band">
+<header><span class="n">G8</span><h2>Add-to-group sheet (admin → invites)</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Selecting</span>
+    <div class="frame"><div style="height:60px;background:rgba(42,37,32,.35)"></div>
+      <div class="sheet" style="border-radius:20px 20px 0 0"><div class="handle"></div>
+        <div class="sh" style="justify-content:space-between"><div style="font-size:20px;font-weight:700">Add to group</div><div class="btn primary" style="height:40px">Invite 2</div></div>
+        <div class="search">⌕ Search friends</div>
+        <div class="m" style="border:0"><div class="chk on">✓</div><div class="av">D</div><div class="who"><div class="nm">Dee</div><div class="mt">@dee</div></div></div>
+        <div class="m"><div class="chk on">✓</div><div class="av">T</div><div class="who"><div class="nm">Tara</div><div class="mt">Declined — invite again?</div></div></div>
+        <div class="m"><div class="chk"></div><div class="av">N</div><div class="who"><div class="nm">Neel</div><div class="mt">🕓 Invite pending</div></div></div>
+      </div></div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — sending (sheet stays open)</span>
+    <div class="frame dark"><div style="height:60px;background:rgba(0,0,0,.5)"></div>
+      <div class="sheet"><div class="handle"></div>
+        <div class="sh" style="justify-content:space-between"><div style="font-size:20px;font-weight:700">Add to group</div><div class="btn primary" style="height:40px"><span class="spin" style="margin:0;width:16px;height:16px;border-color:rgba(33,38,15,.3);border-top-color:var(--onAccent)"></span>Invite 2</div></div>
+        <div class="m dim" style="border:0"><div class="chk on">✓</div><div class="av">D</div><div class="who"><div class="nm">Dee</div><div class="mt">@dee</div></div></div>
+        <div class="m dim"><div class="chk on">✓</div><div class="av">T</div><div class="who"><div class="nm">Tara</div><div class="mt">Declined — invite again?</div></div></div>
+      </div></div>
+  </div>
+  <div class="wrap"><span class="tag">Everyone's already here</span>
+    <div class="frame"><div style="height:60px;background:rgba(42,37,32,.35)"></div>
+      <div class="sheet"><div class="handle"></div><div class="sh"><div style="font-size:20px;font-weight:700">Add to group</div></div>
+        <div class="empty" style="padding:24px 18px"><div class="t sm">Everyone's here</div><div class="s">All your friends are already in this group.</div></div></div></div>
+  </div>
+  <div class="wrap"><span class="tag">Friends still loading / failed</span>
+    <div class="frame"><div style="height:60px;background:rgba(42,37,32,.35)"></div>
+      <div class="sheet"><div class="handle"></div><div class="sh"><div style="font-size:20px;font-weight:700">Add to group</div></div>
+        <div class="m" style="border:0"><div class="sk" style="width:24px;height:24px;border-radius:999px;margin-right:10px"></div><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:50%;height:14px"></div></div></div>
+        <div class="banner"><span>⚠</span><span>Couldn't load friends.</span><span class="retry">Retry</span></div></div></div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Rule</th><th>Spec</th></tr>
+<tr><td>Opening</td><td>The sheet opens <b>immediately</b>, and friends plus invite statuses load inside it. Today it awaits the status fetch before opening, which shows nothing on a slow network. Worse, <code>friendshipsProvider.valueOrNull ?? []</code> (:135) shows the snackbar "All friends are already in this group" while friends are still <b>loading or have failed</b>, which is a false empty. Loading → R11 rows; error → R12 + Retry; a status-fetch failure still degrades to no statuses (unchanged, :150-157)</td></tr>
+<tr><td>Chrome</td><td>Theme sheet radiusLg 20 + handle. Title 20/26 w700 (today 17, off-scale). R8 search <b>Search friends</b> when there are more than 8 friends (SHOULD). Round accent check (Create's style), not <code>CheckboxListTile</code>'s square</td></tr>
+<tr><td>Status meta</td><td>inkSoft: <b>Invite pending</b> / <b>Declined — invite again?</b> / else <b>@username</b>. No accent or error text (C4)</td></tr>
+<tr><td>Send</td><td><b>Invite {n}</b> = R3 primary, busy while sending. <b>The sheet stays open while sending</b> (today it pops first and then loops with no feedback, :188) and the rows go to the 38% dim. When done, the sheet closes and toasts: all ok → <b>Invite sent</b> (n=1) / <b>{n} invites sent</b>; partial → <b>{ok} sent, {failed} failed. Try again.</b> Each invite is bounded at 8s. The invites section is invalidated (unchanged)</td></tr>
+</table></div>
+</div>
+
+<!-- G9 -->
+<div class="band">
+<header><span class="n">G9</span><h2>Settings rows &amp; visibility matrix</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light — admin</span><div class="frame" style="width:320px;padding:6px 0 12px">
+    <div class="sect"><span class="lab">Settings</span></div>
+    <div class="list">
+      <div class="st"><div class="well">🔒</div><div class="tt"><div class="a">Only Admins Can Message</div><div class="b">Members cannot send messages</div></div><div class="sw on"></div></div>
+      <div class="st"><div class="well">⏱</div><div class="tt"><div class="a">Disappearing Messages</div></div><div class="tr">24 hours ›</div></div>
+      <div class="st"><div class="well">🖼</div><div class="tt"><div class="a">Media &amp; Docs</div></div><div class="tr">›</div></div>
+    </div>
+    <div class="list" style="margin-top:16px"><div class="st danger"><div class="well">⎋</div><div class="tt"><div class="a">Leave Group</div></div></div></div>
+  </div></div>
+  <div class="wrap"><span class="tag">Shared disappearing dialog (one definition)</span>
+    <div class="dlg" style="width:300px"><div class="t">Disappearing Messages</div>
+      <div class="st" style="border:0;padding:8px 0"><div class="tt"><div class="a">Off</div><div class="b">Applies to new messages only</div></div></div>
+      <div class="st" style="padding:8px 0"><div class="tt"><div class="a">24 hours</div><div class="b">Applies to new messages only</div></div><div class="tr" style="color:var(--ink)">✓</div></div>
+      <div class="st" style="padding:8px 0"><div class="tt"><div class="a">7 days</div><div class="b">Applies to new messages only</div></div></div>
+      <div class="st" style="padding:8px 0"><div class="tt"><div class="a">30 days</div><div class="b">Applies to new messages only</div></div></div>
+    </div>
+  </div>
+  <div style="flex:1;min-width:280px"><div class="tblwrap"><table>
+    <tr><th>Row</th><th>Admin</th><th>Member</th><th>Left</th></tr>
+    <tr><td>Only Admins Can Message</td><td>✓</td><td>—</td><td>—</td></tr>
+    <tr><td>Disappearing Messages</td><td>✓</td><td class="bad">✓ (today hidden)</td><td>—</td></tr>
+    <tr><td>Media &amp; Docs</td><td>✓</td><td class="bad">✓ (today hidden)</td><td class="bad">✓ (today hidden)</td></tr>
+    <tr><td>Leave Group</td><td>✓</td><td>✓</td><td>—</td></tr>
+    <tr><td>＋ Add / Invites / edit photo &amp; name / member ⋮</td><td>✓</td><td>—</td><td>—</td></tr>
+  </table></div>
+  <div class="tblwrap"><table style="margin-top:10px">
+    <tr><th>Rule</th><th>Spec</th></tr>
+    <tr><td>Rows</td><td>R10 <code>SettingsTile</code> in a grouped list (replaces <code>SwitchListTile</code> / <code>ListTile</code>). The switch is the trailing slot with accent track; the whole row toggles</td></tr>
+    <tr><td>Switch</td><td>Busy-locked + 8s bound + <b>try/catch</b>; today an unhandled async error at :707-712. Failure → toast, and the switch snaps back to the stream value</td></tr>
+    <tr><td>Disappearing</td><td>Extract chat's <code>_disappearingDialog</code> (chat_screen :1173) → <code>showDisappearingDialog(context, ref, conversationId)</code> in <code>lib/features/chat/widgets/disappearing_dialog.dart</code> (registry <b>C11</b>). Chat and Group Info both call it, and Group Info's copy (:102-132, no checkmark) is deleted. The row shows the current value trailing (same label helper, exported). The write is now awaited with try/catch → failure toast (today it is fire-and-forget in both places). The checkmark is <b>ink</b>, not accent (C4)</td></tr>
+    <tr><td>Leave</td><td>R10 amendment <b>R10a</b> <code>destructive: true</code> = error icon in the well + ink title. A separate grouped list at the bottom (replaces the red <code>OutlinedButton</code> :738)</td></tr>
+  </table></div></div>
+</div>
+</div>
+
+<!-- G10 -->
+<div class="band">
+<header><span class="n">G10</span><h2>Create Group — step 1: pick friends</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Selecting — chips + list</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div><div class="act">Next</div></div>
+      <div class="chips"><div class="achip"><div class="av">A</div>Avni Rao ✕</div><div class="achip"><div class="av">K</div>Kabir ✕</div></div>
+      <div class="search">⌕ Search friends</div>
+      <div class="m" style="border:0"><div class="chk on">✓</div><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">@avni</div></div></div>
+      <div class="m"><div class="chk on">✓</div><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">@kab.k</div></div></div>
+      <div class="m"><div class="chk"></div><div class="av">M</div><div class="who"><div class="nm">Mira Joshi</div><div class="mt">@mira_j</div></div></div>
+      <div class="m"><div class="chk"></div><div class="av">?</div><div class="who"><div class="nm">Unknown</div><div class="mt">@ghost</div></div></div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — loading (R11)</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div><div class="act off">Next</div></div>
+      <div class="m" style="border:0"><div class="sk" style="width:24px;height:24px;border-radius:999px;margin-right:10px"></div><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:55%;height:14px"></div><div class="sk" style="width:30%;height:10px;margin-top:7px"></div></div></div>
+      <div class="m"><div class="sk" style="width:24px;height:24px;border-radius:999px;margin-right:10px"></div><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:45%;height:14px"></div><div class="sk" style="width:25%;height:10px;margin-top:7px"></div></div></div>
+      <div class="m"><div class="sk" style="width:24px;height:24px;border-radius:999px;margin-right:10px"></div><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div style="flex:1"><div class="sk" style="width:60%;height:14px"></div><div class="sk" style="width:35%;height:10px;margin-top:7px"></div></div></div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">Empty — R7 + mascot + CTA</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div><div class="act off">Next</div></div>
+      <div class="empty"><div class="capy">🦫</div><div class="t">No friends yet</div><div class="s">Add a friend to start a group.</div><div class="btn primary">Add a Friend</div></div></div>
+  </div>
+  <div class="wrap"><span class="tag">Error — R7 error, no $e</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div></div>
+      <div class="empty"><div class="capy" style="width:96px;height:85px;font-size:44px">🦫</div><div class="t sm">Couldn't load friends.</div><div class="s">Check your connection and try again.</div><div class="btn primary">Retry</div></div></div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>States</td><td>Loading: R11 rows ×6, with the app bar present (today a bare-Scaffold spinner, :353). Error: R7 copy above, and Retry invalidates <code>friendshipsProvider</code> (today <code>Text('Error: $e')</code> :354, with no app bar, so the user is trapped). Empty: R7 neutral Capybara + CTA dispatching the existing Add-Friend sheet entry (page 8 owns the sheet; today the plain text is <code>No friends to add.</code>)</td></tr>
+<tr><td>Rows</td><td>Round accent check (kept), R1 40, name 16/22 w600 (empty → <b>Unknown</b>; today <code>substring(0,1)</code> :418 throws a RangeError), <b>@username</b> inkSoft (today <code>colorScheme@0.5</code>). The whole row is the ≥56h toggle</td></tr>
+<tr><td>Chips</td><td>R4 <code>AppChip(selected: true)</code>: R1 28 + name + ✕, and a tap removes it. Plain strip on bg with a bottom line (today Material <code>Chip</code> on <code>surfaceContainerHighest@0.5</code>, and the initial <code>substring(0,1)</code> :610 throws on an empty name). The chip strip scrolls horizontally past one row (SHOULD)</td></tr>
+<tr><td>Search</td><td>SHOULD: R8 <b>Search friends</b>, filtering the list but never the selection</td></tr>
+<tr><td>Next</td><td>R3 <code>text</code>; disabled at 0 selected. Label <b>Next</b> (kept). Works offline (no network needed to pick)</td></tr>
+</table></div>
+</div>
+
+<!-- G11 -->
+<div class="band">
+<header><span class="n">G11</span><h2>Create Group — step 2: details &amp; creating</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Default</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div></div>
+      <div class="hdr" style="padding-top:20px"><div class="big">W<div class="cam">📷</div></div></div>
+      <div class="field focus" style="margin-top:20px"><div class="lb">Group name</div><div class="v">Weekend Trekkers</div></div><div class="cnt">16/50</div>
+      <div style="text-align:center;font-size:13px;color:var(--inkSoft);margin-top:6px">2 members selected</div>
+      <div style="padding:24px 16px 20px"><div class="btn primary wide">Create Group</div></div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — creating (back blocked)</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib dim">←</div><div class="t">New Group</div></div>
+      <div class="hdr" style="padding-top:20px"><div class="big">W</div></div>
+      <div class="field dim" style="margin-top:20px"><div class="lb">Group name</div><div class="v">Weekend Trekkers</div></div><div class="cnt">16/50</div>
+      <div style="text-align:center;font-size:13px;color:var(--inkSoft);margin-top:6px">2 members selected</div>
+      <div style="padding:24px 16px 20px"><div class="btn primary wide"><span class="spin" style="margin:0;width:16px;height:16px;border-color:rgba(33,38,15,.3);border-top-color:var(--onAccent)"></span>Creating…</div></div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">Failure — member has no key</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div></div>
+      <div class="hdr" style="padding-top:20px"><div class="big">W<div class="cam">📷</div></div></div>
+      <div class="field" style="margin-top:20px"><div class="lb">Group name</div><div class="v">Weekend Trekkers</div></div>
+      <div class="err"><span class="ic">⚠</span><span>Kabir can't be added yet. They need to open Kuch Bhi once to set up encryption.</span></div>
+      <div style="padding:20px 16px"><div class="btn primary wide">Create Group</div></div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — generic failure / offline</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">New Group</div></div>
+      <div class="offline">⚡ You're offline — actions are available when you're back.</div>
+      <div class="hdr" style="padding-top:16px"><div class="big">W<div class="cam">📷</div></div></div>
+      <div class="field" style="margin-top:16px"><div class="lb">Group name</div><div class="v">Weekend Trekkers</div></div>
+      <div style="padding:20px 16px 4px"><div class="btn primary wide dim">Create Group</div></div><div class="hint" style="padding-bottom:16px">Available online</div>
+    </div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>Photo</td><td>R1 radius 48 + camera badge (same as G4). Preview of the picked file; initial from the name, falling back to <b>G</b>. Label <b>"Add group photo"</b></td></tr>
+<tr><td>Name</td><td>Label <b>Group name</b>, hint <b>Enter group name…</b>, radiusMd 16 (today <code>circular(14)</code> :520), accent focus border, max 50 with <b>one</b> counter (today <code>maxLength</code> and <code>counterText</code> both draw one). Drop the <code>prefixIcon</code> (the photo already says "group")</td></tr>
+<tr><td>Create</td><td>R3 primary, expanded; disabled when the trimmed name is empty, while busy, or offline (one 38% dim + <b>Available online</b>). Busy label <b>Creating…</b> (kept)</td></tr>
+<tr><td>While creating</td><td><code>PopScope(canPop: false)</code> + the app-bar back is disabled, because a pop mid-flight would orphan the server rows the rollback is still deleting. The field is read-only</td></tr>
+<tr><td>Errors</td><td>Inline error box: surface + 3px error left rule + error icon, ink text (today <code>colorScheme.errorContainer</code> :545). Copy: missing key → <b>{name} can't be added yet. They need to open Kuch Bhi once to set up encryption.</b> (today it leaks <code>Member &lt;userId&gt; has no encryption key yet.</code> through <code>$e</code>); anything else → <b>Couldn't create the group. Check your connection and try again.</b> Banned: <code>Failed to create group: $e</code> (:339)</td></tr>
+<tr><td>Exception type</td><td><b>The only edit inside <code>_createGroup</code>:</b> the two <code>throw StateError('Member $memberId has no encryption key yet.')</code> (:98, :185) become <code>throw MemberKeyMissingError(memberId)</code> (a new class in the groups feature). Order, checks and rollback are untouched. The UI maps <code>memberId</code> to the friend's display name</td></tr>
+<tr><td>Lifecycle</td><td>The <code>setState</code> in the catch (:339) needs a <code>mounted</code> guard; today it can call setState on a disposed widget if the user leaves. Success navigation is unchanged (<code>pushAndRemoveUntil</code> → ChatScreen)</td></tr>
+<tr><td>Not changed</td><td>Create = <b>direct add</b> (members written straight away, no invite step), while Group Info's ＋ Add = <b>invite</b>. This mismatch is documented and kept (deferred decision 1)</td></tr>
+</table></div>
+</div>
+
+<!-- G12 -->
+<div class="band">
+<header><span class="n">G12</span><h2>Offline &amp; error language (both screens)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Group Info offline — admin</span>
+    <div class="frame" style="width:320px"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Group Info</div></div>
+      <div class="offline">⚡ You're offline — actions are available when you're back.</div>
+      <div class="body"><div class="hdr"><div class="big dim">W<div class="cam">📷</div></div><div class="gname">Weekend Trekkers</div><div class="gcount">4 members</div></div>
+      <div class="sect"><span class="lab">Members</span><div class="r"><span class="pill">4</span><span class="addbtn dim">＋ Add</span></div></div>
+      <div class="list"><div class="m"><div class="av">A</div><div class="who"><div class="nm">Avni Rao</div><div class="mt">@avni</div></div><div class="more dim">⋮</div></div></div>
+      <div class="hint" style="margin-top:6px">Available online</div></div></div>
+  </div>
+  <div style="flex:1;min-width:280px"><div class="tblwrap"><table>
+    <tr><th>Leg</th><th>Spec</th></tr>
+    <tr><td>Strip</td><td>R12-style accentSoft strip under the bar, copy verbatim from Requests H1: <b>You're offline — actions are available when you're back.</b> Clears 250ms after reconnect. Source: <code>isOnlineProvider</code></td></tr>
+    <tr><td>Reads</td><td>Header, members and settings values render from Drift offline (the streams already do). Invites: the section is hidden offline unless rows are cached in memory; no error banner while offline (the strip already explains why)</td></tr>
+    <tr><td>Mutations</td><td>Every network mutation is disabled with exactly one 38% dim + one <b>Available online</b> (<code>kOfflineActionHint</code>) per surface (chat L3 single-dim law): photo, rename, ＋ Add, member ⋮ (and the row tap), Cancel/Re-invite, the switch, the Disappearing row, Leave, Create. Media &amp; Docs stays enabled (local)</td></tr>
+    <tr><td>Errors</td><td>No <code>$e</code> anywhere in <code>lib/features/groups/</code> (there are 8 sites today). Mutation failure = R5 toast <b>Couldn't update. Try again.</b> (same string as Requests); load failure = R12 banner or R7 error. Debug detail goes to <code>debugPrint</code> only</td></tr>
+  </table></div></div>
+</div>
+</div>
+
+<!-- G13 -->
+<div class="band">
+<header><span class="n">G13</span><h2>A11y &amp; motion</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Surface</th><th>Spec</th></tr>
+<tr><td>Member row</td><td>One merged label: <b>"{name}, admin, you"</b> / <b>"{name}, @{username}"</b> (role and self only when true); avatar excluded. Admin viewer: an extra hint <b>"Double tap for options"</b></td></tr>
+<tr><td>Header</td><td>Photo <b>"Change group photo"</b> (admin) or decorative (member); name = heading semantics; the edit affordance is <b>"Edit group name"</b></td></tr>
+<tr><td>Create</td><td>Friend row = a checkbox semantic with checked state + name; chip = <b>"Remove {name}"</b> button; Next / Create carry their enabled state</td></tr>
+<tr><td>Announce</td><td>Live region on member removal (<b>{name} removed</b>) and on the invite-send result (the same string as the toast)</td></tr>
+<tr><td>Targets / contrast</td><td>48dp floor everywhere: ⋮, ＋ Add (36h visual, 48 hit), text buttons, switch row, camera badge (the hit area is the 96 disc). No accent-coloured or error-coloured <b>text</b> on light surfaces (G1 numbers). Meta is inkSoft (5.72 / 5.42 : 1)</td></tr>
+<tr><td>Motion</td><td>Row exit on remove/cancel: 250ms fade + collapse (SHOULD), instant under reduced motion. Busy spinners stop under reduced motion (a static busy fill instead). The offline strip fades in 150ms. The skeleton is R11 at 1400ms</td></tr>
+</table></div>
+</div>
+
+<!-- G14 -->
+<div class="band">
+<header><span class="n">G14</span><h2>Copy table (verbatim contract), out of scope, deferred decisions</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Keep</th><th>Change / add</th></tr>
+<tr><td>Group Info · Edit Group Name · Cancel · Save · Remove from Group · Make Admin · Remove Admin · Admin · You · Leave Group · Leave Group? · You will lose access to this group and its messages. · Leave · Remove · Only Admins Can Message · Members cannot send messages · Disappearing Messages · Media &amp; Docs · Invite pending · Declined · Declined — invite again? · Re-invite · Invite {n} · New Group · Next · Create Group · Creating… · Enter group name… · {n} member(s) selected · Disappearing: {X}</td>
+<td>Count <b>1 member</b> / <b>{n} members</b> · section <b>Members</b> / <b>Invites</b> / <b>Settings</b> · <b>＋ Add</b> · sheet title <b>Add to group</b> · <b>Everyone's here</b> + <b>All your friends are already in this group.</b> · <b>Couldn't load members.</b> · <b>Couldn't load invites.</b> · <b>Couldn't load friends.</b> + <b>Check your connection and try again.</b> + <b>Retry</b> · <b>No friends yet</b> + <b>Add a friend to start a group.</b> + <b>Add a Friend</b> · <b>Search friends</b> · <b>Group name</b> (label case) · step-2 title <b>New Group</b> · toasts <b>{name} is now an admin</b> / <b>{name} is no longer an admin</b> / <b>{name} removed</b> / <b>Invite sent</b> / <b>{n} invites sent</b> / <b>{ok} sent, {failed} failed. Try again.</b> / <b>Couldn't update. Try again.</b> / <b>Still working — this can take a moment.</b> · <b>{name} can't be added yet. They need to open Kuch Bhi once to set up encryption.</b> · <b>Couldn't create the group. Check your connection and try again.</b> · <b>You're no longer in this group.</b> · <b>{name} will become the admin.</b> · offline strip + <b>Available online</b> (Requests strings)</td></tr>
+<tr><td colspan="2" style="background:#FBE3E3"><b>Banned:</b> every <code>$e</code> in UI text — "Failed to update icon: $e" · "Failed to update name: $e" · "Operation failed: $e" · "Failed to leave group: $e" · "Cancel failed: $e" · "Re-invite failed: $e" · "Error: $e" · "Failed to create group: $e" · a raw user id in any string · <code>CircularProgressIndicator</code> as page content</td></tr>
+</table></div>
+<div class="row" style="margin-top:12px">
+<div style="flex:1;min-width:280px">
+<h3>Out of scope (do NOT build here)</h3>
+<div style="font-size:13px"><b>Anything touching E2E keys:</b> key generation and wrapping in <code>_createGroup</code>, <code>_rotateGroupKey</code>, re-wrap or orphan recovery (learning <code>2026-10-28-group-key-rotation-keeps-history-only</code>, user ruled not worth it) · moving <code>_createGroup</code>'s orchestration out of the widget (L4-correct, but it relocates key-distribution code → backlog) · a timeout on <code>_createGroup</code> (it would race its own rollback → backlog) · tapping a member → profile (page 5) · Add-Friend sheet internals (page 8) · invitee accept/decline card (page 3) · Media &amp; Docs screen (own page) · group description, mute, notification settings, invite links, member search, pagination (none exist) · an offline cache for invites</div>
+</div>
+<div style="flex:1;min-width:280px">
+<h3>Deferred decisions (user may override)</h3>
+<div style="font-size:13px">1. <b>Create = direct add, ＋ Add = invite.</b> Kept as-is; flag if the create flow should also send invites (that would be a repository and E2E change, so it is a separate task).<br>2. <b>Disappearing for non-admins:</b> shown to all members because the chat menu already allows it. Alternative: admin-only in BOTH places (that needs a server-rule check).<br>3. <b>Destructive colour:</b> <code>error</code> text fails 4.5:1 on light surfaces (3.91). Default: error icon + ink label. Alternative: a darker <code>errorText</code> token (needs a foundation amendment).<br>4. <b>Media &amp; Docs for left members:</b> shown (local data). Flag to hide.<br>5. <b>Remove/Leave 30s UI bound</b> + "Still working" copy. Alternative: no bound on those two.<br>6. <b>Row tap opens the action sheet</b> (admin). Alternative: ⋮ only.</div>
+</div>
+</div>
+</div>
+
+<!-- G15 -->
+<div class="band">
+<header><span class="n">G15</span><h2>Diff vs current implementation</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Area</th><th>Today (file:line)</th><th>Spec</th><th>Checklist</th></tr>
+<tr><td>1</td><td>Info loading</td><td>Full-screen spinner, no app bar <code>gs:422</code></td><td>R11 skeleton with app bar</td><td>B1</td></tr>
+<tr><td>2</td><td>Members error</td><td><code>?? []</code> → "0 members", admin UI hidden <code>gs:412</code></td><td>R12 banner + Retry, count hidden</td><td>B2</td></tr>
+<tr><td>3</td><td>Empty-name crash</td><td><code>substring(0,1)</code> <code>gs:253, gs:451, cg:418, cg:610</code></td><td>R1 initials fallback everywhere</td><td>C1, H2, K2</td></tr>
+<tr><td>4</td><td>Count plural</td><td>"1 members" <code>gs:513</code></td><td>1 member / {n} members</td><td>C3</td></tr>
+<tr><td>5</td><td>Member order</td><td>Drift order (not deterministic)</td><td>You → admins A→Z → members A→Z</td><td>D1</td></tr>
+<tr><td>6</td><td>Accent text contrast</td><td>"You", "Admin" chip, "Invite pending", "Next" in accent (≈2:1)</td><td>ink / inkSoft text; accent fills only</td><td>D2, A3</td></tr>
+<tr><td>7</td><td>Member actions</td><td><code>PopupMenuButton</code>, no busy lock <code>gs:289</code></td><td>C4 action sheet (C4a/C4b) + per-row busy</td><td>E1, E2</td></tr>
+<tr><td>8</td><td>Raw errors</td><td>8× <code>$e</code> in SnackBar/Text</td><td>R5 / R7 / R12 fixed copy</td><td>A4</td></tr>
+<tr><td>9</td><td>Unbounded mutations</td><td>No timeout on any mutation (PB HTTP never times out)</td><td>8s; remove/leave 30s + "Still working"</td><td>E3</td></tr>
+<tr><td>10</td><td>Switch error</td><td>Unhandled async error <code>gs:707</code></td><td>try/catch, busy, toast</td><td>G2</td></tr>
+<tr><td>11</td><td>Disappearing dialog</td><td>Duplicate without checkmark <code>gs:102</code> vs chat <code>:1173</code>; fire-and-forget write</td><td>One shared C11 dialog, awaited write</td><td>G3</td></tr>
+<tr><td>12</td><td>Settings visibility</td><td>Media &amp; Docs + Disappearing admin-only <code>gs:700</code></td><td>Matrix in G9</td><td>G1</td></tr>
+<tr><td>13</td><td>Invites errors</td><td>Swallowed <code>gs:613</code></td><td>R12 banner + Retry</td><td>F1</td></tr>
+<tr><td>14</td><td>Invite rows</td><td>No busy, raw <code>$e</code> <code>gs:655-690</code></td><td>Busy lock, 8s, toasts</td><td>F2</td></tr>
+<tr><td>15</td><td>Add sheet false empty</td><td>Friends loading/failed → "All friends are already in this group" <code>gs:135</code></td><td>Sheet opens, loads inside, R11/R12</td><td>F3</td></tr>
+<tr><td>16</td><td>Add sheet send</td><td>Pops first, sends with no feedback <code>gs:188</code></td><td>Stays open, busy, then toast</td><td>F4</td></tr>
+<tr><td>17</td><td>Leave button</td><td>Red <code>OutlinedButton</code>, no busy <code>gs:738</code></td><td>R10a destructive row + busy</td><td>G4</td></tr>
+<tr><td>18</td><td>L4</td><td>Screen imports <code>message_repository_impl.dart</code> <code>gs:16</code></td><td>Mutations on a groups notifier</td><td>A5</td></tr>
+<tr><td>19</td><td>C3 colour</td><td>9× <code>colorScheme…withValues</code>, <code>errorContainer</code>, <code>surfaceContainerHighest</code></td><td><code>context.t.*</code> only; grep gate</td><td>A2</td></tr>
+<tr><td>20</td><td>Radius literals</td><td><code>circular(4/14)</code>, sheet <code>Radius.circular(20)</code></td><td>WarmPopTokens radii</td><td>A2</td></tr>
+<tr><td>21</td><td>Section headers</td><td>Hand-rolled ×2, 11px and 14px <code>gs:390, gs:530</code></td><td>R9 with count</td><td>D3</td></tr>
+<tr><td>22</td><td>Offline</td><td>None on either screen</td><td>Strip + single-dim + hint</td><td>I1, I2</td></tr>
+<tr><td>23</td><td>Create loading/error</td><td>Spinner / <code>Text('Error: $e')</code>, no app bar <code>cg:353</code></td><td>R11 / R7 error + Retry</td><td>H1</td></tr>
+<tr><td>24</td><td>Create empty</td><td>"No friends to add." text</td><td>R7 + mascot + Add a Friend</td><td>H1</td></tr>
+<tr><td>25</td><td>Step-2 system back</td><td>Exits the whole flow, selection lost</td><td>PopScope → step 1</td><td>J1</td></tr>
+<tr><td>26</td><td>Back while creating</td><td>Allowed (orphan risk mid-rollback)</td><td>Blocked</td><td>J2</td></tr>
+<tr><td>27</td><td>Key-missing error</td><td>Leaks a raw user id via <code>$e</code></td><td>MemberKeyMissingError → name copy</td><td>J3</td></tr>
+<tr><td>28</td><td>setState after dispose</td><td><code>cg:339</code> unguarded</td><td>mounted guard</td><td>J4</td></tr>
+<tr><td>29</td><td>Step-2 title</td><td>"Group Info" (collides)</td><td>"New Group"</td><td>J5</td></tr>
+<tr><td>30</td><td>Name field</td><td>Double counter, radius 14, prefix icon</td><td>One counter, radiusMd, no icon</td><td>J5</td></tr>
+<tr><td>31</td><td>Avatar sizes</td><td>100 (info) / 112 (create)</td><td>96 both</td><td>C1, J5</td></tr>
+<tr><td>32</td><td>Tests</td><td>Zero group tests</td><td>5 new files + grep gates</td><td>Gates</td></tr>
+</table></div>
+<p class="sub" style="margin-top:8px"><code>gs</code> = <code>group_settings_screen.dart</code>, <code>cg</code> = <code>create_group_screen.dart</code> (line numbers as of <code>9ee3295</code>).</p>
+</div>
+
+<p class="sub">Board end · grading contract = <code>group-info.md</code> · no implementation and no Astra handoff before user PASS on this spec.</p>
+</body>
+</html>

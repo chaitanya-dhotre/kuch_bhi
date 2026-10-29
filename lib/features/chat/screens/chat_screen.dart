@@ -16,6 +16,7 @@ import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../providers/chat_provider.dart';
 import '../providers/message_body_provider.dart';
 import '../chat_run_grouping.dart';
+import '../widgets/disappearing_dialog.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_input.dart';
 import '../widgets/pinned_message_banner.dart';
@@ -1054,11 +1055,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   leading: const Icon(Icons.timer_outlined),
                   title: const Text('Disappearing Messages'),
                   trailing: Text(
-                    _disappearingDurationLabel(disappearingDuration),
+                    disappearingDurationLabel(disappearingDuration),
                   ),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    unawaited(_disappearingDialog(context));
+                    unawaited(showDisappearingDialog(context, ref, _cid));
                   },
                 ),
               ],
@@ -1170,58 +1171,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
-  Future<void> _disappearingDialog(BuildContext context) async {
-    final row = await ref
-        .read(appDatabaseProvider)
-        .conversationsDao
-        .getConversationById(_cid);
-    if (!context.mounted) return;
-    var selectedDuration = row?.disappearingDuration ?? 0;
-    showDialog(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Disappearing Messages'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final opt in [
-                ('Off', 0),
-                ('24 hours', 86400),
-                ('7 days', 604800),
-                ('30 days', 2592000),
-              ])
-                ListTile(
-                  title: Text(opt.$1),
-                  subtitle: const Text('Applies to new messages only'),
-                  trailing: selectedDuration == opt.$2
-                      ? Icon(Icons.check, color: context.t.accent)
-                      : null,
-                  onTap: () {
-                    setDialogState(() => selectedDuration = opt.$2);
-                    ref
-                        .read(messageRepositoryProvider)
-                        .setDisappearingDuration(_cid, opt.$2);
-                    Navigator.pop(dialogContext);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Disappearing: ${opt.$1}')),
-                    );
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _disappearingDurationLabel(int seconds) => switch (seconds) {
-    0 => 'Off',
-    86400 => '24 hours',
-    604800 => '7 days',
-    2592000 => '30 days',
-    _ => '${seconds ~/ 86400} days',
-  };
 }
 
 class _ChatLoadingState extends StatelessWidget {

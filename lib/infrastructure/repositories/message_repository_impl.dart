@@ -17,6 +17,7 @@ import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
 import '../../core/utils/op_id.dart';
 import '../../core/utils/realtime_gate.dart';
+import '../../core/utils/serial_per_key.dart';
 import '../../core/utils/session_epoch.dart';
 import '../../core/utils/sync_cursor.dart';
 import '../../data/local/database/app_database.dart';
@@ -512,6 +513,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
   /// Per-conversation rotate debounce (one rotation per join burst).
   final Map<String, Timer> _rotateDebounce = {};
+  final _rotations = SerialPerKey();
 
   Future<void> _subMembers() async {
     await _pb.collection('conversation_members').subscribe('*', (event) {
@@ -3081,7 +3083,12 @@ class MessageRepositoryImpl implements MessageRepository {
     await _rotateGroupKey(conversationId, myId);
   }
 
-  Future<void> _rotateGroupKey(String convId, String myId) async {
+  /// Every rotation trigger (remove, leave, join debounce, key-gap repair)
+  /// funnels through here, so one device never rotates a group twice at once.
+  Future<void> _rotateGroupKey(String convId, String myId) =>
+      _rotations.run(convId, () => _rotateGroupKeyNow(convId, myId));
+
+  Future<void> _rotateGroupKeyNow(String convId, String myId) async {
     // Version allocation is not a server transaction. If another admin wins
     // the same max+1 race, never overwrite its row with ciphertext for a
     // different random key. Retry at the next version instead.

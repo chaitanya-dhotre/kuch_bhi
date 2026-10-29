@@ -8,12 +8,17 @@ class SettingsTile extends StatelessWidget {
       required this.title,
       this.subtitle,
       this.onTap,
-      this.trailing});
+      this.trailing,
+      this.destructive = false});
   final IconData icon;
   final String title;
   final String? subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  /// Registry R10a: an error ICON in the well with an INK title (error-
+  /// coloured text fails 4.5:1 on light surfaces — foundation C4).
+  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +38,8 @@ class SettingsTile extends StatelessWidget {
                   color: t.surface2,
                   borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
                 ),
-                child: Icon(icon, size: 19, color: t.ink),
+                child: Icon(icon,
+                    size: 19, color: destructive ? t.error : t.ink),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -42,8 +48,10 @@ class SettingsTile extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(title,
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w600)),
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: destructive ? t.ink : null)),
                     if (subtitle != null)
                       Text(subtitle!,
                           style: TextStyle(fontSize: 12.5, color: t.inkSoft)),

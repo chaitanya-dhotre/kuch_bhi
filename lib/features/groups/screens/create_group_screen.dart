@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
@@ -10,7 +9,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_chip.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/search_field.dart';
+import '../../../core/widgets/skeleton.dart';
+import '../../../features/friend_requests/providers/friend_request_provider.dart';
+import '../../../features/home/screens/add_friend_screen.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/friendship.dart';
@@ -19,6 +26,8 @@ import '../../../features/chat/screens/chat_screen.dart';
 import '../../../features/home/providers/friends_provider.dart';
 import '../../../infrastructure/services/group_create_service.dart';
 import '../../../services/encryption_service.dart';
+import '../../chat/message_offline_policy.dart';
+import '../member_key_missing_error.dart';
 
 class CreateGroupScreen extends ConsumerStatefulWidget {
   const CreateGroupScreen({super.key});
@@ -33,6 +42,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
   // ── Step 1 ────────────────────────────────────────────────────
   final Set<String> _selectedIds = {};
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
 
   // ── Step 2 ────────────────────────────────────────────────────
   final _nameController = TextEditingController();
@@ -43,6 +54,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -55,7 +67,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       maxHeight: 512,
       imageQuality: 85,
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
+      // J4: the picker can outlive the screen — never setState after dispose.
       setState(() => _iconFile = File(picked.path));
     }
   }
@@ -95,7 +108,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       for (final memberId in allMemberIds) {
         final user = await groupService.getUserRecord(memberId);
         if (user.getStringValue('public_key').isEmpty) {
-          throw StateError('Member $memberId has no encryption key yet.');
+          throw MemberKeyMissingError(memberId);
         }
       }
 
@@ -182,7 +195,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         }
 
         if (publicKey == null || publicKey.isEmpty) {
-          throw StateError('Member $memberId has no encryption key yet.');
+          throw MemberKeyMissingError(memberId);
         }
 
         final encryptedKey = await encryption.encryptGroupKeyForMember(
@@ -336,8 +349,21 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           debugPrint('[Group] local rollback failed: $rollbackError');
         }
       }
-      setState(() => _error = 'Failed to create group: $e');
+      // J3/J4: user-visible copy never carries an exception or a raw id.
+      // The missing-key case names the FRIEND (mapped from the typed error);
+      // everything else gets the stable connection copy. Both setStates are
+      // `mounted`-guarded (J4).
       debugPrint('[Group] create error: $e');
+      if (mounted) {
+        setState(() {
+          _error = e is MemberKeyMissingError
+              ? '${_memberDisplayName(e.memberId, allFriends)} can\'t be '
+                  'added yet. They need to open Kuch Bhi once to set up '
+                  'encryption.'
+              : "Couldn't create the group. Check your connection and "
+                  'try again.';
+        });
+      }
     } finally {
       if (mounted) setState(() => _creating = false);
     }
@@ -345,229 +371,487 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
   // ── Build ─────────────────────────────────────────────────────
 
+  /// Maps the id on a [MemberKeyMissingError] back to a NAME (J3). A raw id
+  /// must never reach user-visible text, so every path falls back to a name
+  /// or a placeholder — never [memberId].
+  String _memberDisplayName(String memberId, List<Friendship> friends) {
+    for (final f in friends) {
+      if (f.friend.id == memberId) {
+        final name = f.friend.displayName.trim();
+        if (name.isNotEmpty) return name;
+        final handle = f.friend.username.trim();
+        if (handle.isNotEmpty) return '@$handle';
+        return 'Unknown';
+      }
+    }
+    final auth = ref.read(authProvider).valueOrNull;
+    if (auth is AuthAuthenticated && auth.user.id == memberId) {
+      final name = auth.user.displayName.trim();
+      if (name.isNotEmpty) return name;
+      return 'You';
+    }
+    return 'Unknown';
+  }
+
+  void _openAddFriend() {
+    ref.read(addFriendProvider.notifier).reset();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const AddFriendSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final friendsAsync = ref.watch(friendshipsProvider);
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
 
-    return friendsAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error:   (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
-      data: (friends) => _onStep2
-          ? _buildStep2(context, friends)
-          : _buildStep1(context, friends),
+    // J1: system back on step 2 returns to step 1 with the selection kept.
+    // J2: while creating, back is blocked — a pop mid-flight would orphan
+    // the server rows the rollback is still deleting.
+    return PopScope(
+      canPop: !_onStep2 && !_creating,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _creating) return;
+        if (_onStep2) setState(() => _onStep2 = false);
+      },
+      child: Scaffold(
+        backgroundColor: t.bg,
+        appBar: _appBar(t),
+        body: Column(
+          children: [
+            _OfflineStrip(visible: !online),
+            Expanded(
+              child: _onStep2
+                  ? _buildStep2(context, friendsAsync, online)
+                  : _buildStep1(context, friendsAsync, online),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One app bar for both steps (A1/J5): the title is **New Group**.
+  PreferredSizeWidget _appBar(ColorTokens t) {
+    return AppBar(
+      backgroundColor: t.bg,
+      surfaceTintColor: t.bg,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      leading: _onStep2
+          ? IconButton(
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed:
+                  _creating ? null : () => setState(() => _onStep2 = false),
+              icon: Icon(Icons.arrow_back, color: t.ink),
+            )
+          : null,
+      title: Semantics(
+        header: true,
+        child: Text(
+          'New Group',
+          style: TextStyle(
+            color: t.ink,
+            fontSize: 20,
+            height: 1.3,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      actions: [
+        if (!_onStep2)
+          SizedBox(
+            height: 48,
+            child: AppButton(
+              variant: AppButtonVariant.text,
+              onPressed: _selectedIds.isEmpty
+                  ? null
+                  : () => setState(() => _onStep2 = true),
+              child: const Text('Next'),
+            ),
+          ),
+      ],
     );
   }
 
   // ── Step 1: member selection ──────────────────────────────────
 
-  Widget _buildStep1(BuildContext context, List<Friendship> friends) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'New Group',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _selectedIds.isEmpty
-                ? null
-                : () => setState(() => _onStep2 = true),
-            child: Text(
-              'Next',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: _selectedIds.isEmpty
-                    ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                    : context.t.accent,
+  Widget _buildStep1(
+    BuildContext context,
+    AsyncValue<List<Friendship>> friendsAsync,
+    bool online,
+  ) {
+    final t = context.t;
+
+    // H1: loading = R11 rows with the app bar present (it lives in `build`).
+    if (friendsAsync.isLoading && friendsAsync.valueOrNull == null) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        children: [
+          for (var i = 0; i < 6; i++)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 14),
+              child: Row(
+                children: [
+                  Skeleton(width: 24, height: 24, radius: 999),
+                  SizedBox(width: 12),
+                  Skeleton(width: 40, height: 40, radius: 999),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Skeleton(width: 140, height: 14, radius: 7),
+                        SizedBox(height: 8),
+                        Skeleton(width: 90, height: 11, radius: 6),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
         ],
-      ),
-      body: Column(
-        children: [
-          if (_selectedIds.isNotEmpty) _SelectedChips(
-            friends:     friends,
+      );
+    }
+
+    // H1: R7 error state — no `$e`, and the app bar stays reachable.
+    if (friendsAsync.hasError && friendsAsync.valueOrNull == null) {
+      return EmptyState(
+        title: "Couldn't load friends.",
+        subtitle: 'Check your connection and try again.',
+        action: AppButton(
+          onPressed: () => ref.invalidate(friendshipsProvider),
+          child: const Text('Retry'),
+        ),
+      );
+    }
+
+    final friends = friendsAsync.valueOrNull ?? const <Friendship>[];
+    if (friends.isEmpty) {
+      return EmptyState(
+        title: 'No friends yet',
+        subtitle: 'Add a friend to start a group.',
+        action: AppButton(
+          onPressed: _openAddFriend,
+          child: const Text('Add a Friend'),
+        ),
+      );
+    }
+
+    final query = _searchQuery.trim().toLowerCase();
+    final visible = query.isEmpty
+        ? friends
+        : friends
+            .where((f) =>
+                f.displayName.toLowerCase().contains(query) ||
+                f.friend.username.toLowerCase().contains(query))
+            .toList();
+
+    return Column(
+      children: [
+        if (_selectedIds.isNotEmpty)
+          _SelectedChips(
+            friends: friends,
             selectedIds: _selectedIds,
-            onRemove:    (id) => setState(() => _selectedIds.remove(id)),
+            onRemove: (id) => setState(() => _selectedIds.remove(id)),
           ),
-          Expanded(
-            child: friends.isEmpty
-                ? const Center(child: Text('No friends to add.'))
-                : ListView.builder(
-                    itemCount: friends.length,
-                    itemBuilder: (_, i) {
-                      final f        = friends[i];
-                      final selected = _selectedIds.contains(f.friend.id);
-                      return CheckboxListTile(
-                        value:    selected,
-                        onChanged: (_) => setState(() {
-                          if (selected) {
-                            _selectedIds.remove(f.friend.id);
-                          } else {
-                            _selectedIds.add(f.friend.id);
-                          }
-                        }),
-                        secondary: CircleAvatar(
-                          backgroundColor: context.t.accentSoft,
-                          backgroundImage: f.friend.avatarUrl != null
-                              ? CachedNetworkImageProvider(f.friend.avatarUrl!)
-                              : null,
-                          child: f.friend.avatarUrl == null
-                              ? Text(
-                                  f.displayName.substring(0, 1).toUpperCase(),
-                                  style: TextStyle(
-                                    color: context.t.accent,
-                                    fontWeight: FontWeight.w700,
+        if (friends.length > 8)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: SearchField(
+              controller: _searchController,
+              hint: 'Search friends',
+              onChanged: (value) => setState(() => _searchQuery = value),
+            ),
+          ),
+        Expanded(
+          child: visible.isEmpty
+              ? EmptyState(
+                  withMascot: false,
+                  title: 'No friends match',
+                  subtitle: 'Try a different name.',
+                )
+              : ListView.builder(
+                  itemCount: visible.length,
+                  itemBuilder: (_, i) {
+                    final f = visible[i];
+                    final selected = _selectedIds.contains(f.friend.id);
+                    final name = _friendName(f);
+                    return Semantics(
+                      container: true,
+                      button: true,
+                      checked: selected,
+                      label: name,
+                      excludeSemantics: true,
+                      onTap: () => _toggleFriend(f.friend.id),
+                      child: InkWell(
+                        onTap: () => _toggleFriend(f.friend.id),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 56),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                _checkCircle(selected),
+                                const SizedBox(width: 12),
+                                AppAvatar(
+                                  url: f.friend.avatarUrl,
+                                  initials:
+                                      _initial(name, fallback: '?'),
+                                  radius: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          height: 1.375,
+                                          fontWeight: FontWeight.w600,
+                                          color: t.ink,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '@${f.friend.username.trim()}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          height: 1.38,
+                                          color: t.inkSoft,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                )
-                              : null,
-                        ),
-                        title: Text(
-                          f.displayName,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          '@${f.friend.username}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.5),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                        activeColor:   context.t.accent,
-                        checkboxShape: const CircleBorder(),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
+  }
+
+  void _toggleFriend(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  String _friendName(Friendship f) {
+    final name = f.friend.displayName.trim();
+    if (name.isNotEmpty) return name;
+    final handle = f.friend.username.trim();
+    if (handle.isNotEmpty) return '@$handle';
+    return 'Unknown';
+  }
+
+  /// The round accent check (H2) — accent is a FILL, never text (C4).
+  Widget _checkCircle(bool selected) {
+    final t = context.t;
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? t.accent : null,
+        border: Border.all(
+          color: selected ? t.accent : t.line,
+          width: 1.5,
+        ),
+      ),
+      child: selected ? Icon(Icons.check, size: 16, color: t.onAccent) : null,
+    );
+  }
+
+  /// First letter WITHOUT a range-taking call (grep gate) — never throws on
+  /// an empty name (H2).
+  String _initial(String value, {required String fallback}) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? fallback : trimmed[0].toUpperCase();
   }
 
   // ── Step 2: group info ─────────────────────────────────────────
 
-  Widget _buildStep2(BuildContext context, List<Friendship> friends) {
-    final name   = _nameController.text.trim();
-    final letter = name.isEmpty ? '?' : name.substring(0, 1).toUpperCase();
+  Widget _buildStep2(
+    BuildContext context,
+    AsyncValue<List<Friendship>> friendsAsync,
+    bool online,
+  ) {
+    final t = context.t;
+    final friends = friendsAsync.valueOrNull ?? const <Friendship>[];
+    final name = _nameController.text.trim();
+    // Empty name → "G" (J5), never a RangeError.
+    final letter = _initial(name, fallback: 'G');
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: BackButton(onPressed: () => setState(() => _onStep2 = false)),
-        title: const Text(
-          'Group Info',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Avatar picker
-            GestureDetector(
-              onTap: _pickIcon,
+    final photo = _iconFile == null
+        ? AppAvatar(initials: letter, radius: 48, accentSoft: true)
+        : CircleAvatar(
+            radius: 48,
+            backgroundColor: t.accentSoft,
+            backgroundImage: FileImage(_iconFile!),
+          );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // J5: R1 radius 48 + camera badge, 96dp disc is the hit target.
+          Semantics(
+            container: true,
+            button: !_creating,
+            label: 'Add group photo',
+            excludeSemantics: true,
+            onTap: _creating ? null : _pickIcon,
+            child: GestureDetector(
+              onTap: _creating ? null : _pickIcon,
               child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  CircleAvatar(
-                    radius: 56,
-                    backgroundColor: context.t.accentSoft,
-                    backgroundImage:
-                        _iconFile != null ? FileImage(_iconFile!) : null,
-                    child: _iconFile == null
-                        ? Text(
-                            letter,
-                            style: TextStyle(
-                              fontSize: 40,
-                              fontWeight: FontWeight.w700,
-                              color: context.t.accent,
-                            ),
-                          )
-                        : null,
-                  ),
+                  photo,
                   Positioned(
-                    bottom: 0, right: 0,
+                    right: 2,
+                    bottom: 2,
                     child: Container(
-                      padding: const EdgeInsets.all(6),
+                      width: 32,
+                      height: 32,
                       decoration: BoxDecoration(
-                        color: context.t.accent, shape: BoxShape.circle,
+                        color: t.accent,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: t.bg, width: 2),
                       ),
                       child: Icon(
                         Icons.camera_alt_outlined,
-                        color: context.t.onAccent,
-                        size: 18,
+                        color: t.onAccent,
+                        size: 16,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 32),
+          ),
+          const SizedBox(height: 24),
 
-            // Group name field
-            TextField(
-              controller:     _nameController,
-              maxLength:      50,
-              textCapitalization: TextCapitalization.words,
-              onChanged:      (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText:   'Group Name',
-                hintText:    'Enter group name…',
-                border:      OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                prefixIcon:  const Icon(Icons.group_outlined),
-                counterText: '${_nameController.text.length}/50',
+          // J5: radiusMd 16, ONE counter (maxLength draws it), no prefixIcon.
+          TextField(
+            controller: _nameController,
+            maxLength: 50,
+            readOnly: _creating,
+            textCapitalization: TextCapitalization.words,
+            onChanged: (_) => setState(() {}),
+            style: TextStyle(fontSize: 15, color: t.ink),
+            decoration: InputDecoration(
+              labelText: 'Group name',
+              hintText: 'Enter group name…',
+              labelStyle: TextStyle(fontSize: 13, color: t.inkSoft),
+              hintStyle: TextStyle(fontSize: 15, color: t.inkFaint),
+              counterStyle: TextStyle(fontSize: 12, color: t.inkSoft),
+              enabledBorder: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(WarmPopTokens.radiusMd),
+                borderSide: BorderSide(color: t.line),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(WarmPopTokens.radiusMd),
+                borderSide: BorderSide(color: t.accent, width: 1.5),
+              ),
+              border: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(WarmPopTokens.radiusMd),
               ),
             ),
-            const SizedBox(height: 12),
+          ),
+          const SizedBox(height: 12),
 
-            // Selected member count
-            Text(
-              '${_selectedIds.length} member${_selectedIds.length == 1 ? '' : 's'} selected',
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.5),
+          Text(
+            '${_selectedIds.length} member'
+            '${_selectedIds.length == 1 ? '' : 's'} selected',
+            style: TextStyle(fontSize: 13, height: 1.38, color: t.inkSoft),
+          ),
+
+          if (_error != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: t.surface,
+                borderRadius:
+                    BorderRadius.circular(WarmPopTokens.radiusSm),
+                border: Border(left: BorderSide(color: t.error, width: 3)),
               ),
-            ),
-
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  _error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                    fontSize: 13,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline, size: 18, color: t.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: t.ink,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
+          ],
 
-            const SizedBox(height: 32),
+          const SizedBox(height: 24),
 
-            // Create button
-            AppButton(
-              onPressed: (_creating || _nameController.text.trim().isEmpty)
+          // I2: offline dims Create exactly once, with one hint below.
+          Opacity(
+            opacity: online ? 1 : .38,
+            child: AppButton(
+              onPressed: (_creating || name.isEmpty || !online)
                   ? null
                   : () => _createGroup(friends),
               busy: _creating,
               expanded: true,
               child: Text(_creating ? 'Creating…' : 'Create Group'),
             ),
-          ],
-        ),
+          ),
+          if (!online)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  kOfflineActionHint,
+                  style: TextStyle(fontSize: 12, color: t.inkSoft),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -588,38 +872,143 @@ class _SelectedChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = friends.where((f) => selectedIds.contains(f.friend.id)).toList();
+    final t = context.t;
+    final selected =
+        friends.where((f) => selectedIds.contains(f.friend.id)).toList();
 
+    // H3/H5: a plain strip on bg with a bottom line, scrolling horizontally
+    // past one row (Material Chip + surfaceContainerHighest are gone).
     return Container(
-      width:  double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        border: Border(bottom: BorderSide(color: t.line)),
       ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        children: selected.map((f) => Chip(
-          avatar: CircleAvatar(
-            backgroundColor: context.t.accentSoft,
-            backgroundImage: f.friend.avatarUrl != null
-                ? CachedNetworkImageProvider(f.friend.avatarUrl!)
-                : null,
-            child: f.friend.avatarUrl == null
-                ? Text(
-                    f.displayName.substring(0, 1).toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 11, color: context.t.accent,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < selected.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              _chip(context, selected[i]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(BuildContext context, Friendship f) {
+    final t = context.t;
+    final name = _label(f);
+    final initials = _letter(name);
+    // K2: the 48dp outer target owns the tap; the 36h pill is decorative.
+    return SizedBox(
+      height: 48,
+      child: Semantics(
+        container: true,
+        button: true,
+        label: 'Remove $name',
+        excludeSemantics: true,
+        onTap: () => onRemove(f.friend.id),
+        child: InkWell(
+          onTap: () => onRemove(f.friend.id),
+          child: Center(
+            child: IgnorePointer(
+              child: AppChip(
+                selected: true,
+                onTap: () {},
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AppAvatar(
+                      url: f.friend.avatarUrl,
+                      initials: initials,
+                      radius: 14,
                     ),
-                  )
-                : null,
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 140),
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13, color: t.ink),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(Icons.close, size: 16, color: t.inkSoft),
+                  ],
+                ),
+              ),
+            ),
           ),
-          label:        Text(f.displayName, style: const TextStyle(fontSize: 12)),
-          deleteIcon:   const Icon(Icons.close, size: 16),
-          onDeleted:    () => onRemove(f.friend.id),
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        )).toList(),
+        ),
       ),
+    );
+  }
+
+  String _label(Friendship f) {
+    final name = f.friend.displayName.trim();
+    if (name.isNotEmpty) return name;
+    final handle = f.friend.username.trim();
+    if (handle.isNotEmpty) return '@$handle';
+    return 'Unknown';
+  }
+
+  /// First letter WITHOUT a range-taking call (grep gate) — never throws on
+  /// an empty name (H3).
+  String _letter(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+  }
+}
+
+// ── Offline strip (I1) ─────────────────────────────────────────────
+
+const _offlineCopy =
+    "You're offline — actions are available when you're back.";
+
+class _OfflineStrip extends StatelessWidget {
+  const _OfflineStrip({required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return AnimatedSwitcher(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : WarmPopTokens.motionBase,
+      child: visible
+          ? Semantics(
+              key: const ValueKey('create-group-offline-strip'),
+              container: true,
+              label: _offlineCopy,
+              child: Container(
+                width: double.infinity,
+                color: t.accentSoft,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_off_outlined, size: 18, color: t.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _offlineCopy,
+                        style: TextStyle(fontSize: 13, color: t.ink),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : const SizedBox.shrink(key: ValueKey('create-group-online-space')),
     );
   }
 }

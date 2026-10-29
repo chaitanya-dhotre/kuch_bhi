@@ -63,6 +63,7 @@ class ConversationMenuAction {
     VoidCallback? onTap,
     this.trailing,
     this.enabled = true,
+    this.destructive = false,
     String? semanticsLabel,
     String? semantics,
   }) : assert(
@@ -79,6 +80,10 @@ class ConversationMenuAction {
   VoidCallback get onTap => callback;
   final String? trailing;
   final bool enabled;
+
+  /// Registry C4b: an error ICON with an INK label (error-coloured text
+  /// fails 4.5:1 on light surfaces — foundation C4).
+  final bool destructive;
   final String? semanticsLabel;
 
   /// Alias for callers that prefer the shorter semantics property name.
@@ -115,16 +120,22 @@ void showMessageMenu({
   );
 }
 
-/// Opens the reusable conversation action sheet used by Home long-presses.
+/// Registry C4a — the shared action sheet.
 ///
-/// The sheet intentionally owns only shared presentation and action dispatch.
-/// Navigation and provider mutations stay in the supplied action callbacks.
-void showConversationMenu({
+/// Owns presentation and action dispatch only: navigation and provider
+/// mutations stay in the supplied action callbacks. [showConversationMenu]
+/// (Home long-press) is a thin caller of this, so both surfaces share ONE
+/// chrome.
+///
+/// The optional key parameters exist so existing call sites (and their
+/// tests) keep addressing the same widgets; they default to generic keys.
+void showActionSheet({
   required BuildContext context,
-  required WidgetRef ref,
-  required Conversation conversation,
-  required Object preview,
+  Widget? header,
   required List<ConversationMenuAction> actions,
+  Key? sheetKey,
+  Key? handleKey,
+  Key? previewKey,
 }) {
   HapticFeedback.mediumImpact();
   showModalBottomSheet<void>(
@@ -136,42 +147,72 @@ void showConversationMenu({
         top: Radius.circular(WarmPopTokens.radiusLg),
       ),
     ),
-    builder: (_) => _ConversationContextSheet(
-      conversation: conversation,
-      preview: preview,
+    builder: (_) => _ActionSheet(
+      sheetKey: sheetKey ?? const Key('action-sheet'),
+      handleKey: handleKey ?? const Key('action-sheet-handle'),
+      previewKey: previewKey,
+      header: header,
       actions: actions,
     ),
   );
 }
 
-class _ConversationContextSheet extends StatelessWidget {
-  const _ConversationContextSheet({
-    required this.conversation,
-    required this.preview,
-    required this.actions,
-  });
-
-  final Conversation conversation;
-  final Object preview;
-  final List<ConversationMenuAction> actions;
-
-  @override
-  Widget build(BuildContext context) {
-    final name = conversation.displayName;
-    return _ContextSheetChrome(
-      key: const Key('conversation-context-menu'),
-      handleKey: const Key('conversation-menu-handle'),
-      previewKey: const Key('conversation-menu-preview'),
-      avatarKey: const Key('conversation-menu-preview-avatar'),
+/// Opens the reusable conversation action sheet used by Home long-presses.
+///
+/// The sheet intentionally owns only shared presentation and action dispatch.
+/// Navigation and provider mutations stay in the supplied action callbacks.
+void showConversationMenu({
+  required BuildContext context,
+  required WidgetRef ref,
+  required Conversation conversation,
+  required Object preview,
+  required List<ConversationMenuAction> actions,
+}) {
+  final name = conversation.displayName;
+  showActionSheet(
+    context: context,
+    sheetKey: const Key('conversation-context-menu'),
+    handleKey: const Key('conversation-menu-handle'),
+    previewKey: const Key('conversation-menu-preview'),
+    header: _previewRow(
+      context,
       avatar: AppAvatar(
         url: conversation.avatarUrl,
         initials: _initialsFor(name),
         radius: 20,
         accentSoft: true,
       ),
+      avatarKey: const Key('conversation-menu-preview-avatar'),
       name: name,
       nameKey: const Key('conversation-menu-preview-name'),
       preview: _conversationPreview(context, preview),
+    ),
+    actions: actions,
+  );
+}
+
+class _ActionSheet extends StatelessWidget {
+  const _ActionSheet({
+    required this.sheetKey,
+    required this.handleKey,
+    required this.previewKey,
+    required this.header,
+    required this.actions,
+  });
+
+  final Key sheetKey;
+  final Key handleKey;
+  final Key? previewKey;
+  final Widget? header;
+  final List<ConversationMenuAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ContextSheetChrome(
+      key: sheetKey,
+      handleKey: handleKey,
+      previewKey: previewKey,
+      header: header ?? const SizedBox.shrink(),
       children: [
         if (actions.isNotEmpty) const Divider(height: 20),
         for (var i = 0; i < actions.length; i++)
@@ -197,6 +238,9 @@ class _ConversationContextSheet extends StatelessWidget {
     return _menuActionTile(
       key: ValueKey('conversation-menu-action-$index'),
       icon: action.icon,
+      // Registry C4b: destructive rows get an error icon and an INK label.
+      iconColor: action.destructive ? context.t.error : null,
+      labelColor: action.destructive ? context.t.ink : null,
       label: action.label,
       onTap: () {
         Navigator.of(context).pop();
@@ -209,33 +253,71 @@ class _ConversationContextSheet extends StatelessWidget {
   }
 }
 
+/// The avatar + name + preview row shared by the conversation and message
+/// sheets (keys preserved so existing tests keep addressing them).
+Widget _previewRow(
+  BuildContext context, {
+  required Widget avatar,
+  Key? avatarKey,
+  required String name,
+  required Key nameKey,
+  required Widget preview,
+}) {
+  final avatarWidget =
+      avatarKey == null ? avatar : KeyedSubtree(key: avatarKey, child: avatar);
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      avatarWidget,
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              key: nameKey,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: context.t.ink,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              height: 20,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: preview,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
 class _ContextSheetChrome extends StatelessWidget {
   const _ContextSheetChrome({
     super.key,
     required this.handleKey,
-    required this.previewKey,
-    required this.avatar,
-    required this.name,
-    required this.nameKey,
-    required this.preview,
+    required this.header,
     required this.children,
-    this.avatarKey,
+    this.previewKey,
   });
 
   final Key handleKey;
-  final Key previewKey;
-  final Widget avatar;
-  final Key? avatarKey;
-  final String name;
-  final Key nameKey;
-  final Widget preview;
+  final Key? previewKey;
+  final Widget header;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    final avatarWidget = avatarKey == null
-        ? avatar
-        : KeyedSubtree(key: avatarKey, child: avatar);
+    final headerWidget =
+        previewKey == null ? header : KeyedSubtree(key: previewKey, child: header);
     final mediaQuery = MediaQuery.of(context);
     final maxHeight = (mediaQuery.size.height - mediaQuery.viewInsets.bottom)
         .clamp(0.0, mediaQuery.size.height)
@@ -269,42 +351,7 @@ class _ContextSheetChrome extends StatelessWidget {
                   ),
                 ),
               ),
-              KeyedSubtree(
-                key: previewKey,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    avatarWidget,
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            key: nameKey,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: context.t.ink,
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          SizedBox(
-                            height: 20,
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: preview,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              headerWidget,
               const SizedBox(height: 10),
               ...children,
             ],
@@ -322,16 +369,18 @@ Widget _menuActionTile({
   Key? key,
   Widget? trailing,
   Color? color,
+  Color? iconColor,
+  Color? labelColor,
   bool enabled = true,
   String? semanticsLabel,
 }) {
   final tile = ListTile(
     key: key,
-    leading: Icon(icon, color: enabled ? color : null),
+    leading: Icon(icon, color: enabled ? (iconColor ?? color) : null),
     title: Text(
       label,
       style: TextStyle(
-        color: enabled ? color : null,
+        color: enabled ? (labelColor ?? color) : null,
         fontSize: 13.5,
         fontWeight: FontWeight.w600,
       ),
@@ -406,21 +455,24 @@ class _ContextSheet extends ConsumerWidget {
       key: const Key('message-context-menu'),
       handleKey: const Key('message-menu-handle'),
       previewKey: const Key('message-menu-preview'),
-      avatar: AppAvatar(
-        initials: _initialsFor(senderName),
-        radius: 20,
-        accentSoft: true,
-      ),
-      name: senderName,
-      nameKey: const Key('message-menu-preview-sender'),
-      preview: ClipRect(
-        child: MessageBodyText(
-          key: const Key('message-menu-preview-body'),
-          messageId: message.localId,
-          styleContext: 'preview',
-          decryptState: message.decryptState,
-          ciphertextLength: message.ciphertextLength,
-          style: TextStyle(fontSize: 13, color: context.t.inkSoft),
+      header: _previewRow(
+        context,
+        avatar: AppAvatar(
+          initials: _initialsFor(senderName),
+          radius: 20,
+          accentSoft: true,
+        ),
+        name: senderName,
+        nameKey: const Key('message-menu-preview-sender'),
+        preview: ClipRect(
+          child: MessageBodyText(
+            key: const Key('message-menu-preview-body'),
+            messageId: message.localId,
+            styleContext: 'preview',
+            decryptState: message.decryptState,
+            ciphertextLength: message.ciphertextLength,
+            style: TextStyle(fontSize: 13, color: context.t.inkSoft),
+          ),
         ),
       ),
       children: [

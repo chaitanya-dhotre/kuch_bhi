@@ -294,6 +294,47 @@ void main() {
     }
     expect(hits, isEmpty, reason: 'network SDK outside sanctioned paths: $hits');
   });
+
+  test('groups feature follows the C3/C4/A2/A4/A5/A6 gates', () {
+    final files = Directory('lib/features/groups')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .toList();
+    expect(files, isNotEmpty);
+    for (final f in files) {
+      final src = f.readAsStringSync();
+      // A2/C3: tokens only — no Material colour surface, no alpha maths,
+      // no radius literals, no raw spinner.
+      expect(src.contains('colorScheme'), isFalse, reason: f.path);
+      expect(src.contains('withValues(alpha'), isFalse, reason: f.path);
+      expect(src.contains('CircularProgressIndicator'), isFalse, reason: f.path);
+      expect(src.contains('.substring(0, 1)'), isFalse, reason: f.path);
+      expect(RegExp(r'circular\(\d').hasMatch(src), isFalse, reason: f.path);
+
+      // A4: no exception in a user-visible string. debugPrint is the one
+      // sanctioned place for failure detail.
+      for (final line in src.split('\n')) {
+        if (line.contains('debugPrint')) continue;
+        expect(RegExp(r"\$e}|: \$e'").hasMatch(line), isFalse,
+            reason: '${f.path}: ${line.trim()}');
+      }
+
+      // A2 also bans these two Material tokens (trailing comments excepted).
+      final code = src
+          .split('\n')
+          .map((l) => l.split(RegExp(r'(?<!:)//')).first)
+          .join('\n');
+      expect(code.contains('errorContainer'), isFalse, reason: f.path);
+      expect(code.contains('surfaceContainerHighest'), isFalse, reason: f.path);
+    }
+
+    // A5: the screen reads the feature notifier, never the repository impl.
+    const screen = 'lib/features/groups/screens/group_settings_screen.dart';
+    final info = File(screen).readAsStringSync();
+    expect(info.contains('message_repository_impl'), isFalse, reason: screen);
+    expect(info.contains('group_admin_provider.dart'), isTrue, reason: screen);
+  });
 }
 
 const _bannedPurpleHexes = [
