@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings — Page 6 board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from profile.html; nothing redefined). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8A7A5F;margin:0 0 8px}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:340px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.appbar .ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.appbar .act{font-size:15px;font-weight:600;padding:0 14px;height:40px;display:flex;align-items:center;border-radius:16px;color:var(--ink)}
+.appbar .act.off{color:var(--inkFaint)}
+.body{padding:4px 0 16px}
+.hdr{display:flex;flex-direction:column;align-items:center;padding:12px 16px 8px}
+.big{width:96px;height:96px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;position:relative}
+.big .cam{position:absolute;right:0;bottom:0;width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid var(--bg)}
+.big .scrim{position:absolute;inset:0;border-radius:999px;background:rgba(42,37,32,.45);display:flex;align-items:center;justify-content:center}
+.gname{font-size:20px;line-height:26px;font-weight:700;margin-top:12px;display:flex;align-items:center;gap:6px}
+.gname .pen{font-size:15px;color:var(--inkSoft)}
+.gcount{font-size:13px;color:var(--inkSoft);margin-top:2px}
+.sect{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px}
+.sect .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkFaint)}
+.sect .r{display:flex;gap:8px;align-items:center}
+.pill{background:var(--surface2);color:var(--inkSoft);border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px}
+.addbtn{height:36px;border-radius:999px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:var(--accentSoft);color:var(--ink)}
+.list{background:var(--surface);margin:0 12px;border-radius:16px;border:1px solid var(--line);overflow:hidden}
+.m{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 6px 8px 12px;border-top:1px solid var(--line)}
+.m:first-child{border-top:0}
+.av{width:40px;height:40px;border-radius:999px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
+.who{flex:1;min-width:0}
+.who .nm{font-size:16px;line-height:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+.who .mt{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:11px;line-height:14px;font-weight:600;background:var(--accentSoft);color:var(--ink);border-radius:999px;padding:2px 8px;flex:0 0 auto}
+.more{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:18px;flex:0 0 auto}
+.spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:999px;animation:sp .8s linear infinite;margin:15px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tbtn{height:40px;padding:0 12px;border-radius:16px;display:flex;align-items:center;font-size:14px;font-weight:600;color:var(--ink)}
+.dim{opacity:.38}
+.hint{font-size:12px;color:var(--inkFaint);padding:0 16px;text-align:right}
+.st{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-top:1px solid var(--line)}
+.st:first-child{border-top:0}
+.st .well{width:36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
+.st .tt{flex:1;min-width:0}
+.st .tt .a{font-size:15px;font-weight:600;line-height:20px}
+.st .tt .b{font-size:13px;color:var(--inkSoft);line-height:18px}
+.st .tr{font-size:13px;color:var(--inkSoft)}
+.st.danger .well{color:var(--error)}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--line);position:relative;flex:0 0 auto}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:999px;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.on{background:var(--accent)}
+.sw.on::after{left:21px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border:1px solid rgba(239,160,11,.45);border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 12px}
+.banner .retry{margin-left:auto;font-weight:700;min-height:36px;display:flex;align-items:center;padding:0 6px}
+.offline{display:flex;gap:8px;align-items:center;background:var(--accentSoft);color:var(--ink);font-size:13px;padding:8px 16px}
+.sk{background:var(--surface2);border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sh 1.4s infinite}
+.wrap.dark .sk::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.sheet{background:var(--surface);border-radius:20px 20px 0 0;padding:8px 0 12px;box-shadow:var(--cardShadow);border:1px solid var(--line)}
+.handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet .sh{display:flex;align-items:center;gap:12px;padding:4px 16px 12px;border-bottom:1px solid var(--line)}
+.sheet .row1{display:flex;align-items:center;gap:14px;min-height:52px;padding:0 20px;font-size:15px;font-weight:600}
+.sheet .row1 .ic{width:24px;text-align:center;color:var(--inkSoft)}
+.sheet .row1.danger .ic{color:var(--error)}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;box-shadow:var(--cardShadow);border:1px solid var(--line);color:var(--ink)}
+.dlg .t{font-size:20px;font-weight:700;line-height:26px}
+.dlg .s{font-size:15px;color:var(--inkSoft);margin-top:8px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.secondary{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.text{height:40px;color:var(--ink)}
+.btn.wide{width:100%}
+.btn.off{background:var(--surface2);color:var(--inkFaint);border:0}
+.chk{width:24px;height:24px;border-radius:999px;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:13px;margin-right:10px}
+.chk.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 10px;border-bottom:1px solid var(--line)}
+.achip{height:36px;border-radius:999px;background:var(--accentSoft);border:1.5px solid var(--accent);display:flex;align-items:center;gap:6px;padding:0 6px 0 4px;font-size:13px;font-weight:600}
+.achip .av{width:28px;height:28px;font-size:12px}
+.search{margin:8px 16px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 16px;color:var(--inkFaint);font-size:15px;gap:8px}
+.field{margin:0 16px;border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;background:var(--surface)}
+.field.focus{border-color:var(--accent)}
+.field .lb{font-size:11px;font-weight:600;color:var(--inkSoft)}
+.field .v{font-size:16px;margin-top:2px}
+.field .ph{color:var(--inkFaint)}
+.cnt{font-size:12px;color:var(--inkFaint);text-align:right;padding:4px 18px 0}
+.err{display:flex;gap:10px;margin:12px 16px 0;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13px;line-height:18px}
+.err .ic{color:var(--error)}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 18px 30px}
+.capy{width:120px;height:106px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:54px;margin-bottom:14px}
+.empty .t{font-size:28px;font-weight:700;line-height:34px}
+.empty .t.sm{font-size:20px;line-height:26px}
+.empty .s{font-size:15px;color:var(--inkSoft);margin-top:8px;max-width:260px;line-height:22px}
+.empty .btn{margin-top:18px}
+.toast{position:absolute;left:14px;right:14px;bottom:14px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+.tblwrap{overflow-x:auto}
+/* Page 5 additions (same tokens; nothing redefined) */
+.big.photo{background:#C6894F;font-size:44px}
+.big.ed{cursor:pointer}
+.uname{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:2px}
+.about{font-size:15px;line-height:22px;text-align:center;max-width:280px;margin-top:8px;color:var(--ink)}
+.hdr .btn{margin-top:14px}
+.card{background:var(--surface);border-radius:20px;box-shadow:var(--cardShadow);margin:16px 12px 0;padding:18px 16px;text-align:center;border:1px solid var(--line)}
+.kick{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkSoft)}
+.coderow{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}
+.code{font-size:28px;line-height:34px;font-weight:700;letter-spacing:4px;color:var(--ink);font-variant-numeric:tabular-nums}
+.copy{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:18px}
+.qrwell{background:#FFFFFF;border-radius:16px;padding:14px 14px 10px;margin-top:12px;display:inline-block;border:1px solid #E4DDD1}
+.qrwell svg{display:block;width:150px;height:150px}
+.qrcap{font-size:13px;line-height:18px;color:#6E655A;margin-top:8px}
+.field.bad{border-color:var(--error)}
+.field .pre{color:var(--inkSoft)}
+.field.ro{background:var(--surface2)}
+.helper{font-size:13px;line-height:18px;color:var(--inkSoft);padding:4px 18px 0}
+.ferr{display:flex;gap:6px;align-items:center;font-size:13px;line-height:18px;color:var(--ink);padding:4px 18px 0}
+.ferr .ic{color:var(--error)}
+.gap{height:14px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.st .chev{color:var(--inkSoft);font-size:16px}
+.copyic{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:16px}
+.offhint{font-size:13px;color:var(--inkSoft);padding:4px 16px 0;text-align:right}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}.grid2{grid-template-columns:1fr}}
+/* Page 6 additions (same tokens; nothing redefined) */
+.amoled{
+  --bg:#000000; --surface:#0A0908; --surface2:#0D0D0D; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --error:#E5484D;
+  --cardShadow:0 0 0 1px rgba(243,237,227,.04);
+}
+.wrap.amo{background:#000;border-color:#3A342B}
+.wrap.amo .tag{color:#A99878}
+.sect .lab{text-transform:none;letter-spacing:.01em}
+.st .chk{margin-right:0}
+.st .ext{color:var(--inkSoft);font-size:15px;width:24px;text-align:center}
+.st .val{font-size:15px;color:var(--inkSoft)}
+.st.pressed{background:var(--surface2)}
+.logo{width:88px;height:88px;border-radius:24px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:40px}
+.appname{font-size:24px;line-height:30px;font-weight:700;margin-top:16px}
+.tagline{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:4px;text-align:center}
+.foot{font-size:13px;line-height:18px;color:var(--inkSoft);text-align:center;padding:20px 28px 4px}
+.verdict td:first-child{white-space:nowrap;font-weight:600}
+td.ok{background:#E3F4EC}
+</style>
+</head>
+<body>
+
+<h1>Settings + About — Page 6 board</h1>
+<p class="sub">Kuch Bhi · Warm Pop · Authority: <code>docs/design/00-foundation.md</code> → <code>docs/design/10-registry.md</code> → checklist <code>settings.md</code>.
+Board sections <b>S1–S11</b> (S = Settings, page-local). Light shown plain; dark and AMOLED in dark inset frames. This is an audit of what exists, not a new design: <code>settings_screen.dart</code> (80 lines), <code>about_screen.dart</code> (93) and <code>providers/theme_provider.dart</code> (61), audited 2026-10-29. Only entry point: Profile's gear (<code>profile_screen.dart:172</code>); About is reached only from Settings. Neither screen has a widget test. <b>S9 is the real question (what Settings holds); S11 lists every difference from the current code.</b></p>
+
+<!-- S1 -->
+<div class="band">
+<header><span class="n">S1</span><h2>Tokens, laws &amp; what the audit found</h2></header>
+<div class="row">
+  <div style="flex:1;min-width:260px"><h3>Type (foundation §3 only)</h3><div style="font-size:24px;line-height:30px;font-weight:700">Kuch Bhi <span style="font-size:13px;font-weight:400;color:#6E655A">About hero, h1 24/30 w700</span></div><div style="font-size:20px;font-weight:700">App bar 20/26 w700</div><div style="font-size:15px;font-weight:600">Row titles 15 w600 (R10 as shipped)</div><div style="font-size:15px;color:#6E655A">Tagline, row values 15/22 inkSoft</div><div style="font-size:13px;color:#6E655A">Footnote 13/18 inkSoft</div><div style="font-size:11px;font-weight:600;color:#9C9284">Appearance 11/14 w600 inkFaint (R9)</div></div>
+  <div style="flex:1;min-width:260px"><h3>Shape / space</h3><div style="font-size:13px">Grouped list: R10b (Profile's <code>_Group</code>, promoted): surface, <code>radiusMd 16</code>, 1px line dividers, 12 side inset · rows ≥56 (R10)<br>Logo tile 88, <code>radiusXl 24</code> (today <code>circular(22)</code>, a literal) · accent <b>fill</b>, onAccent glyph<br>Selected theme: accent check disc (fill) with an onAccent tick, same as page 4's <code>.chk.on</code><br>Off-scale today: header 12.5, theme titles 14.5</div></div>
+  <div style="flex:1;min-width:260px"><h3>Contrast (C4), measured</h3><div class="tblwrap"><table>
+    <tr><th>Pair (light)</th><th>Ratio</th><th>Today used for</th></tr>
+    <tr><td>accent on bg</td><td class="bad">2.02</td><td>"APPEARANCE" header, 12.5px (<code>ss:29-34</code>)</td></tr>
+    <tr><td>accent on surface</td><td class="bad">2.16</td><td>selected radio ring (graphic; WCAG 1.4.11 wants 3:1)</td></tr>
+    <tr><td>onAccent on accent</td><td>7.01</td><td>→ tick on the check disc, logo glyph (spec)</td></tr>
+    <tr><td>inkFaint on bg</td><td>2.86</td><td>→ R9 header (registry contract, as on every page)</td></tr>
+    <tr><td>inkSoft on surface</td><td>5.72</td><td>→ values, subtitles, footnote (spec)</td></tr>
+  </table></div></div>
+</div>
+<div class="note warn"><b>What the audit found.</b> (1) The only header is <b>amber text</b> (2.02:1), off the type scale. (2) Theme rows are four separate <code>RadioListTile</code> cards with an accent radio, 14.5px titles and <code>setTheme</code> fired without <code>await</code>, so a failed write is an unhandled error with no feedback (<code>ss:44</code>). (3) <b>Backup PIN appears twice</b>: here (<code>ss:63-69</code>) and in Profile → Account since Page 5 (<code>profile_screen.dart:290</code>). (4) About uses <code>colorScheme…withValues(alpha)</code> twice, a radius literal and <code>headlineSmall</code>; its version reads <b>…</b> forever if <code>PackageInfo</code> fails. (5) Both screens use the default <code>AppBar</code>, not the page-colour bar Pages 4–5 settled on.</div>
+<div class="note"><b>Laws on this page:</b> L2 compose only R5 toast, R9 section header, R10 settings tile, R10b settings group (promoted), R11 skeleton, R14 page app bar (promoted). L3: the page-colour app bar exists twice already (Profile's <code>profileAppBar</code>, Group Info's inline copy at <code>group_settings_screen.dart:419</code>) → promote Profile's, no third copy. C3: <code>context.t.*</code> only. L4: <code>theme_provider.dart</code> reads Drift directly; it is a local, device-only preference and stays as is (S11 row 17).</div>
+<div class="note warn"><b>Key boundary. Do not touch:</b> secure storage, key generation/rotation, <code>signOut</code>, <code>deleteAccount</code>, and the Backup PIN screens. Settings imports none of them (grep gate). Context, read only, do not re-solve: <code>.trail/learnings/2026-10-28-group-key-rotation-keeps-history-only-chaitanya.md</code>, <code>2026-10-28-group-key-re-wrap-recovers-rows-chaitanya.md</code>, <code>2026-10-29-one-device-rotates-a-group-s-chaitanya.md</code>, <code>2026-10-29-never-refresh-the-signed-in-user-chaitanya.md</code>.</div>
+</div>
+
+<!-- S2 -->
+<div class="band">
+<header><span class="n">S2</span><h2>Settings — full screen (recommended section list)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Settings</span></div>
+    <div class="body">
+      <div class="sect"><span class="lab">Appearance</span></div>
+      <div class="list">
+        <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk on">✓</span></div>
+        <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+      </div>
+      <div class="sect"><span class="lab">Notifications</span></div>
+      <div class="list"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+      <div class="list" style="margin-top:24px"><div class="st"><div class="well">ⓘ</div><div class="tt"><div class="a">About</div></div><span class="chev">›</span></div></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Settings</span></div>
+    <div class="body">
+      <div class="sect"><span class="lab">Appearance</span></div>
+      <div class="list">
+        <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk on">✓</span></div>
+        <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+      </div>
+      <div class="sect"><span class="lab">Notifications</span></div>
+      <div class="list"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+      <div class="list" style="margin-top:24px"><div class="st"><div class="well">ⓘ</div><div class="tt"><div class="a">About</div></div><span class="chev">›</span></div></div>
+    </div></div></div>
+  <div class="wrap amo"><span class="tag">AMOLED</span><div class="frame amoled">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Settings</span></div>
+    <div class="body">
+      <div class="sect"><span class="lab">Appearance</span></div>
+      <div class="list">
+        <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk on">✓</span></div>
+      </div>
+      <div class="sect"><span class="lab">Notifications</span></div>
+      <div class="list"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+      <div class="list" style="margin-top:24px"><div class="st"><div class="well">ⓘ</div><div class="tt"><div class="a">About</div></div><span class="chev">›</span></div></div>
+    </div></div></div>
+</div>
+<div class="note"><b>Three sections, every row backed by something that works today</b> (S9 has the evidence and the rows left out). Order: <b>Appearance</b> (R9 header + one R10b group of four R10 rows) → <b>Notifications</b> (R9 header + one row) → <b>About</b> (its own R10b group after a 24 gap, no header: a header reading "About" over a row reading "About" says it twice). <b>No Backup PIN row</b> (deferred decision 3) and no Sign out row: Profile owns both. Canvas <code>t.bg</code>; list padding 0 top, 24 bottom, so the last group clears the gesture bar.</div>
+</div>
+
+<!-- S3 -->
+<div class="band">
+<header><span class="n">S3</span><h2>App bar &amp; canvas (Settings, About, and Profile's three screens)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame" style="width:320px"><div class="appbar"><span class="ib">←</span><span class="t">Settings</span></div><div style="height:40px"></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark</span><div class="frame dark" style="width:320px"><div class="appbar"><span class="ib">←</span><span class="t">About</span></div><div style="height:40px"></div></div></div>
+  <div style="flex:1;min-width:260px;font-size:13px">
+    <b>R14 <code>pageAppBar(context, title, {actions})</code></b> in <code>lib/core/widgets/page_app_bar.dart</code> = Profile's <code>profileAppBar</code> moved as-is (bg <code>t.bg</code>, tint <code>t.bg</code>, elevation 0, scrolledUnder 0, title 20/26 w700 ink) plus <code>Semantics(header: true)</code> on the title, which Group Info already has and Profile lacked. Profile's six call sites switch to it and <code>profileAppBar</code> / <code>profileTitleStyle</code> leave <code>profile_screen.dart</code> (title style moves with it). Group Info's inline copy moving onto R14 = SHOULD.<br><br>
+    Both Settings scaffolds set <code>backgroundColor: t.bg</code>. Back = the default leading arrow; no actions.
+  </div>
+</div>
+</div>
+
+<!-- S4 -->
+<div class="band">
+<header><span class="n">S4</span><h2>Appearance — theme rows</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · pressed "Dark"</span><div class="frame" style="width:320px;padding-bottom:14px">
+    <div class="sect"><span class="lab">Appearance</span></div>
+    <div class="list">
+      <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk on">✓</span></div>
+      <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+      <div class="st pressed"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · write failed</span><div class="frame dark" style="width:320px;height:330px">
+    <div class="sect"><span class="lab">Appearance</span></div>
+    <div class="list">
+      <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk on">✓</span></div>
+      <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+    </div>
+    <div class="toast">Couldn't change the theme. Try again.</div></div></div>
+  <div style="flex:1;min-width:260px;font-size:13px">
+    Each row = <b>R10 <code>SettingsTile</code></b>: <code>mode.icon</code> in the well (ink), <code>mode.label</code> as title, trailing <b>check disc</b> 24: selected = accent fill + onAccent ✓; unselected = 2px <code>t.line</code> ring, empty. No <code>RadioListTile</code>, no accent ring.<br><br>
+    <b>Tap</b> = <code>await setTheme(mode)</code> in <code>try/catch</code>. The tick follows <code>themeModeProvider</code> (the Drift stream), so it moves only when the write lands; the whole app re-themes from the same stream (<code>app.dart:108</code>). Tapping the selected row writes again, harmlessly. On a throw: R5 <b>Couldn't change the theme. Try again.</b> (error variant), <code>debugPrint</code> the detail, tick stays. A local Drift write, so no 8s bound and no offline rule (S8).<br><br>
+    Before the stream's first value the rows show <b>System default</b> selected, as today (<code>valueOrNull ?? system</code>); it resolves within a frame, so no skeleton.
+  </div>
+</div>
+</div>
+
+<!-- S5 -->
+<div class="band">
+<header><span class="n">S5</span><h2>Notifications row</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · On / unknown</span><div class="frame" style="width:320px;padding-bottom:14px">
+    <div class="sect"><span class="lab">Notifications</span></div>
+    <div class="list"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+    <div class="list" style="margin-top:12px"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div></div><span class="ext">↗</span></div></div>
+    <p style="font-size:11px;color:#9C9284;margin:6px 16px 0">second row: status not known yet, or the check threw</p></div></div>
+  <div class="wrap dark"><span class="tag">Dark · Off</span><div class="frame dark" style="width:320px;height:200px">
+    <div class="sect"><span class="lab">Notifications</span></div>
+    <div class="list"><div class="st"><div class="well">🔕</div><div class="tt"><div class="a">Notifications</div><div class="b">Off. Turn them on in system settings.</div></div><span class="ext">↗</span></div></div>
+    <div class="toast">Couldn't open system settings.</div></div></div>
+  <div style="flex:1;min-width:260px;font-size:13px">
+    <b>What it is:</b> a read-out of whether Android lets Kuch Bhi post notifications, plus a door to the place that changes it. It is <b>not</b> an in-app switch: the server hook (<code>fcm_notify.pb.js</code>) pushes every message and keeps no per-user preference, so an in-app toggle would lie (S9 row 2).<br><br>
+    <b>Status</b> = <code>Permission.notification.status</code> from <code>permission_handler</code> (already a dependency, used by <code>message_input.dart:7</code>; <code>POST_NOTIFICATIONS</code> is declared). Granted → subtitle <b>On</b>, icon <code>notifications_none</code>. Anything else → <b>Off. Turn them on in system settings.</b>, icon <code>notifications_off_outlined</code>. While unknown, or when the check throws: no subtitle (row height unchanged, R10 min 56).<br><br>
+    <b>Tap</b> → <code>openAppSettings()</code> (the app's system page). Trailing <code>open_in_new</code> in inkSoft says "leaves the app", where a chevron would say "a screen of ours". Returns false → R5 <b>Couldn't open system settings.</b><br><br>
+    <b>On resume</b> (<code>AppLifecycleListener.onResume</code>) the status is read again, so coming back from system settings shows the new value without leaving the screen. Both the status read and the opener sit behind providers so tests override them.
+  </div>
+</div>
+</div>
+
+<!-- S6 -->
+<div class="band">
+<header><span class="n">S6</span><h2>About screen</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">About</span></div>
+    <div class="body">
+      <div class="hdr" style="padding-top:20px"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div><div class="tagline">Private, end-to-end encrypted messaging</div></div>
+      <div class="list" style="margin-top:20px">
+        <div class="st"><div class="well">#</div><div class="tt"><div class="a">Version</div></div><span class="val">1.0.0 (1)</span></div>
+        <div class="st"><div class="well">▤</div><div class="tt"><div class="a">Open-source licences</div></div><span class="chev">›</span></div>
+      </div>
+      <div class="foot">Your messages are encrypted end-to-end. Only you and the people you talk to can read them.</div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · version loading</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">About</span></div>
+    <div class="body">
+      <div class="hdr" style="padding-top:20px"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div><div class="tagline">Private, end-to-end encrypted messaging</div></div>
+      <div class="list" style="margin-top:20px">
+        <div class="st"><div class="well">#</div><div class="tt"><div class="a">Version</div></div><span class="sk" style="width:64px;height:14px;display:block"></span></div>
+        <div class="st"><div class="well">▤</div><div class="tt"><div class="a">Open-source licences</div></div><span class="chev">›</span></div>
+      </div>
+      <div class="foot">Your messages are encrypted end-to-end. Only you and the people you talk to can read them.</div>
+    </div></div></div>
+  <div style="flex:1;min-width:260px;font-size:13px">
+    <b>Layout:</b> a top-aligned <code>ListView</code> (today: a centred column, which clips at large text sizes). Hero: logo tile 88, <code>radiusXl</code>, accent fill, <code>lock_outline</code> 44 in onAccent · <b>Kuch Bhi</b> h1 24/30 w700 ink · tagline 15/22 inkSoft. Then one R10b group, then the footnote 13/18 inkSoft, centred. Copy unchanged from today.<br><br>
+    <b>Version</b> row: R10, no tap, trailing value 15 inkSoft as <code>version (buildNumber)</code>. While <code>PackageInfo.fromPlatform()</code> is pending: an R11 <code>Skeleton(width: 64, height: 14)</code> in the trailing slot (today: <b>…</b>). On error: <b>Unknown</b>.<br><br>
+    <b>Open-source licences</b> row: R10 + chevron → Flutter's built-in <code>showLicensePage(context:, applicationName: 'Kuch Bhi', applicationVersion: version)</code>. No new dependency. That page is framework chrome and is not restyled (out of scope).<br><br>
+    Mascot on About = page 10 (mascot pass), not here.
+  </div>
+</div>
+</div>
+
+<!-- S7 -->
+<div class="band">
+<header><span class="n">S7</span><h2>Navigation</h2></header>
+<div class="flow"><span class="bx">Profile app bar ⚙ <code>profile_screen.dart:172</code></span><span class="ar">→</span><span class="bx"><code>/settings</code> (protected, <code>app_router.dart:174</code>)</span><span class="ar">→</span><span class="bx"><b>About</b> → <code>/about</code> (<code>:178</code>)</span><span class="ar">→</span><span class="bx">Open-source licences → <code>LicensePage</code> (imperative push)</span></div>
+<div class="flow"><span class="bx">Notifications row</span><span class="ar">→</span><span class="bx ok">Android app settings (outside the app)</span><span class="ar">→</span><span class="bx">resume → status re-read</span></div>
+<div class="note">Routes unchanged. Both stay in the router's protected list (<code>app_router.dart:90</code>). Backup PIN stays reachable from Profile → Account → <b>Change Backup PIN</b>; the <code>/backup-pin-change</code> route and screens are untouched.</div>
+</div>
+
+<!-- S8 -->
+<div class="band">
+<header><span class="n">S8</span><h2>Offline &amp; error language</h2></header>
+<div class="row"><div style="flex:1;min-width:260px;font-size:13px">
+<b>Nothing on these two screens needs the network.</b> Theme = a Drift write; notification status and system settings = the OS; version and licences = bundled. So <b>no 38% dim and no <code>kOfflineActionHint</code> anywhere on this page</b>, on purpose: dimming a control that works offline would be wrong. A grep gate keeps it true: <code>lib/features/settings/</code> imports no <code>pocketbase</code>, <code>dio</code>, <code>http</code> or <code>connectivity_plus</code>.<br><br>
+<b>Errors</b> are two fixed R5 toasts (error variant). No <code>$e</code> or <code>e.toString()</code> in user-visible text; details go to <code>debugPrint</code> only. No server mutation exists here, so the 8s bound has nothing to bound; no PocketBase file fields and no photos, so the protected-field 404 and EXIF rules do not apply. The page never touches <code>authProvider</code>.
+</div></div>
+</div>
+
+<!-- S9 -->
+<div class="band">
+<header><span class="n">S9</span><h2>What Settings holds — candidate rows checked against the app and PocketBase today</h2></header>
+<div class="tblwrap"><table class="verdict">
+<tr><th>#</th><th>Candidate</th><th>What exists today (evidence)</th><th>Recommended default</th><th>Alternative</th></tr>
+<tr><td>1</td><td>Theme</td><td class="ok">Works: 4 modes in Drift <code>app_theme_mode</code>, applied in <code>app.dart:108-120</code></td><td><b>Keep</b>, inline as four rows (S4)</td><td>One "Theme" row opening a picker sheet</td></tr>
+<tr><td>2</td><td>Notifications</td><td class="ok">Status + system page: <code>permission_handler</code> installed, manifest declares <code>POST_NOTIFICATIONS</code>. In-app switch / per-type toggles: <b>not supported</b>, the PB hook pushes every message and stores no preference</td><td><b>Status row → system settings</b> (S5)</td><td>Leave it out</td></tr>
+<tr><td>3</td><td>Backup PIN</td><td class="ok">Works, and is already on Profile → Account (Page 5)</td><td><b>Remove from Settings</b>; Profile owns account and key rows</td><td>Keep it in both / move it to a Settings "Security" section</td></tr>
+<tr><td>4</td><td>Privacy: read receipts, typing, last seen</td><td class="bad">Not supported. <code>presence_service.dart:61-118</code> writes <code>last_seen</code> and <code>typing_in</code> on every call; receipts are always written; no setting, no server rule reads one</td><td><b>Leave out</b>; a toggle needs client + server work → own task</td><td>—</td></tr>
+<tr><td>5</td><td>Blocked users</td><td class="bad">Half-built. <code>blockUser</code> / <code>unblockUser</code> / <code>getBlockedUserIds</code> (<code>friend_repository_impl.dart:245-284</code>) have <b>zero callers</b>; nothing filters a blocked user's messages or requests; the live <code>blocked_users</code> collection was not verified (read-only server query not run this session)</td><td><b>Leave out</b>; a list would promise blocking that does not happen → own task</td><td>—</td></tr>
+<tr><td>6</td><td>Storage / clear cache</td><td class="bad">Not supported: no storage accounting. Cached media and the Drift DB are the offline-first store, so "clear" is data-loss-adjacent</td><td><b>Leave out</b> → own task</td><td>—</td></tr>
+<tr><td>7</td><td>App lock (fingerprint)</td><td class="bad">Not supported: <code>local_auth ^2.3.0</code> is in <code>pubspec.yaml</code> with <b>zero</b> uses in <code>lib/</code></td><td><b>Leave out</b> → own security task</td><td>—</td></tr>
+<tr><td>8</td><td>Delete account</td><td class="bad">Unsafe: <code>deleteAccount()</code> (<code>auth_repository_impl.dart:377</code>) has no caller and deletes only the <code>users</code> row, orphaning memberships, group keys and messages. Inside the key boundary</td><td><b>Leave out</b> → own task with a server cascade</td><td>—</td></tr>
+<tr><td>9</td><td>Sign out</td><td class="ok">Works, on Profile → Account with a confirm (Page 5)</td><td><b>Not duplicated here</b></td><td>—</td></tr>
+<tr><td>10</td><td>Default disappearing timer</td><td class="bad">Not supported: disappearing is per conversation (C11); no default exists</td><td><b>Leave out</b></td><td>—</td></tr>
+<tr><td>11</td><td>About: version, licences</td><td class="ok">Version works (<code>package_info_plus</code>); licences = Flutter's built-in page</td><td><b>Version + Open-source licences</b> (S6)</td><td>Version only</td></tr>
+<tr><td>12</td><td>Hidden dev section</td><td>Out of scope (foundation §8 "later")</td><td>Nothing reserved for it on this page</td><td>—</td></tr>
+</table></div>
+</div>
+
+<!-- S10 -->
+<div class="band">
+<header><span class="n">S10</span><h2>A11y, motion, copy table, out of scope</h2></header>
+<div class="row">
+<div style="flex:1;min-width:280px;font-size:13px">
+<h3>A11y &amp; motion</h3>
+Theme rows: <code>Semantics(selected:, inMutuallyExclusiveGroup: true)</code>, so TalkBack says "Dark, selected" / "not selected". The tick is decorative (excluded).<br>
+Notifications row reads "Notifications, On" (title + subtitle merge) with hint <b>Opens system settings</b>.<br>
+App bar titles are headers (R14). Every row ≥56, every target ≥48. Text scaling: nothing fixed-height; About scrolls.<br>
+Motion: only Material ink and the R11 shimmer (parks under reduced motion). No custom animation.
+</div>
+<div style="flex:1;min-width:280px"><h3>Copy (verbatim contract)</h3><div class="tblwrap"><table>
+<tr><th>Where</th><th>Text</th></tr>
+<tr><td>App bars</td><td>Settings · About</td></tr>
+<tr><td>Headers</td><td>Appearance · Notifications</td></tr>
+<tr><td>Theme rows</td><td>System default · Light · Dark · AMOLED (true black) (unchanged)</td></tr>
+<tr><td>Notifications</td><td>Notifications · On · Off. Turn them on in system settings. · hint: Opens system settings</td></tr>
+<tr><td>Rows</td><td>About · Version · Open-source licences</td></tr>
+<tr><td>Version</td><td><code>1.0.0 (1)</code> form · Unknown</td></tr>
+<tr><td>Toasts</td><td>Couldn't change the theme. Try again. · Couldn't open system settings.</td></tr>
+<tr><td>About (unchanged)</td><td>Kuch Bhi · Private, end-to-end encrypted messaging · Your messages are encrypted end-to-end. Only you and the people you talk to can read them.</td></tr>
+</table></div></div>
+</div>
+<div class="note"><b>Out of scope:</b> every row S9 leaves out · the Backup PIN / key screens · auth screens (page 7) · the hidden dev section · restyling Flutter's <code>LicensePage</code> · the About mascot (page 10) · R10's own 12.5px subtitle size (shared with Profile and Group Info; a registry change, not this page) · L4 for <code>theme_provider.dart</code> · removing the unused <code>local_auth</code> dependency.</div>
+</div>
+
+<!-- S11 -->
+<div class="band">
+<header><span class="n">S11</span><h2>Diff vs current implementation</h2></header>
+<p style="font-size:12.5px;color:#6E655A;margin:0 0 6px">Line refs: <code>ss</code> = <code>settings_screen.dart</code>, <code>ab</code> = <code>about_screen.dart</code>, <code>tp</code> = <code>theme_provider.dart</code>, <code>ps</code> = <code>profile_screen.dart</code>, as of <code>81a6502</code>.</p>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Area</th><th>Today (file:line)</th><th>Spec</th><th>Checklist</th></tr>
+<tr><td>1</td><td>App bar</td><td>Default <code>AppBar</code> <code>ss:20</code>, <code>ab:12</code></td><td>R14 <code>pageAppBar</code> (promoted from <code>ps:28</code>)</td><td>A1</td></tr>
+<tr><td>2</td><td>Section header</td><td>Accent text 12.5 w700 (2.02:1) <code>ss:26-36</code></td><td>R9 <code>SectionHeader</code></td><td>A3, B2</td></tr>
+<tr><td>3</td><td>Theme rows</td><td>4 separate <code>RadioListTile</code> cards, 8px gaps, 14.5 titles, accent radio <code>ss:38-61</code></td><td>One R10b group of R10 rows + check disc</td><td>C1, C2</td></tr>
+<tr><td>4</td><td>Theme write</td><td><code>setTheme</code> not awaited, no error path <code>ss:44</code></td><td>await + try/catch → toast</td><td>C3</td></tr>
+<tr><td>5</td><td>Theme semantics</td><td>Radio semantics only</td><td><code>selected</code> + <code>inMutuallyExclusiveGroup</code></td><td>G1</td></tr>
+<tr><td>6</td><td>Backup PIN</td><td>Row here <code>ss:63-69</code> and on Profile <code>ps:290</code></td><td>Removed here (decision 3)</td><td>B3</td></tr>
+<tr><td>7</td><td>Notifications</td><td>None</td><td>NEW status row → system settings</td><td>D1–D4</td></tr>
+<tr><td>8</td><td>About row</td><td>In the same list as Backup PIN <code>ss:70-75</code></td><td>Own R10b group after 24</td><td>B1</td></tr>
+<tr><td>9</td><td>About app bar</td><td>Default <code>AppBar</code> <code>ab:12</code></td><td>R14</td><td>A1</td></tr>
+<tr><td>10</td><td>Logo radius</td><td><code>circular(22)</code> <code>ab:30</code></td><td><code>WarmPopTokens.radiusXl</code></td><td>A2, E1</td></tr>
+<tr><td>11</td><td>App name</td><td><code>headlineSmall</code> <code>ab:38</code></td><td>h1 24/30 w700 ink</td><td>E1</td></tr>
+<tr><td>12</td><td>C3 colour</td><td><code>colorScheme.onSurface.withValues(.6/.5)</code> <code>ab:46-50, 60-64</code></td><td><code>t.inkSoft</code>; grep gate</td><td>A2, E1</td></tr>
+<tr><td>13</td><td>Version load</td><td><b>…</b> while pending and forever on error <code>ab:13-18</code></td><td>R11 skeleton · <b>Unknown</b></td><td>E2</td></tr>
+<tr><td>14</td><td>Version row</td><td>Centred "Version: x" <code>_InfoRow</code> <code>ab:54, 77-93</code></td><td>R10 row, trailing value; <code>_InfoRow</code> deleted</td><td>E2</td></tr>
+<tr><td>15</td><td>Licences</td><td>None</td><td>NEW row → <code>showLicensePage</code></td><td>E3</td></tr>
+<tr><td>16</td><td>About layout</td><td>Centred column <code>ab:19</code></td><td>Top-aligned <code>ListView</code></td><td>E1, G3</td></tr>
+<tr><td>17</td><td>L4</td><td><code>tp:37-48</code> reads Drift directly</td><td>Kept (local preference)</td><td>—</td></tr>
+<tr><td>18</td><td>Shared pieces</td><td><code>profileAppBar</code> and <code>_Group</code> private to Profile <code>ps:28, 313</code></td><td>Promoted: R14, R10b; Profile uses them</td><td>A1, Registry</td></tr>
+<tr><td>19</td><td>Tests</td><td>None; only the colour gate <code>grep_gates_test.dart:18</code></td><td>2 widget-test files + a page gate inside <code>main()</code></td><td>Test gates</td></tr>
+</table></div>
+</div>
+
+</body>
+</html>

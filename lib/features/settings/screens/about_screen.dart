@@ -2,92 +2,112 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/page_app_bar.dart';
+import '../../../core/widgets/settings_tile.dart';
+import '../../../core/widgets/skeleton.dart';
 
-class AboutScreen extends StatelessWidget {
+class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('About')),
-      body: FutureBuilder<PackageInfo>(
-        future: PackageInfo.fromPlatform(),
-        builder: (context, snapshot) {
-          final version = snapshot.hasData
-              ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
-              : '…';
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: context.t.accent,
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Icon(Icons.lock_outline,
-                        color: context.t.onAccent, size: 44),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Kuch Bhi',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Private, end-to-end encrypted messaging',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                  ),
-                  const SizedBox(height: 24),
-                  _InfoRow(label: 'Version', value: version),
-                  const SizedBox(height: 32),
-                  Text(
-                    'Your messages are encrypted end-to-end. '
-                    'Only you and the people you talk to can read them.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.5),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
+  State<AboutScreen> createState() => _AboutScreenState();
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-  final String label;
-  final String value;
+class _AboutScreenState extends State<AboutScreen> {
+  // E2: created once, not on every build.
+  late final Future<PackageInfo> _info = PackageInfo.fromPlatform();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text('$label: ',
-            style: const TextStyle(fontWeight: FontWeight.w600)),
-        Text(value),
-      ],
+    final t = context.t;
+    return Scaffold(
+      backgroundColor: t.bg,
+      appBar: pageAppBar(context, 'About'),
+      body: FutureBuilder<PackageInfo>(
+        future: _info,
+        builder: (context, snapshot) {
+          final info = snapshot.data;
+          final version =
+              info == null ? null : '${info.version} (${info.buildNumber})';
+          final valueStyle = TextStyle(fontSize: 15, color: t.inkSoft);
+          final Widget versionValue = snapshot.hasError
+              ? Text('Unknown', style: valueStyle)
+              : version == null
+                  ? const Skeleton(width: 64, height: 14)
+                  : Text(version,
+                      style: valueStyle, textAlign: TextAlign.end);
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(12, 20, 12, 24),
+            children: [
+              Center(
+                child: Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: t.accent,
+                    borderRadius:
+                        BorderRadius.circular(WarmPopTokens.radiusXl),
+                  ),
+                  child: Icon(Icons.lock_outline, color: t.onAccent, size: 44),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Kuch Bhi',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  height: 30 / 24,
+                  fontWeight: FontWeight.w700,
+                  color: t.ink,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Private, end-to-end encrypted messaging',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, height: 22 / 15, color: t.inkSoft),
+              ),
+              const SizedBox(height: 20),
+              SettingsGroup(children: [
+                SettingsTile(
+                  icon: Icons.tag,
+                  title: 'Version',
+                  // G3: flexible, so 200% text wraps instead of overflowing;
+                  // Align pins it to the row end (a bare Flexible sat mid-row).
+                  trailing: Flexible(
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: versionValue,
+                    ),
+                  ),
+                ),
+                SettingsTile(
+                  icon: Icons.description_outlined,
+                  title: 'Open-source licences',
+                  trailing: Icon(Icons.chevron_right, color: t.inkFaint),
+                  onTap: () => showLicensePage(
+                    context: context,
+                    applicationName: 'Kuch Bhi',
+                    applicationVersion: version,
+                  ),
+                ),
+              ]),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                child: Text(
+                  'Your messages are encrypted end-to-end. '
+                  'Only you and the people you talk to can read them.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13, height: 18 / 13, color: t.inkSoft),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

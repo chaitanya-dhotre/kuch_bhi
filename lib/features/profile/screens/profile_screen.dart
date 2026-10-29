@@ -9,37 +9,12 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../core/widgets/settings_tile.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../domain/entities/user.dart';
 import '../../../features/auth/providers/auth_provider.dart';
-
-/// A1: shared app-bar title style (20/26 w700).
-TextStyle profileTitleStyle(BuildContext context) => TextStyle(
-      fontSize: 20,
-      height: 26 / 20,
-      fontWeight: FontWeight.w700,
-      color: context.t.ink,
-    );
-
-/// A1: app bar on the page colour, never a separate surface band (the Page 4
-/// Group Info bar; device finding 2026-10-29).
-AppBar profileAppBar(
-  BuildContext context,
-  String title, {
-  List<Widget>? actions,
-}) {
-  final t = context.t;
-  return AppBar(
-    backgroundColor: t.bg,
-    surfaceTintColor: t.bg,
-    elevation: 0,
-    scrolledUnderElevation: 0,
-    title: Text(title, style: profileTitleStyle(context)),
-    actions: actions,
-  );
-}
 
 /// K1: "K B 7 Q 2 X" so a screen reader says the code digit by digit.
 String spacedCode(String code) => code.split('').join(' ');
@@ -92,7 +67,7 @@ class ProfileHeader extends StatelessWidget {
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: profileTitleStyle(context),
+                style: pageTitleStyle(context),
               ),
               Text(
                 '@${user.username}',
@@ -128,7 +103,7 @@ class ProfileScreen extends ConsumerWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
         ),
-        title: Text('Sign out?', style: profileTitleStyle(ctx)),
+        title: Text('Sign out?', style: pageTitleStyle(ctx)),
         content: Text(
           'This clears your chats from this phone. You can sign back in any time.',
           style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
@@ -165,7 +140,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: t.bg,
-      appBar: profileAppBar(context, 'Profile', actions: [
+      appBar: pageAppBar(context, 'Profile', actions: [
         IconButton(
           tooltip: 'Settings',
           icon: Icon(Icons.settings_outlined, color: t.ink),
@@ -286,7 +261,7 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ),
           const SectionHeader('Account'),
-          _Group(children: [
+          SettingsGroup(children: [
             SettingsTile(
               icon: Icons.lock_reset_outlined,
               title: 'Change Backup PIN',
@@ -295,7 +270,7 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ]),
           const SizedBox(height: 12),
-          _Group(children: [
+          SettingsGroup(children: [
             SettingsTile(
               icon: Icons.logout,
               title: 'Sign out',
@@ -303,30 +278,6 @@ class ProfileScreen extends ConsumerWidget {
               onTap: () => _confirmSignOut(context, ref),
             ),
           ]),
-        ],
-      ),
-    );
-  }
-}
-
-/// Grouped rows: surface, radiusMd, 1px line dividers.
-class _Group extends StatelessWidget {
-  const _Group({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Material(
-      color: t.surface,
-      clipBehavior: Clip.antiAlias,
-      borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
-      child: Column(
-        children: [
-          for (var i = 0; i < children.length; i++) ...[
-            if (i > 0) Divider(height: 1, thickness: 1, color: t.line),
-            children[i],
-          ],
         ],
       ),
     );

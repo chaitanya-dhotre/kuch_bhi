@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
@@ -24,7 +25,7 @@ class ViewProfileScreen extends StatelessWidget {
     final t = context.t;
     return Scaffold(
       backgroundColor: t.bg,
-      appBar: profileAppBar(context, 'Profile'),
+      appBar: pageAppBar(context, 'Profile'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -71,7 +72,7 @@ class ProfileUnavailableScreen extends StatelessWidget {
     final t = context.t;
     return Scaffold(
       backgroundColor: t.bg,
-      appBar: profileAppBar(context, 'Profile'),
+      appBar: pageAppBar(context, 'Profile'),
       body: EmptyState(
         title: 'Profile unavailable',
         action: AppButton(

@@ -27,6 +27,8 @@ ThemeExtension); geometry via `WarmPopTokens` statics. No hardcoded color.
 | R1a | `AppAvatar.image` | `app_avatar.dart` | `image: ImageProvider?` (default null) | when set it wins over `url`; for local previews such as a picked file (page 5, 2026-10-29) |
 | R1b | `initialsOf(name, {fallback='?'})` | `app_avatar.dart` | `String` | first character of the trimmed name, upper-cased, or `fallback` when empty; never throws (page 5, 2026-10-29) |
 | R13 | `appFieldDecoration(context, {label, hint, helper, prefixText})` | `app_field.dart` | `InputDecoration` | page-4 field pattern as one function: label 13 inkSoft, hint inkFaint, line border, accent 1.5 focus, radiusMd 16, `t.error` error border, error line in `t.ink` 13/18 with a leading error icon (page 5, 2026-10-29) |
+| R10b | `SettingsGroup` | `settings_tile.dart` | `children` | grouped rows: surface, `radiusMd`, `Clip.antiAlias`, 1px `t.line` dividers (Profile's private `_Group`, promoted; page 6, 2026-10-29) |
+| R14 | `pageAppBar(context, title, {actions})` + `pageTitleStyle(context)` | `page_app_bar.dart` | `AppBar` / `TextStyle` | app bar on the page colour (bg + tint `t.bg`, elevation 0, scrolledUnder 0), title 20/26 w700 ink wrapped in `Semantics(header: true)`; `pageTitleStyle` doubles as the dialog-title style. Profile's `profileAppBar`, promoted; used by Profile, Settings, About. Group Info's inline copy (`group_settings_screen.dart:419`) moving onto it = SHOULD (page 6, 2026-10-29) |
 
 ## Theme tokens (`lib/core/theme/tokens.dart`)
 

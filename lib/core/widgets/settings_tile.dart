@@ -66,3 +66,27 @@ class SettingsTile extends StatelessWidget {
     );
   }
 }
+
+/// Registry R10b: grouped rows — surface, radiusMd, 1px line dividers.
+class SettingsGroup extends StatelessWidget {
+  const SettingsGroup({super.key, required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Material(
+      color: t.surface,
+      clipBehavior: Clip.antiAlias,
+      borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) Divider(height: 1, thickness: 1, color: t.line),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+}

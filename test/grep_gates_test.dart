@@ -366,6 +366,42 @@ void main() {
           reason: '\$e in ${f.path}');
     }
   });
+
+  test('lib/features/settings carries the page-6 hygiene gates', () {
+    final files = Directory('lib/features/settings')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .toList();
+    expect(files, isNotEmpty);
+    final banned = <String, RegExp>{
+      'colorScheme': RegExp(r'colorScheme'),
+      'withValues(alpha': RegExp(r'withValues\(alpha'),
+      'CircularProgressIndicator': RegExp(r'CircularProgressIndicator'),
+      'RadioListTile': RegExp(r'RadioListTile'),
+      'radius literal': RegExp(r'(Border|Radius)\.circular\(\d'),
+      'e.toString()': RegExp(r'e\.toString\(\)'),
+      'invalidate(authProvider)': RegExp(r'invalidate\(authProvider\)'),
+      // Nothing here needs the network, so nothing is dimmed offline (F1).
+      'kOfflineActionHint': RegExp(r'kOfflineActionHint'),
+      'network / key import': RegExp(
+          r"""import ['"][^'"]*(pocketbase|dio|package:http/|"""
+          r'connectivity_plus|secure_storage|crypto|decrypt|encryption)'),
+      'key-boundary call': RegExp(r'signOut|deleteAccount|updatePublicKey'),
+    };
+    for (final f in files) {
+      // `$e` / toString are fine on debugPrint lines (debug detail only).
+      final lines = f
+          .readAsLinesSync()
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      banned.forEach((name, re) {
+        expect(re.hasMatch(lines), isFalse, reason: '$name in ${f.path}');
+      });
+      expect(RegExp(r'\$\{?e\b').hasMatch(lines), isFalse,
+          reason: '\$e in ${f.path}');
+    }
+  });
 }
 
 const _bannedPurpleHexes = [

@@ -5,10 +5,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
-import 'profile_screen.dart';
 
 /// Output side of the cropped avatar, in pixels.
 const kAvatarCropSide = 512;
@@ -143,7 +143,7 @@ class _CropPhotoScreenState extends State<CropPhotoScreen> {
       canPop: !_busy,
       child: Scaffold(
         backgroundColor: t.bg,
-        appBar: profileAppBar(context, 'Move and scale'),
+        appBar: pageAppBar(context, 'Move and scale'),
         body: SafeArea(
           top: false,
           child: Column(

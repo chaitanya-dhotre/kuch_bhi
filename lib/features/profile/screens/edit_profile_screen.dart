@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
@@ -17,7 +18,6 @@ import '../../../features/auth/providers/auth_provider.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../chat/message_offline_policy.dart';
 import 'crop_photo_screen.dart';
-import 'profile_screen.dart';
 
 const _offlineCopy = "You're offline — actions are available when you're back.";
 final _usernamePattern = RegExp(r'^[a-zA-Z0-9_]+$');
@@ -171,7 +171,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
         ),
-        title: Text('Discard changes?', style: profileTitleStyle(ctx)),
+        title: Text('Discard changes?', style: pageTitleStyle(ctx)),
         content: Text(
           "Your edits won't be saved.",
           style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
@@ -216,7 +216,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     if (user == null) {
       return Scaffold(
         backgroundColor: t.bg,
-        appBar: profileAppBar(context, 'Edit profile'),
+        appBar: pageAppBar(context, 'Edit profile'),
       );
     }
 
@@ -233,7 +233,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       },
       child: Scaffold(
         backgroundColor: t.bg,
-        appBar: profileAppBar(context, 'Edit profile', actions: [
+        appBar: pageAppBar(context, 'Edit profile', actions: [
           // I2: offline dims Save exactly once, with one hint below.
           Opacity(
             opacity: online ? 1 : .38,
