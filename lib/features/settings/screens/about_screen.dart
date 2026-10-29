@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_logo_tile.dart';
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/widgets/settings_tile.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -40,18 +41,7 @@ class _AboutScreenState extends State<AboutScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(12, 20, 12, 24),
             children: [
-              Center(
-                child: Container(
-                  width: 88,
-                  height: 88,
-                  decoration: BoxDecoration(
-                    color: t.accent,
-                    borderRadius:
-                        BorderRadius.circular(WarmPopTokens.radiusXl),
-                  ),
-                  child: Icon(Icons.lock_outline, color: t.onAccent, size: 44),
-                ),
-              ),
+              const Center(child: AppLogoTile()),
               const SizedBox(height: 16),
               Text(
                 'Kuch Bhi',

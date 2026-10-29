@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/widgets/page_app_bar.dart';
@@ -12,6 +14,32 @@ import '../../../core/widgets/app_toast.dart';
 
 /// Output side of the cropped avatar, in pixels.
 const kAvatarCropSide = 512;
+
+/// Registry P1: gallery → crop step → file. `null` = cancelled; a picker
+/// failure shows the toast and returns `null`.
+Future<File?> pickCroppedPhoto(BuildContext context) async {
+  try {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 80,
+    );
+    if (picked == null || !context.mounted) return null;
+    // F5: move and scale before the photo is used; null = cancelled.
+    return await Navigator.of(context).push<File>(
+      MaterialPageRoute(
+        builder: (_) => CropPhotoScreen(file: File(picked.path)),
+      ),
+    );
+  } on PlatformException catch (e) {
+    debugPrint('[Photo] pickImage failed: $e');
+    if (context.mounted) {
+      showToast(context, "Couldn't open your photos.", error: true);
+    }
+    return null;
+  }
+}
 
 /// F5: the square of [image] (in image pixels) visible in a [viewport]-sized
 /// square, when the image is laid out at cover size and transformed by [m]

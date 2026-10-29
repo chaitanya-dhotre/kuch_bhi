@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auth — Page 7 board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from settings.html; nothing redefined). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8A7A5F;margin:0 0 8px}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:340px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.appbar .ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.appbar .act{font-size:15px;font-weight:600;padding:0 14px;height:40px;display:flex;align-items:center;border-radius:16px;color:var(--ink)}
+.appbar .act.off{color:var(--inkFaint)}
+.body{padding:4px 0 16px}
+.hdr{display:flex;flex-direction:column;align-items:center;padding:12px 16px 8px}
+.big{width:96px;height:96px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;position:relative}
+.big .cam{position:absolute;right:0;bottom:0;width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid var(--bg)}
+.big .scrim{position:absolute;inset:0;border-radius:999px;background:rgba(42,37,32,.45);display:flex;align-items:center;justify-content:center}
+.gname{font-size:20px;line-height:26px;font-weight:700;margin-top:12px;display:flex;align-items:center;gap:6px}
+.gname .pen{font-size:15px;color:var(--inkSoft)}
+.gcount{font-size:13px;color:var(--inkSoft);margin-top:2px}
+.sect{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px}
+.sect .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkFaint)}
+.sect .r{display:flex;gap:8px;align-items:center}
+.pill{background:var(--surface2);color:var(--inkSoft);border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px}
+.addbtn{height:36px;border-radius:999px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:var(--accentSoft);color:var(--ink)}
+.list{background:var(--surface);margin:0 12px;border-radius:16px;border:1px solid var(--line);overflow:hidden}
+.m{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 6px 8px 12px;border-top:1px solid var(--line)}
+.m:first-child{border-top:0}
+.av{width:40px;height:40px;border-radius:999px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
+.who{flex:1;min-width:0}
+.who .nm{font-size:16px;line-height:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+.who .mt{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:11px;line-height:14px;font-weight:600;background:var(--accentSoft);color:var(--ink);border-radius:999px;padding:2px 8px;flex:0 0 auto}
+.more{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:18px;flex:0 0 auto}
+.spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:999px;animation:sp .8s linear infinite;margin:15px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tbtn{height:40px;padding:0 12px;border-radius:16px;display:flex;align-items:center;font-size:14px;font-weight:600;color:var(--ink)}
+.dim{opacity:.38}
+.hint{font-size:12px;color:var(--inkFaint);padding:0 16px;text-align:right}
+.st{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-top:1px solid var(--line)}
+.st:first-child{border-top:0}
+.st .well{width:36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
+.st .tt{flex:1;min-width:0}
+.st .tt .a{font-size:15px;font-weight:600;line-height:20px}
+.st .tt .b{font-size:13px;color:var(--inkSoft);line-height:18px}
+.st .tr{font-size:13px;color:var(--inkSoft)}
+.st.danger .well{color:var(--error)}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--line);position:relative;flex:0 0 auto}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:999px;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.on{background:var(--accent)}
+.sw.on::after{left:21px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border:1px solid rgba(239,160,11,.45);border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 12px}
+.banner .retry{margin-left:auto;font-weight:700;min-height:36px;display:flex;align-items:center;padding:0 6px}
+.offline{display:flex;gap:8px;align-items:center;background:var(--accentSoft);color:var(--ink);font-size:13px;padding:8px 16px}
+.sk{background:var(--surface2);border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sh 1.4s infinite}
+.wrap.dark .sk::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.sheet{background:var(--surface);border-radius:20px 20px 0 0;padding:8px 0 12px;box-shadow:var(--cardShadow);border:1px solid var(--line)}
+.handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet .sh{display:flex;align-items:center;gap:12px;padding:4px 16px 12px;border-bottom:1px solid var(--line)}
+.sheet .row1{display:flex;align-items:center;gap:14px;min-height:52px;padding:0 20px;font-size:15px;font-weight:600}
+.sheet .row1 .ic{width:24px;text-align:center;color:var(--inkSoft)}
+.sheet .row1.danger .ic{color:var(--error)}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;box-shadow:var(--cardShadow);border:1px solid var(--line);color:var(--ink)}
+.dlg .t{font-size:20px;font-weight:700;line-height:26px}
+.dlg .s{font-size:15px;color:var(--inkSoft);margin-top:8px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.secondary{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.text{height:40px;color:var(--ink)}
+.btn.wide{width:100%}
+.btn.off{background:var(--surface2);color:var(--inkFaint);border:0}
+.chk{width:24px;height:24px;border-radius:999px;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:13px;margin-right:10px}
+.chk.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 10px;border-bottom:1px solid var(--line)}
+.achip{height:36px;border-radius:999px;background:var(--accentSoft);border:1.5px solid var(--accent);display:flex;align-items:center;gap:6px;padding:0 6px 0 4px;font-size:13px;font-weight:600}
+.achip .av{width:28px;height:28px;font-size:12px}
+.search{margin:8px 16px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 16px;color:var(--inkFaint);font-size:15px;gap:8px}
+.field{margin:0 16px;border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;background:var(--surface)}
+.field.focus{border-color:var(--accent)}
+.field .lb{font-size:11px;font-weight:600;color:var(--inkSoft)}
+.field .v{font-size:16px;margin-top:2px}
+.field .ph{color:var(--inkFaint)}
+.cnt{font-size:12px;color:var(--inkFaint);text-align:right;padding:4px 18px 0}
+.err{display:flex;gap:10px;margin:12px 16px 0;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13px;line-height:18px}
+.err .ic{color:var(--error)}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 18px 30px}
+.capy{width:120px;height:106px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:54px;margin-bottom:14px}
+.empty .t{font-size:28px;font-weight:700;line-height:34px}
+.empty .t.sm{font-size:20px;line-height:26px}
+.empty .s{font-size:15px;color:var(--inkSoft);margin-top:8px;max-width:260px;line-height:22px}
+.empty .btn{margin-top:18px}
+.toast{position:absolute;left:14px;right:14px;bottom:14px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+.tblwrap{overflow-x:auto}
+/* Page 5 additions (same tokens; nothing redefined) */
+.big.photo{background:#C6894F;font-size:44px}
+.big.ed{cursor:pointer}
+.uname{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:2px}
+.about{font-size:15px;line-height:22px;text-align:center;max-width:280px;margin-top:8px;color:var(--ink)}
+.hdr .btn{margin-top:14px}
+.card{background:var(--surface);border-radius:20px;box-shadow:var(--cardShadow);margin:16px 12px 0;padding:18px 16px;text-align:center;border:1px solid var(--line)}
+.kick{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkSoft)}
+.coderow{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}
+.code{font-size:28px;line-height:34px;font-weight:700;letter-spacing:4px;color:var(--ink);font-variant-numeric:tabular-nums}
+.copy{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:18px}
+.qrwell{background:#FFFFFF;border-radius:16px;padding:14px 14px 10px;margin-top:12px;display:inline-block;border:1px solid #E4DDD1}
+.qrwell svg{display:block;width:150px;height:150px}
+.qrcap{font-size:13px;line-height:18px;color:#6E655A;margin-top:8px}
+.field.bad{border-color:var(--error)}
+.field .pre{color:var(--inkSoft)}
+.field.ro{background:var(--surface2)}
+.helper{font-size:13px;line-height:18px;color:var(--inkSoft);padding:4px 18px 0}
+.ferr{display:flex;gap:6px;align-items:center;font-size:13px;line-height:18px;color:var(--ink);padding:4px 18px 0}
+.ferr .ic{color:var(--error)}
+.gap{height:14px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.st .chev{color:var(--inkSoft);font-size:16px}
+.copyic{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:16px}
+.offhint{font-size:13px;color:var(--inkSoft);padding:4px 16px 0;text-align:right}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}.grid2{grid-template-columns:1fr}}
+/* Page 6 additions (same tokens; nothing redefined) */
+.amoled{
+  --bg:#000000; --surface:#0A0908; --surface2:#0D0D0D; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --error:#E5484D;
+  --cardShadow:0 0 0 1px rgba(243,237,227,.04);
+}
+.wrap.amo{background:#000;border-color:#3A342B}
+.wrap.amo .tag{color:#A99878}
+.sect .lab{text-transform:none;letter-spacing:.01em}
+.st .chk{margin-right:0}
+.st .ext{color:var(--inkSoft);font-size:15px;width:24px;text-align:center}
+.st .val{font-size:15px;color:var(--inkSoft)}
+.st.pressed{background:var(--surface2)}
+.logo{width:88px;height:88px;border-radius:24px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:40px}
+.appname{font-size:24px;line-height:30px;font-weight:700;margin-top:16px}
+.tagline{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:4px;text-align:center}
+.foot{font-size:13px;line-height:18px;color:var(--inkSoft);text-align:center;padding:20px 28px 4px}
+.verdict td:first-child{white-space:nowrap;font-weight:600}
+td.ok{background:#E3F4EC}
+/* Page 7 additions (same tokens; nothing redefined) */
+code{overflow-wrap:anywhere}
+.auth{padding:0 24px 20px}
+.auth .mid{display:flex;flex-direction:column;align-items:center;text-align:center}
+.h1{font-size:24px;line-height:30px;font-weight:700}
+.bodyc{font-size:15px;line-height:22px;color:var(--inkSoft)}
+.mascot{width:112px;height:95px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:52px}
+.af{border:1px solid var(--line);border-radius:16px;padding:8px 14px;background:var(--surface);display:flex;align-items:center;gap:8px;min-height:56px}
+.af.focus{border:1.5px solid var(--accent)}
+.af.bad{border-color:var(--error)}
+.af.ro{background:var(--surface2)}
+.af .in{flex:1;min-width:0}
+.af .lb{font-size:13px;line-height:16px;color:var(--inkSoft)}
+.af .v{font-size:15px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.af .v .pre{color:var(--inkSoft)}
+.af .v.soft{color:var(--inkSoft)}
+.af .v.ph{color:var(--inkFaint)}
+.af .eye{width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:16px;flex:0 0 auto;margin-right:-8px}
+.fh{font-size:13px;line-height:18px;color:var(--inkSoft);padding:4px 14px 0}
+.fe{display:flex;gap:6px;font-size:13px;line-height:18px;color:var(--ink);padding:4px 14px 0}
+.fe .ic{color:var(--error)}
+.endlink{display:flex;justify-content:flex-end}
+.btn .g{width:18px;height:18px;flex:0 0 auto}
+.btn .spin{margin:0}
+.btn.primary .spin{border-color:rgba(42,37,32,.25);border-top-color:var(--onAccent)}
+.or{display:flex;align-items:center;gap:12px;font-size:13px;line-height:18px;color:var(--inkSoft)}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.foot2{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0 4px;font-size:15px;line-height:22px;color:var(--inkSoft)}
+.foot2 .lnk{color:var(--ink);font-weight:600;min-height:40px;display:flex;align-items:center;padding:0 8px}
+.oh{font-size:13px;line-height:18px;color:var(--inkSoft);text-align:center;margin-top:6px}
+.disc72{width:72px;height:72px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:30px}
+.splash{height:520px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.splash .spin{margin:24px 0 0}
+.toast.ok{background:var(--ink);color:var(--bg)}
+.toast.bad{background:var(--surface);color:var(--ink);border:1px solid var(--error);display:flex;gap:8px;align-items:center;justify-content:center}
+.toast.bad .ic{color:var(--error)}
+.mini{font-size:12px;color:#6E655A}
+.s{height:var(--h)}
+.rcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px}
+.rcard .rt{font-size:16px;line-height:22px;font-weight:600}
+.rcard .rp{font-size:13px;line-height:18px;color:var(--inkSoft);margin-top:4px}
+.rcard .rn{font-size:13px;line-height:18px;color:var(--inkSoft);margin-top:8px;font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:999px;background:var(--surface2);overflow:hidden;margin-top:12px}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:999px}
+.frame.jk,.frame.jk *{font-family:"Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif}
+.frame.jk .a.sys{font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+.jkf{font-family:"Plus Jakarta Sans",sans-serif}
+</style>
+</head>
+<body>
+
+<h1>Auth — Page 7 board</h1>
+<p class="sub">Kuch Bhi · Warm Pop · Authority: <code>docs/design/00-foundation.md</code> → <code>docs/design/10-registry.md</code> → checklist <code>auth.md</code>.
+Board sections <b>S1–S12</b> (page-local). Light shown plain; dark and AMOLED in dark inset frames. This is an audit of what exists, not a new design: <code>login_screen.dart</code> (279 lines), <code>register_screen.dart</code> (313), <code>forgot_password_screen.dart</code> (223), <code>google_onboarding_screen.dart</code> (449), the router's private <code>_SplashScreen</code> (<code>app_router.dart:258-288</code>), <code>auth_text_field.dart</code> and <code>google_sign_in_button.dart</code>, audited 2026-10-29. No widget test covers any of them. <b>S10 is the real question (which candidate features PocketBase and the app support today); S12 lists every difference from the current code.</b> The Backup PIN screens keep their logic; only the restore-progress overlay is restyled (S13, decision 1). <b>S14 lists what the audit found outside this page</b>, including why Restore never shows after signing in on a new phone. Server facts below were read from the live PocketBase (read-only, approved 2026-10-29).</p>
+
+<!-- S1 -->
+<div class="band">
+<header><span class="n">S1</span><h2>Tokens, laws &amp; what the audit found</h2></header>
+<div class="row">
+  <div style="flex:1;min-width:260px"><h3>Type (foundation §3 only)</h3><div style="font-size:24px;line-height:30px;font-weight:700">Welcome back <span style="font-size:13px;font-weight:400;color:#6E655A">screen titles, h1 24/30 w700</span></div><div style="font-size:20px;font-weight:700">Reset password <span style="font-size:13px;font-weight:400;color:#6E655A">R14 app bar 20/26</span></div><div style="font-size:15px;font-weight:600">Sign in <span style="font-size:13px;font-weight:400;color:#6E655A">button labels 15 w600 (R3)</span></div><div style="font-size:15px;color:#6E655A">Subtitles, field values 15/22</div><div style="font-size:13px;color:#6E655A">Labels, helpers, errors, hint 13/18</div></div>
+  <div style="flex:1;min-width:260px"><h3>Shape / space</h3><div style="font-size:13px">Side gutter <b>24</b> (today 28, off the 4-base scale)<br>Fields: R13, <code>radiusMd 16</code>, 1px line, accent 1.5 focus, error border + <b>ink</b> error line with an error icon<br>Buttons: R3, min-h 48, primary = accent fill + onAccent label; secondary = surface + 1.5 line; text = ink<br>Logo: R15 (About's tile, promoted) 88, <code>radiusXl</code><br>Today: radius 12 / 14 / 16 / 18 literals, gutter 28, 52px buttons</div></div>
+  <div style="flex:1;min-width:260px"><h3>Contrast (C4), measured</h3><div class="tblwrap"><table>
+    <tr><th>Pair (light)</th><th>Ratio</th><th>Today used for</th></tr>
+    <tr><td>accent on bg</td><td class="bad">2.02</td><td><b>Sign Up</b>, <b>Sign In</b>, <b>Forgot password?</b> links; reset-sent icon</td></tr>
+    <tr><td>accent on surface2</td><td class="bad">1.8</td><td>onboarding initial (36px)</td></tr>
+    <tr><td>white on error</td><td class="bad">3.91</td><td>every error SnackBar</td></tr>
+    <tr><td>error on bg</td><td class="bad">3.6</td><td>onboarding error line, 14px</td></tr>
+    <tr><td>onAccent on accent</td><td>7.01</td><td>→ primary button label, camera badge glyph, logo glyph</td></tr>
+    <tr><td>ink on bg</td><td>14.6</td><td>→ links, error lines (spec)</td></tr>
+    <tr><td>inkSoft on bg</td><td>5.4</td><td>→ subtitles, helpers, offline hint (spec)</td></tr>
+  </table></div></div>
+</div>
+<div class="note warn"><b>What the audit found.</b> (1) <b>Google onboarding uploads the photo with its EXIF/GPS</b> (<code>auth_onboarding_service.dart:25-29</code> sends the picked file's raw bytes) and then calls <code>ref.invalidate(authProvider)</code> (<code>go:99</code>), both ruled out by the Page 5 learnings. (2) It probably never uploads at all: state turns authenticated, the redirect replaces the screen, and <code>if (!mounted) return</code> (<code>go:123</code>) skips the upload. (3) Its <b>Back</b> is <code>context.pop()</code> on a route reached by <code>go</code> (<code>go:432</code>): nothing to pop. (4) <code>$e</code> reaches the user in 7 places (<code>auth_provider.dart</code> ×5, <code>fp:46</code>, <code>go:141</code>). (5) No call is bounded: a dead server spins the button forever. (6) Forgot password calls PocketBase from the screen (L4) and its success copy claims the account exists. (7) Register is reached with <code>go</code>, so Android Back on Register exits the app. (8) Android's native launch window is <b>white in dark mode too</b>. (9) ~14 <code>colorScheme…withValues(alpha)</code> reads, raw SnackBars, a 400ms scale and a shake.</div>
+<div class="note"><b>Laws on this page:</b> L2 compose only R1 avatar, R3 button, R3a busy spinner, R5 toast, R13 field, R14 page app bar, plus two promotions: R15 <code>AppLogoTile</code> (About's tile; Splash needs it too) and P1 <code>pickCroppedPhoto</code> (Edit Profile's picker; onboarding needs it). C3: <code>context.t.*</code> only. L4: screens reach PocketBase only through <code>AuthRepository</code>.</div>
+<div class="note warn"><b>Key boundary. Do not touch:</b> Backup PIN logic, <code>encryption_sync_provider.dart</code>, <code>_initEncryptionKeys</code>, <code>updatePublicKey</code>, <code>_saveSession</code>, <code>signOut</code>, <code>getCurrentUser</code> (incl. its reinstall branch), secure storage, encryption services, and the router's <code>redirect</code> body. Where the repository is edited (8s bound, reset, forget-Google), those methods are diffed against HEAD at function level. Context only, do not re-solve: <code>never-refresh-the-signed-in-user</code>, <code>user-photos-only-load-from-a-public-field</code>, the group-key rotation learnings, <code>blocking-account-deletion-app-lock-mute</code>.</div>
+</div>
+
+<!-- S2 -->
+<div class="band">
+<header><span class="n">S2</span><h2>Splash</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · first paint</span><div class="frame"><div class="splash"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div></div></div></div>
+  <div class="wrap"><span class="tag">Light · still here after 1s</span><div class="frame"><div class="splash"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div><div class="spin"></div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark</span><div class="frame dark"><div class="splash"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div></div></div></div>
+  <div class="wrap amo"><span class="tag">AMOLED</span><div class="frame amoled"><div class="splash"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div><div class="spin"></div></div></div></div>
+</div>
+<div class="note"><b>Spec (B1–B4).</b> <code>_SplashScreen</code> moves to <code>screens/splash_screen.dart</code> with its navigation logic verbatim; <code>redirect</code> is untouched. R15 logo 88 + <b>Kuch Bhi</b> h1, centred on <code>t.bg</code>. The R3a 18px ring fades in (150ms) only if the splash is still up after 1s: a cached cold start never shows it, a slow key check after sign-in does. The native launch window paints <code>#FAF7F1</code> / <code>#171512</code> (today white in both), so dark users get no white flash; AMOLED sees <code>#171512</code> for one native frame, then true black.</div>
+</div>
+
+<!-- S3 -->
+<div class="band">
+<header><span class="n">S3</span><h2>Login</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · rest</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth"><div style="height:48px"></div>
+      <div class="mid"><div class="mascot">🦫</div><div style="height:16px"></div><div class="h1">Welcome back</div><div style="height:4px"></div><div class="bodyc">Sign in to continue</div></div>
+      <div style="height:32px"></div>
+      <div class="af"><div class="in"><div class="lb">Email or username</div><div class="v">priya@example.com</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af focus"><div class="in"><div class="lb">Password</div><div class="v">••••••••••</div></div><span class="eye">👁</span></div>
+      <div style="height:4px"></div>
+      <div class="endlink"><span class="btn text">Forgot password?</span></div>
+      <div style="height:16px"></div>
+      <div class="btn primary wide">Sign in</div>
+      <div style="height:24px"></div><div class="or">or</div><div style="height:24px"></div>
+      <div class="btn secondary wide"><svg class="g" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.5 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.8 6.1C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 7l7.4 5.7c4.3-4 6.9-9.9 6.9-17.1z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.8-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</div>
+      <div style="height:32px"></div>
+      <div class="foot2"><span>Don't have an account?</span><span class="lnk">Create account</span></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · Google busy</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth"><div style="height:48px"></div>
+      <div class="mid"><div class="mascot">🦫</div><div style="height:16px"></div><div class="h1">Welcome back</div><div style="height:4px"></div><div class="bodyc">Sign in to continue</div></div>
+      <div style="height:32px"></div>
+      <div class="af"><div class="in"><div class="lb">Email or username</div><div class="v ph">&nbsp;</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Password</div><div class="v ph">&nbsp;</div></div><span class="eye">👁</span></div>
+      <div style="height:4px"></div>
+      <div class="endlink"><span class="btn text">Forgot password?</span></div>
+      <div style="height:16px"></div>
+      <div class="btn primary wide dim">Sign in</div>
+      <div style="height:24px"></div><div class="or">or</div><div style="height:24px"></div>
+      <div class="btn secondary wide"><span class="spin"></span></div>
+      <div style="height:32px"></div>
+      <div class="foot2"><span>Don't have an account?</span><span class="lnk">Create account</span></div>
+    </div></div></div>
+  <div class="wrap"><span class="tag">Light · offline + error toast</span><div class="frame">
+    <div class="status"><span>9:41</span><span>✈</span></div>
+    <div class="auth"><div style="height:48px"></div>
+      <div class="mid"><div class="mascot">🦫</div><div style="height:16px"></div><div class="h1">Welcome back</div><div style="height:4px"></div><div class="bodyc">Sign in to continue</div></div>
+      <div style="height:32px"></div>
+      <div class="af"><div class="in"><div class="lb">Email or username</div><div class="v">priya@example.com</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Password</div><div class="v">••••••••••</div></div><span class="eye">👁</span></div>
+      <div style="height:4px"></div>
+      <div class="endlink"><span class="btn text">Forgot password?</span></div>
+      <div style="height:16px"></div>
+      <div class="btn primary wide dim">Sign in</div>
+      <div class="oh">Available online</div>
+      <div style="height:18px"></div><div class="or">or</div><div style="height:24px"></div>
+      <div class="btn secondary wide dim"><svg class="g" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="none" stroke="#4285F4" stroke-width="8"/></svg>Continue with Google</div>
+      <div style="height:90px"></div>
+    </div>
+    <div class="toast bad"><span class="ic">⊘</span>Wrong email, username or password.</div>
+  </div></div>
+</div>
+<div class="note"><b>Spec (C1–C6, G5).</b> Order and spacing as drawn; gutter 24. The first field takes <b>email or username</b>: PocketBase's <code>users</code> password auth already accepts both (<code>identityFields</code>, decision 19). The busy ring sits on the button that was tapped; the other button is disabled, not spinning (today Sign in spins during the Google flow). Offline: Sign in and Google take the single 38% dim and one <b>Available online</b> line under the primary button; the fields, Forgot password and Create account stay live. The footer is a <code>Wrap</code>, so at 200% text <b>Create account</b> drops to its own line instead of overflowing. Errors: R5 error toast (surface + error border + error icon, ink text), never a red SnackBar. The toast on the right shows its look; offline the button is disabled, so this error comes from an online attempt.</div>
+</div>
+
+<!-- S4 -->
+<div class="band">
+<header><span class="n">S4</span><h2>Register</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · username taken (server)</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Create account</span></div>
+    <div class="auth">
+      <div class="bodyc">Join Kuch Bhi</div><div style="height:24px"></div>
+      <div class="af"><div class="in"><div class="lb">Display name</div><div class="v">Priya</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af bad"><div class="in"><div class="lb">Username</div><div class="v"><span class="pre">@</span>priya</div></div></div>
+      <div class="fe"><span class="ic">⊘</span>That username is taken.</div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Email</div><div class="v">priya@example.com</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Password</div><div class="v">••••••••••</div></div><span class="eye">👁</span></div>
+      <div class="fh">At least 8 characters.</div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Confirm password</div><div class="v">••••••••••</div></div><span class="eye">👁</span></div>
+      <div style="height:24px"></div>
+      <div class="btn primary wide">Create account</div>
+      <div style="height:24px"></div>
+      <div class="foot2"><span>Already have an account?</span><span class="lnk">Sign in</span></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · rest (helpers up front)</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Create account</span></div>
+    <div class="auth">
+      <div class="bodyc">Join Kuch Bhi</div><div style="height:24px"></div>
+      <div class="af"><div class="in"><div class="lb">Display name</div><div class="v ph">&nbsp;</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af focus"><div class="in"><div class="lb">Username</div><div class="v"><span class="pre">@</span></div></div></div>
+      <div class="fh">Letters, numbers and underscores. At least 3.</div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Email</div><div class="v ph">&nbsp;</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Password</div><div class="v ph">&nbsp;</div></div><span class="eye">👁</span></div>
+      <div class="fh">At least 8 characters.</div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Confirm password</div><div class="v ph">&nbsp;</div></div><span class="eye">👁</span></div>
+      <div style="height:24px"></div>
+      <div class="btn primary wide">Create account</div>
+      <div style="height:24px"></div>
+      <div class="foot2"><span>Already have an account?</span><span class="lnk">Sign in</span></div>
+    </div></div></div>
+</div>
+<div class="note"><b>Spec (D1–D7).</b> Pushed from Login, so the R14 back arrow and Android Back return there. Labels in sentence case. Helpers show the rules before the user fails them. Client validation is today's (name ≥2, username ≥3 + pattern, email has <code>@</code>, password ≥8, confirm matches). Server answers that name a field land on that field: <b>That username is taken.</b> / <b>An account with this email already exists.</b>; editing the field clears it. Everything else is an R5 toast with G1 copy. The dead Google-prefill parameters are deleted.</div>
+</div>
+
+<!-- S5 -->
+<div class="band">
+<header><span class="n">S5</span><h2>Forgot password</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · form</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Reset password</span></div>
+    <div class="auth">
+      <div class="bodyc">Enter your account email and we'll send a link to set a new password.</div><div style="height:24px"></div>
+      <div class="af focus"><div class="in"><div class="lb">Email</div><div class="v">priya@example.com</div></div></div>
+      <div style="height:24px"></div>
+      <div class="btn primary wide"><span class="spin"></span></div>
+      <div style="height:180px"></div>
+    </div></div></div>
+  <div class="wrap"><span class="tag">Light · sent</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Reset password</span></div>
+    <div class="auth"><div style="height:16px"></div>
+      <div class="mid"><div class="disc72">✉</div><div style="height:24px"></div><div class="h1">Check your email</div><div style="height:8px"></div><div class="bodyc">If an account exists for <b style="color:var(--ink);font-weight:600">priya@example.com</b>, a reset link is on its way. It opens a web page where you choose a new password.</div></div>
+      <div style="height:32px"></div>
+      <div class="btn primary wide">Back to sign in</div>
+      <div style="height:8px"></div>
+      <div class="btn text wide">Send again</div>
+      <div style="height:24px"></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · sent</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Reset password</span></div>
+    <div class="auth"><div style="height:16px"></div>
+      <div class="mid"><div class="disc72">✉</div><div style="height:24px"></div><div class="h1">Check your email</div><div style="height:8px"></div><div class="bodyc">If an account exists for <b style="color:var(--ink);font-weight:600">priya@example.com</b>, a reset link is on its way. It opens a web page where you choose a new password.</div></div>
+      <div style="height:32px"></div>
+      <div class="btn primary wide">Back to sign in</div>
+      <div style="height:8px"></div>
+      <div class="btn text wide">Send again</div>
+      <div style="height:24px"></div>
+    </div></div></div>
+</div>
+<div class="note"><b>Spec (E1–E4).</b> The call moves to <code>AuthRepository.requestPasswordReset</code>, bounded at 8s. PocketBase answers 204 whether or not the email has an account, so the copy says <i>if</i>. The icon is ink on an accentSoft disc (today accent on bg, 2.0:1). <b>Send again</b> returns to the form with the email kept. The link opens PocketBase's own reset page; the app never sees it.</div>
+<div class="note"><b>Server (read 2026-10-29):</b> SMTP is enabled with a host and sender set; <code>appURL</code> is <code>https://kuch-bhi.duckdns.org</code>, so the link opens PocketBase's reset page on that domain. Device check 6 still proves delivery end to end.</div>
+</div>
+
+<!-- S6 -->
+<div class="band">
+<header><span class="n">S6</span><h2>Google onboarding (new Google account only)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · rest</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth"><div style="height:32px"></div>
+      <div class="mid"><div class="big">P<span class="cam">📷</span></div><div style="height:16px"></div><div class="h1">Complete your profile</div><div style="height:8px"></div><div class="bodyc">We found your Google account. Pick a name, a username and a photo.</div></div>
+      <div style="height:24px"></div>
+      <div class="af ro"><div class="in"><div class="lb">Email</div><div class="v soft">priya.sharma@gmail.com</div></div><span class="eye">🔒</span></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Display name</div><div class="v">Priya Sharma</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Username</div><div class="v"><span class="pre">@</span>priya_sharma</div></div></div>
+      <div class="fh">Letters, numbers and underscores. At least 3.</div>
+      <div style="height:24px"></div>
+      <div class="btn primary wide">Create account</div>
+      <div style="height:8px"></div>
+      <div class="btn text wide">Use a different Google account</div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · photo picked, creating</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth"><div style="height:32px"></div>
+      <div class="mid"><div class="big photo">🙂<span class="cam">📷</span></div><div style="height:16px"></div><div class="h1">Complete your profile</div><div style="height:8px"></div><div class="bodyc">We found your Google account. Pick a name, a username and a photo.</div></div>
+      <div style="height:24px"></div>
+      <div class="af ro"><div class="in"><div class="lb">Email</div><div class="v soft">priya.sharma@gmail.com</div></div><span class="eye">🔒</span></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Display name</div><div class="v">Priya Sharma</div></div></div>
+      <div style="height:16px"></div>
+      <div class="af"><div class="in"><div class="lb">Username</div><div class="v"><span class="pre">@</span>priya_sharma</div></div></div>
+      <div class="fh">Letters, numbers and underscores. At least 3.</div>
+      <div style="height:24px"></div>
+      <div class="btn primary wide"><span class="spin"></span></div>
+      <div style="height:8px"></div>
+      <div class="btn text wide dim">Use a different Google account</div>
+    </div></div></div>
+  <div class="wrap"><span class="tag">Light · account made, photo failed</span><div class="frame">
+    <div class="splash" style="height:470px"><div class="logo">🔒</div><div class="appname">Kuch Bhi</div><div class="spin"></div></div>
+    <div class="toast ok">Your account is ready, but the photo didn't upload. Add it from Edit profile.</div>
+  </div></div>
+</div>
+<div class="note"><b>Spec (F1–F8).</b> No app bar; the avatar is the hero (the 64 logo tile and its 400ms scale go). R1 avatar 96 with initials (ink on accentSoft, never accent text) or the picked photo, plus the accent camera badge; it reads as a button (<b>Add a profile photo</b> / <b>Change profile photo</b>). Picking = Page 5's gallery → crop step (P1). The email is a read-only R13 field. Display name ≥2 (today unchecked); username prefilled from the email as today, lowercased at submit (today not). <b>Use a different Google account</b> and Android Back sign the Google picker out and go to Login (today Back pops nothing).</div>
+<div class="note"><b>The hook today (read 2026-10-29).</b> <code>google_auth.pb.js</code> lowercases the username, but on a taken one it computes a free candidate and then saves the original, so the unique index fails and the hook answers <b>500</b> with a raw error string. An existing email on <code>register</code> → <b>409</b> → toast <b>This Google account already has a Kuch Bhi account. Sign in instead.</b> and back to Login. Until the hook answers a taken username as a field error (decision 18), onboarding shows the generic toast.</div>
+<div class="note warn"><b>The photo path (F5, F6).</b> Today: <code>registerWithGoogle</code> publishes <code>AuthAuthenticated</code> → the router sends the screen to splash → <code>if (!mounted) return</code> skips the upload; when it does run it sends raw bytes with EXIF and then invalidates <code>authProvider</code>. Spec: the notifier uploads through <code>updateProfile</code> (EXIF stripped, 30s bound) <b>before</b> it publishes the signed-in user, then publishes the returned record. A failed photo never blocks the account: the hook's user is published and the toast on the right appears (plain toast, nothing was lost). <code>AuthOnboardingService</code> is deleted.</div>
+</div>
+
+<!-- S7 -->
+<div class="band">
+<header><span class="n">S7</span><h2>Fields &amp; buttons (R13, R3)</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Light · R13 states</span><div class="frame"><div class="auth" style="padding-top:16px">
+    <div class="af"><div class="in"><div class="lb">Email</div><div class="v ph">you@example.com</div></div></div><div class="mini" style="padding:2px 14px 10px">rest · 1px line</div>
+    <div class="af focus"><div class="in"><div class="lb">Email</div><div class="v">priya@exa|</div></div></div><div class="mini" style="padding:2px 14px 10px">focus · accent 1.5 (border = graphic, fill law holds)</div>
+    <div class="af bad"><div class="in"><div class="lb">Email</div><div class="v">priya</div></div></div><div class="fe"><span class="ic">⊘</span>Enter a valid email</div><div class="mini" style="padding:2px 14px 10px">error · error border + ink line + icon (live region)</div>
+    <div class="af ro"><div class="in"><div class="lb">Email</div><div class="v soft">priya.sharma@gmail.com</div></div><span class="eye">🔒</span></div><div class="mini" style="padding:2px 14px 10px">read-only · surface2, inkSoft value, lock</div>
+    <div class="af"><div class="in"><div class="lb">Password</div><div class="v">hunter2-not-real</div></div><span class="eye">◡</span></div><div class="mini" style="padding:2px 14px 0">show-password · tooltip “Hide password”</div>
+  </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · R3 buttons</span><div class="frame dark"><div class="auth" style="padding-top:16px">
+    <div class="btn primary wide">Sign in</div><div class="mini" style="padding:4px 0 10px;color:#A99878">primary · accent fill, onAccent 15 w600</div>
+    <div class="btn primary wide"><span class="spin"></span></div><div class="mini" style="padding:4px 0 10px;color:#A99878">busy · press blocked</div>
+    <div class="btn primary wide dim">Sign in</div><div class="oh">Available online</div><div class="mini" style="padding:4px 0 10px;color:#A99878">offline · single 38% dim + hint, once per screen</div>
+    <div class="btn secondary wide"><svg class="g" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.5 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.8 6.1C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 7l7.4 5.7c4.3-4 6.9-9.9 6.9-17.1z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.8-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continue with Google</div><div class="mini" style="padding:4px 0 10px;color:#A99878">secondary · 4-colour G kept (existing gate)</div>
+    <div class="btn text wide">Forgot password?</div><div class="mini" style="padding:4px 0 0;color:#A99878">text · ink, 48dp tap target</div>
+  </div></div></div>
+</div>
+</div>
+
+<!-- S8 -->
+<div class="band">
+<header><span class="n">S8</span><h2>Navigation &amp; routing</h2></header>
+<div class="flow"><span class="bx">cold start</span><span class="ar">→</span><span class="bx">Splash</span><span class="ar">→</span><span class="bx">redirect (unchanged)</span><span class="ar">→</span><span class="bx ok">Home</span><span class="ar">/</span><span class="bx">Backup PIN setup · restore</span><span class="ar">/</span><span class="bx">Login</span></div>
+<div class="flow"><span class="bx">Login</span><span class="ar">push →</span><span class="bx">Register</span><span class="ar">success →</span><span class="bx">redirect → Splash → Backup PIN setup</span></div>
+<div class="flow"><span class="bx">Login</span><span class="ar">push →</span><span class="bx">Forgot</span><span class="ar">sent →</span><span class="bx">Back to sign in (pop)</span></div>
+<div class="flow"><span class="bx">Login · Google</span><span class="ar">existing →</span><span class="bx">go(splash) → redirect</span></div>
+<div class="flow"><span class="bx">Login · Google</span><span class="ar">new →</span><span class="bx">go(onboarding, extra)</span><span class="ar">create →</span><span class="bx">photo step → publish → redirect</span><span class="ar">·</span><span class="bx">different account / Back → forget Google → go(login)</span></div>
+<div class="flow"><span class="bx bad">onboarding with no extra (process death)</span><span class="ar">→</span><span class="bx ok">Login (today: hard-cast crash)</span></div>
+<div class="note"><b>Spec (H1–H3).</b> Only the arrows Login → Register (now <code>push</code>), the onboarding exits, and the missing-extra fallback change. <code>redirect</code> and <code>RouterRefreshNotifier</code> stay byte-identical to HEAD; the splash's own listen + post-frame navigation move with it verbatim.</div>
+</div>
+
+<!-- S9 -->
+<div class="band">
+<header><span class="n">S9</span><h2>Errors, timeouts &amp; offline</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Case (G1 <code>authErrorMessage</code>)</th><th>Copy</th><th>Where</th></tr>
+<tr><td>Timeout (8s), PB status 0, no socket</td><td><b>Can't reach the server. Check your connection and try again.</b></td><td>toast, every screen</td></tr>
+<tr><td>Sign in, 400</td><td><b>Wrong email, username or password.</b></td><td>toast, Login</td></tr>
+<tr><td>Sign in, other</td><td><b>Couldn't sign you in. Try again.</b></td><td>toast, Login</td></tr>
+<tr><td>Register, username taken</td><td><b>That username is taken.</b></td><td>Username field (Register; onboarding once the hook is fixed, decision 18)</td></tr>
+<tr><td>Register, email taken</td><td><b>An account with this email already exists.</b></td><td>Email field</td></tr>
+<tr><td>Register, other</td><td><b>Couldn't create your account. Try again.</b></td><td>toast</td></tr>
+<tr><td>Google sign-in / onboarding, other</td><td><b>Google sign-in didn't work. Try again.</b></td><td>toast</td></tr>
+<tr><td>Google register, 409</td><td><b>This Google account already has a Kuch Bhi account. Sign in instead.</b></td><td>toast + back to Login</td></tr>
+<tr><td>Google picker cancelled</td><td>(nothing)</td><td>—</td></tr>
+<tr><td>Reset, other</td><td><b>Couldn't send the link. Try again.</b></td><td>toast, Forgot</td></tr>
+<tr><td>Onboarding photo failed</td><td><b>Your account is ready, but the photo didn't upload. Add it from Edit profile.</b></td><td>plain toast</td></tr>
+<tr><td>Photo picker failed</td><td><b>Couldn't open your photos.</b></td><td>error toast (Page 5 copy)</td></tr>
+</table></div>
+<div class="flow" style="margin-top:12px"><span class="bx">sign in tapped</span><span class="ar">→</span><span class="bx ok">authWithPassword (8s bound HERE)</span><span class="ar">→</span><span class="bx bad">_saveSession → _initEncryptionKeys (never bounded, never re-entered)</span><span class="ar">→</span><span class="bx">publish AuthAuthenticated</span></div>
+<div class="note warn"><b>Why the bound sits on the network call only (G3).</b> A <code>.timeout()</code> stops the wait, not the work. Around the whole sign-in, a timed-out attempt keeps running <code>_initEncryptionKeys</code> while the user's retry starts a second one on the same device. On the network call it fires before anything is saved, so a retry starts clean. Same for <code>users.create</code>, both <code>google-auth</code> POSTs and the reset request. The Google account picker is user-paced and not bounded.</div>
+<div class="note"><b>One screen, one error (G4).</b> With Register pushed above Login both listen to <code>authProvider</code>; each now shows only errors from an action it started. <b>Offline (G5):</b> network actions dim once with <b>Available online</b>; fields, links and the photo picker stay live; nothing on Splash dims. Server message strings are never shown.</div>
+</div>
+
+<!-- S10 -->
+<div class="band">
+<header><span class="n">S10</span><h2>Candidate features, checked against the app and PocketBase today</h2></header>
+<div class="tblwrap"><table class="verdict">
+<tr><th>Candidate</th><th>Today (evidence)</th><th>Default</th></tr>
+<tr><td>Show password</td><td>Already on Login and both Register fields (<code>lg:159</code>, <code>rg:204, 230</code>), no tooltip</td><td class="ok">Keep + tooltips (dec. 2)</td></tr>
+<tr><td>Password rules</td><td>Client ≥8 (<code>rg:215</code>); PocketBase's auth-collection default minimum is 8; no complexity rule anywhere</td><td class="ok">≥8 shown up front, no meter (dec. 3)</td></tr>
+<tr><td>Remember me</td><td>The PB auth store is always persisted and restored by <code>getCurrentUser</code>; there is no "don't remember" path</td><td>Not offered (dec. 4)</td></tr>
+<tr><td>Terms / privacy link</td><td>No such document in the repo</td><td>Not offered (dec. 5)</td></tr>
+<tr><td>Autofill</td><td>No <code>AutofillGroup</code> or hints; Flutter platform feature, no dependency</td><td class="ok">Add (dec. 6)</td></tr>
+<tr><td>Password reset email</td><td><code>users.requestPasswordReset</code> works in the SDK; PB returns 204 for any email; SMTP <b>enabled</b> (read)</td><td class="ok">Keep, neutral copy (dec. 14)</td></tr>
+<tr><td>Email verification</td><td>PB supports it; the app never requests or checks it; needs SMTP</td><td>Not added (dec. 15)</td></tr>
+<tr><td>Google sign-in</td><td>Works: <code>google-auth</code> hook, sign-in (404 = new) and register actions (<code>arr:120-218</code>); FCM verified e2e</td><td class="ok">Keep; fix onboarding</td></tr>
+<tr><td>Switch Google account</td><td><code>GoogleSignIn</code> is never signed out (not even on app sign-out), so Android reuses the last account silently</td><td class="ok">Sign the picker out on "different account" (dec. 13)</td></tr>
+<tr><td>Username rules</td><td>Client: ≥3, <code>[a-zA-Z0-9_]</code>, lowercased (Register, Edit Profile; onboarding forgets). Server (read): min 3, no max, <b>no pattern</b>, unique index; the client regex is the only guard</td><td class="ok">Same rule on all three</td></tr>
+<tr><td>Photo at sign-up</td><td>Onboarding only; EXIF kept; probably never uploads (S6)</td><td class="ok">Fix via <code>updateProfile</code> + crop (dec. 12)</td></tr>
+<tr><td>Sign in with username</td><td>PB <code>identityFields: ["email","username"]</code> (read); Login demands an <code>@</code></td><td class="ok">Email or username (dec. 19)</td></tr>
+<tr><td>Font options</td><td>Approved (W3 P11: system default, Plus Jakarta Sans optional, bundled); no selector UI yet, parked task T1</td><td class="ok">Built in Page 7: Settings + While you wait (S15, dec. 23)</td></tr>
+<tr><td>Something to do during restore</td><td>Restore blocks 1-3 min on <code>syncAllHistory</code> with real counts; theme + notification rows exist (Page 6)</td><td class="ok">While you wait (S13, dec. 20)</td></tr>
+<tr><td>Backup PIN visuals</td><td>910 lines on key restore; logic out of scope</td><td>Overlay only (dec. 1)</td></tr>
+</table></div>
+</div>
+
+<!-- S11 -->
+<div class="band">
+<header><span class="n">S11</span><h2>A11y, motion, copy &amp; out of scope</h2></header>
+<div class="row">
+  <div style="flex:1;min-width:260px"><h3>A11y</h3><div style="font-size:13px">Titles <code>Semantics(header: true)</code> (R14 does it in app bars) · field errors are live regions (R13) · show-password tooltip flips <b>Show password</b> / <b>Hide password</b> · avatar picker is a button with a label · autofill hints on every field · tested at <b>360dp × 200% text</b> on all five surfaces, with <code>tester.getSemantics</code> on the real tree.</div></div>
+  <div style="flex:1;min-width:260px"><h3>Motion</h3><div style="font-size:13px">Only the splash ring's 150ms fade-in. <code>flutter_animate</code> leaves auth (400ms scale over the 250ms ceiling; shake is not a token). R3a and the Capybara park under reduced motion.</div></div>
+  <div style="flex:1;min-width:260px"><h3>Copy changes</h3><div style="font-size:13px"><b>Sign In</b> → <b>Sign in</b> · <b>Sign Up</b> → <b>Create account</b> · <b>Display Name</b> → <b>Display name</b> · <b>Confirm Password</b> → <b>Confirm password</b> · <b>Send reset link</b> → <b>Send link</b> · <b>Back to Sign In</b> → <b>Back to sign in</b> · reset sent body (S5) · onboarding subtitle shortened (S6) · onboarding <b>Back</b> → <b>Use a different Google account</b> · new helpers (S4). Everything else unchanged.</div></div>
+</div>
+<div class="note"><b>Out of scope:</b> Backup PIN screens (logic always; visuals per decision 1) · the key boundary (S1) · email verification · remember-me · terms link · strength meter · signing out of Google on app sign-out (<code>signOut</code> is key-boundary; backlog) · unused <code>fetchGoogleProfile</code> / <code>getGooglePrefill</code> (backlog) · sheets &amp; overlays (page 8) · new mascots (page 10) · R3's internal spinner.</div>
+</div>
+
+<!-- S13 -->
+<div class="band">
+<header><span class="n">S13</span><h2>Restore wait: progress you can use (Backup PIN restore overlay)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · unlocking, 3 of 12 chats</span><div class="frame">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth" style="padding-top:20px">
+      <div class="rcard">
+        <div class="rt">Unlocking your chats</div>
+        <div class="rp">Downloading your messages…</div>
+        <div class="bar"><span style="width:25%"></span></div>
+        <div class="rn">3 of 12 chats · 410 of 3,100 messages</div>
+        <div class="rp">Keep the app open. This takes a minute or two.</div>
+      </div>
+    </div>
+    <div class="sect"><span class="lab">While you wait</span></div>
+    <div class="list">
+      <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk on">✓</span></div>
+      <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+    </div>
+    <div class="list" style="margin-top:12px"><div class="st"><div class="well">🔕</div><div class="tt"><div class="a">Notifications</div><div class="b">Off. Turn them on in system settings.</div></div><span class="ext">↗</span></div></div>
+    <div style="height:20px"></div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · picked Dark mid-restore, 9 of 12</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth" style="padding-top:20px">
+      <div class="rcard">
+        <div class="rt">Unlocking your chats</div>
+        <div class="rp">Decrypting messages…</div>
+        <div class="bar"><span style="width:75%"></span></div>
+        <div class="rn">9 of 12 chats · 2,480 of 3,100 messages</div>
+        <div class="rp">Keep the app open. This takes a minute or two.</div>
+      </div>
+    </div>
+    <div class="sect"><span class="lab">While you wait</span></div>
+    <div class="list">
+      <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk on">✓</span></div>
+      <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+    </div>
+    <div class="list" style="margin-top:12px"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+    <div style="height:20px"></div>
+  </div></div>
+  <div class="wrap amo"><span class="tag">AMOLED · ready (one frame before Home)</span><div class="frame amoled">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth" style="padding-top:20px">
+      <div class="rcard">
+        <div class="rt"><span style="color:var(--success)">✓</span> Your chats are ready</div>
+        <div class="bar"><span style="width:100%"></span></div>
+        <div class="rn">12 of 12 chats · 3,100 of 3,100 messages</div>
+      </div>
+    </div>
+    <div style="height:320px"></div>
+  </div></div>
+</div>
+<div class="note"><b>Spec (J1–J6).</b> After the PIN is accepted, restore already re-downloads and decrypts every chat (<code>syncAllHistory</code>, "~1-3 min" by its own comment) and reports real counts. Today that is a bar and nothing else. The overlay becomes a progress card (title 16 w600, phase line, determinate bar once a total is known, tabular counts) plus <b>While you wait</b>: the Settings theme rows (R16) and the Notifications status row (R17), both shared with Page 6, both offline-safe, neither touching keys or the network. Picking a theme re-themes the app live; the restore keeps running and still leaves through its own <code>go(home)</code>. Nothing here is a dialog, a navigation or a focus steal.</div>
+<div class="note"><b>Font (decision 20, corrected).</b> A font choice is already approved: the W3 spec (P11) keeps the system font as default and bundles Plus Jakarta Sans as the optional font. No selector exists yet; it is parked task T1 (<code>docs/superpowers/plans/2026-10-06-w3-widget-gaps.md</code>). Decision 23 pulls T1 into Page 7: its rows join this list (S15). Also weighed and left out: a profile-photo nudge (existing accounts usually have one, and it needs the network mid-restore), chat wallpaper (no such feature), a tips carousel (copy to maintain, nothing to do).</div>
+<div class="note warn"><b>Depends on K1.</b> As the code stands, an existing account signing in on a fresh install usually never reaches this screen (S14). J ships with Page 7 but is only seen once K1 is fixed.</div>
+</div>
+
+<!-- S14 -->
+<div class="band">
+<header><span class="n">S14</span><h2>Found while specifying, outside Page 7 (separate tasks)</h2></header>
+<div class="flow"><span class="bx">sign in</span><span class="ar">→</span><span class="bx">PB token saved (<code>authStore</code>)</span><span class="ar">→</span><span class="bx">message repo sees a new identity → <code>_reconnect()</code></span><span class="ar">→</span><span class="bx">sync + repair → <code>DecryptPass</code></span><span class="ar">→</span><span class="bx bad"><code>getOrCreateKeyPair()</code> makes a NEW key (slot empty)</span></div>
+<div class="flow"><span class="ar">then</span><span class="bx"><code>encryptionSyncProvider</code>: has local key ✓, server backup ✓</span><span class="ar">→</span><span class="bx bad"><code>keyOk</code> → Home, Restore skipped</span><span class="ar">→</span><span class="bx bad">new key never uploaded: nothing decrypts until the PIN is entered from Profile</span></div>
+<div class="tblwrap" style="margin-top:10px"><table>
+<tr><th>#</th><th>Finding</th><th>Evidence</th><th>Fix belongs in</th></tr>
+<tr><td>K1</td><td><b>Restore never shows after signing in on a new phone</b> (your report). A decrypt pass creates a fresh local key pair before the router checks for one.</td><td><code>message_repository_impl.dart:141-185</code> (<code>_reconnect</code> on identity change) → <code>decrypt_pass.dart:415-432</code> → <code>encryption_service.dart:177-205</code> (generates + saves when empty) → <code>encryption_sync_provider.dart:22-46</code>. Static trace, high confidence; one logcat of a fresh-install sign-in proves it.</td><td>Key boundary: decrypt paths read a key, never create one (empty → <code>key_missing</code>); generation only in <code>_initEncryptionKeys</code> / PIN setup.</td></tr>
+<tr><td class="bad">K2</td><td><b>Google sign-in trusts an unsigned token.</b> The hook base64-decodes the JWT and checks only <code>exp</code> and <code>aud</code>, never the signature.</td><td><code>pb_hooks/google_auth.pb.js</code> (read 2026-10-29). A hand-made token with someone else's email gets a valid session for their account.</td><td>Server: verify with Google (tokeninfo or JWKS), require <code>email_verified</code>.</td></tr>
+<tr><td>K3</td><td>A network blip during first sign-in on a new phone can <b>replace the account's public key</b>.</td><td><code>_initEncryptionKeys</code> uses the catch-all <code>hasPocketBaseBackup</code> (<code>false</code> on any error) and then generates and uploads; the tri-state <code>tryHasPocketBaseBackup</code> exists for this.</td><td>Key boundary.</td></tr>
+<tr><td>K4</td><td>Hook saves the original username, not its free candidate → 500 on a taken name.</td><td>Hook source.</td><td>Server (decision 18).</td></tr>
+<tr><td>K5</td><td>Restore's error text shows <code>$e</code>.</td><td><code>backup_pin_screen.dart:307</code> (frozen logic).</td><td>Backup PIN page.</td></tr>
+</table></div>
+<div class="note"><b>New account → Backup PIN setup:</b> by code it does appear. Register / onboarding → <code>_initEncryptionKeys</code> generates and uploads a key → no server backup → <code>needsSetup</code> → the router sends you to setup (<code>encryption_sync_provider.dart:44-64</code>, <code>app_router.dart:113-116</code>). A brand-new account has no chats, so K1's race does not bite here. Not yet checked on a device (device check 12).</div>
+</div>
+
+<!-- S15 -->
+<div class="band">
+<header><span class="n">S15</span><h2>Font choice: Settings and the restore wait (decision 23)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · Settings, Jakarta picked</span><div class="frame jk">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="appbar"><span class="ib">←</span><span class="t">Settings</span></div>
+    <div class="body">
+      <div class="sect"><span class="lab">Appearance</span></div>
+      <div class="list">
+        <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk on">✓</span></div>
+        <div class="st"><div class="well">☀</div><div class="tt"><div class="a">Light</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">◑</div><div class="tt"><div class="a">AMOLED (true black)</div></div><span class="chk"></span></div>
+      </div>
+      <div class="sect"><span class="lab">Font</span></div>
+      <div class="list">
+        <div class="st"><div class="well">Tt</div><div class="tt"><div class="a sys">System default</div></div><span class="chk"></span></div>
+        <div class="st"><div class="well">Tt</div><div class="tt"><div class="a">Plus Jakarta Sans</div></div><span class="chk on">✓</span></div>
+      </div>
+      <div class="sect"><span class="lab">Notifications</span></div>
+      <div class="list"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+      <div class="list" style="margin-top:24px"><div class="st"><div class="well">ⓘ</div><div class="tt"><div class="a">About</div></div><span class="chev">›</span></div></div>
+    </div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · restore wait, system font</span><div class="frame dark">
+    <div class="status"><span>9:41</span><span>▮▮▮</span></div>
+    <div class="auth" style="padding-top:20px">
+      <div class="rcard">
+        <div class="rt">Unlocking your chats</div>
+        <div class="rp">Decrypting messages…</div>
+        <div class="bar"><span style="width:55%"></span></div>
+        <div class="rn">6 of 12 chats · 1,700 of 3,100 messages</div>
+      </div>
+    </div>
+    <div class="sect"><span class="lab">While you wait</span></div>
+    <div class="list">
+      <div class="st"><div class="well">◐</div><div class="tt"><div class="a">System default</div></div><span class="chk"></span></div>
+      <div class="st"><div class="well">☾</div><div class="tt"><div class="a">Dark</div></div><span class="chk on">✓</span></div>
+      <div class="st"><div class="well">⋯</div><div class="tt"><div class="a" style="font-weight:400;color:var(--inkSoft)">Light · AMOLED (rows elided on the board)</div></div></div>
+    </div>
+    <div class="sect"><span class="lab">Font</span></div>
+    <div class="list">
+      <div class="st"><div class="well">Tt</div><div class="tt"><div class="a">System default</div></div><span class="chk on">✓</span></div>
+      <div class="st"><div class="well">Tt</div><div class="tt"><div class="a jkf">Plus Jakarta Sans</div></div><span class="chk"></span></div>
+    </div>
+    <div class="list" style="margin-top:12px"><div class="st"><div class="well">🔔</div><div class="tt"><div class="a">Notifications</div><div class="b">On</div></div><span class="ext">↗</span></div></div>
+    <div style="height:20px"></div>
+  </div></div>
+  <div class="wrap"><span class="tag">Weight check (L6) · Jakarta 400 / 600 / 700</span><div class="frame jk" style="padding:20px 16px">
+    <div style="font-size:15px;font-weight:400">Regular 400 — message text</div>
+    <div style="font-size:15px;font-weight:600;margin-top:8px">Semibold 600 — Sign in</div>
+    <div style="font-size:24px;font-weight:700;margin-top:8px">Bold 700 — Welcome back</div>
+    <div class="mini" style="margin-top:12px">On the device these three must look different. Flutter may not drive a variable font's weight axis from <code>FontWeight</code>; if all three match, fall back to static weight files.</div>
+  </div></div>
+</div>
+<div class="note"><b>Spec (L1–L7).</b> Parked task T1 is pulled into Page 7 with Page 6's look: Settings gets R9 <b>Font</b> between Appearance and Notifications, two rows whose titles are drawn in their own font, and the same check disc and semantics as the theme rows (R18). The same group sits in <b>While you wait</b> between the theme rows and Notifications. One saved setting (<code>app_font</code>) re-themes every screen live via <code>app.dart</code>; <code>null</code> keeps the system font (P11). Sign-out wipes saved settings, so font and theme return to default after signing out (kept; key boundary).</div>
+</div>
+
+<!-- S12 -->
+<div class="band">
+<header><span class="n">S12</span><h2>Diff vs current implementation</h2></header>
+<p style="font-size:12.5px;color:#6E655A;margin:0 0 6px">Line refs as of <code>482ca9d</code>: <code>lg</code> login, <code>rg</code> register, <code>fp</code> forgot, <code>go</code> onboarding, <code>ap</code> auth_provider, <code>ar</code> app_router, <code>arr</code> auth_repository_impl, <code>aos</code> auth_onboarding_service.</p>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Area</th><th>Today (file:line)</th><th>Spec</th><th>Checklist</th></tr>
+<tr><td>1</td><td>Splash location</td><td>Private <code>_SplashScreen</code> in the router <code>ar:258-288</code></td><td><code>screens/splash_screen.dart</code>, logic verbatim</td><td>B1</td></tr>
+<tr><td>2</td><td>Splash visual</td><td>Lone spinner <code>ar:287</code></td><td>R15 logo + name; R3a after 1s</td><td>B2, B3</td></tr>
+<tr><td>3</td><td>Native launch</td><td>White in light and dark</td><td><code>#FAF7F1</code> / <code>#171512</code></td><td>B4</td></tr>
+<tr><td>4</td><td>C3 colour</td><td><code>colorScheme…withValues</code> ×14 across all four screens</td><td><code>context.t.*</code></td><td>A1</td></tr>
+<tr><td>5</td><td>Accent / error text</td><td>Links, initial, error line, reset icon <code>lg:207, 262</code> <code>rg:297</code> <code>go:233, 390</code> <code>fp:181</code></td><td>ink; accent fill only</td><td>A2</td></tr>
+<tr><td>6</td><td>Type</td><td><code>headlineSmall</code>, w500, 14, 36</td><td>scale only</td><td>A3</td></tr>
+<tr><td>7</td><td>Gutter</td><td>28</td><td>24</td><td>A4</td></tr>
+<tr><td>8</td><td>Fields</td><td>Radius 12 + red error text; hand-built onboarding fields <code>go:270-381</code></td><td>R13 via <code>AuthTextField</code></td><td>A5</td></tr>
+<tr><td>9</td><td>Buttons</td><td>4 hand-styled <code>FilledButton</code>s + inline spinners; <code>OutlinedButton</code> Google</td><td>R3</td><td>A6</td></tr>
+<tr><td>10</td><td><code>$e</code></td><td><code>ap</code> ×5, <code>fp:46</code>, <code>go:141</code></td><td>G1 copy</td><td>A7, G1, G2</td></tr>
+<tr><td>11</td><td>Error display</td><td>Red SnackBars; red shaking line</td><td>R5 toast / R13 field error</td><td>A8, D4, F8</td></tr>
+<tr><td>12</td><td>Motion</td><td><code>scale(400ms)</code>, <code>shake()</code> <code>go:180, 394</code></td><td>none</td><td>A9, I4</td></tr>
+<tr><td>13</td><td>L4</td><td>Screen calls PB <code>fp:35-39</code></td><td>repository</td><td>A10, E1</td></tr>
+<tr><td>14</td><td>Busy</td><td>Shared <code>AuthLoading</code> <code>lg:78</code></td><td>per button</td><td>C3</td></tr>
+<tr><td>15</td><td>Footers</td><td><code>Row</code> + <code>GestureDetector</code> <code>lg:245</code>, <code>rg:280</code></td><td><code>Wrap</code> + R3 text</td><td>C2, D5</td></tr>
+<tr><td>16</td><td>Autofill</td><td>None</td><td>group + hints</td><td>C6, D7</td></tr>
+<tr><td>17</td><td>Register nav</td><td><code>go</code> both ways <code>lg:258</code>, <code>rg:293</code></td><td><code>push</code> / <code>pop</code></td><td>D1, D5, H1</td></tr>
+<tr><td>18</td><td>Register app bar</td><td>None</td><td>R14</td><td>D1</td></tr>
+<tr><td>19</td><td>Register labels</td><td>Title case; one helper</td><td>sentence case, <code>@</code>, two helpers</td><td>D2</td></tr>
+<tr><td>20</td><td>Taken username/email</td><td>Server string in a toast</td><td>field errors</td><td>D4</td></tr>
+<tr><td>21</td><td>Dead prefill</td><td><code>rg:11-45</code>, <code>ar:141-146</code></td><td>deleted</td><td>D6</td></tr>
+<tr><td>22</td><td>Forgot app bar</td><td>Default <code>AppBar</code> <code>fp:59</code></td><td>R14</td><td>E2</td></tr>
+<tr><td>23</td><td>Reset sent copy</td><td>Claims an account exists</td><td>neutral + <b>Send again</b></td><td>E3</td></tr>
+<tr><td>24</td><td>Onboarding logo</td><td>64 tile, <code>margin: 130</code> <code>go:165-180</code></td><td>removed</td><td>F1</td></tr>
+<tr><td>25</td><td>Onboarding avatar</td><td>Hand-built, accent initial <code>go:203-258</code></td><td>R1 + badge + semantics</td><td>F2</td></tr>
+<tr><td>26</td><td>Onboarding photo</td><td>No crop; EXIF kept <code>aos:25-29</code></td><td>P1 crop → <code>updateProfile</code>; service deleted</td><td>F3, F6</td></tr>
+<tr><td>27</td><td>Photo timing</td><td>After publish; <code>!mounted</code> skips it <code>go:123-128</code></td><td>inside <code>registerWithGoogle</code>, before publish</td><td>F5</td></tr>
+<tr><td>28</td><td>Invalidate</td><td><code>go:99</code></td><td>never</td><td>A11, F6</td></tr>
+<tr><td>29</td><td>Onboarding validation</td><td>Name unchecked, username not lowercased <code>go:106-121</code></td><td>≥2; lowercased</td><td>F4</td></tr>
+<tr><td>30</td><td>Onboarding Back</td><td><code>context.pop()</code> on a <code>go</code> route <code>go:432</code></td><td>forget Google + <code>go(login)</code>; <code>PopScope</code></td><td>F7</td></tr>
+<tr><td>31</td><td>Onboarding extra</td><td>Hard cast <code>ar:246</code></td><td>fallback to Login</td><td>H2</td></tr>
+<tr><td>32</td><td>Timeouts</td><td>None</td><td>8s on network legs (<code>arr</code>)</td><td>G3</td></tr>
+<tr><td>33</td><td>Cross-screen errors</td><td>Every screen shows every error</td><td>only its own</td><td>G4</td></tr>
+<tr><td>34</td><td>Offline</td><td>Nothing</td><td>dim + <b>Available online</b></td><td>G5</td></tr>
+<tr><td>35</td><td>Tests</td><td>Colour gate only <code>grep_gates_test.dart:36</code></td><td>9 files + page gate in <code>main()</code></td><td>Test gates</td></tr>
+<tr><td>36</td><td>Login identity</td><td>Email only, <code>@</code> required <code>lg:138-149</code></td><td>email or username</td><td>C4</td></tr>
+<tr><td>37</td><td>Onboarding 409</td><td>Raw hook message</td><td>toast + Login</td><td>F8</td></tr>
+<tr><td>38</td><td>Restore wait</td><td>Overlay + bar, 1-3 min, nothing to do <code>backup_pin_screen.dart:685-910</code></td><td>progress card + While you wait</td><td>J1–J6</td></tr>
+<tr><td>39</td><td>Theme / notifications rows</td><td>Private to <code>settings_screen.dart:79-110</code></td><td>R16 / R17 shared</td><td>Registry</td></tr>
+<tr><td>40</td><td>Font choice</td><td>Jakarta bundled, no selector; <code>fontFamily</code> never set <code>app_theme.dart:50</code></td><td><code>font_provider</code> + theme threading + R18</td><td>L1–L7</td></tr>
+<tr><td>41</td><td>Settings sections</td><td>Appearance · Notifications · About</td><td>Appearance · <b>Font</b> · Notifications · About</td><td>L4</td></tr>
+</table></div>
+</div>
+
+</body>
+</html>

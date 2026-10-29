@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/user.dart';
@@ -14,12 +16,60 @@ class AuthAuthenticated  extends AuthState {
 }
 class AuthUnauthenticated extends AuthState { const AuthUnauthenticated(); }
 class AuthError           extends AuthState {
-  const AuthError(this.message);
+  const AuthError(this.message, {this.field, this.code});
   final String message;
+
+  /// D4 / F8: `'email'` or `'username'` when the error belongs on a field.
+  final String? field;
+
+  /// The repository's [AuthException.code] (e.g. `'409'`), for routing only.
+  final String? code;
+}
+
+enum AuthAction { signIn, google, register, reset }
+
+const kUsernameTakenCopy = 'That username is taken.';
+const kEmailTakenCopy = 'An account with this email already exists.';
+const kGoogleAccountExistsCopy =
+    'This Google account already has a Kuch Bhi account. Sign in instead.';
+
+/// G1: the only failure copy auth screens show. Server text never reaches
+/// the user; the detail goes to debugPrint at the call site.
+String authErrorMessage(Object error, AuthAction action) {
+  final code = error is AuthException ? error.code : null;
+  if (error is TimeoutException ||
+      error is SocketException ||
+      code == 'timeout' ||
+      code == '0' ||
+      code == '503') { // 503: the google-auth hook can't reach Google
+    return "Can't reach the server. Check your connection and try again.";
+  }
+  return switch (action) {
+    AuthAction.signIn when code == '400' => 'Wrong email, username or password.',
+    AuthAction.google when code == '409' => kGoogleAccountExistsCopy,
+    AuthAction.google => "Google sign-in didn't work. Try again.",
+    AuthAction.signIn => "Couldn't sign you in. Try again.",
+    AuthAction.register => "Couldn't create your account. Try again.",
+    AuthAction.reset => "Couldn't send the link. Try again.",
+  };
 }
 
 class AuthNotifier extends AsyncNotifier<AuthState> {
   AuthRepository get _repo => ref.read(authRepositoryProvider);
+
+  /// G2: user copy from G1 (or the field copy); the detail to the log only.
+  void _fail(Object error, AuthAction action) {
+    debugPrint('[Auth] ${action.name} failed: $error');
+    state = AsyncData(switch (error) {
+      UsernameTakenException() =>
+        const AuthError(kUsernameTakenCopy, field: 'username'),
+      AuthException(code: 'email_taken') =>
+        const AuthError(kEmailTakenCopy, field: 'email'),
+      AuthException(:final code) =>
+        AuthError(authErrorMessage(error, action), code: code),
+      _ => AuthError(authErrorMessage(error, action)),
+    });
+  }
 
   @override
   Future<AuthState> build() async {
@@ -41,10 +91,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         password: password,
       );
       state = AsyncData(AuthAuthenticated(user));
-    } on AuthException catch (e) {
-      state = AsyncData(AuthError(e.message));
     } catch (e) {
-      state = AsyncData(AuthError('Unexpected error: $e'));
+      _fail(e, AuthAction.signIn);
     }
   }
 
@@ -57,11 +105,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   Future<GooglePrefill?> fetchGoogleProfile() async {
     try {
       return await _repo.fetchGoogleProfile();
-    } on AuthException catch (e) {
-      state = AsyncData(AuthError(e.message));
-      return null;
     } catch (e) {
-      state = AsyncData(AuthError('Google sign in failed: $e'));
+      _fail(e, AuthAction.google);
       return null;
     }
   }
@@ -69,10 +114,16 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   /// Step-2 of Google sign-in: takes the Google idToken + user-confirmed
   /// display name and username, and creates the PocketBase account via
   /// the hook. On success returns the authenticated [User].
+  ///
+  /// F5: a picked photo uploads HERE, before state turns authenticated —
+  /// the redirect replaces the onboarding screen the moment it does. It goes
+  /// through updateProfile (EXIF stripped). A failed photo still signs in,
+  /// with [GoogleAuthResult.photoFailed].
   Future<GoogleAuthResult?> registerWithGoogle({
     required String idToken,
     required String displayName,
     required String username,
+    File? avatarFile,
   }) async {
     state = const AsyncData(AuthLoading());
     try {
@@ -81,20 +132,28 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         displayName: displayName,
         username: username,
       );
-      if (result == null) {
-        state = const AsyncData(AuthUnauthenticated());
-        return null;
+      var user = result.user!;
+      var photoFailed = false;
+      if (avatarFile != null) {
+        try {
+          user = await _repo
+              .updateProfile(
+                // What the hook saved, never re-sent client values.
+                displayName: user.displayName,
+                username: user.username,
+                about: '',
+                avatarFile: avatarFile,
+              )
+              .timeout(const Duration(seconds: 30));
+        } catch (e) {
+          debugPrint('[Auth] onboarding photo upload failed: $e');
+          photoFailed = true;
+        }
       }
-      // Existing onboarding callers never had a value (function was
-      // declared non-nullable in early designs). Make the user explicit:
-      final user = result.user!;
       state = AsyncData(AuthAuthenticated(user));
-      return result;
-    } on AuthException catch (e) {
-      state = AsyncData(AuthError(e.message));
-      return null;
+      return GoogleAuthResult(user: user, isNew: true, photoFailed: photoFailed);
     } catch (e) {
-      state = AsyncData(AuthError('Google sign in failed: $e'));
+      _fail(e, AuthAction.google);
       return null;
     }
   }
@@ -124,11 +183,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       // Existing user authenticated successfully.
       state = AsyncData(AuthAuthenticated(result.user!));
       return result;
-    } on AuthException catch (e) {
-      state = AsyncData(AuthError(e.message));
-      return null;
     } catch (e) {
-      state = AsyncData(AuthError('Google sign in failed: $e'));
+      _fail(e, AuthAction.google);
       return null;
     }
   }
@@ -148,12 +204,25 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         username: username,
       );
       state = AsyncData(AuthAuthenticated(user));
-    } on AuthException catch (e) {
-      state = AsyncData(AuthError(e.message));
     } catch (e) {
-      state = AsyncData(AuthError('Registration failed: $e'));
+      _fail(e, AuthAction.register);
     }
   }
+
+  /// E1: returns the G1 copy on failure, null when the link was requested.
+  /// Leaves auth state alone (the user is signed out either way).
+  Future<String?> requestPasswordReset(String email) async {
+    try {
+      await _repo.requestPasswordReset(email);
+      return null;
+    } catch (e) {
+      debugPrint('[Auth] reset failed: $e');
+      return authErrorMessage(e, AuthAction.reset);
+    }
+  }
+
+  /// F7: best effort; the next Google tap shows the account chooser.
+  Future<void> forgetGoogleAccount() => _repo.forgetGoogleAccount();
 
   Future<void> signOut() async {
     await _repo.signOut();

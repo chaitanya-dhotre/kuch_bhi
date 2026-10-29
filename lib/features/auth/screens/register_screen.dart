@@ -1,23 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/page_app_bar.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
+import '../widgets/auth_ui.dart';
+
+final _usernamePattern = RegExp(r'^[a-zA-Z0-9_]+$');
+
+/// D3 / F4: shared with Google onboarding.
+String? validateDisplayName(String? v) {
+  if (v == null || v.trim().isEmpty) return 'Enter your name';
+  if (v.trim().length < 2) return 'At least 2 characters';
+  return null;
+}
+
+String? validateUsername(String? v) {
+  if (v == null || v.trim().isEmpty) return 'Enter a username';
+  if (v.trim().length < 3) return 'At least 3 characters';
+  if (!_usernamePattern.hasMatch(v.trim())) {
+    return 'Letters, numbers and underscores only';
+  }
+  return null;
+}
+
+const kUsernameHelper = 'Letters, numbers and underscores. At least 3.';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({
-    super.key,
-    this.prefilledEmail,
-    this.prefilledDisplayName,
-  });
-
-  /// Set when arriving from the Google button: email is locked, the rest of
-  /// the profile (username/password) is completed here.
-  final String? prefilledEmail;
-  final String? prefilledDisplayName;
+  const RegisterScreen({super.key});
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -31,19 +48,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _passwordController    = TextEditingController();
   final _confirmController     = TextEditingController();
 
-  bool get _isGooglePrefill => widget.prefilledEmail != null;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.prefilledEmail != null) {
-      _emailController.text = widget.prefilledEmail!;
-    }
-    if (widget.prefilledDisplayName != null) {
-      _displayNameController.text = widget.prefilledDisplayName!;
-    }
-  }
-
   final _displayNameFocus = FocusNode();
   final _usernameFocus    = FocusNode();
   final _emailFocus       = FocusNode();
@@ -52,6 +56,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   bool _obscurePassword = true;
   bool _obscureConfirm  = true;
+  bool _busy = false;
+
+  /// D4: server errors on their fields until that field is edited.
+  String? _usernameServerError;
+  String? _emailServerError;
 
   @override
   void dispose() {
@@ -69,237 +78,187 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _submit() async {
+    // G5: the keyboard's Done must not bypass the disabled button.
+    if (_busy || !(ref.read(isOnlineProvider).valueOrNull ?? true)) return;
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
+    setState(() {
+      _busy = true;
+      _usernameServerError = null;
+      _emailServerError = null;
+    });
+    try {
+      await ref.read(authProvider.notifier).register(
+            displayName: _displayNameController.text.trim(),
+            username: _usernameController.text.trim().toLowerCase(),
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+          );
+      if (!mounted) return;
+      // G4: this screen reports only the action it started.
+      final s = ref.read(authProvider).valueOrNull;
+      if (s is AuthAuthenticated) {
+        TextInput.finishAutofillContext();
+      } else if (s is AuthError) {
+        switch (s.field) {
+          case 'username':
+            setState(() => _usernameServerError = s.message);
+          case 'email':
+            setState(() => _emailServerError = s.message);
+          default:
+            showToast(context, s.message, error: true);
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
-    await ref.read(authProvider.notifier).register(
-          displayName: _displayNameController.text.trim(),
-          username: _usernameController.text.trim().toLowerCase(),
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-        );
+  void _toSignIn() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.login);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final isLoading = authState.value is AuthLoading;
-
-    ref.listen(authProvider, (_, next) {
-      next.whenData((state) {
-        if (state is AuthError) {
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(
-              content: Text(state.message),
-              backgroundColor: context.t.error,
-              behavior: SnackBarBehavior.floating,
-            ));
-        }
-      });
-    });
+    final t = context.t;
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
 
     return Scaffold(
+      backgroundColor: t.bg,
+      appBar: pageAppBar(context, 'Create account'),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Form(
-              key: _formKey,
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: kAuthGutter),
+          child: Form(
+            key: _formKey,
+            child: AutofillGroup(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 40),
-
-                  Text(
-                    'Create account',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Join Kuch Bhi',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.55),
-                        ),
-                  ),
-
-                  const SizedBox(height: 36),
-
-                  // ── Fields ────────────────────────────────────
+                  const SizedBox(height: 8),
+                  Text('Join Kuch Bhi', style: authBodyStyle(context)),
+                  const SizedBox(height: 24),
                   AuthTextField(
                     controller: _displayNameController,
                     focusNode: _displayNameFocus,
-                    label: 'Display Name',
+                    label: 'Display name',
                     textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.words,
+                    autofillHints: const [AutofillHints.name],
                     onEditingComplete: () =>
                         FocusScope.of(context).requestFocus(_usernameFocus),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return 'Please enter your name';
-                      }
-                      if (v.trim().length < 2) {
-                        return 'Name must be at least 2 characters';
-                      }
-                      return null;
-                    },
+                    validator: validateDisplayName,
                   ),
-                  const SizedBox(height: 14),
-
+                  const SizedBox(height: 16),
                   AuthTextField(
                     controller: _usernameController,
                     focusNode: _usernameFocus,
                     label: 'Username',
+                    prefixText: '@',
+                    helperText: kUsernameHelper,
                     textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.newUsername],
+                    errorText: _usernameServerError,
+                    onChanged: (_) {
+                      if (_usernameServerError != null) {
+                        setState(() => _usernameServerError = null);
+                      }
+                    },
                     onEditingComplete: () =>
                         FocusScope.of(context).requestFocus(_emailFocus),
-                    helperText: 'Letters, numbers, and underscores only',
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return 'Please enter a username';
-                      }
-                      if (v.trim().length < 3) {
-                        return 'Username must be at least 3 characters';
-                      }
-                      if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(v.trim())) {
-                        return 'Only letters, numbers, and underscores';
-                      }
-                      return null;
-                    },
+                    validator: validateUsername,
                   ),
-                  const SizedBox(height: 14),
-
+                  const SizedBox(height: 16),
                   AuthTextField(
                     controller: _emailController,
                     focusNode: _emailFocus,
                     label: 'Email',
-                    readOnly: _isGooglePrefill,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.email],
+                    errorText: _emailServerError,
+                    onChanged: (_) {
+                      if (_emailServerError != null) {
+                        setState(() => _emailServerError = null);
+                      }
+                    },
                     onEditingComplete: () =>
                         FocusScope.of(context).requestFocus(_passwordFocus),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) {
-                        return 'Please enter your email';
+                        return 'Enter your email';
                       }
                       if (!v.contains('@')) return 'Enter a valid email';
                       return null;
                     },
                   ),
-                  const SizedBox(height: 14),
-
+                  const SizedBox(height: 16),
                   AuthTextField(
                     controller: _passwordController,
                     focusNode: _passwordFocus,
                     label: 'Password',
+                    helperText: 'At least 8 characters.',
                     obscureText: _obscurePassword,
                     textInputAction: TextInputAction.next,
-                    onEditingComplete: () =>
-                        FocusScope.of(context).requestFocus(_confirmFocus),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscurePassword
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined),
+                    autofillHints: const [AutofillHints.newPassword],
+                    suffixIcon: PasswordToggle(
+                      obscured: _obscurePassword,
                       onPressed: () => setState(
                           () => _obscurePassword = !_obscurePassword),
                     ),
+                    onEditingComplete: () =>
+                        FocusScope.of(context).requestFocus(_confirmFocus),
                     validator: (v) {
-                      if (v == null || v.isEmpty) {
-                        return 'Please enter a password';
-                      }
-                      if (v.length < 8) {
-                        return 'Password must be at least 8 characters';
-                      }
+                      if (v == null || v.isEmpty) return 'Enter a password';
+                      if (v.length < 8) return 'At least 8 characters';
                       return null;
                     },
                   ),
-                  const SizedBox(height: 14),
-
+                  const SizedBox(height: 16),
                   AuthTextField(
                     controller: _confirmController,
                     focusNode: _confirmFocus,
-                    label: 'Confirm Password',
+                    label: 'Confirm password',
                     obscureText: _obscureConfirm,
                     textInputAction: TextInputAction.done,
-                    onEditingComplete: _submit,
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureConfirm
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined),
-                      onPressed: () =>
-                          setState(() => _obscureConfirm = !_obscureConfirm),
+                    autofillHints: const [AutofillHints.newPassword],
+                    suffixIcon: PasswordToggle(
+                      obscured: _obscureConfirm,
+                      onPressed: () => setState(
+                          () => _obscureConfirm = !_obscureConfirm),
                     ),
+                    onEditingComplete: _submit,
                     validator: (v) {
                       if (v == null || v.isEmpty) {
-                        return 'Please confirm your password';
+                        return 'Confirm your password';
                       }
                       if (v != _passwordController.text) {
-                        return 'Passwords do not match';
+                        return "Passwords don't match";
                       }
                       return null;
                     },
                   ),
-
-                  const SizedBox(height: 28),
-
-                  FilledButton(
-                    onPressed: isLoading ? null : _submit,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: context.t.accent,
-                      foregroundColor: context.t.onAccent,
-                      minimumSize: const Size.fromHeight(52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                  const SizedBox(height: 24),
+                  OfflineDim(
+                    online: online,
+                    child: AppButton(
+                      expanded: true,
+                      busy: _busy,
+                      onPressed: online ? _submit : null,
+                      child: const Text('Create account'),
                     ),
-                    child: isLoading
-                        ? SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: context.t.onAccent,
-                            ),
-                          )
-                        : const Text(
-                            'Create Account',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
                   ),
-
-                  const SizedBox(height: 28),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Already have an account? ',
-                        style: TextStyle(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => context.go(AppRoutes.login),
-                        child: Text(
-                          'Sign In',
-                          style: TextStyle(
-                            color: context.t.accent,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
+                  if (!online) const OfflineActionHint(),
+                  const SizedBox(height: 24),
+                  AuthFooter(
+                    prompt: 'Already have an account?',
+                    action: 'Sign in',
+                    onPressed: _toSignIn,
                   ),
                   const SizedBox(height: 32),
                 ],

@@ -52,6 +52,18 @@ class FakeAuthRepository implements AuthRepository {
     return Future.value(user);
   }
 
+  /// Page 7: the hook's answer for registerWithGoogle (default: [user]).
+  Future<GoogleAuthResult> Function()? onRegisterWithGoogle;
+
+  @override
+  Future<GoogleAuthResult> registerWithGoogle({
+    required String idToken,
+    required String displayName,
+    required String username,
+  }) =>
+      onRegisterWithGoogle?.call() ??
+      Future.value(GoogleAuthResult(user: user, isNew: true));
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

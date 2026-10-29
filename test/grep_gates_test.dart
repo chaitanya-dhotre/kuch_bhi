@@ -402,6 +402,49 @@ void main() {
           reason: '\$e in ${f.path}');
     }
   });
+
+  test('Page 7 auth: tokens, R3/R5, L4, no \$e, no key or network imports',
+      () {
+    const frozen = ['backup_pin_screen.dart', 'encryption_sync_provider.dart'];
+    final files = Directory('lib/features/auth')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .where((f) => !frozen.any(f.path.endsWith))
+        .toList();
+    expect(files.length, greaterThanOrEqualTo(9));
+    final banned = {
+      'colorScheme': RegExp(r'colorScheme'),
+      'withValues(alpha': RegExp(r'withValues\(alpha'),
+      'textTheme': RegExp(r'textTheme'),
+      'CircularProgressIndicator': RegExp(r'CircularProgressIndicator'),
+      'SnackBar(': RegExp(r'SnackBar\('),
+      'flutter_animate': RegExp(r'flutter_animate'),
+      'raw radius': RegExp(r'(Border|Radius)\.circular\(\d'),
+      'invalidate(authProvider)': RegExp(r'invalidate\(authProvider\)'),
+      '.collection(': RegExp(r'\.collection\('),
+      'banned import': RegExp(
+          r"^import .*(pocketbase|package:dio|package:http|secure_storage|crypto|encryption)",
+          multiLine: true),
+    };
+    for (final f in files) {
+      final src = f.readAsStringSync();
+      banned.forEach((name, re) {
+        expect(re.hasMatch(src), isFalse, reason: '$name in ${f.path}');
+      });
+      final shown = f
+          .readAsLinesSync()
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      expect(RegExp(r'\$\{?e\b|\be\.toString\(\)').hasMatch(shown), isFalse,
+          reason: '\$e in ${f.path}');
+    }
+    expect(
+        File('lib/infrastructure/services/auth_onboarding_service.dart')
+            .existsSync(),
+        isFalse,
+        reason: 'F6: raw-bytes avatar upload (EXIF) is gone');
+  });
 }
 
 const _bannedPurpleHexes = [

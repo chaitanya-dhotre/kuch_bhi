@@ -16,14 +16,17 @@ class SectionHeader extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                height: 1.27,
-                letterSpacing: .1,
-                color: t.inkFaint,
+            // Wraps instead of overflowing at large text sizes (I2).
+            Flexible(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  height: 1.27,
+                  letterSpacing: .1,
+                  color: t.inkFaint,
+                ),
               ),
             ),
             if (count != null) ...[

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'tokens.dart';
 
-ThemeData warmPopLight() => _build(ColorTokens.light, Brightness.light);
+ThemeData warmPopLight({String? fontFamily}) =>
+    _build(ColorTokens.light, Brightness.light, fontFamily);
 
 /// AMOLED: Warm Pop on a pure-black ground (preserves the app's existing
 /// theme-mode option — matches the legacy AMOLED palette's black surfaces).
-ThemeData warmPopDark({bool amoled = false}) =>
+ThemeData warmPopDark({bool amoled = false, String? fontFamily}) =>
     _build(amoled ? const ColorTokens(
       bg: Colors.black,
       // A raised card needs a surface that differs from the page ground.
@@ -26,9 +27,9 @@ ThemeData warmPopDark({bool amoled = false}) =>
       error: WarmPopTokens.error,
       info: WarmPopTokens.info,
       shadow: WarmPopTokens.shadowAmoled,
-    ) : ColorTokens.dark, Brightness.dark);
+    ) : ColorTokens.dark, Brightness.dark, fontFamily);
 
-ThemeData _build(ColorTokens c, Brightness brightness) {
+ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
   final scheme = ColorScheme(
     brightness: brightness,
     primary: c.accent,
@@ -47,7 +48,8 @@ ThemeData _build(ColorTokens c, Brightness brightness) {
     colorScheme: scheme,
     scaffoldBackgroundColor: c.bg,
     extensions: [c],
-    // P11: system font default — fontFamily intentionally NOT set.
+    // P11: null = system font (default); 'PlusJakartaSans' when chosen (L2).
+    fontFamily: fontFamily,
     textTheme: const TextTheme(
       headlineMedium: TextStyle(
           fontSize: 24,

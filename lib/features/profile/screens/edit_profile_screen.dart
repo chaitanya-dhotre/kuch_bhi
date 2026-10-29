@@ -2,9 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/theme/tokens.dart';
@@ -104,29 +102,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   Future<void> _pickImage() async {
     if (_saving) return;
-    try {
-      final picked = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 80,
-      );
-      if (picked == null || !mounted) return;
-      // F5: move and scale before the photo is used; null = cancelled.
-      final cropped = await Navigator.of(context).push<File>(
-        MaterialPageRoute(
-          builder: (_) => CropPhotoScreen(file: File(picked.path)),
-        ),
-      );
-      if (cropped != null && mounted) {
-        setState(() {
-          _pickedImage = cropped;
-          _clearAvatar = false;
-        });
-      }
-    } on PlatformException catch (e) {
-      debugPrint('[Profile] pickImage failed: $e');
-      if (mounted) showToast(context, "Couldn't open your photos.", error: true);
+    final cropped = await pickCroppedPhoto(context);
+    if (cropped != null && mounted) {
+      setState(() {
+        _pickedImage = cropped;
+        _clearAvatar = false;
+      });
     }
   }
 

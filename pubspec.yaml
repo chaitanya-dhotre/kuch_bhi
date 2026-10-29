@@ -97,6 +97,8 @@ dev_dependencies:
   riverpod_lint: ^2.6.1
   # Profile tests fake the picker through the plugin's own platform seam.
   image_picker_platform_interface: ^2.11.1
+  # Auth timeout test fakes the Google picker through its platform seam.
+  google_sign_in_platform_interface: ^2.5.0
   # T9 migration test pre-seeds a REAL v9 sqlite file (raw ALTER/DROP proof
   # through the production onUpgrade path) — package:sqlite3 was already in
   # the graph as drift's transitive dep; promoted to direct dev use.

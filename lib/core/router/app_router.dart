@@ -11,6 +11,7 @@ import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/google_onboarding_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
+import '../../features/auth/screens/splash_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
 import '../../features/friend_requests/screens/friend_requests_screen.dart';
 import '../../features/home/screens/home_screen.dart';
@@ -51,6 +52,13 @@ class AppRoutes {
   static const String viewProfile       = '/view-profile';
   static const String googleOnboarding  = '/google-onboarding';
 }
+
+/// The last Google onboarding prefill the router was given (see the route).
+GoogleAuthResult? _onboardingPrefill;
+
+/// Test seam: what a process death does to [_onboardingPrefill].
+@visibleForTesting
+void resetOnboardingPrefill() => _onboardingPrefill = null;
 
 /// Root navigator key — public so non-widget code (FcmService notification
 /// tap routing) can navigate via `rootNavigatorKey.currentContext`.
@@ -130,7 +138,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(
         path: AppRoutes.splash,
-        builder: (_, __) => const _SplashScreen(),
+        builder: (_, __) => const SplashScreen(),
       ),
       GoRoute(
         path: AppRoutes.login,
@@ -138,13 +146,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.register,
-        builder: (context, state) {
-          final prefill = state.extra as Map<String, String?>?;
-          return RegisterScreen(
-            prefilledEmail:       prefill?['email'],
-            prefilledDisplayName: prefill?['displayName'],
-          );
-        },
+        builder: (_, __) => const RegisterScreen(),
       ),
       GoRoute(
         path: AppRoutes.forgotPassword,
@@ -243,7 +245,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.googleOnboarding,
         builder: (context, state) {
-          final prefill = state.extra as GoogleAuthResult;
+          // A refresh rebuild (e.g. an AuthError from the hook) can arrive
+          // without `extra`: keep the last prefill. H2: none at all (process
+          // death) falls back to Login.
+          if (state.extra is GoogleAuthResult) {
+            _onboardingPrefill = state.extra as GoogleAuthResult;
+          }
+          final prefill = _onboardingPrefill;
+          if (prefill == null) return const LoginScreen();
           return GoogleOnboardingScreen(
             email: prefill.email ?? '',
             displayName: prefill.displayName ?? '',
@@ -254,36 +263,3 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
-
-class _SplashScreen extends ConsumerWidget {
-  const _SplashScreen();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen(authProvider, (_, next) {
-      if (next.isLoading) return;
-      next.whenData((state) {
-        if (!context.mounted) return;
-        if (state is AuthAuthenticated) {
-          context.go(AppRoutes.home);
-        } else {
-          context.go(AppRoutes.login);
-        }
-      });
-    });
-
-    final authState = ref.watch(authProvider);
-    authState.whenData((state) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        if (state is AuthAuthenticated) {
-          context.go(AppRoutes.home);
-        } else if (state is AuthUnauthenticated || state is AuthError) {
-          context.go(AppRoutes.login);
-        }
-      });
-    });
-
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
-  }
-}

@@ -3,13 +3,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/repositories/message_repository.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/encryption_service.dart';
+import '../../settings/widgets/font_choice_group.dart';
+import '../../settings/widgets/notifications_status_row.dart';
+import '../../settings/widgets/theme_mode_group.dart';
 import '../providers/encryption_sync_provider.dart';
 
 enum BackupPinMode { setup, restore, change }
@@ -726,14 +731,27 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   late final Stopwatch _stopwatch;
   late final AnimationController _pulseCtrl;
 
+  /// J1: restore gets the progress view; PIN setup / change keep the
+  /// saving card below unchanged.
+  late final bool _isRestore;
+
+  /// J6: the count line is announced at most once per 10% step.
+  int _announcedStep = -1;
+  String _announced = '';
+
   @override
   void initState() {
     super.initState();
+    _isRestore = context.findAncestorWidgetOfExactType<BackupPinScreen>()
+            ?.mode ==
+        BackupPinMode.restore;
     _stopwatch = Stopwatch()..start();
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
+    );
+    if (_isRestore) return;
+    _pulseCtrl.repeat(reverse: true);
     // Tick the elapsed-time display every second.
     _tick();
   }
@@ -796,8 +814,160 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
     return null;
   }
 
+  /// Chats fraction once a total is known (the bar follows chats, S13).
+  double? get _fraction => widget.convTotal > 0
+      ? (widget.convIndex / widget.convTotal).clamp(0.0, 1.0)
+      : null;
+
+  String _countLine() {
+    final n = NumberFormat.decimalPattern('en');
+    return [
+      if (widget.convTotal > 0)
+        '${n.format(widget.convIndex)} of ${n.format(widget.convTotal)} chats',
+      if (widget.msgTotal > 0)
+        '${n.format(widget.msgCurrent)} of ${n.format(widget.msgTotal)} '
+            'messages',
+    ].join(' · ');
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      _isRestore ? _buildRestore(context) : _buildSaving(context);
+
+  /// J2–J6: progress card + While you wait (theme, font, notifications).
+  /// Nothing here navigates, blocks or steals focus; the restore leaves only
+  /// through its own frozen go(home).
+  Widget _buildRestore(BuildContext context) {
+    final t = context.t;
+    final ready = widget.phase == RestorePhase.ready;
+    final phase = widget.phase == RestorePhase.idle
+        ? RestorePhase.deriving
+        : widget.phase;
+    final fraction = ready ? 1.0 : _fraction;
+    final count = _countLine();
+    // One chat (or none yet): step on messages, else the line never moves.
+    final stepFraction = widget.convTotal > 1 || widget.msgTotal == 0
+        ? (fraction ?? 0)
+        : widget.msgCurrent / widget.msgTotal;
+    final step = (stepFraction * 10).floor();
+    if (step != _announcedStep || _announced.isEmpty) {
+      _announcedStep = step;
+      _announced = count;
+    }
+    final small = TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft);
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+
+    return Scaffold(
+      backgroundColor: t.bg,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: t.surface,
+                  borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+                  border: Border.all(color: t.line),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      header: true,
+                      child: Row(
+                        children: [
+                          if (ready) ...[
+                            Icon(Icons.check_circle, size: 18, color: t.success),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              ready
+                                  ? 'Your chats are ready'
+                                  : 'Unlocking your chats',
+                              style: TextStyle(
+                                fontSize: 16,
+                                height: 22 / 16,
+                                fontWeight: FontWeight.w600,
+                                color: t.ink,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!ready) ...[
+                      const SizedBox(height: 4),
+                      Text(phase.message, style: small),
+                    ],
+                    const SizedBox(height: 12),
+                    // J6: no total yet = "In progress". A progress bar's own
+                    // semantics value must be numeric, so the parked 30%
+                    // segment is excluded rather than announced as 30%.
+                    Semantics(
+                      label: 'Restore progress',
+                      value: fraction == null ? 'In progress' : null,
+                      child: ExcludeSemantics(
+                        excluding: fraction == null,
+                        child: ClipRRect(
+                          borderRadius:
+                              BorderRadius.circular(WarmPopTokens.radiusSm),
+                          child: LinearProgressIndicator(
+                            minHeight: 6,
+                            // J6: reduced motion parks the indeterminate bar.
+                            value: fraction ?? (reduceMotion ? .3 : null),
+                            semanticsLabel: 'Restore progress',
+                            semanticsValue: fraction == null
+                                ? null
+                                : '${(fraction * 100).round()}%',
+                            backgroundColor: t.surface2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(t.accent),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (count.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Semantics(
+                        liveRegion: true,
+                        label: _announced,
+                        child: ExcludeSemantics(
+                          child: Text(
+                            count,
+                            style: small.copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ]),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (!ready) ...[
+                      const SizedBox(height: 8),
+                      Text('Keep the app open. This takes a minute or two.',
+                          style: small),
+                    ],
+                  ],
+                ),
+              ),
+              const SectionHeader('While you wait'),
+              const ThemeModeGroup(),
+              const SectionHeader('Font'),
+              const FontChoiceGroup(),
+              const SizedBox(height: 12),
+              const NotificationsStatusRow(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSaving(BuildContext context) {
     // In setup/change PIN modes we don't drive [_restorePhase] — fall back
     // to a generic "Saving your PIN…" message that still feels alive.
     final phase = widget.phase == RestorePhase.idle

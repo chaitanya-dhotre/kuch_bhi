@@ -85,6 +85,15 @@ abstract class AuthRepository {
     File? avatarFile,
     bool clearAvatar = false,
   });
+
+  /// Ask PocketBase to email a password-reset link (bounded at 8s).
+  /// PocketBase answers the same whether or not the email has an account.
+  /// Throws [AuthException] on failure.
+  Future<void> requestPasswordReset(String email);
+
+  /// Best effort: sign the Google picker out so the account chooser shows
+  /// on the next Google sign-in. Never throws.
+  Future<void> forgetGoogleAccount();
 }
 
 /// Lightweight data carried from a Google account into the registration form.
@@ -109,6 +118,7 @@ class GoogleAuthResult {
     this.email,
     this.displayName,
     this.idToken,
+    this.photoFailed = false,
   });
   final User? user;
 
@@ -119,6 +129,9 @@ class GoogleAuthResult {
   final String? email;
   final String? displayName;
   final String? idToken;
+
+  /// Onboarding only: the account exists but the picked photo didn't upload.
+  final bool photoFailed;
 
   bool get needsOnboarding => isNew && user == null;
 }

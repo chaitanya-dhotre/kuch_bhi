@@ -1,41 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
 
+/// R3 secondary with the official 4-colour Google G.
 class GoogleSignInButton extends StatelessWidget {
-  const GoogleSignInButton({super.key, this.onPressed});
+  const GoogleSignInButton({super.key, this.onPressed, this.busy = false});
   final VoidCallback? onPressed;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
+    return AppButton(
+      variant: AppButtonVariant.secondary,
+      expanded: true,
+      busy: busy,
       onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: context.t.ink,
-        minimumSize: const Size.fromHeight(52),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-        side: BorderSide(color: context.t.line),
-      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Official 4-color Google G brand mark
-          SvgPicture.asset(
-            'assets/icons/google_g.svg',
-            width: 20,
-            height: 20,
-          ),
+          SvgPicture.asset('assets/icons/google_g.svg', width: 20, height: 20),
           const SizedBox(width: 10),
-          const Text(
-            'Continue with Google',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          const Flexible(child: Text('Continue with Google')),
         ],
       ),
     );

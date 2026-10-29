@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:kuch_bhi/core/router/app_router.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/core/theme/tokens.dart';
+import 'package:kuch_bhi/features/settings/providers/font_provider.dart';
 import 'package:kuch_bhi/features/settings/providers/notification_status_provider.dart';
 import 'package:kuch_bhi/features/settings/providers/theme_provider.dart';
 import 'package:kuch_bhi/features/settings/screens/settings_screen.dart';
@@ -30,6 +31,9 @@ Future<void> _pump(
   bool? notifications = true,
   Future<bool> Function()? opener,
 }) async {
+  // L4: the Font section makes the list taller than the default 800x600.
+  await tester.binding.setSurfaceSize(const Size(800, 1200));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
   final router = GoRouter(routes: [
     GoRoute(path: '/', builder: (_, __) => const SettingsScreen()),
     GoRoute(path: AppRoutes.about, builder: (_, __) => const Text('about-page')),
@@ -37,6 +41,7 @@ Future<void> _pump(
   await tester.pumpWidget(ProviderScope(
     overrides: [
       themeModeProvider.overrideWith((ref) => Stream.value(mode)),
+      fontFamilyProvider.overrideWith((ref) => Stream.value(AppFont.system)),
       themeControllerProvider
           .overrideWithValue(controller ?? _FakeController()),
       notificationsEnabledProvider.overrideWith((ref) async {
@@ -63,7 +68,9 @@ void main() {
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Notifications'), findsNWidgets(2));
     expect(y('Appearance') < y('System default'), isTrue);
-    expect(y('AMOLED (true black)') < y('Notifications'), isTrue);
+    expect(y('AMOLED (true black)') < y('Font'), isTrue);
+    expect(y('Font') < y('Plus Jakarta Sans'), isTrue);
+    expect(y('Plus Jakarta Sans') < y('Notifications'), isTrue);
     expect(y('Notifications') < y('About'), isTrue);
     expect(find.textContaining('Backup PIN'), findsNothing);
     expect(find.byType(RadioListTile<AppThemeMode>), findsNothing);
@@ -71,15 +78,16 @@ void main() {
 
   testWidgets('only the stored mode is ticked and selected', (tester) async {
     await _pump(tester, mode: AppThemeMode.dark);
-    expect(_selected, findsOneWidget);
+    expect(_selected, findsNWidgets(2)); // L4: theme + font
     expect(find.descendant(of: _selected, matching: find.text('Dark')),
         findsOneWidget);
-    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsNWidgets(2)); // L4: theme + font
     expect(find.descendant(of: _selected, matching: find.byIcon(Icons.check)),
-        findsOneWidget);
+        findsNWidgets(2));
     final groups = find.byWidgetPredicate((w) =>
         w is Semantics && w.properties.inMutuallyExclusiveGroup == true);
-    expect(groups, findsNWidgets(AppThemeMode.values.length));
+    expect(groups,
+        findsNWidgets(AppThemeMode.values.length + AppFont.values.length));
     // The flags must reach the real semantics tree, not just exist as widgets.
     final handle = tester.ensureSemantics();
     expect(

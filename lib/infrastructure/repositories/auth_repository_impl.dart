@@ -37,12 +37,29 @@ Map<String, dynamic> profileUpdateBody({
     };
 
 /// True only for HTTP 400 `validation_not_unique` on field `username`.
-bool isUsernameTaken(ClientException error) {
+bool isUsernameTaken(ClientException error) => isFieldTaken(error, 'username');
+
+/// True only for HTTP 400 `validation_not_unique` on [field].
+bool isFieldTaken(ClientException error, String field) {
   if (error.statusCode != 400) return false;
   final data = error.response['data'];
   if (data is! Map) return false;
-  final fieldError = data['username'];
+  final fieldError = data[field];
   return fieldError is Map && fieldError['code'] == 'validation_not_unique';
+}
+
+/// G3: the bound on ONE auth network call. Never wraps the session save
+/// after it: a timed-out wait would leave key setup running under a retry.
+const kAuthNetworkTimeout = Duration(seconds: 8);
+
+Future<T> _bounded<T>(Future<T> call) async {
+  try {
+    return await call.timeout(kAuthNetworkTimeout);
+  } on TimeoutException {
+    throw const AuthException('Auth request timed out', code: 'timeout');
+  } on SocketException {
+    throw const AuthException('Server unreachable', code: '0');
+  }
 }
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -68,12 +85,14 @@ class AuthRepositoryImpl implements AuthRepository {
     required String password,
   }) async {
     try {
-      final authData = await _pb
+      final authData = await _bounded(_pb
           .collection('users')
-          .authWithPassword(email, password);
+          .authWithPassword(email, password));
       final user = _recordToUser(authData.record!);
       await _saveSession(user);
       return user;
+    } on AuthException {
+      rethrow;
     } on ClientException catch (e) {
       throw AuthException(_parseErrorMessage(e),
           code: e.statusCode.toString());
@@ -128,11 +147,11 @@ class AuthRepositoryImpl implements AuthRepository {
         throw const AuthException('Failed to get Google ID token.');
       }
       // Try to authenticate existing user with Google idToken.
-      final response = await http.post(
+      final response = await _bounded(http.post(
         Uri.parse('${_pb.baseUrl}/api/hooks/google-auth'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'idToken': idToken, 'action': 'signin'}),
-      );
+      ));
       if (response.statusCode == 404) {
         // No PocketBase record yet — caller (UI) must run onboarding.
         // Return the email / displayName / idToken so the onboarding
@@ -180,7 +199,7 @@ class AuthRepositoryImpl implements AuthRepository {
   }) async {
     try {
       // Create account via hook
-      final response = await http.post(
+      final response = await _bounded(http.post(
         Uri.parse('${_pb.baseUrl}/api/hooks/google-auth'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
@@ -189,9 +208,15 @@ class AuthRepositoryImpl implements AuthRepository {
           'display_name': displayName,
           'username': username,
         }),
-      );
+      ));
       if (response.statusCode != 200) {
         final body = json.decode(response.body);
+        // F8: a field error once the hook answers one (decision 18).
+        if (body is Map<String, dynamic> &&
+            isUsernameTaken(ClientException(
+                statusCode: response.statusCode, response: body))) {
+          throw const UsernameTakenException();
+        }
         throw AuthException(body['message'] ?? 'Google registration failed',
             code: response.statusCode.toString());
       }
@@ -207,6 +232,8 @@ class AuthRepositoryImpl implements AuthRepository {
       await _saveSession(user, newAccount: true);
       return GoogleAuthResult(user: user, isNew: true);
     } on AuthException {
+      rethrow;
+    } on UsernameTakenException {
       rethrow;
     } on ClientException catch (e) {
       throw AuthException(_parseErrorMessage(e),
@@ -228,26 +255,52 @@ class AuthRepositoryImpl implements AuthRepository {
   }) async {
     try {
       final friendCode = await _generateUniqueFriendCode();
-      await _pb.collection('users').create(body: {
+      await _bounded(_pb.collection('users').create(body: {
         'email':           email,
         'password':        password,
         'passwordConfirm': password,
         'display_name':    displayName,
         'username':        username,
         'friend_code':     friendCode,
-      });
-      final authData = await _pb
+      }));
+      final authData = await _bounded(_pb
           .collection('users')
-          .authWithPassword(email, password);
+          .authWithPassword(email, password));
       final user = _recordToUser(authData.record!);
       await _saveSession(user, newAccount: true);
       return user;
     } on ClientException catch (e) {
+      // D4: taken username / email land on their fields.
+      if (isUsernameTaken(e)) throw const UsernameTakenException();
+      if (isFieldTaken(e, 'email')) {
+        throw const AuthException('Email taken', code: 'email_taken');
+      }
       throw AuthException(_parseErrorMessage(e),
           code: e.statusCode.toString());
     } catch (e) {
       if (e is AuthException) rethrow;
       throw AuthException('Registration failed: $e');
+    }
+  }
+
+  // ── Password reset / Google picker ─────────────────────────────
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await _bounded(_pb.collection('users').requestPasswordReset(email));
+    } on ClientException catch (e) {
+      throw AuthException(_parseErrorMessage(e),
+          code: e.statusCode.toString());
+    }
+  }
+
+  @override
+  Future<void> forgetGoogleAccount() async {
+    try {
+      await GoogleSignIn().signOut();
+    } catch (e) {
+      debugPrint('[Auth] forgetGoogleAccount failed: $e');
     }
   }
 
@@ -693,8 +746,8 @@ class AuthRepositoryImpl implements AuthRepository {
     while (true) {
       final code = _generateFriendCode();
       try {
-        await _pb.collection('users')
-            .getFirstListItem('friend_code="$code"');
+        await _bounded(_pb.collection('users')
+            .getFirstListItem('friend_code="$code"'));
       } on ClientException catch (e) {
         if (e.statusCode == 404) return code;
         rethrow;

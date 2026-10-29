@@ -5,6 +5,7 @@ import 'core/decrypt/body_cache.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'features/auth/providers/auth_provider.dart';
+import 'features/settings/providers/font_provider.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'infrastructure/repositories/message_repository_impl.dart';
 import 'services/presence_service.dart';
@@ -35,9 +36,13 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
   /// aggregate delta query instead of the all-conversation backfill scan.
   DateTime? _backgroundedAt;
 
+  /// Read once: `ref` is unusable inside dispose().
+  late final PresenceService _presence;
+
   @override
   void initState() {
     super.initState();
+    _presence = ref.read(presenceServiceProvider);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(presenceServiceProvider).goOnline();
@@ -57,7 +62,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     // Best-effort offline update — the server-side cron (every 5 min)
     // handles cases where this call doesn't complete before the OS kills
     // the process (e.g. swipe-away from recents).
-    ref.read(presenceServiceProvider).goOffline();
+    _presence.goOffline();
     super.dispose();
   }
 
@@ -107,11 +112,14 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     final router = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider).valueOrNull ??
         AppThemeMode.system;
+    final fontFamily =
+        (ref.watch(fontFamilyProvider).valueOrNull ?? AppFont.system)
+            .fontFamily;
 
     // AMOLED is a dark variant selected via darkTheme + forced dark mode.
     final darkTheme = themeMode == AppThemeMode.amoled
-        ? warmPopDark(amoled: true)
-        : warmPopDark();
+        ? warmPopDark(amoled: true, fontFamily: fontFamily)
+        : warmPopDark(fontFamily: fontFamily);
 
     final flutterThemeMode = switch (themeMode) {
       AppThemeMode.system => ThemeMode.system,
@@ -123,7 +131,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     return MaterialApp.router(
       title:                     'Kuch Bhi',
       debugShowCheckedModeBanner: false,
-      theme:       warmPopLight(),
+      theme:       warmPopLight(fontFamily: fontFamily),
       darkTheme:   darkTheme,
       themeMode:   flutterThemeMode,
       routerConfig: router,
