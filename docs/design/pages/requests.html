@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Requests — Page 3 board</title>
+<style>
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1EBE0; --ink:#241F16; --inkSoft:#6B6255;
+  --inkFaint:#9A9184; --line:#E7DFD2; --accent:#EFA00B; --accentPressed:#D18D05;
+  --accentSoft:#FAEDD3; --onAccent:#241F16; --success:#3E7A4B; --error:#B4432F;
+  --info:#4B6D8C; --cardShadow:0 2px 8px rgba(52,42,28,.10);
+  --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E19; --surface2:#2A2620; --ink:#F3EDE3; --inkSoft:#B7AFA2;
+  --inkFaint:#847C70; --line:#37322B; --accent:#EFA00B; --accentPressed:#F5B02B;
+  --accentSoft:#3A2E14; --onAccent:#241F16; --success:#67A574; --error:#D76A54;
+  --info:#8FADC6; --cardShadow:0 2px 10px rgba(0,0,0,.35);
+  --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#241F16;padding:24px}
+.dark body{background:#0E0D0B}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8A7A5F;margin:0 0 8px}
+.sub{color:#6B6255;font-size:13px;margin:0 0 18px}
+.band{background:#fff;border:1px solid #E7DFD2;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#EFA00B}
+.note{background:#FAEDD3;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#241F16}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.pair{display:flex;gap:14px;flex-wrap:wrap}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{width:340px;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.frame .status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.frame .appbar{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.frame .appbar .back{width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink);background:transparent}
+.frame .appbar .t{font-size:20px;font-weight:700;letter-spacing:-.2px}
+.frame .body{padding:6px 14px 18px}
+.card{background:var(--surface);border-radius:16px;box-shadow:var(--cardShadow);padding:16px;margin-bottom:12px;border:1px solid var(--line)}
+.chead{display:flex;gap:14px;align-items:center}
+.disc{width:52px;height:52px;border-radius:999px;background:var(--accentSoft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex:0 0 auto;position:relative}
+.disc .g{position:absolute;right:-2px;bottom:-2px;width:20px;height:20px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid var(--surface)}
+.wrap.dark .disc .g{border-color:var(--surface)}
+.who{min-width:0}
+.who .name{font-size:16px;font-weight:600;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .meta{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acts{display:flex;gap:8px;margin-top:14px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;flex:1}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.primary:active{background:var(--accentPressed)}
+.btn.ghost{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.disabled{opacity:.38;pointer-events:none}
+.btn.busy{background:var(--accent);color:var(--onAccent);opacity:1}
+.spin{width:16px;height:16px;border:2px solid rgba(36,31,22,.3);border-top-color:var(--onAccent);border-radius:999px;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.sect{display:flex;align-items:center;justify-content:space-between;padding:14px 4px 8px}
+.sect .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkFaint)}
+.pill{background:var(--surface2);color:var(--inkSoft);border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border-radius:14px;padding:10px 14px;font-size:13px;margin-bottom:12px}
+.banner .ic{color:var(--accent);font-size:16px}
+.banner.err{background:color-mix(in srgb,var(--error) 14%,var(--surface))}
+.banner.err .ic{color:var(--error)}
+.banner .retry{margin-left:auto;font-weight:700;color:var(--accent);font-size:13px}
+.hint{font-size:12px;color:var(--inkFaint);text-align:right;margin-top:6px}
+.skel{background:var(--surface);border-radius:16px;box-shadow:var(--cardShadow);padding:16px;margin-bottom:12px;border:1px solid var(--line)}
+.sk{background:var(--surface2);border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sh 1.2s infinite}
+.wrap.dark .sk::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+@keyframes sh{to{transform:translateX(100%)}}
+.sk.disc52{width:52px;height:52px;border-radius:999px;flex:0 0 auto}
+.sk.l1{height:14px;width:55%}
+.sk.l2{height:11px;width:35%;margin-top:8px}
+.sk.btns{display:flex;gap:8px;margin-top:14px}
+.sk.b{height:48px;border-radius:16px;flex:1}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:44px 10px 30px}
+.capy{width:120px;height:106px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:54px;margin-bottom:14px}
+.empty .t{font-size:28px;font-weight:700;line-height:34px}
+.empty .s{font-size:14px;color:var(--inkSoft);margin-top:8px;max-width:250px}
+.empty .cta{margin-top:18px;height:48px;border-radius:16px;background:var(--accent);color:var(--onAccent);font-weight:600;font-size:15px;display:flex;align-items:center;padding:0 22px}
+.toast{position:absolute;left:14px;right:14px;bottom:16px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center;box-shadow:var(--cardShadow)}
+.frame{position:relative}
+.badgewrap{position:relative;display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center;font-size:22px;color:var(--ink);border-radius:999px}
+.badgewrap .cnt{position:absolute;top:2px;right:2px;min-width:18px;height:18px;border-radius:999px;background:var(--accent);color:var(--onAccent);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid var(--bg)}
+.emptybtn{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:999px;color:var(--ink);position:relative}
+.offline{display:flex;gap:8px;align-items:center;background:var(--accentSoft);color:var(--ink);font-size:13px;border-radius:0 0 14px 14px;padding:8px 14px}
+.ok-ic{color:var(--success)}
+code{background:#F1EBE0;border-radius:6px;padding:1px 6px;font-size:12.5px;color:var(--code)}
+.dark code{background:#2A2620;color:#C9B896}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E7DFD2;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+.dark th,.dark td{border-color:#37322B}
+.dark th{background:#2A2620}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+@media(max-width:480px){body{padding:12px}.frame{width:100%}}
+</style>
+</head>
+<body>
+
+<h1>Requests — Page 3 board</h1>
+<p class="sub">Kuch Bhi · Warm Pop · Authority: <code>docs/design/00-foundation.md</code> → <code>docs/design/10-registry.md</code> → checklist <code>requests.md</code>.
+Board sections <b>Q1–Q14</b> (Q = reQuests, page-local). Light shown plain; dark in inset frames. Sources: recon 2026-10-21 (screen 325 L, providers 172 L, zero tests today).</p>
+
+<!-- Q1 -->
+<div class="band">
+<header><span class="n">Q1</span><h2>Tokens &amp; law strip</h2></header>
+<div class="row">
+  <div><h3>Type</h3><div style="font-size:20px;font-weight:700">Page title 20/28 w700</div><div style="font-size:16px;font-weight:600">Card title 16/22 w600</div><div style="font-size:13px;color:#6B6255">Meta 13/18 w400 — inkSoft</div><div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#9A9184">SECTION LABEL 11/14 w600 — inkFaint</div><div style="font-size:28px;font-weight:700">Empty display 28/34 w700</div></div>
+  <div><h3>Shape / space</h3><div style="font-size:13px">Card radius <code>radiusMd 16</code> · buttons <code>radiusMd 16</code> · banners 14 · discs 999<br>Space grid: 4/8/12/16/20/24/32/40/48 — disc <b>52</b> (13·4), card pad 16, card gap 12, act gap 8<br>Elevation: <code>var(--cardShadow)</code> warm — ink@10% light / black@35% dark</div></div>
+  <div><h3>Color laws</h3><div style="font-size:13px">C2: <b>badge = accent</b>, never error-red (converge to R2 AppBadge — see Q13)<br>C3: <code>context.t.*</code> only — no <code>colorScheme</code>, no <code>withValues(alpha…)</code> in feature<br>C4: meta = inkSoft (≥4.5), labels = inkFaint ≥ 11px w600 only</div></div>
+</div>
+<div class="note"><b>Law:</b> L2 pages import, never reimplement — R1 avatar, R2 badge, R3 buttons, R5 toast, R7 empty, R9 section header, R11 skeleton, R12 status banner. L4: widget callbacks dispatch notifiers — never call repositories directly (today's screen imports <code>*_repository_impl.dart</code>:8-9 — remove).</div>
+</div>
+
+<!-- Q2 -->
+<div class="band">
+<header><span class="n">Q2</span><h2>Full-screen states</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Loading — R11 skeleton, both sources pending</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="body">
+        <div class="skel"><div class="chead"><div class="sk disc52"></div><div style="flex:1"><div class="sk l1"></div><div class="sk l2"></div></div></div><div class="sk btns"><div class="sk b"></div><div class="sk b"></div></div></div>
+        <div class="skel"><div class="chead"><div class="sk disc52"></div><div style="flex:1"><div class="sk l1"></div><div class="sk l2"></div></div></div><div class="sk btns"><div class="sk b"></div><div class="sk b"></div></div></div>
+        <div class="skel"><div class="chead"><div class="sk disc52"></div><div style="flex:1"><div class="sk l1"></div><div class="sk l2"></div></div></div><div class="sk btns"><div class="sk b"></div><div class="sk b"></div></div></div>
+      </div></div>
+    <div class="note" style="background:#F1EBE0;border-color:#8A7A5F;color:#5C5346">Never a lone spinner (foundation §6). Skeleton shows while EITHER source is first-loading; previous data kept on refresh. <b>No false-empty flash</b> — empty state requires BOTH sources settled.</div>
+  </div>
+  <div class="wrap"><span class="tag">List — friend cards</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="body">
+        <div class="card"><div class="chead"><div class="disc">M<div class="g">👥</div></div><div class="who"><div class="name">Mira Joshi</div><div class="meta">@mira_j</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+        <div class="card"><div class="chead"><div class="disc">K</div><div class="who"><div class="name">Kabir</div><div class="meta">@kab.k</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+      </div></div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — list + group section</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="body">
+        <div class="card"><div class="chead"><div class="disc">M</div><div class="who"><div class="name">Mira Joshi</div><div class="meta">@mira_j</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+        <div class="sect"><span class="lab">Group invites</span><span class="pill">2</span></div>
+        <div class="card"><div class="chead"><div class="disc">W<div class="g">👥</div></div><div class="who"><div class="name">Weekend Trekkers</div><div class="meta">Rohan invited you to join</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+      </div></div>
+  </div>
+  <div class="wrap"><span class="tag">Empty — R7 + Capybara neutral + action</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="body"><div class="empty"><div class="capy">🦦</div><div class="t">No pending requests</div><div class="s">Friend requests and group invites will show up here.</div><div class="cta">Add a Friend</div></div></div></div>
+    <div class="note"><b>Copy exact.</b> Action dispatches the Add-Friend sheet (owned by page 8 Sheets — destination boundary: Requests only dispatches). Mascot mood neutral, 120dp slot (R7), never inside cards.</div>
+  </div>
+</div>
+</div>
+
+<!-- Q3 -->
+<div class="band">
+<header><span class="n">Q3</span><h2>App bar &amp; canvas</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame" style="width:300px"><div class="status"><span>9:41</span><span>▰▰▰</span></div><div class="appbar"><div class="back">←</div><div class="t">Requests</div></div><div class="body" style="padding-top:0"><div style="height:8px"></div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark</span><div class="frame dark" style="width:300px"><div class="status"><span>9:41</span><span>▰▰▰</span></div><div class="appbar"><div class="back">←</div><div class="t">Requests</div></div><div class="body" style="padding-top:0"><div style="height:8px"></div></div></div></div>
+  <div style="flex:1;min-width:260px">
+    <table><tr><th>Element</th><th>Law</th></tr>
+    <tr><td>Scaffold bg</td><td><code>context.t.bg</code> explicit — kill today's default-M3-surface seam (screen :22 has no backgroundColor; home sets bg :164)</td></tr>
+    <tr><td>Back</td><td>48dp target, ink glyph, pop route (GoRouter <code>/friend-requests</code>)</td></tr>
+    <tr><td>Title</td><td><b>Requests</b> 20/28 w700 ellipsizes; avatar/count chips: none in bar</td></tr>
+    <tr><td>Actions</td><td>none (pull-to-refresh lives in list — Q8)</td></tr>
+    <tr><td>A11y</td><td>title is page heading semantics; back tooltip 'Back'</td></tr></table>
+  </div>
+</div>
+</div>
+
+<!-- Q4 -->
+<div class="band">
+<header><span class="n">Q4</span><h2>Friend request card — anatomy &amp; states</h2></header>
+<div class="pair">
+  <div class="wrap"><span class="tag">Default</span>
+    <div class="card" style="width:312px;margin:0"><div class="chead"><div class="disc">A</div><div class="who"><div class="name">Avni Rao</div><div class="meta">@avni</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+  </div>
+  <div class="wrap"><span class="tag">Busy (either action — card locked)</span>
+    <div class="card" style="width:312px;margin:0"><div class="chead"><div class="disc">A</div><div class="who"><div class="name">Avni Rao</div><div class="meta">@avni</div></div></div><div class="acts"><div class="btn ghost disabled">Decline</div><div class="btn busy"><span class="spin"></span>Accept</div></div><div class="hint">Both actions lock per card while in flight — double-tap guard (R3 busy)</div></div>
+  </div>
+  <div class="wrap"><span class="tag">Offline</span>
+    <div class="card" style="width:312px;margin:0"><div class="chead"><div class="disc">A</div><div class="who"><div class="name">Avni Rao</div><div class="meta">@avni</div></div></div><div class="acts"><div class="btn ghost disabled">Decline</div><div class="btn primary disabled">Accept</div></div><div class="hint">Available online</div></div>
+    <div class="note" style="margin-top:8px">P4 pattern: network-only mutations disabled offline + <code>kOfflineActionHint</code> trailing (chat L3 precedent).</div>
+  </div>
+  <div class="wrap"><span class="tag">Edge data</span>
+    <div class="card" style="width:312px;margin:0;margin-bottom:10px"><div class="chead"><div class="disc">?</div><div class="who"><div class="name">Unknown</div><div class="meta">Expand missing — sender row stale</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+    <div class="card" style="width:312px;margin:0"><div class="chead"><div class="disc">D</div><div class="who"><div class="name">Dee</div><div class="meta">@dee · duplicate pending row #2</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+    <div class="note" style="margin-top:8px"><b>Initials safety:</b> empty displayName → R1 fallback (today <code>substring(0,1)</code> RangeError :126). Duplicate senders = N independent cards (no send-side dedupe — tolerated by design).</div>
+  </div>
+</div>
+<table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>Card</td><td>surface, <code>radiusMd 16</code>, warm elevation, pad 16, gap to next 12; NO per-card color on light/dark beyond surface</td></tr>
+<tr><td>Disc</td><td>R1 AppAvatar r52 accentSoft fill, accent initial w700 20px; dark initials use readable-accent picker (F11 law ≥4.5:1)</td></tr>
+<tr><td>Name</td><td>title 16/22 w600 ink, ellipsize</td></tr>
+<tr><td>Meta</td><td><code>@username</code> 13/18 inkSoft — never alpha-mixed colorScheme (C3/C4)</td></tr>
+<tr><td>Actions</td><td>R3: Decline = secondary/ghost, Accept = primary accent; each ≥48h, gap 8, full-width split; labels verbatim <b>Decline</b> / <b>Accept</b></td></tr>
+<tr><td>Row tap</td><td>card body NOT tappable (current behavior kept — buttons only)</td></tr>
+</table>
+</div>
+
+<!-- Q5 -->
+<div class="band">
+<header><span class="n">Q5</span><h2>Group invite card</h2></header>
+<div class="pair">
+  <div class="wrap"><span class="tag">Inviter known</span>
+    <div class="card" style="width:312px;margin:0"><div class="chead"><div class="disc">W<div class="g">👥</div></div><div class="who"><div class="name">Weekend Trekkers</div><div class="meta">Rohan invited you to join</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div>
+  </div>
+  <div class="wrap"><span class="tag">Fallbacks</span>
+    <div class="card" style="width:312px;margin:0;margin-bottom:10px"><div class="chead"><div class="disc">G<div class="g">👥</div></div><div class="who"><div class="name">Group</div><div class="meta">You were invited to join</div></div></div></div>
+    <div class="card" style="width:312px;margin:0"><div class="chead"><div class="disc">W<div class="g">👥</div></div><div class="who"><div class="name">Weekend Trekkers</div><div class="meta">Someone invited you to join</div></div></div></div>
+  </div>
+</div>
+<table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>Disc</td><td>R1 with <b>group glyph badge</b> bottom-right (chat A3 law: group-glyph 20dp accent disc, 2px surface ring) — initial from conversationName</td></tr>
+<tr><td>Title</td><td>conversationName 16/22 w600; fallback <b>Group</b> (repo :2777)</td></tr>
+<tr><td>Meta</td><td><b>{inviter} invited you to join</b> · fallbacks verbatim: <b>You were invited to join</b> (empty name), <b>Someone</b> inviter (repo :2790)</td></tr>
+<tr><td>Actions</td><td>same R3 pair + busy/offline laws as Q4</td></tr>
+<tr><td>Post-accept</td><td>tile exits on invalidate; group lands in Home via own sync. <b>No auto-nav</b> (destination boundary — Chat/Home own it). Success toast: <b>Joined {name}</b> (R5)</td></tr>
+</table>
+</div>
+
+<!-- Q6 -->
+<div class="band">
+<header><span class="n">Q6</span><h2>Sections &amp; ordering</h2></header>
+<table>
+<tr><th>Rule</th><th>Spec</th></tr>
+<tr><td>Order</td><td>all friend cards (newest first) → section header → all invite cards (newest first) — today's order kept (:63-88)</td></tr>
+<tr><td>Header</td><td>R9 SectionHeader label <b>Group invites</b> + count pill ({n}); renders <b>only when ≥1 invite</b> (today: renders even with 0 invites when friends exist — fix)</td></tr>
+<tr><td>Friends empty, invites present</td><td>NO empty state; header + invite cards only</td></tr>
+<tr><td>Both empty + both settled</td><td>Q2 empty state</td></tr>
+<tr><td>List chrome</td><td>single ListView, bottom padding 24 + SafeArea; RefreshIndicator pull-to-refresh (Q8)</td></tr>
+</table>
+</div>
+
+<!-- Q7 -->
+<div class="band">
+<header><span class="n">Q7</span><h2>Partial / full error — R12 StatusBanner</h2></header>
+<div class="pair">
+  <div class="wrap"><span class="tag">Partial — invites source failed, friends OK</span>
+    <div class="frame" style="width:312px"><div class="status"><span>9:41</span><span>▰▰▰</span></div><div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="body"><div class="banner err"><span class="ic">⚠</span><span>Some requests didn't load.</span><span class="retry">Retry</span></div>
+      <div class="card"><div class="chead"><div class="disc">A</div><div class="who"><div class="name">Avni Rao</div><div class="meta">@avni</div></div></div><div class="acts"><div class="btn ghost">Decline</div><div class="btn primary">Accept</div></div></div></div></div>
+  </div>
+  <div class="wrap"><span class="tag">Full error — both sources failed</span>
+    <div class="frame" style="width:312px"><div class="status"><span>9:41</span><span>▰▰▰</span></div><div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="body"><div class="empty" style="padding-top:34px"><div class="capy" style="width:96px;height:85px;font-size:44px">🦦</div><div class="t" style="font-size:22px">Couldn't load requests.</div><div class="s">Check your connection and try again.</div><div class="cta">Retry</div></div></div></div>
+  </div>
+</div>
+<div class="note"><b>Laws:</b> raw <code>Error loading requests: $e</code> (:26) BANNED — no exception text in UI (chat C9/O3 precedent). One source failing must NOT hide the other (today: single <code>.when</code> over requests only + invites silently swallowed via <code>valueOrNull ?? []</code> — both fixed). Retry re-runs only the failed provider(s). Home H6 banner pattern is the reference.</div>
+</div>
+
+<!-- Q8 -->
+<div class="band">
+<header><span class="n">Q8</span><h2>Offline</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Strip + disabled cards</span>
+    <div class="frame" style="width:312px"><div class="status"><span>9:41</span><span>▰▰▰</span></div><div class="appbar"><div class="back">←</div><div class="t">Requests</div></div>
+      <div class="offline"><span class="ic">⚡</span><span>You're offline — actions are available when you're back.</span></div>
+      <div class="body" style="padding-top:12px"><div class="card"><div class="chead"><div class="disc">A</div><div class="who"><div class="name">Avni Rao</div><div class="meta">@avni</div></div></div><div class="acts"><div class="btn ghost disabled">Decline</div><div class="btn primary disabled">Accept</div></div><div class="hint">Available online</div></div></div></div>
+  </div>
+  <div style="flex:1;min-width:260px">
+    <table><tr><th>Leg</th><th>Spec</th></tr>
+    <tr><td>Strip</td><td>accentSoft banner under bar (home offline pattern): copy verbatim <b>You're offline — actions are available when you're back.</b> No Retry here (connectivity is device-level)</td></tr>
+    <tr><td>Actions</td><td>all 4 network-only mutations disabled @38% single dim + trailing <b>Available online</b> (kOfflineActionHint) — EXACTLY one opacity layer (chat L3 law)</td></tr>
+    <tr><td>Data</td><td>list renders from last good fetch (SSE refetch on reconnect); open-while-offline → Q7 full error ONLY if local path also empty (today: immediate raw error — replace)</td></tr>
+    <tr><td>Reconnect</td><td>strip auto-clears 250ms on reconnect (home O1 timing)</td></tr></table>
+  </div>
+</div>
+</div>
+
+<!-- Q9 -->
+<div class="band">
+<header><span class="n">Q9</span><h2>Action outcomes &amp; toasts (R5)</h2></header>
+<table>
+<tr><th>Action</th><th>In-flight</th><th>Success</th><th>Failure</th></tr>
+<tr><td>Accept friend</td><td>card lock + busy spinner on Accept; other card untouched</td><td>tile exits (invalidate requests + friendships) + toast <b>Friend added</b></td><td>toast <b>Couldn't update. Try again.</b> — card unlocks, list unchanged. NO <code>$e</code></td></tr>
+<tr><td>Decline friend</td><td>card lock + busy on Decline</td><td>tile exits (invalidate requests) — <b>silent</b>, no toast</td><td>same failure toast; today: unhandled async exception (no try/catch :169) — MUST fix</td></tr>
+<tr><td>Accept invite</td><td>card lock + busy</td><td>tile exits + toast <b>Joined {name}</b>; join side-effects (member row, deferred join bubble) unchanged in repo</td><td>failure toast; duplicate-400-tolerated path unchanged</td></tr>
+<tr><td>Decline invite</td><td>card lock + busy</td><td>tile exits — silent</td><td>failure toast</td></tr>
+</table>
+<div class="note"><b>Stale row</b> (handled on other device): server rejects → same failure toast; tile corrected by SSE refetch. <b>All four handlers try/catch</b> — symmetry is a MUST (today only friend-Decline lacks it).</div>
+</div>
+
+<!-- Q10 -->
+<div class="band">
+<header><span class="n">Q10</span><h2>Data contract (what the UI may assume)</h2></header>
+<table>
+<tr><th>Fact</th><th>Ground truth</th></tr>
+<tr><td>Sources</td><td>two independent AsyncNotifiers, SSE <code>subscribe('*')</code> → full refetch; no on-resume refresh (badge = same providers)</td></tr>
+<tr><td>Count</td><td>badge = pending friend requests + pending group invites (incoming only; outgoing never exists)</td></tr>
+<tr><td>Sort</td><td>newest first both lists; caps 200/100 batch (getFullList pages — no silent truncation)</td></tr>
+<tr><td>Mutations</td><td>network-only, server-first; no outbox; local Drift mirror is write-only (UI never reads it)</td></tr>
+<tr><td>State machine</td><td>pending → accepted | declined (receiver only); no cancel/revoke statuses exist</td></tr>
+<tr><td>Refresh UI</td><td>pull-to-refresh invalidates BOTH providers (new); SSE remains primary</td></tr>
+</table>
+<div class="note"><b>Not on this page:</b> outgoing/sent requests (no data exists), block/unblock UI (repo only), Add-Friend sheet internals (page 8), accept auto-navigation (page-boundary).</div>
+</div>
+
+<!-- Q11 -->
+<div class="band">
+<header><span class="n">Q11</span><h2>A11y</h2></header>
+<table>
+<tr><th>Surface</th><th>Spec</th></tr>
+<tr><td>Card</td><td>one merged label: <b>"Friend request from {name}, {username}"</b> / <b>"Group invite to {name}, from {inviter}"</b>; avatar disc decorative (excluded)</td></tr>
+<tr><td>Buttons</td><td>existing text labels carry; add target context: "Accept, {name}" via button semantics</td></tr>
+<tr><td>Removal</td><td>live-region announce on accept/decline: <b>"{name} removed"</b> (SemanticsService.announce) — today silent focus loss</td></tr>
+<tr><td>Strip/banner</td><td>container semantics like home (:692-696); Retry is button:true</td></tr>
+<tr><td>Targets</td><td>48dp floor everywhere (back, buttons, retry)</td></tr>
+<tr><td>Contrast</td><td>meta inkSoft ≥4.5 both themes; accent-on-accent buttons onAccent; badge onAccent on accent (C2)</td></tr>
+</table>
+</div>
+
+<!-- Q12 -->
+<div class="band">
+<header><span class="n">Q12</span><h2>Home entry badge (converge to R2)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Current — error-red hand-rolled (C2 violation)</span><div style="padding:10px"><span class="badgewrap" style="color:#6B6255">👤<span class="cnt" style="background:var(--error);color:#fff">3</span></span></div><div class="note" style="background:#F7E0DA;border-color:#B4432F;color:#7A2E20">t.error red = status-as-alarm; hand-rolled pill, own clamp, own semantics (home :577-604)</div></div>
+  <div class="wrap"><span class="tag">Spec — R2 AppBadge accent</span><div style="padding:10px"><span class="badgewrap" style="color:#6B6255">👤<span class="cnt">3</span></span></div><div class="note">AppBadge: accent/onAccent, hide ≤0, <b>99+</b> ≥100, 18px min — same widget as chat unread (L3). Keep 48dp button, tooltip <b>Friend requests</b>, label <b>"{n} pending requests"</b> / <b>No pending requests</b></div></div>
+</div>
+<div class="note"><b>Scope note:</b> this is a home_screen edit — allowed (registry-driven); update home.md I1 annotation at review. Count logic unchanged (<code>pendingRequestCountProvider</code>, async wrapper prevents 0-flash).</div>
+</div>
+
+<!-- Q13 -->
+<div class="band">
+<header><span class="n">Q13</span><h2>Motion</h2></header>
+<table>
+<tr><th>Moment</th><th>Spec</th></tr>
+<tr><td>Card exit (accept/decline)</td><td>250ms implicit fade+collapse (height→0) then settle; under reduced-motion: instant removal</td></tr>
+<tr><td>Busy spinner</td><td>linear infinite only while in-flight; parks (disables) under reduced-motion — static busy fill instead</td></tr>
+<tr><td>Strip/banner</td><td>fade in/out 150ms; instant under reduced-motion</td></tr>
+<tr><td>Toast</td><td>R5 default (2500ms)</td></tr>
+<tr><td>Skeleton shimmer</td><td>R11 1400ms; parks under reduced-motion (duration-restart fix already in R11)</td></tr>
+</table>
+</div>
+
+<!-- Q14 -->
+<div class="band">
+<header><span class="n">Q14</span><h2>Copy table (verbatim contract) + out of scope</h2></header>
+<div class="row">
+<table style="flex:1;min-width:300px">
+<tr><th>Keep</th><th>Change / add</th></tr>
+<tr><td>Requests · Decline · Accept · Group invites · @username<br>"{inviter} invited you to join" · "You were invited to join"<br>"{n} pending requests" · Friend requests (tooltip)</td><td>Empty: <b>No pending requests</b> + new subtitle <b>Friend requests and group invites will show up here.</b> + CTA <b>Add a Friend</b><br>Full error: <b>Couldn't load requests.</b> + <b>Check your connection and try again.</b> + <b>Retry</b><br>Partial: <b>Some requests didn't load.</b> + <b>Retry</b><br>Offline strip: <b>You're offline — actions are available when you're back.</b><br>Hint: <b>Available online</b><br>Failure toast: <b>Couldn't update. Try again.</b><br>Success toasts: <b>Friend added</b> · <b>Joined {name}</b><br>Announce: <b>{name} removed</b></td></tr>
+<tr><td colspan="2" style="background:#F7E0DA"><b>Banned:</b> "Error loading requests: $e" · "Failed to accept/decline: $e" · any raw exception text · new empty-state without mascot</td></tr>
+</table>
+<div style="flex:1;min-width:260px">
+<h3>Out of scope (do NOT build here)</h3>
+<div style="font-size:13px">AddFriendSheet internals (page 8) · outgoing/cancel requests (data doesn't exist) · block/unblock UI · accept auto-navigation to chat · profile/ViewProfile screens (page 5) · FCM notification styling (service-layer) · pagination beyond getFullList · nickname editing</div>
+<h3 style="margin-top:14px">Deferred decisions (user may override)</h3>
+<div style="font-size:13px">1. <b>Badge red→accent</b> (Q12): C2 compliance changes a shipped red visual — flagged, one-line revert if user prefers red.<br>2. <b>Post-accept handoff</b> toast with "Open chat" action needs repo to return conversation id — default OFF this pass.<br>3. <b>Decline silent</b> vs toast (Q9): declines exit silently; flag if you want feedback.<br>4. <b>Empty subtitle copy</b> is new ink — exact string above; one-word edits welcome.</div>
+</div>
+</div>
+</div>
+
+<p class="sub">Board end · grading contract = <code>requests.md</code> · plan = <code>docs/superpowers/plans/2026-10-21-requests-redesign.md</code> · no commit without user PASS.</p>
+</body>
+</html>
