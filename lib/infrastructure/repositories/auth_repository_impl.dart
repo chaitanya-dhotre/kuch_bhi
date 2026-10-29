@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:async';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
@@ -18,6 +20,30 @@ import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../services/encryption_service.dart';
+
+/// PB `users.update` body for a profile save: exactly these fields, never
+/// `public_key` / `friend_code`. `avatar: null` clears the photo.
+Map<String, dynamic> profileUpdateBody({
+  required String displayName,
+  required String username,
+  String? about,
+  bool clearAvatar = false,
+}) =>
+    {
+      'display_name': displayName,
+      'username': username.toLowerCase(),
+      'about': about ?? '',
+      if (clearAvatar) 'avatar': null,
+    };
+
+/// True only for HTTP 400 `validation_not_unique` on field `username`.
+bool isUsernameTaken(ClientException error) {
+  if (error.statusCode != 400) return false;
+  final data = error.response['data'];
+  if (data is! Map) return false;
+  final fieldError = data['username'];
+  return fieldError is Map && fieldError['code'] == 'validation_not_unique';
+}
 
 class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({
@@ -431,7 +457,64 @@ class AuthRepositoryImpl implements AuthRepository {
     await _initEncryptionKeys(user.id);
   }
 
+  @override
+  Future<User> updateProfile({
+    required String displayName,
+    required String username,
+    String? about,
+    File? avatarFile,
+    bool clearAvatar = false,
+  }) async {
+    // A cold start restores the token with a null record (getCurrentUser),
+    // so fall back to the cached signed-in id.
+    final id = _pb.authStore.record?.id ??
+        await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
+    if (id == null || id.isEmpty) throw StateError('No signed-in user');
+    final body = profileUpdateBody(
+      displayName: displayName,
+      username: username,
+      about: about,
+      clearAvatar: clearAvatar,
+    );
+    try {
+      final record = await _pb.collection('users').update(
+        id,
+        body: body,
+        files: [
+          if (avatarFile != null)
+            http.MultipartFile.fromBytes(
+              'avatar',
+              await _avatarJpegWithoutExif(avatarFile),
+              filename: 'avatar.jpg',
+            ),
+        ],
+      );
+      final user = _recordToUser(record);
+      await _cacheUserLocally(user);
+      return user;
+    } on ClientException catch (e) {
+      if (isUsernameTaken(e)) throw const UsernameTakenException();
+      rethrow;
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────
+
+  /// Re-encodes a picked photo as JPEG with NO metadata: image_picker's resize
+  /// keeps EXIF, GPS included, and every friend can download the avatar.
+  /// Never falls back to the original bytes.
+  Future<Uint8List> _avatarJpegWithoutExif(File file) async {
+    final bytes = await FlutterImageCompress.compressWithFile(
+      file.absolute.path,
+      minWidth: 1024,
+      minHeight: 1024,
+      quality: 80,
+      format: CompressFormat.jpeg,
+      keepExif: false,
+    );
+    if (bytes == null) throw StateError('Avatar re-encode failed');
+    return bytes;
+  }
 
   Future<void> _cacheUserLocally(User user) async {
     await db.usersDao.upsertUser(UsersTableCompanion.insert(

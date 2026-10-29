@@ -24,6 +24,9 @@ ThemeExtension); geometry via `WarmPopTokens` statics. No hardcoded color.
 | R11 | `Skeleton` | `skeleton.dart` | `height`, `width?`, `radius=8`, `duration=1200ms` | shimmer surface2↔line; page-specific duration may be supplied (Home uses 1400ms); parks under reduced-motion |
 | R3a | `BusySpinner` | `busy_spinner.dart` | `size=18`, `strokeWidth=2` | the 18px busy ring for per-row busy states; parks as a static surface2 ring under reduced motion. The one sanctioned spinner in features whose source is grep-gated against `CircularProgressIndicator` (page 4, 2026-10-29) |
 | R12 | `StatusBanner` | `status_banner.dart` | `message`, `leading?`, `onRetry?` | accentSoft strip + accent@45% border; optional Retry (amendment: Retry min-h 48 — the 48dp tap-target floor applies to every action on the page) |
+| R1a | `AppAvatar.image` | `app_avatar.dart` | `image: ImageProvider?` (default null) | when set it wins over `url`; for local previews such as a picked file (page 5, 2026-10-29) |
+| R1b | `initialsOf(name, {fallback='?'})` | `app_avatar.dart` | `String` | first character of the trimmed name, upper-cased, or `fallback` when empty; never throws (page 5, 2026-10-29) |
+| R13 | `appFieldDecoration(context, {label, hint, helper, prefixText})` | `app_field.dart` | `InputDecoration` | page-4 field pattern as one function: label 13 inkSoft, hint inkFaint, line border, accent 1.5 focus, radiusMd 16, `t.error` error border, error line in `t.ink` 13/18 with a leading error icon (page 5, 2026-10-29) |
 
 ## Theme tokens (`lib/core/theme/tokens.dart`)
 

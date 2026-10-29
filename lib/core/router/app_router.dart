@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../domain/entities/conversation.dart';
-import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/providers/encryption_sync_provider.dart';
@@ -165,10 +164,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.viewProfile,
-        builder: (context, state) {
-          final user = state.extra as User;
-          return ViewProfileScreen(user: user);
-        },
+        builder: (context, state) => viewProfileFromExtra(state.extra),
       ),
       GoRoute(
         path: AppRoutes.friendRequests,

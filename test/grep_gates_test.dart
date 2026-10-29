@@ -335,6 +335,37 @@ void main() {
     expect(info.contains('message_repository_impl'), isFalse, reason: screen);
     expect(info.contains('group_admin_provider.dart'), isTrue, reason: screen);
   });
+
+  test('lib/features/profile carries the page-5 hygiene gates', () {
+    final files = Directory('lib/features/profile')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .toList();
+    expect(files, isNotEmpty);
+    final banned = <String, RegExp>{
+      'colorScheme': RegExp(r'colorScheme'),
+      'withValues(alpha': RegExp(r'withValues\(alpha'),
+      'CircularProgressIndicator': RegExp(r'CircularProgressIndicator'),
+      'substring(0, 1)': RegExp(r'substring\(0, 1\)'),
+      'radius literal': RegExp(r'(Border|Radius)\.circular\(\d'),
+      'e.toString()': RegExp(r'e\.toString\(\)'),
+      'invalidate(authProvider)': RegExp(r'invalidate\(authProvider\)'),
+      'profile_update_service': RegExp(r'profile_update_service'),
+    };
+    for (final f in files) {
+      // `$e` / toString are fine on debugPrint lines (debug detail only).
+      final lines = f
+          .readAsLinesSync()
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      banned.forEach((name, re) {
+        expect(re.hasMatch(lines), isFalse, reason: '$name in ${f.path}');
+      });
+      expect(RegExp(r'\$\{?e\b').hasMatch(lines), isFalse,
+          reason: '\$e in ${f.path}');
+    }
+  });
 }
 
 const _bannedPurpleHexes = [

@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile — Page 5 board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (requests.html drifted a few hexes; this board does not). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8A7A5F;margin:0 0 8px}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:340px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.appbar .ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.appbar .act{font-size:15px;font-weight:600;padding:0 14px;height:40px;display:flex;align-items:center;border-radius:16px;color:var(--ink)}
+.appbar .act.off{color:var(--inkFaint)}
+.body{padding:4px 0 16px}
+.hdr{display:flex;flex-direction:column;align-items:center;padding:12px 16px 8px}
+.big{width:96px;height:96px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;position:relative}
+.big .cam{position:absolute;right:0;bottom:0;width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid var(--bg)}
+.big .scrim{position:absolute;inset:0;border-radius:999px;background:rgba(42,37,32,.45);display:flex;align-items:center;justify-content:center}
+.gname{font-size:20px;line-height:26px;font-weight:700;margin-top:12px;display:flex;align-items:center;gap:6px}
+.gname .pen{font-size:15px;color:var(--inkSoft)}
+.gcount{font-size:13px;color:var(--inkSoft);margin-top:2px}
+.sect{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px}
+.sect .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkFaint)}
+.sect .r{display:flex;gap:8px;align-items:center}
+.pill{background:var(--surface2);color:var(--inkSoft);border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px}
+.addbtn{height:36px;border-radius:999px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:var(--accentSoft);color:var(--ink)}
+.list{background:var(--surface);margin:0 12px;border-radius:16px;border:1px solid var(--line);overflow:hidden}
+.m{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 6px 8px 12px;border-top:1px solid var(--line)}
+.m:first-child{border-top:0}
+.av{width:40px;height:40px;border-radius:999px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
+.who{flex:1;min-width:0}
+.who .nm{font-size:16px;line-height:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+.who .mt{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:11px;line-height:14px;font-weight:600;background:var(--accentSoft);color:var(--ink);border-radius:999px;padding:2px 8px;flex:0 0 auto}
+.more{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:18px;flex:0 0 auto}
+.spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:999px;animation:sp .8s linear infinite;margin:15px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tbtn{height:40px;padding:0 12px;border-radius:16px;display:flex;align-items:center;font-size:14px;font-weight:600;color:var(--ink)}
+.dim{opacity:.38}
+.hint{font-size:12px;color:var(--inkFaint);padding:0 16px;text-align:right}
+.st{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-top:1px solid var(--line)}
+.st:first-child{border-top:0}
+.st .well{width:36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
+.st .tt{flex:1;min-width:0}
+.st .tt .a{font-size:15px;font-weight:600;line-height:20px}
+.st .tt .b{font-size:13px;color:var(--inkSoft);line-height:18px}
+.st .tr{font-size:13px;color:var(--inkSoft)}
+.st.danger .well{color:var(--error)}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--line);position:relative;flex:0 0 auto}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:999px;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.on{background:var(--accent)}
+.sw.on::after{left:21px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border:1px solid rgba(239,160,11,.45);border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 12px}
+.banner .retry{margin-left:auto;font-weight:700;min-height:36px;display:flex;align-items:center;padding:0 6px}
+.offline{display:flex;gap:8px;align-items:center;background:var(--accentSoft);color:var(--ink);font-size:13px;padding:8px 16px}
+.sk{background:var(--surface2);border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sh 1.4s infinite}
+.wrap.dark .sk::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.sheet{background:var(--surface);border-radius:20px 20px 0 0;padding:8px 0 12px;box-shadow:var(--cardShadow);border:1px solid var(--line)}
+.handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet .sh{display:flex;align-items:center;gap:12px;padding:4px 16px 12px;border-bottom:1px solid var(--line)}
+.sheet .row1{display:flex;align-items:center;gap:14px;min-height:52px;padding:0 20px;font-size:15px;font-weight:600}
+.sheet .row1 .ic{width:24px;text-align:center;color:var(--inkSoft)}
+.sheet .row1.danger .ic{color:var(--error)}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;box-shadow:var(--cardShadow);border:1px solid var(--line);color:var(--ink)}
+.dlg .t{font-size:20px;font-weight:700;line-height:26px}
+.dlg .s{font-size:15px;color:var(--inkSoft);margin-top:8px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.secondary{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.text{height:40px;color:var(--ink)}
+.btn.wide{width:100%}
+.btn.off{background:var(--surface2);color:var(--inkFaint);border:0}
+.chk{width:24px;height:24px;border-radius:999px;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:13px;margin-right:10px}
+.chk.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 10px;border-bottom:1px solid var(--line)}
+.achip{height:36px;border-radius:999px;background:var(--accentSoft);border:1.5px solid var(--accent);display:flex;align-items:center;gap:6px;padding:0 6px 0 4px;font-size:13px;font-weight:600}
+.achip .av{width:28px;height:28px;font-size:12px}
+.search{margin:8px 16px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 16px;color:var(--inkFaint);font-size:15px;gap:8px}
+.field{margin:0 16px;border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;background:var(--surface)}
+.field.focus{border-color:var(--accent)}
+.field .lb{font-size:11px;font-weight:600;color:var(--inkSoft)}
+.field .v{font-size:16px;margin-top:2px}
+.field .ph{color:var(--inkFaint)}
+.cnt{font-size:12px;color:var(--inkFaint);text-align:right;padding:4px 18px 0}
+.err{display:flex;gap:10px;margin:12px 16px 0;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13px;line-height:18px}
+.err .ic{color:var(--error)}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 18px 30px}
+.capy{width:120px;height:106px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:54px;margin-bottom:14px}
+.empty .t{font-size:28px;font-weight:700;line-height:34px}
+.empty .t.sm{font-size:20px;line-height:26px}
+.empty .s{font-size:15px;color:var(--inkSoft);margin-top:8px;max-width:260px;line-height:22px}
+.empty .btn{margin-top:18px}
+.toast{position:absolute;left:14px;right:14px;bottom:14px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+.tblwrap{overflow-x:auto}
+/* Page 5 additions (same tokens; nothing redefined) */
+.big.photo{background:#C6894F;font-size:44px}
+.big.ed{cursor:pointer}
+.uname{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:2px}
+.about{font-size:15px;line-height:22px;text-align:center;max-width:280px;margin-top:8px;color:var(--ink)}
+.hdr .btn{margin-top:14px}
+.card{background:var(--surface);border-radius:20px;box-shadow:var(--cardShadow);margin:16px 12px 0;padding:18px 16px;text-align:center;border:1px solid var(--line)}
+.kick{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkSoft)}
+.coderow{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}
+.code{font-size:28px;line-height:34px;font-weight:700;letter-spacing:4px;color:var(--ink);font-variant-numeric:tabular-nums}
+.copy{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:18px}
+.qrwell{background:#FFFFFF;border-radius:16px;padding:14px 14px 10px;margin-top:12px;display:inline-block;border:1px solid #E4DDD1}
+.qrwell svg{display:block;width:150px;height:150px}
+.qrcap{font-size:13px;line-height:18px;color:#6E655A;margin-top:8px}
+.field.bad{border-color:var(--error)}
+.field .pre{color:var(--inkSoft)}
+.field.ro{background:var(--surface2)}
+.helper{font-size:13px;line-height:18px;color:var(--inkSoft);padding:4px 18px 0}
+.ferr{display:flex;gap:6px;align-items:center;font-size:13px;line-height:18px;color:var(--ink);padding:4px 18px 0}
+.ferr .ic{color:var(--error)}
+.gap{height:14px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.st .chev{color:var(--inkSoft);font-size:16px}
+.copyic{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:16px}
+.offhint{font-size:13px;color:var(--inkSoft);padding:4px 16px 0;text-align:right}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="qr" viewBox="0 0 21 21">
+<g fill="#2A2520">
+<path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z"/>
+</g>
+<g fill="#FFFFFF"><path d="M1 1h5v5H1zM15 1h5v5h-5zM1 15h5v5H1z"/></g>
+<g fill="#2A2520">
+<path d="M2 2h3v3H2zM16 2h3v3h-3zM2 16h3v3H2z"/>
+<path d="M8 0h1v1H8zM10 1h2v1h-2zM9 3h1v2H9zM11 4h2v1h-2zM8 6h1v1H8zM10 6h1v1h-1zM12 6h1v2h-1zM0 8h2v1H0zM3 8h1v2H3zM5 9h2v1H5zM8 8h3v1H8zM9 10h1v2H9zM11 9h1v1h-1zM13 8h2v1h-2zM16 8h1v2h-1zM18 9h3v1h-3zM14 10h1v1h-1zM19 11h1v2h-1zM1 11h2v1H1zM5 12h1v1H5zM7 11h1v2H7zM10 12h3v1h-3zM15 12h2v1h-2zM8 14h1v2H8zM10 14h2v1h-2zM13 14h1v1h-1zM15 15h2v1h-2zM18 14h1v2h-1zM9 17h2v1H9zM12 16h1v2h-1zM14 18h3v1h-3zM19 17h2v1h-2zM8 19h1v2H8zM10 20h2v1h-2zM13 19h1v2h-1zM17 20h2v1h-2z"/>
+</g>
+</symbol>
+</svg>
+
+<h1>Profile + Edit Profile + View Profile — Page 5 board</h1>
+<p class="sub">Kuch Bhi · Warm Pop · Authority: <code>docs/design/00-foundation.md</code> → <code>docs/design/10-registry.md</code> → checklist <code>profile.md</code>.
+Board sections <b>P1–P14</b> (P = Profile, page-local). Light shown plain; dark in dark inset frames. This is an audit of what exists, not a new design: <code>profile_screen.dart</code> (201 lines), <code>edit_profile_screen.dart</code> (228) and <code>view_profile_screen.dart</code> (143), audited 2026-10-29. None has a widget test. <b>P14 lists every difference from the current code.</b></p>
+
+<!-- P1 -->
+<div class="band">
+<header><span class="n">P1</span><h2>Tokens, laws &amp; what the audit found</h2></header>
+<div class="row">
+  <div style="flex:1;min-width:260px"><h3>Type (foundation §3 only)</h3><div style="font-size:28px;line-height:34px;font-weight:700;letter-spacing:4px">KB7Q2X <span style="font-size:13px;letter-spacing:0;font-weight:400;color:#6E655A">friend code, display 28/34 w700</span></div><div style="font-size:20px;font-weight:700">Name / app bar 20/26 w700</div><div style="font-size:15px;color:#6E655A">@username 15/22 inkSoft</div><div style="font-size:15px">About, row titles, fields 15/22</div><div style="font-size:13px;color:#6E655A">Meta, helper, caption 13/18</div><div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#6E655A">YOUR FRIEND CODE 11/14 w600 — kicker</div></div>
+  <div style="flex:1;min-width:260px"><h3>Shape / space</h3><div style="font-size:13px">Avatar <b>96</b> on all three screens (R1 radius 48, as today) · camera badge 32<br>Friend-code card: surface, <code>radiusLg 20</code>, T1 shadow · QR well fixed white, <code>radiusMd 16</code><br>Grouped list: surface, <code>radiusMd 16</code>, 1px line, 12 side inset · rows ≥56<br>Fields <code>radiusMd 16</code> (today 12) · dialog <code>radiusXl 24</code> · sheet <code>radiusLg 20</code><br>Banned literals today: <code>circular(12)</code> ×6, <code>circular(20)</code> ×3</div></div>
+  <div style="flex:1;min-width:260px"><h3>Contrast (C4), measured</h3><div class="tblwrap"><table>
+    <tr><th>Pair (light)</th><th>Ratio</th><th>Today used for</th></tr>
+    <tr><td>accent on accentSoft</td><td class="bad">1.97</td><td>friend code (32px), "Your Friend Code", copy icon, PIN label, avatar initial</td></tr>
+    <tr><td>accent on white</td><td class="bad">2.16</td><td>QR finder eyes</td></tr>
+    <tr><td>error on white/bg</td><td class="bad">3.91</td><td>"Sign Out" text</td></tr>
+    <tr><td>inkSoft on accentSoft</td><td>5.20</td><td>→ kicker (spec)</td></tr>
+    <tr><td>ink on accentSoft</td><td>13.81</td><td>→ initials, labels (spec)</td></tr>
+  </table></div></div>
+</div>
+<div class="note warn"><b>Two bugs, fixed first.</b> (1) <b>Edit Profile cannot be reached.</b> <code>/edit-profile</code> is registered (<code>app_router.dart:163</code>) but nothing pushes it. (2) <b>A save does not show up.</b> <code>_save</code> writes PocketBase, then <code>ref.invalidate(authProvider)</code> (<code>ep:70</code>). <code>AuthNotifier.build</code> returns the <b>cached Drift user</b> (<code>ar:257</code>), which nothing updated, so the old values return until a resume refresh. The invalidate also re-runs the reinstall branch of <code>getCurrentUser</code> (<code>ar:266-270</code>), which can generate and upload a new key pair. Spec: P9.</div>
+<div class="note"><b>Laws on this page:</b> L2 compose only R1 avatar (+R1a/R1b), R3 button, R5 toast, R7 empty state, R9 section header, R10/R10a settings tile, R11 skeleton, R12/strip, R13 field (new), C4a action sheet + C4b destructive. L3: the field decoration is copy-pasted per field (6 <code>colorScheme</code> sites in the editor alone) → one R13 function. L4: the editor imports <code>profile_update_service.dart</code> → the write moves onto <code>AuthNotifier</code> / <code>AuthRepository</code>. C3: <code>colorScheme…withValues</code> on all three screens → <code>context.t.*</code>.</div>
+<div class="note warn"><b>Key boundary. Do not touch:</b> <code>_initEncryptionKeys</code>, <code>updatePublicKey</code>, <code>refreshSessionThrottled</code>, <code>signOut</code>, <code>deleteAccount</code>, secure storage, and the Backup PIN screens. Profile only <em>navigates</em> to <b>Change Backup PIN</b>. The new <code>updateProfile</code> sends <code>display_name</code>, <code>username</code>, <code>about</code>, <code>avatar</code> and never <code>public_key</code>. Context (read only, do not re-solve): <code>.trail/learnings/2026-10-28-group-key-rotation-keeps-history-only-chaitanya.md</code>, <code>2026-10-28-group-key-re-wrap-recovers-rows-chaitanya.md</code>, <code>2026-10-29-one-device-rotates-a-group-s-chaitanya.md</code>.</div>
+</div>
+
+<!-- P2 -->
+<div class="band">
+<header><span class="n">P2</span><h2>Own profile — full-screen states</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Light — loaded, has photo + about</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div><div class="ib">⚙</div></div>
+      <div class="body">
+        <div class="hdr"><div class="big photo">🧑</div><div class="gname">Avni Rao</div><div class="uname">@avni</div><div class="about">Mostly here for the trek plans and bad puns.</div><div class="btn secondary">✎ Edit profile</div></div>
+        <div class="card"><div class="kick">Your friend code</div><div class="coderow"><span class="code">KB7Q2X</span><span class="copy">⧉</span></div>
+          <div class="qrwell"><svg><use href="#qr"/></svg><div class="qrcap">Scan to add me on Kuch Bhi</div></div></div>
+        <div class="sect"><span class="lab">Account</span></div>
+        <div class="list"><div class="st"><div class="well">🔑</div><div class="tt"><div class="a">Change Backup PIN</div></div><span class="chev">›</span></div></div>
+        <div class="list" style="margin-top:12px"><div class="st danger"><div class="well">⎋</div><div class="tt"><div class="a">Sign out</div></div></div></div>
+      </div></div>
+    <div class="note">Sign out leaves the app bar (today red text, one tap, no confirm) for the last row. The photo shows: today <code>ps:50</code> ignores <code>avatarUrl</code>, so an uploaded photo never appears here.</div>
+  </div>
+
+  <div class="wrap dark"><span class="tag">Dark — loaded, no photo, no about</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div><div class="ib">⚙</div></div>
+      <div class="body">
+        <div class="hdr"><div class="big">R</div><div class="gname">Rohan Mehta</div><div class="uname">@rohan</div><div class="btn secondary">✎ Edit profile</div></div>
+        <div class="card"><div class="kick">Your friend code</div><div class="coderow"><span class="code">M4XT9P</span><span class="copy">⧉</span></div>
+          <div class="qrwell"><svg><use href="#qr"/></svg><div class="qrcap">Scan to add me on Kuch Bhi</div></div></div>
+        <div class="sect"><span class="lab">Account</span></div>
+        <div class="list"><div class="st"><div class="well">🔑</div><div class="tt"><div class="a">Change Backup PIN</div></div><span class="chev">›</span></div></div>
+        <div class="list" style="margin-top:12px"><div class="st danger"><div class="well">⎋</div><div class="tt"><div class="a">Sign out</div></div></div></div>
+      </div></div>
+    <div class="note">No about → nothing (no placeholder line). The QR well stays white in dark so it scans; its caption uses fixed light tokens, as today.</div>
+  </div>
+
+  <div class="wrap"><span class="tag">No user yet — R11 skeleton (not a blank screen)</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div><div class="ib">⚙</div></div>
+      <div class="body"><div class="hdr"><div class="sk" style="width:96px;height:96px;border-radius:999px"></div><div class="sk" style="width:140px;height:18px;margin-top:14px"></div><div class="sk" style="width:80px;height:12px;margin-top:8px"></div><div class="sk" style="width:150px;height:48px;margin-top:14px;border-radius:16px"></div></div>
+      <div class="sk" style="height:230px;margin:16px 12px 0;border-radius:20px"></div></div></div>
+    <div class="note">Today <code>if (user == null) return const SizedBox.shrink();</code> (<code>ps:20</code>): no Scaffold, no app bar, a blank frame during sign-out or an auth reload.</div>
+  </div>
+
+  <div class="wrap"><span class="tag">Sign out — confirm (NEW)</span>
+    <div class="frame" style="background:rgba(42,37,32,.45)"><div style="height:200px"></div>
+      <div class="dlg" style="margin:0 18px 200px"><div class="t">Sign out?</div><div class="s">This clears your chats from this phone. You can sign back in any time.</div><div class="acts"><div class="btn text">Cancel</div><div class="btn secondary"><span style="color:var(--error)">⎋</span>Sign out</div></div></div></div>
+    <div class="note"><code>signOut</code> wipes every Drift table (<code>ar:331-344</code>). Confirm calls it unchanged. Destructive button = R3 secondary, error <b>icon</b>, ink label.</div>
+  </div>
+</div>
+</div>
+
+<!-- P3 -->
+<div class="band">
+<header><span class="n">P3</span><h2>App bar &amp; canvas (all three screens)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Element</th><th>Profile (own)</th><th>Edit profile</th><th>View profile (someone else)</th></tr>
+<tr><td>Scaffold bg</td><td colspan="3"><code>context.t.bg</code> explicit on every Scaffold, loading included (today none set it)</td></tr>
+<tr><td>Title</td><td><b>Profile</b> 20/26 w700</td><td><b>Edit profile</b> (today "Edit Profile")</td><td><b>Profile</b>. Today the person's name, which repeats the header and is blank for an empty name (<code>vp:16</code>)</td></tr>
+<tr><td>Back</td><td>48dp ink</td><td>48dp ink; dirty → discard dialog; saving → disabled (<code>PopScope</code>)</td><td>48dp ink</td></tr>
+<tr><td>Actions</td><td>⚙ 48dp ink, <b>Settings</b>. "Sign Out" removed from here</td><td><b>Save</b> = R3 <code>text</code>, 48 hit; off unless dirty + valid + online; busy = R3 busy</td><td>none</td></tr>
+<tr><td>Entry points</td><td>Home <code>_ProfileButton</code> → <code>/profile</code> (unchanged)</td><td><b>NEW:</b> Profile's <b>Edit profile</b> button and avatar tap → <code>/edit-profile</code>. Today nothing pushes it</td><td>Home <code>_openConversationInfo</code> → <code>/view-profile</code>; chat pushes its own <code>MaterialPageRoute</code> (<code>chat_screen.dart:1080</code>) → SHOULD use the route. Group Info member → profile (SHOULD, H7)</td></tr>
+</table></div>
+</div>
+
+<!-- P4 -->
+<div class="band">
+<header><span class="n">P4</span><h2>Profile header — avatar, name, username, about</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Photo</span><div class="frame" style="width:220px"><div class="hdr"><div class="big photo">🧑</div><div class="gname">Avni Rao</div><div class="uname">@avni</div></div></div></div>
+  <div class="wrap"><span class="tag">Initials (accentSoft)</span><div class="frame" style="width:220px"><div class="hdr"><div class="big">K</div><div class="gname">Kabir</div><div class="uname">@kab.k</div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · empty name</span><div class="frame dark" style="width:220px"><div class="hdr"><div class="big">?</div><div class="gname">Unknown</div><div class="uname">@user_93</div></div></div></div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>Avatar</td><td>R1 <code>AppAvatar(url: avatarUrl, radius: 48, accentSoft: true)</code>. R1 already picks a readable initial colour on accentSoft (ink, 13.81:1). Today: <code>CircleAvatar</code> with <b>accent</b> initials at 1.97:1 and no photo on own profile. Initials from R1b <code>initialsOf</code>: an empty name gives <b>?</b> instead of a <code>substring</code> RangeError (<code>ps:54</code>, <code>ep:91</code>, <code>vp:31</code>)</td></tr>
+<tr><td>Name</td><td>20/26 w700 ink, centred, max 2 lines, ellipsis. Empty → <b>Unknown</b> (View) / <b>Unknown</b> (own; edit fixes it). Heading semantics</td></tr>
+<tr><td>Username</td><td><b>@username</b> 15/22 inkSoft (today <code>colorScheme.onSurface@0.5</code>)</td></tr>
+<tr><td>About</td><td>15/22 ink, centred, max 4 lines. Shown on own profile too (today only View shows it). Hidden when empty</td></tr>
+<tr><td>Edit (own only)</td><td><b>Edit profile</b> R3 secondary 48h with a pencil glyph; the avatar is also a button with semantics <b>Edit profile</b></td></tr>
+</table></div>
+</div>
+
+<!-- P5 -->
+<div class="band">
+<header><span class="n">P5</span><h2>Friend code + QR card</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame" style="width:300px;padding-bottom:16px"><div class="card"><div class="kick">Your friend code</div><div class="coderow"><span class="code">KB7Q2X</span><span class="copy">⧉</span></div><div class="qrwell"><svg><use href="#qr"/></svg><div class="qrcap">Scan to add me on Kuch Bhi</div></div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark</span><div class="frame dark" style="width:300px;padding-bottom:16px"><div class="card"><div class="kick">Your friend code</div><div class="coderow"><span class="code">KB7Q2X</span><span class="copy">⧉</span></div><div class="qrwell"><svg><use href="#qr"/></svg><div class="qrcap">Scan to add me on Kuch Bhi</div></div></div></div></div>
+  <div class="wrap"><span class="tag">After copy — R5</span><div class="frame" style="width:300px;height:180px"><div class="toast">Friend code copied</div></div></div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Today</th><th>Spec</th></tr>
+<tr><td>Container</td><td>Two cards: accentSoft code card (<code>circular(20)</code>) + white QR card with hand-built shadow</td><td>ONE card: surface, <code>radiusLg 20</code>, <code>WarmPopTokens.cardShadow(t.shadow)</code> (T1), 1px line</td></tr>
+<tr><td>Kicker</td><td>"Your Friend Code" w600 <b>accent</b></td><td><b>YOUR FRIEND CODE</b> micro 11/14 w600 inkSoft</td></tr>
+<tr><td>Code</td><td>32px <b>w800</b> accent, spacing 6</td><td>display 28/34 w700 <b>ink</b>, spacing 4, tabular figures</td></tr>
+<tr><td>Copy</td><td>accent icon, raw <code>SnackBar</code> "Friend code copied!"</td><td>48dp ink icon, <b>Copy friend code</b>; R5 <b>Friend code copied</b> + selection haptic</td></tr>
+<tr><td>QR</td><td>200px, <b>accent eyes</b> (2.16:1 on white), ink modules</td><td>200px, <b>all ink</b> (eyes too) in a fixed-white <code>radiusMd</code> well. Payload <code>kuchbhi://add/{friendCode}</code> unchanged</td></tr>
+<tr><td>Caption</td><td>"Share this QR code to add friends" 12px</td><td><b>Scan to add me on Kuch Bhi</b> 13/18, fixed <code>WarmPopTokens.inkSoft</code> (5.72:1 on white)</td></tr>
+</table></div>
+</div>
+
+<!-- P6 -->
+<div class="band">
+<header><span class="n">P6</span><h2>Account rows — Change Backup PIN, Sign out</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame" style="width:320px;padding-bottom:14px">
+    <div class="sect"><span class="lab">Account</span></div>
+    <div class="list"><div class="st"><div class="well">🔑</div><div class="tt"><div class="a">Change Backup PIN</div></div><span class="chev">›</span></div></div>
+    <div class="list" style="margin-top:12px"><div class="st danger"><div class="well">⎋</div><div class="tt"><div class="a">Sign out</div></div></div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark</span><div class="frame dark" style="width:320px;padding-bottom:14px">
+    <div class="sect"><span class="lab">Account</span></div>
+    <div class="list"><div class="st"><div class="well">🔑</div><div class="tt"><div class="a">Change Backup PIN</div></div><span class="chev">›</span></div></div>
+    <div class="list" style="margin-top:12px"><div class="st danger"><div class="well">⎋</div><div class="tt"><div class="a">Sign out</div></div></div></div></div></div>
+  <div style="flex:1;min-width:260px;font-size:13px">
+    <b>Change Backup PIN</b> = R10, plain navigation to <code>AppRoutes.backupPinChange</code>. Replaces the accentSoft <code>ElevatedButton</code> with accent text (<code>ps:138-151</code>). The PIN flow itself is out of scope (key boundary).<br><br>
+    <b>Sign out</b> = R10a <code>destructive: true</code>: error icon in the well, ink title, in its own grouped list at the bottom. Confirm dialog in P2. Stays enabled offline (deferred decision 5).
+  </div>
+</div>
+</div>
+
+<!-- P7 -->
+<div class="band">
+<header><span class="n">P7</span><h2>Edit profile — form</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Light — opened, not dirty (Save off)</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Edit profile</div><div class="act off">Save</div></div>
+      <div class="body"><div class="hdr"><div class="big photo">🧑<div class="cam">📷</div></div></div>
+        <div class="gap"></div>
+        <div class="field"><div class="lb">Display name</div><div class="v">Avni Rao</div></div><div class="cnt">8/50</div>
+        <div class="field" style="margin-top:8px"><div class="lb">Username</div><div class="v"><span class="pre">@</span>avni</div></div><div class="helper">Letters, numbers and underscores</div>
+        <div class="field" style="margin-top:12px"><div class="lb">About</div><div class="v">Mostly here for the trek plans and bad puns.</div></div><div class="cnt">44/150</div>
+      </div></div>
+    <div class="note">The existing photo shows (today <code>ep:124</code> shows only a freshly picked file, so the editor looks like you have no photo). <b>Username</b> is NEW (deferred decision 1).</div>
+  </div>
+
+  <div class="wrap dark"><span class="tag">Dark — dirty (Save on), focus on username</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Edit profile</div><div class="act">Save</div></div>
+      <div class="body"><div class="hdr"><div class="big">R<div class="cam">📷</div></div></div>
+        <div class="gap"></div>
+        <div class="field"><div class="lb">Display name</div><div class="v">Rohan M.</div></div><div class="cnt">8/50</div>
+        <div class="field focus" style="margin-top:8px"><div class="lb">Username</div><div class="v"><span class="pre">@</span>rohan_m</div></div><div class="helper">Letters, numbers and underscores</div>
+        <div class="field" style="margin-top:12px"><div class="lb">About</div><div class="v ph">A line about you</div></div><div class="cnt">0/150</div>
+      </div></div>
+  </div>
+
+  <div class="wrap"><span class="tag">Username taken (server) — field error, not a toast</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Edit profile</div><div class="act">Save</div></div>
+      <div class="body"><div class="hdr"><div class="big photo">🧑<div class="cam">📷</div></div></div>
+        <div class="gap"></div>
+        <div class="field"><div class="lb">Display name</div><div class="v">Avni Rao</div></div><div class="cnt">8/50</div>
+        <div class="field bad" style="margin-top:8px"><div class="lb">Username</div><div class="v"><span class="pre">@</span>rohan</div></div><div class="ferr"><span class="ic">⚠</span>That username is taken.</div>
+      </div></div>
+    <div class="note">PB 400 with <code>data.username.code == "validation_not_unique"</code> → <code>UsernameTakenException</code> → this line. Error <b>border</b> = error colour (non-text, 3.91 ≥ 3:1); error <b>line</b> = ink + error icon (C4).</div>
+  </div>
+
+  <div class="wrap"><span class="tag">Local validation</span>
+    <div class="frame" style="padding:14px 0">
+      <div class="field bad"><div class="lb">Display name</div><div class="v ph">Enter your name</div></div><div class="ferr"><span class="ic">⚠</span>Enter a display name</div>
+      <div class="field bad" style="margin-top:10px"><div class="lb">Username</div><div class="v"><span class="pre">@</span>ab</div></div><div class="ferr"><span class="ic">⚠</span>At least 3 characters</div>
+      <div class="field bad" style="margin-top:10px"><div class="lb">Username</div><div class="v"><span class="pre">@</span>avni.rao</div></div><div class="ferr"><span class="ic">⚠</span>Letters, numbers and underscores only</div>
+      <div class="field bad" style="margin-top:10px"><div class="lb">Username</div><div class="v ph"><span class="pre">@</span></div></div><div class="ferr"><span class="ic">⚠</span>Enter a username</div>
+    </div>
+    <div class="note">Same rule as register (<code>register_screen.dart:162</code>): ≥3, <code>^[a-zA-Z0-9_]+$</code>, lower-cased on save. Unchanged username → no uniqueness round-trip.</div>
+  </div>
+</div>
+<div class="tblwrap" style="margin-top:12px"><table>
+<tr><th>Field</th><th>Rules</th><th>Today</th></tr>
+<tr><td>Display name</td><td>maxLength 50, required, words caps, R13 decoration</td><td>no max, label "Display Name", radius 12, <code>colorScheme</code> borders and fill</td></tr>
+<tr><td>Username (NEW)</td><td>prefix <b>@</b>, no autocorrect, ≥3, pattern, lower-case on save, server-unique</td><td>not editable anywhere after sign-up</td></tr>
+<tr><td>About</td><td>maxLength 150, 3 lines, hint <b>A line about you</b>, optional</td><td>same limits, Material styling</td></tr>
+<tr><td>Save</td><td>R3 text, enabled = dirty ∧ valid ∧ online</td><td>always enabled, even with nothing changed; hand-built spinner</td></tr>
+</table></div>
+</div>
+
+<!-- P8 -->
+<div class="band">
+<header><span class="n">P8</span><h2>Avatar picker &amp; preview</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Existing photo</span><div class="frame" style="width:180px"><div class="hdr"><div class="big photo">🧑<div class="cam">📷</div></div></div></div></div>
+  <div class="wrap"><span class="tag">Picked (R1a FileImage)</span><div class="frame" style="width:180px"><div class="hdr"><div class="big" style="background:#8B5E3E;font-size:44px">🏔<div class="cam">📷</div></div><div class="gcount">Not saved yet</div></div></div></div>
+  <div class="wrap dark"><span class="tag">Dark · no photo</span><div class="frame dark" style="width:180px"><div class="hdr"><div class="big">R<div class="cam">📷</div></div></div></div></div>
+  <div class="wrap" style="flex:1;min-width:300px"><span class="tag">SHOULD — C4a photo sheet</span>
+    <div class="sheet"><div class="handle"></div>
+      <div class="row1"><span class="ic">🖼</span>Choose from gallery</div>
+      <div class="row1"><span class="ic">📷</span>Take photo</div>
+      <div class="row1 danger"><span class="ic">🗑</span>Remove photo</div></div>
+    <div class="note">Without the sheet (F3 is SHOULD), the disc opens the gallery directly. <b>Remove photo</b> appears only when there is a current or picked photo.</div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Spec</th></tr>
+<tr><td>Preview order</td><td>picked file → <code>avatarUrl</code> → initials, via R1a <code>image:</code>. Meta <b>Not saved yet</b> 13/18 inkSoft under the disc while a picked/removed photo is pending (SHOULD)</td></tr>
+<tr><td>Picker</td><td><code>maxWidth: 1024, maxHeight: 1024, imageQuality: 80</code> (today no cap, <code>ep:45</code>). Cancel = no change. <code>PlatformException</code> → R5 <b>Couldn't open your photos.</b> (today an unhandled async error)</td></tr>
+<tr><td>Upload</td><td>Only on <b>Save</b>, in the same PB update as the text fields (as today). No upload on pick</td></tr>
+<tr><td>Badge</td><td>32dp, accent fill, onAccent glyph, 2px bg ring. The whole 96 disc is the target: <b>Change profile photo</b></td></tr>
+</table></div>
+</div>
+
+<!-- P9 -->
+<div class="band">
+<header><span class="n">P9</span><h2>Save path — busy, failure, discard &amp; the data flow</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Saving — locked</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib" style="color:var(--inkFaint)">←</div><div class="t">Edit profile</div><div class="act"><div class="spin" style="margin:0"></div></div></div>
+      <div class="body"><div class="hdr"><div class="big photo">🧑<div class="cam">📷</div></div></div><div class="gap"></div>
+        <div class="field ro"><div class="lb">Display name</div><div class="v">Avni R.</div></div><div class="cnt">7/50</div>
+        <div class="field ro" style="margin-top:8px"><div class="lb">Username</div><div class="v"><span class="pre">@</span>avni</div></div>
+      </div></div>
+    <div class="note"><code>PopScope(canPop: false)</code>, back off, fields read-only, photo tap off. Bound <b>8s</b>, or <b>30s</b> with a photo.</div>
+  </div>
+  <div class="wrap"><span class="tag">Failed or timed out — edits kept</span>
+    <div class="frame" style="height:330px"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Edit profile</div><div class="act">Save</div></div>
+      <div class="body"><div class="hdr"><div class="big photo">🧑<div class="cam">📷</div></div></div><div class="gap"></div>
+        <div class="field"><div class="lb">Display name</div><div class="v">Avni R.</div></div></div>
+      <div class="toast">Couldn't save. Try again.</div></div>
+    <div class="note">Today: <code>Text(e.toString())</code> on a red SnackBar (<code>ep:77</code>), e.g. a raw <code>ClientException</code> with the server URL.</div>
+  </div>
+  <div class="wrap"><span class="tag">Back while dirty</span>
+    <div class="frame" style="background:rgba(42,37,32,.45)"><div style="height:160px"></div>
+      <div class="dlg" style="margin:0 18px 160px"><div class="t">Discard changes?</div><div class="s">Your edits won't be saved.</div><div class="acts"><div class="btn text">Keep editing</div><div class="btn secondary">Discard</div></div></div></div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark — success lands on Profile</span>
+    <div class="frame dark" style="height:330px"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div><div class="ib">⚙</div></div>
+      <div class="hdr"><div class="big photo">🧑</div><div class="gname">Avni R.</div><div class="uname">@avni</div></div>
+      <div class="toast">Profile updated</div></div>
+    <div class="note">The new name is there on the first frame after the pop (and on Home's avatar button), because the notifier sets the state from the saved record.</div>
+  </div>
+</div>
+<h3 style="margin-top:14px">Data flow</h3>
+<div style="font-size:13px"><b>Today</b></div>
+<div class="flow"><span class="bx">EditProfile._save</span><span class="ar">→</span><span class="bx">ProfileUpdateService → PB users.update</span><span class="ar">→</span><span class="bx bad">ref.invalidate(authProvider)</span><span class="ar">→</span><span class="bx bad">build() → getCurrentUser() → <b>stale Drift row</b> (+ reinstall key branch)</span></div>
+<div style="font-size:13px;margin-top:8px"><b>Spec</b></div>
+<div class="flow"><span class="bx">Editor (bounded 8s / 30s)</span><span class="ar">→</span><span class="bx">AuthNotifier.updateProfile</span><span class="ar">→</span><span class="bx">AuthRepository.updateProfile: PB update → <code>_recordToUser</code> → <code>_cacheUserLocally</code></span><span class="ar">→</span><span class="bx ok">state = AsyncData(AuthAuthenticated(user))</span></div>
+<div class="note">No <code>invalidate</code>, no <code>build()</code> re-run, no key code reached. <code>UsernameTakenException</code> is typed in the repository; the editor maps it to the field error. Everything else → the generic toast. A PB write that lands after a UI timeout carries the same values; the next save or resume refresh reconciles Drift.</div>
+</div>
+
+<!-- P10 -->
+<div class="band">
+<header><span class="n">P10</span><h2>View someone else's profile</h2></header>
+<div class="grid2">
+  <div class="wrap"><span class="tag">Light</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div></div>
+      <div class="body"><div class="hdr"><div class="big photo">🧑</div><div class="gname">Mira Joshi</div><div class="uname">@mira_j</div><div class="about">Coffee first. Replies later.</div></div>
+        <div class="gap"></div>
+        <div class="list"><div class="st"><div class="well">#</div><div class="tt"><div class="a">Friend code</div><div class="b">P8RW3K</div></div><div class="copyic">⧉</div></div></div>
+      </div></div>
+    <div class="note">No online dot: it read <code>isOnline</code> from a snapshot passed through the route <code>extra</code> (deferred 3). The friend code becomes one copy row, with no QR (deferred 4).</div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark · empty name, no about</span>
+    <div class="frame dark"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div></div>
+      <div class="body"><div class="hdr"><div class="big">?</div><div class="gname">Unknown</div><div class="uname">@user_93</div></div>
+        <div class="gap"></div>
+        <div class="list"><div class="st"><div class="well">#</div><div class="tt"><div class="a">Friend code</div><div class="b">Z2K7QM</div></div><div class="copyic">⧉</div></div></div>
+      </div></div>
+  </div>
+  <div class="wrap"><span class="tag">Bad route extra — R7, no crash</span>
+    <div class="frame"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Profile</div></div>
+      <div class="empty"><div class="capy">🦫</div><div class="t sm">Profile unavailable</div><div class="btn secondary">Go back</div></div></div>
+    <div class="note">Today <code>state.extra as User</code> (<code>app_router.dart:169</code>) throws when the route is restored or deep-linked without an extra.</div>
+  </div>
+  <div class="wrap"><span class="tag">SHOULD — live data (H4)</span>
+    <div style="font-size:13px">The screen gets a <code>User</code> snapshot. With H4 it watches the cached row (<code>usersDao.watchUserById</code>, through a domain provider for L4) and starts from the snapshot, so a friend's rename or new photo shows without leaving the screen. Group Info → member profile (H7, deferred from page 4) and chat using the shared route (H6) are SHOULDs.</div>
+  </div>
+</div>
+</div>
+
+<!-- P11 -->
+<div class="band">
+<header><span class="n">P11</span><h2>Offline &amp; error language</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Edit profile — offline</span>
+    <div class="frame" style="width:320px"><div class="status"><span>9:41</span><span>▰▰▰</span></div>
+      <div class="appbar"><div class="ib">←</div><div class="t">Edit profile</div><div class="act dim">Save</div></div>
+      <div class="offline"><span>☁</span><span>You're offline — actions are available when you're back.</span></div>
+      <div class="offhint">Available online</div>
+      <div class="body"><div class="hdr"><div class="big photo">🧑<div class="cam">📷</div></div></div><div class="gap"></div>
+        <div class="field"><div class="lb">Display name</div><div class="v">Avni R.</div></div></div></div></div>
+  <div style="flex:1;min-width:280px"><div class="tblwrap"><table>
+    <tr><th>Surface</th><th>Offline</th><th>Errors</th></tr>
+    <tr><td>Profile</td><td>Works from cache. No strip. Copy, QR, Edit profile, Backup PIN, Sign out all enabled</td><td>none loadable (auth is in memory)</td></tr>
+    <tr><td>Edit profile</td><td>Strip + <b>Save</b> at ONE 38% dim + ONE <b>Available online</b>. Fields and photo pick stay usable</td><td>Field errors inline; <b>Couldn't save. Try again.</b>; <b>Couldn't open your photos.</b></td></tr>
+    <tr><td>View profile</td><td>Works from the snapshot / cache. No strip</td><td><b>Profile unavailable</b> (bad route)</td></tr>
+  </table></div>
+  <div class="note">Strip and hint strings are the Requests H1 / <code>kOfflineActionHint</code> constants: import them, never retype. Double dim (dimmed button inside a dimmed bar) = FAIL.</div></div>
+</div>
+</div>
+
+<!-- P12 -->
+<div class="band">
+<header><span class="n">P12</span><h2>A11y &amp; motion</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Item</th><th>Spec</th></tr>
+<tr><td>Header</td><td>Merged label <b>{name}, @{username}</b> (+ about). Name is a heading. The avatar is excluded unless it is a button (own: <b>Edit profile</b>; editor: <b>Change profile photo</b>)</td></tr>
+<tr><td>Friend code</td><td>Read digit by digit: <b>Friend code K B 7 Q 2 X</b>. Copy: <b>Copy friend code</b>. QR: <b>QR code for your friend code</b></td></tr>
+<tr><td>Targets</td><td>48dp floor: gear, back, Save, copy, camera disc, sheet rows, dialog buttons</td></tr>
+<tr><td>Errors</td><td>Field errors via <code>TextFormField</code>; <b>That username is taken.</b> also as a live region; toasts announced</td></tr>
+<tr><td>Motion</td><td>Photo swap 150ms fade (SHOULD); dialogs/sheets theme defaults (≤250ms). Reduced motion: instant, the busy spinner parks (R3a)</td></tr>
+</table></div>
+</div>
+
+<!-- P13 -->
+<div class="band">
+<header><span class="n">P13</span><h2>Copy table (verbatim contract), out of scope, deferred decisions</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Keep</th><th>Change / add</th></tr>
+<tr><td>Profile · Change Backup PIN · Display name (label case) · About · Save</td>
+<td>Titles <b>Edit profile</b> / <b>Profile</b> (View) · <b>Edit profile</b> button · <b>YOUR FRIEND CODE</b> · <b>Friend code</b> (View row) · <b>Friend code copied</b> · <b>Scan to add me on Kuch Bhi</b> · section <b>Account</b> · <b>Sign out</b> · <b>Sign out?</b> + <b>This clears your chats from this phone. You can sign back in any time.</b> + <b>Cancel</b> · <b>Username</b> + <b>Letters, numbers and underscores</b> · <b>Enter a display name</b> · <b>Enter a username</b> · <b>At least 3 characters</b> · <b>Letters, numbers and underscores only</b> · <b>That username is taken.</b> · <b>A line about you</b> · <b>Profile updated</b> · <b>Couldn't save. Try again.</b> · <b>Couldn't open your photos.</b> · <b>Discard changes?</b> + <b>Your edits won't be saved.</b> + <b>Keep editing</b> + <b>Discard</b> · <b>Choose from gallery</b> / <b>Take photo</b> / <b>Remove photo</b> · <b>Not saved yet</b> · <b>Unknown</b> · <b>Profile unavailable</b> + <b>Go back</b> · offline strip + <b>Available online</b> (Requests strings)</td></tr>
+<tr><td colspan="2" style="background:#FBE3E3"><b>Banned:</b> <code>Text(e.toString())</code> (<code>ep:77</code>) and any <code>$e</code> in UI text · a user id in any string · "Sign Out" as error-coloured text · accent text anywhere on these screens · <code>CircularProgressIndicator</code> outside R3/R3a · <code>ref.invalidate(authProvider)</code></td></tr>
+</table></div>
+<div class="row" style="margin-top:12px">
+<div style="flex:1;min-width:280px">
+<h3>Out of scope (do NOT build here)</h3>
+<div style="font-size:13px"><b>Keys:</b> Backup PIN screens, key backup, <code>_initEncryptionKeys</code>, key-loss re-wrap (backlog) · Settings content (page 6) · auth / onboarding (page 7) · Add-Friend sheet and QR scanner (page 8) · full-screen avatar viewer (page 9) · image cropping (new dependency) · email / password change · delete account · block / report / mute · a <b>Message</b> button on View Profile (both entry points already are the chat) · presence / last seen · shared groups or media · migrating the other 5 <code>_initials</code> copies or the 2 group fields (SHOULD only)</div>
+</div>
+<div style="flex:1;min-width:280px">
+<h3>Deferred decisions (user may override)</h3>
+<div style="font-size:13px">1. <b>Username editable</b>, pending the PB rule check. Alt: read-only + <b>Usernames can't be changed</b>.<br>2. <b>Sign out → Account row + confirm.</b> Alt: app-bar ink text + confirm.<br>3. <b>Online dot removed</b> on View (stale snapshot). Alt: live presence line (its own task).<br>4. <b>Friend code on others' profiles:</b> compact copy row, no QR. Alt: hide it, or keep the big card.<br>5. <b>Sign out offline:</b> allowed (local). Alt: disabled + hint.<br>6. <b>Display name max 50</b> (register has none).<br>7. <b>Save bound 30s with a photo</b>, 8s without. Alt: 8s everywhere.<br>8. <b>Destructive colour:</b> error icon + ink label, as page 4. Alt: <code>errorText</code> token.</div>
+</div>
+</div>
+</div>
+
+<!-- P14 -->
+<div class="band">
+<header><span class="n">P14</span><h2>Diff vs current implementation</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Area</th><th>Today (file:line)</th><th>Spec</th><th>Checklist</th></tr>
+<tr><td>1</td><td>Edit reachability</td><td><code>/edit-profile</code> registered, <b>never pushed</b> <code>app_router.dart:163</code></td><td><b>Edit profile</b> button + avatar tap</td><td>B4</td></tr>
+<tr><td>2</td><td>Save doesn't show</td><td>PB write, then <code>invalidate(authProvider)</code> re-reads the stale Drift row <code>ep:70</code>, <code>ar:257</code></td><td>Repo maps + caches the record; notifier sets state</td><td>G1, G2</td></tr>
+<tr><td>3</td><td>Key path from UI</td><td>The invalidate re-runs the reinstall key branch <code>ar:266-270</code></td><td>No invalidate; grep gate</td><td>G2, gates</td></tr>
+<tr><td>4</td><td>Own photo hidden</td><td>Profile ignores <code>avatarUrl</code> <code>ps:50</code>; editor ignores it <code>ep:124</code></td><td>R1 url / R1a image everywhere</td><td>B2, F1</td></tr>
+<tr><td>5</td><td>Empty-name crash</td><td><code>substring(0,1)</code> <code>ps:54, ep:91, vp:31</code></td><td>R1b <code>initialsOf</code> → <b>?</b>; name → <b>Unknown</b></td><td>A8, H1</td></tr>
+<tr><td>6</td><td>Accent text</td><td>Code, kicker, copy icon, PIN label, initials (1.97–2.16:1) <code>ps:58,96,109,127,144</code>; <code>vp:35,99,112,130</code></td><td>ink / inkSoft; accent = fills only</td><td>A3, C1</td></tr>
+<tr><td>7</td><td>Sign out</td><td>Red text in the app bar, no confirm, wipes Drift <code>ps:32-39</code></td><td>R10a row + confirm dialog</td><td>D2, D3</td></tr>
+<tr><td>8</td><td>Type scale</td><td>Code 32 w800 <code>ps:106</code>, <code>headlineSmall</code> names</td><td>display 28/34 w700; 20/26 names</td><td>A5</td></tr>
+<tr><td>9</td><td>QR contrast</td><td>Accent eyes 2.16:1 <code>ps:178</code></td><td>All ink in a white well</td><td>C3</td></tr>
+<tr><td>10</td><td>Two cards</td><td>accentSoft code card + white QR card <code>ps:83-195</code></td><td>One surface card, T1 shadow</td><td>C1</td></tr>
+<tr><td>11</td><td>Copy feedback</td><td>Raw <code>SnackBar</code> "Friend code copied!" <code>ps:118</code>, <code>vp:121</code></td><td>R5 <b>Friend code copied</b> + haptic</td><td>C2, H3</td></tr>
+<tr><td>12</td><td>Backup PIN entry</td><td>accentSoft <code>ElevatedButton</code>, accent text <code>ps:138</code></td><td>R10 navigation row</td><td>D1</td></tr>
+<tr><td>13</td><td>No-user frame</td><td><code>SizedBox.shrink()</code>, no Scaffold <code>ps:20</code></td><td>Scaffold + R11 skeleton</td><td>B1</td></tr>
+<tr><td>14</td><td>About on own profile</td><td>Not shown</td><td>Shown when non-empty</td><td>B3</td></tr>
+<tr><td>15</td><td>Username</td><td>Not editable</td><td>Editable, validated, unique</td><td>E2, G1</td></tr>
+<tr><td>16</td><td>Raw error</td><td><code>Text(e.toString())</code> <code>ep:77</code></td><td>Field error / fixed toast copy</td><td>A4, G3</td></tr>
+<tr><td>17</td><td>Unbounded save</td><td>No timeout (PB HTTP never times out)</td><td>8s / 30s with photo</td><td>G3</td></tr>
+<tr><td>18</td><td>Save when unchanged</td><td>Always enabled</td><td>dirty ∧ valid ∧ online</td><td>E4</td></tr>
+<tr><td>19</td><td>Lost edits</td><td>Back discards silently; back allowed mid-save</td><td>Discard dialog; blocked while saving</td><td>E5, E6</td></tr>
+<tr><td>20</td><td>Picker</td><td>No size cap; <code>PlatformException</code> unhandled <code>ep:45</code></td><td>1024 cap, q80; toast</td><td>F2</td></tr>
+<tr><td>21</td><td>Photo options</td><td>Gallery only</td><td>Gallery / camera / remove sheet</td><td>F3 (SHOULD)</td></tr>
+<tr><td>22</td><td>L4</td><td>Editor imports <code>profile_update_service.dart</code> <code>ep:9</code></td><td>AuthNotifier → AuthRepository; service deleted</td><td>A6, G1</td></tr>
+<tr><td>23</td><td>C3 colour</td><td><code>colorScheme…withValues</code>, <code>surfaceContainerHighest</code> (9 <code>colorScheme</code> sites: ps 1, ep 6, vp 2)</td><td><code>context.t.*</code>; grep gate</td><td>A2</td></tr>
+<tr><td>24</td><td>Radius literals</td><td><code>circular(12)</code> ×6, <code>circular(20)</code> ×3</td><td>WarmPopTokens radii</td><td>A2</td></tr>
+<tr><td>25</td><td>Field styling</td><td>Decoration copy-pasted per field</td><td>R13 <code>appFieldDecoration</code></td><td>E1</td></tr>
+<tr><td>26</td><td>Busy spinner</td><td>Hand-built <code>CircularProgressIndicator</code> <code>ep:100</code></td><td>R3 busy</td><td>A7, E4</td></tr>
+<tr><td>27</td><td>Scaffold bg</td><td>None set on any of the three</td><td><code>context.t.bg</code></td><td>A1</td></tr>
+<tr><td>28</td><td>View title</td><td>The person's name (repeats; blank when empty) <code>vp:16</code></td><td><b>Profile</b></td><td>A1</td></tr>
+<tr><td>29</td><td>Stale online dot</td><td>Snapshot <code>isOnline</code> <code>vp:44-53</code></td><td>Removed</td><td>H2</td></tr>
+<tr><td>30</td><td>Others' friend code</td><td>Full accent card <code>vp:86-137</code></td><td>One copy row</td><td>H3</td></tr>
+<tr><td>31</td><td>Route cast</td><td><code>state.extra as User</code> crashes on restore <code>app_router.dart:169</code></td><td>R7 <b>Profile unavailable</b></td><td>H5</td></tr>
+<tr><td>32</td><td>Two ways in</td><td>Chat builds its own route <code>chat_screen.dart:1080</code></td><td>Shared <code>/view-profile</code></td><td>H6 (SHOULD)</td></tr>
+<tr><td>33</td><td>Offline</td><td>None on the editor</td><td>Strip + single dim + hint</td><td>I1, I2</td></tr>
+<tr><td>34</td><td>Tests</td><td>Colour grep gate only (<code>grep_gates_test.dart:18</code>)</td><td>4 new files + extended gates</td><td>Gates</td></tr>
+</table></div>
+<p class="sub" style="margin-top:8px"><code>ps</code> = <code>profile_screen.dart</code>, <code>ep</code> = <code>edit_profile_screen.dart</code>, <code>vp</code> = <code>view_profile_screen.dart</code>, <code>ar</code> = <code>auth_repository_impl.dart</code> (line numbers as of <code>6c98a8d</code>).</p>
+</div>
+
+<p class="sub">Board end · grading contract = <code>profile.md</code> · no implementation and no Astra handoff before user PASS on this spec.</p>
+</body>
+</html>

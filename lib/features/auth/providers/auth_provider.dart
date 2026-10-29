@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/user.dart';
@@ -156,6 +158,26 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   Future<void> signOut() async {
     await _repo.signOut();
     state = const AsyncData(AuthUnauthenticated());
+  }
+
+  /// Saves the profile and publishes the saved user straight to state.
+  /// Never invalidates: a rebuild re-runs getCurrentUser (stale cache,
+  /// reinstall branch that can rotate keys).
+  Future<void> updateProfile({
+    required String displayName,
+    required String username,
+    String? about,
+    File? avatarFile,
+    bool clearAvatar = false,
+  }) async {
+    final user = await _repo.updateProfile(
+      displayName: displayName,
+      username: username,
+      about: about,
+      avatarFile: avatarFile,
+      clearAvatar: clearAvatar,
+    );
+    state = AsyncData(AuthAuthenticated(user));
   }
 
   /// Throttled session refresh — called from app resume only, never from

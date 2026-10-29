@@ -1,12 +1,26 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_field.dart';
+import '../../../core/widgets/app_toast.dart';
+import '../../../domain/entities/user.dart';
+import '../../../domain/repositories/auth_repository.dart';
 import '../../../features/auth/providers/auth_provider.dart';
-import '../../../infrastructure/services/profile_update_service.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
+import '../../chat/message_offline_policy.dart';
+import 'crop_photo_screen.dart';
+import 'profile_screen.dart';
+
+const _offlineCopy = "You're offline — actions are available when you're back.";
+final _usernamePattern = RegExp(r'^[a-zA-Z0-9_]+$');
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -16,211 +30,363 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _displayNameController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _aboutController = TextEditingController();
-  bool _isLoading = false;
+  final _touched = <String>{};
+  bool _saving = false;
+  bool _allowPop = false;
+  bool _clearAvatar = false;
   File? _pickedImage;
+  String? _takenUsername;
+
+  // I1: the strip clears 250ms after reconnect.
+  bool _stripVisible = false;
+  Timer? _stripTimer;
 
   @override
   void initState() {
     super.initState();
-    final authState = ref.read(authProvider).valueOrNull;
-    final user = authState is AuthAuthenticated ? authState.user : null;
+    final user = _currentUser();
     if (user != null) {
-      _displayNameController.text = user.displayName;
+      _nameController.text = user.displayName;
+      _usernameController.text = user.username;
       _aboutController.text = user.about ?? '';
     }
+    _stripVisible = !_online;
   }
 
   @override
   void dispose() {
-    _displayNameController.dispose();
+    _stripTimer?.cancel();
+    _nameController.dispose();
+    _usernameController.dispose();
     _aboutController.dispose();
     super.dispose();
   }
 
+  User? _currentUser() {
+    final s = ref.read(authProvider).valueOrNull;
+    return s is AuthAuthenticated ? s.user : null;
+  }
+
+  bool get _online => ref.read(isOnlineProvider).valueOrNull ?? true;
+
+  String get _username => _usernameController.text.trim().toLowerCase();
+
+  String? get _nameError =>
+      _nameController.text.trim().isEmpty ? 'Enter a display name' : null;
+
+  String? get _usernameError {
+    final raw = _usernameController.text.trim();
+    if (raw.isEmpty) return 'Enter a username';
+    if (raw.length < 3) return 'At least 3 characters';
+    if (!_usernamePattern.hasMatch(raw)) {
+      return 'Letters, numbers and underscores only';
+    }
+    if (_takenUsername == _username) return 'That username is taken.';
+    return null;
+  }
+
+  bool _dirty(User user) =>
+      _nameController.text.trim() != user.displayName ||
+      _username != user.username ||
+      _aboutController.text.trim() != (user.about ?? '') ||
+      _pickedImage != null ||
+      _clearAvatar;
+
+  void _edited(String field) => setState(() {
+        _touched.add(field);
+        if (field == 'username' && _takenUsername != _username) {
+          _takenUsername = null;
+        }
+      });
+
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (picked != null) setState(() => _pickedImage = File(picked.path));
+    if (_saving) return;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 80,
+      );
+      if (picked == null || !mounted) return;
+      // F5: move and scale before the photo is used; null = cancelled.
+      final cropped = await Navigator.of(context).push<File>(
+        MaterialPageRoute(
+          builder: (_) => CropPhotoScreen(file: File(picked.path)),
+        ),
+      );
+      if (cropped != null && mounted) {
+        setState(() {
+          _pickedImage = cropped;
+          _clearAvatar = false;
+        });
+      }
+    } on PlatformException catch (e) {
+      debugPrint('[Profile] pickImage failed: $e');
+      if (mounted) showToast(context, "Couldn't open your photos.", error: true);
+    }
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-    setState(() => _isLoading = true);
-
+    setState(() {
+      _saving = true;
+      _takenUsername = null;
+    });
+    final timeout = Duration(seconds: _pickedImage != null ? 30 : 8);
     try {
-      final authState = ref.read(authProvider).valueOrNull;
-      final user = authState is AuthAuthenticated ? authState.user : null;
-      if (user == null) return;
-
-      final body = {
-        'display_name': _displayNameController.text.trim(),
-        'about': _aboutController.text.trim(),
-      };
-
-      await ref.read(profileUpdateServiceProvider).updateProfile(
-            userId: user.id,
-            body: body,
+      await ref
+          .read(authProvider.notifier)
+          .updateProfile(
+            displayName: _nameController.text.trim(),
+            username: _username,
+            about: _aboutController.text.trim(),
             avatarFile: _pickedImage,
-          );
-
-      ref.invalidate(authProvider);
-      if (mounted) Navigator.of(context).pop();
+            clearAvatar: _clearAvatar,
+          )
+          .timeout(timeout);
+      if (!mounted) return;
+      showToast(context, 'Profile updated');
+      Navigator.of(context).pop();
+    } on UsernameTakenException {
+      if (mounted) setState(() => _takenUsername = _username);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: context.t.error,
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
+      debugPrint('[Profile] save failed: $e');
+      if (mounted) showToast(context, "Couldn't save. Try again.", error: true);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _onPopBlocked() async {
+    if (_saving) return;
+    final t = context.t;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: t.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
+        ),
+        title: Text('Discard changes?', style: profileTitleStyle(ctx)),
+        content: Text(
+          "Your edits won't be saved.",
+          style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
+        ),
+        actions: [
+          AppButton(
+            variant: AppButtonVariant.text,
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          AppButton(
+            variant: AppButtonVariant.secondary,
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      setState(() => _allowPop = true);
+      Navigator.of(context).pop();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    ref.listen<AsyncValue<bool>>(isOnlineProvider, (_, next) {
+      final online = next.valueOrNull ?? true;
+      _stripTimer?.cancel();
+      if (!online) {
+        setState(() => _stripVisible = true);
+      } else {
+        _stripTimer = Timer(const Duration(milliseconds: 250), () {
+          if (mounted) setState(() => _stripVisible = false);
+        });
+      }
+    });
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
     final authState = ref.watch(authProvider).valueOrNull;
     final user = authState is AuthAuthenticated ? authState.user : null;
-    final initial = user?.displayName.substring(0, 1).toUpperCase() ?? '?';
+    if (user == null) {
+      return Scaffold(
+        backgroundColor: t.bg,
+        appBar: profileAppBar(context, 'Edit profile'),
+      );
+    }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Profile'),
-        actions: [
-          TextButton(
-            onPressed: _isLoading ? null : _save,
-            child: _isLoading
-                ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
+    final dirty = _dirty(user);
+    final valid = _nameError == null && _usernameError == null;
+    final canSave = dirty && valid && online && !_saving;
+    final avatarUrl = _clearAvatar ? null : user.avatarUrl;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+
+    return PopScope(
+      canPop: _allowPop || (!_saving && !dirty),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onPopBlocked();
+      },
+      child: Scaffold(
+        backgroundColor: t.bg,
+        appBar: profileAppBar(context, 'Edit profile', actions: [
+          // I2: offline dims Save exactly once, with one hint below.
+          Opacity(
+            opacity: online ? 1 : .38,
+            child: AppButton(
+              variant: AppButtonVariant.text,
+              onPressed: canSave ? _save : null,
+              busy: _saving,
+              child: const Text('Save'),
+            ),
           ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: GestureDetector(
-                  onTap: _pickImage,
-                  child: Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 48,
-                        backgroundColor: context.t.accentSoft,
-                        backgroundImage: _pickedImage != null
-                            ? FileImage(_pickedImage!)
-                            : null,
-                        child: _pickedImage == null
-                            ? Text(
-                                initial,
-                                style: TextStyle(
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.w700,
-                                  color: context.t.accent,
-                                ),
-                              )
-                            : null,
+          const SizedBox(width: 8),
+        ]),
+        body: Column(
+          children: [
+            if (_stripVisible)
+              Container(
+                width: double.infinity,
+                color: t.accentSoft,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_off_outlined, size: 18, color: t.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _offlineCopy,
+                        style: TextStyle(fontSize: 13, color: t.ink),
                       ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: context.t.accent,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.camera_alt_outlined,
-                            size: 16,
-                            color: context.t.onAccent,
+                    ),
+                  ],
+                ),
+              ),
+            if (!online)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    kOfflineActionHint,
+                    style: TextStyle(fontSize: 12, color: t.inkSoft),
+                  ),
+                ),
+              ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Semantics(
+                        button: true,
+                        label: 'Change profile photo',
+                        excludeSemantics: true,
+                        child: GestureDetector(
+                          onTap: _pickImage,
+                          child: Stack(
+                            children: [
+                              AnimatedSwitcher(
+                                duration: reduceMotion
+                                    ? Duration.zero
+                                    : WarmPopTokens.motionFast,
+                                child: AppAvatar(
+                                  key: ValueKey(
+                                      _pickedImage?.path ?? avatarUrl ?? ''),
+                                  image: _pickedImage != null
+                                      ? FileImage(_pickedImage!)
+                                      : null,
+                                  url: avatarUrl,
+                                  initials: initialsOf(user.displayName),
+                                  radius: 48,
+                                  accentSoft: true,
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: t.accent,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: t.bg, width: 2),
+                                  ),
+                                  child: Icon(Icons.camera_alt_outlined,
+                                      size: 16, color: t.onAccent),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 32),
+                    TextField(
+                      controller: _nameController,
+                      readOnly: _saving,
+                      maxLength: 50,
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.next,
+                      style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
+                      onChanged: (_) => _edited('name'),
+                      decoration: appFieldDecoration(context, label: 'Display name')
+                          .copyWith(
+                        error: _touched.contains('name') && _nameError != null
+                            ? appFieldError(context, _nameError!)
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _usernameController,
+                      readOnly: _saving,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      textInputAction: TextInputAction.next,
+                      style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
+                      onChanged: (_) => _edited('username'),
+                      decoration: appFieldDecoration(
+                        context,
+                        label: 'Username',
+                        helper: 'Letters, numbers and underscores',
+                        prefixText: '@',
+                      ).copyWith(
+                        error: (_touched.contains('username') ||
+                                    _takenUsername != null) &&
+                                _usernameError != null
+                            ? appFieldError(context, _usernameError!)
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _aboutController,
+                      readOnly: _saving,
+                      maxLength: 150,
+                      maxLines: 3,
+                      textInputAction: TextInputAction.done,
+                      style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
+                      onChanged: (_) => _edited('about'),
+                      decoration: appFieldDecoration(
+                        context,
+                        label: 'About',
+                        hint: 'A line about you',
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 32),
-              TextFormField(
-                controller: _displayNameController,
-                textInputAction: TextInputAction.next,
-                style: const TextStyle(fontSize: 15),
-                decoration: InputDecoration(
-                  labelText: 'Display Name',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 1.5,
-                    ),
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: 0.4),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Please enter a display name';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _aboutController,
-                maxLength: 150,
-                maxLines: 3,
-                textInputAction: TextInputAction.done,
-                style: const TextStyle(fontSize: 15),
-                decoration: InputDecoration(
-                  labelText: 'About',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 1.5,
-                    ),
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: 0.4),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

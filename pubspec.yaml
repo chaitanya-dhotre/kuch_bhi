@@ -95,6 +95,8 @@ dev_dependencies:
   drift_dev: ^2.22.1
   riverpod_generator: ^2.6.1
   riverpod_lint: ^2.6.1
+  # Profile tests fake the picker through the plugin's own platform seam.
+  image_picker_platform_interface: ^2.11.1
   # T9 migration test pre-seeds a REAL v9 sqlite file (raw ALTER/DROP proof
   # through the production onUpgrade path) — package:sqlite3 was already in
   # the graph as drift's transitive dep; promoted to direct dev use.

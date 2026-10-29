@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../entities/user.dart';
 
 /// Abstract contract for authentication operations.
@@ -73,6 +75,16 @@ abstract class AuthRepository {
   /// Update the user's public encryption key on the server.
   /// Called once after key generation on first login.
   Future<void> updatePublicKey(String publicKeyBase64);
+
+  /// Update display name, username, about and avatar for the signed-in user.
+  /// Throws [UsernameTakenException] when the username is already in use.
+  Future<User> updateProfile({
+    required String displayName,
+    required String username,
+    String? about,
+    File? avatarFile,
+    bool clearAvatar = false,
+  });
 }
 
 /// Lightweight data carried from a Google account into the registration form.
@@ -119,4 +131,12 @@ class AuthException implements Exception {
 
   @override
   String toString() => 'AuthException($code): $message';
+}
+
+/// The server rejected a profile save because the username is taken.
+class UsernameTakenException implements Exception {
+  const UsernameTakenException();
+
+  @override
+  String toString() => 'UsernameTakenException';
 }

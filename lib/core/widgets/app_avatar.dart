@@ -2,6 +2,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/tokens.dart';
 
+/// First character of the trimmed [name], upper-cased, or [fallback].
+String initialsOf(String name, {String fallback = '?'}) {
+  final n = name.trim();
+  return n.isEmpty ? fallback : String.fromCharCode(n.runes.first).toUpperCase();
+}
+
 class AppAvatar extends StatelessWidget {
   const AppAvatar({
     super.key,
@@ -9,8 +15,11 @@ class AppAvatar extends StatelessWidget {
     required this.initials,
     this.radius = 20,
     this.accentSoft = false,
+    this.image,
   });
   final String? url;
+  /// Local preview (e.g. a picked file); wins over [url].
+  final ImageProvider? image;
   final String initials;
   final double radius;
   final bool accentSoft;
@@ -18,13 +27,15 @@ class AppAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final photo = image ?? (url != null ? CachedNetworkImageProvider(url!) : null);
+    // Initials always sit under the photo, so a slow or failed load (404,
+    // offline) shows initials instead of an empty disc.
     return CircleAvatar(
       radius: radius,
       backgroundColor: accentSoft ? t.accentSoft : t.surface2,
-      backgroundImage: url != null ? CachedNetworkImageProvider(url!) : null,
-      child: url != null
-          ? null
-          : Text(
+      foregroundImage: photo,
+      onForegroundImageError: photo == null ? null : (_, __) {},
+      child: Text(
               initials,
               style: TextStyle(
                 color: accentSoft ? _readableAccentForeground(t) : t.inkSoft,
