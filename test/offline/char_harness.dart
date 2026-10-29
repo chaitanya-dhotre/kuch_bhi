@@ -171,6 +171,9 @@ class FakeSecureStorage implements SecureStorageService {
   @override
   Future<void> saveLocalPublicKey(String b64) async =>
       put('local_public_key', b64);
+  // generateAndBackupNewKey's cache wipe (K3 setup with no key).
+  @override
+  Future<void> clearAllConversationKeys() async {}
   // Derived conversation-key cache (ECDH round-trip fixtures —
   // group_key_local_first_test drives encryptGroupKeyForMember).
   @override

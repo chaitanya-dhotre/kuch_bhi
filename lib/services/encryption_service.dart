@@ -174,20 +174,30 @@ class EncryptionService {
 
   // ── Key pair ──────────────────────────────────────────────────
 
-  Future<SimpleKeyPairData> getOrCreateKeyPair() async {
+  /// The stored device key pair, or null. Read-only: decrypt/derive paths use
+  /// this, because a key created during sign-in sync hides the Backup PIN
+  /// restore (K1). Only first-time setup (getPublicKeyBase64) may create one.
+  Future<SimpleKeyPairData?> _readKeyPair() async {
     final privB64 = await _storage.getPrivateKey();
     final pubB64 = await _storage.getLocalPublicKey();
-
-    if (privB64 != null && pubB64 != null) {
-      return SimpleKeyPairData(
-        base64.decode(privB64),
-        publicKey: SimplePublicKey(
-          base64.decode(pubB64),
-          type: KeyPairType.x25519,
-        ),
-        type: KeyPairType.x25519,
-      );
+    if (privB64 == null) return null;
+    if (pubB64 == null) {
+      // Crash between restore's two writes: the public half follows from the seed.
+      return (await _x25519.newKeyPairFromSeed(base64.decode(privB64))).extract();
     }
+    return SimpleKeyPairData(
+      base64.decode(privB64),
+      publicKey: SimplePublicKey(
+        base64.decode(pubB64),
+        type: KeyPairType.x25519,
+      ),
+      type: KeyPairType.x25519,
+    );
+  }
+
+  Future<SimpleKeyPairData> getOrCreateKeyPair() async {
+    final existing = await _readKeyPair();
+    if (existing != null) return existing;
 
     // Generate fresh key pair.
     final keyPair = await _x25519.newKeyPair();
@@ -224,7 +234,10 @@ class EncryptionService {
       return base64.decode(cached);
     }
 
-    final myKeyPair = await getOrCreateKeyPair();
+    final myKeyPair = await _readKeyPair();
+    if (myKeyPair == null) {
+      throw const MissingKeyException('no device key pair (restore pending)');
+    }
     final myPub = await myKeyPair.extractPublicKey();
 
     debugPrint(
@@ -845,8 +858,11 @@ class EncryptionService {
       return false;
     }
 
+    // Outside the try (K3): an unreachable server is an error for the screen
+    // to show, not "Incorrect PIN" — Restore is where an offline no-key
+    // route lands.
+    final userRecord = await _pb.collection('users').getOne(userId);
     try {
-      final userRecord = await _pb.collection('users').getOne(userId);
       final encryptedB64 = userRecord.getStringValue('private_key_encrypted');
       final saltB64 = userRecord.getStringValue('private_key_salt');
 
@@ -940,14 +956,15 @@ class EncryptionService {
     final privBytes = await keyPair.extractPrivateKeyBytes();
     final pubKey = await keyPair.extractPublicKey();
 
-    // Store in Secure Storage
-    await _storage.savePrivateKey(base64.encode(privBytes));
-    await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
-
-    // Upload public key to PocketBase
+    // Upload first (K3): offline, this throws before the device holds a key
+    // the server never saw (a cold start would then route that key to keyOk).
     await _pb
         .collection('users')
         .update(userId, body: {'public_key': base64.encode(pubKey.bytes)});
+
+    // Store in Secure Storage
+    await _storage.savePrivateKey(base64.encode(privBytes));
+    await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
 
     // Backup the new key with the new PIN
     await backupPrivateKey(pin);
@@ -961,28 +978,35 @@ class EncryptionService {
     );
   }
 
+  /// Backup PIN setup (not Start Fresh). Backs up the device key; with no
+  /// key (K3: key init skips generation while the backup state is unknown)
+  /// it creates one only on a CONFIRMED "no backup". Otherwise it writes
+  /// nothing and the caller's re-route sends the user to Restore or to the
+  /// splash re-check.
+  Future<void> backupOrCreateKey(String pin) async {
+    if (await hasLocalPrivateKey()) return backupPrivateKey(pin);
+    final userId = await _storage.getCurrentUserId();
+    if (userId == null) {
+      throw Exception('[Enc] No current user ID stored locally.');
+    }
+    final hasBackup = await tryHasPocketBaseBackup(userId);
+    if (hasBackup == null) {
+      throw Exception("Can't reach the server. Check your connection.");
+    }
+    if (!hasBackup) await generateAndBackupNewKey(pin);
+  }
+
   Future<bool> hasLocalPrivateKey() async {
     final priv = await _storage.getPrivateKey();
     return priv != null && priv.isNotEmpty;
   }
 
-  Future<bool> hasPocketBaseBackup(String userId) async {
-    try {
-      final userRecord = await _pb.collection('users').getOne(userId);
-      final encrypted = userRecord.getStringValue('private_key_encrypted');
-      return encrypted.isNotEmpty;
-    } catch (e) {
-      debugPrint('[Enc] hasPocketBaseBackup check failed: $e');
-      return false;
-    }
-  }
-
   /// P6 (user report 2026-10-11): TRI-STATE backup check — `true`/`false`
   /// when the server answers, `null` when the check could not run (offline,
-  /// server down). `hasPocketBaseBackup`'s catch-all `false` conflated
-  /// "unreachable" with "no backup", which routed already-set-up users into
-  /// the Backup-PIN setup screen on every offline cold start. Callers that
-  /// BRANCH on the answer must use this and treat `null` as "unknown".
+  /// server down, ANY error incl. a 403). The old catch-all `false` conflated
+  /// "unreachable" with "no backup": it routed set-up users into Backup-PIN
+  /// setup offline, and let key init upload a new public key over a backed-up
+  /// one on a sign-in blip (K3). Treat `null` as "unknown", never as "no".
   Future<bool?> tryHasPocketBaseBackup(String userId) async {
     try {
       final userRecord = await _pb.collection('users').getOne(userId);

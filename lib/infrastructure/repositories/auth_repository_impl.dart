@@ -204,7 +204,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final record = RecordModel.fromJson(recordData);
       _pb.authStore.save(token, record);
       final user = _recordToUser(record);
-      await _saveSession(user);
+      await _saveSession(user, newAccount: true);
       return GoogleAuthResult(user: user, isNew: true);
     } on AuthException {
       rethrow;
@@ -240,7 +240,7 @@ class AuthRepositoryImpl implements AuthRepository {
           .collection('users')
           .authWithPassword(email, password);
       final user = _recordToUser(authData.record!);
-      await _saveSession(user);
+      await _saveSession(user, newAccount: true);
       return user;
     } on ClientException catch (e) {
       throw AuthException(_parseErrorMessage(e),
@@ -412,7 +412,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   // ── Session save ───────────────────────────────────────────────
 
-  Future<void> _saveSession(User user) async {
+  Future<void> _saveSession(User user, {bool newAccount = false}) async {
     final token = _pb.authStore.token;
 
     // Save token + userId to SecureStorage (primary).
@@ -454,7 +454,7 @@ class AuthRepositoryImpl implements AuthRepository {
     }
 
     // Generate encryption key pair if this is a new device.
-    await _initEncryptionKeys(user.id);
+    await _initEncryptionKeys(user.id, newAccount: newAccount);
   }
 
   @override
@@ -532,7 +532,13 @@ class AuthRepositoryImpl implements AuthRepository {
     ));
   }
 
-  Future<void> _initEncryptionKeys(String userId) async {
+  @visibleForTesting
+  Future<void> initEncryptionKeysForTest(String userId,
+          {bool newAccount = false}) =>
+      _initEncryptionKeys(userId, newAccount: newAccount);
+
+  Future<void> _initEncryptionKeys(String userId,
+      {bool newAccount = false}) async {
     try {
       final enc = EncryptionService(storage, pbClient);
 
@@ -585,10 +591,19 @@ class AuthRepositoryImpl implements AuthRepository {
       }
 
       if (!hadExistingKeys) {
-        // Private key is missing locally. Check if there is a PocketBase backup before generating a new key!
-        final hasBackup = await enc.hasPocketBaseBackup(userId);
-        if (hasBackup) {
-          debugPrint('[Keys] Reinstall with server backup detected — skipping key generation to allow restore.');
+        // Private key is missing locally. Only a CONFIRMED "no backup" may
+        // generate (K3): an unanswered check (blip, server down) would upload
+        // a new public key over the backed-up one. The router waits out the
+        // unknown state, and PIN setup generates for a keyless new account.
+        // A just-created account (register, Google sign-up) can't have a
+        // backup, so for it unknown means "none" — a blip must not send it to
+        // Restore. A backup the server does report still wins.
+        final hasBackup = await enc.tryHasPocketBaseBackup(userId) ??
+            (newAccount ? false : null);
+        if (hasBackup != false) {
+          debugPrint(hasBackup == true
+              ? '[Keys] Reinstall with server backup detected — skipping key generation to allow restore.'
+              : '[Keys] Backup state unknown — skipping key generation.');
           return;
         }
 

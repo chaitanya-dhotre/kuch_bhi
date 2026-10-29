@@ -219,7 +219,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
         if (_isStartingFresh) {
           await enc.generateAndBackupNewKey(pin);
         } else {
-          await enc.backupPrivateKey(pin);
+          await enc.backupOrCreateKey(pin);
         }
         ref.invalidate(encryptionSyncProvider);
         ref.invalidate(showBackupBannerProvider);
