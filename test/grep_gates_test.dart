@@ -617,6 +617,36 @@ void main() {
     expect(ignored('android/app/google-services.json'), isFalse,
         reason: 'the real, tracked config stays tracked');
   });
+
+  // Bug wave 1 §1.1–1.3: send/history failures reach the user through the
+  // R5 toast or a Retry row, never a swallowed catch or raw `$e`.
+  test('bug wave 1: sends rethrow, composer toasts, history keeps Retry', () {
+    final input = File('lib/features/chat/widgets/message_input.dart')
+        .readAsLinesSync()
+        .where((l) => !l.contains('debugPrint('))
+        .join('\n');
+    expect(RegExp(r'\$\{?e\b|\be\.toString\(\)').hasMatch(input), isFalse,
+        reason: r'$e in message_input.dart');
+    expect(input.contains("Text('Failed to send"), isFalse);
+
+    final provider =
+        File('lib/features/chat/providers/chat_provider.dart').readAsStringSync();
+    expect(RegExp(r"rejected: \$e'\);\s*rethrow;").allMatches(provider).length,
+        2, reason: 'both send notifiers rethrow after logging');
+
+    final screen =
+        File('lib/features/chat/screens/chat_screen.dart').readAsStringSync();
+    expect(screen.contains('HistoryLoadFailedRow('), isTrue);
+    expect(
+        RegExp(r'try \{\s*await ref\.read\(messageRepositoryProvider\)'
+                r'\.loadMoreMessages\(_cid, _offset\);\s*_offset \+= 40;'
+                r'\s*\} catch \(_\) \{[^}]*_historyLoadFailed = true;')
+            .hasMatch(screen),
+        isTrue,
+        reason: 'offset moves only after the awaited page succeeds');
+    expect(screen.contains('!_historyExhausted &&\n        !_historyLoadFailed'),
+        isTrue, reason: 'a failed page waits for Retry, not every scroll');
+  });
 }
 
 const _bannedPurpleHexes = [

@@ -128,8 +128,10 @@ class SendMessageNotifier extends Notifier<bool> {
     } catch (e) {
       // Group-membership gate (#17) — the composer is hidden for
       // removed/left members, but a removal can race an in-flight send.
-      // Must never crash the app.
+      // Every throw here lands before the optimistic row (offline sends
+      // queue in the outbox instead), so the caller must restore the text.
       debugPrint('[Chat] send rejected: $e');
+      rethrow;
     } finally {
       state = false;
     }
@@ -172,8 +174,10 @@ class SendMediaMessageNotifier extends Notifier<bool> {
             videoHeight: videoHeight,
           );
     } catch (e) {
-      // Group-membership gate (#17) — see SendMessageNotifier.send.
+      // Group-membership gate (#17) — see SendMessageNotifier.send. Upload
+      // failures after the optimistic row mark the bubble, not this catch.
       debugPrint('[Chat] media send rejected: $e');
+      rethrow;
     }
   }
 }

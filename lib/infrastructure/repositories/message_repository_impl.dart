@@ -2090,16 +2090,26 @@ class MessageRepositoryImpl implements MessageRepository {
             sort: '-created',
             page: (offset ~/ 40) + 1,
             perPage: 40,
-          );
-      final keys = await _getConvKeyCandidates(conversationId, myId);
+          )
+          .timeout(const Duration(seconds: 8));
+      // Same always-commit as the main fetch: no key yet → rows land
+      // key_missing and heal on key arrival, instead of failing the page.
+      List<List<int>> keys;
+      try {
+        keys = await _getConvKeyCandidates(conversationId, myId);
+      } on MissingKeyException catch (e) {
+        debugPrint('[Msg] loadMore key not ready — committing ciphertext: $e');
+        keys = const [];
+      }
       for (final r in res.items) {
         await _cacheMsg(r, myId, keys.firstOrNull, keyCandidates: keys);
       }
       // Drift auto-emits after the inserts above
-    } on MissingKeyException catch (e) {
-      debugPrint('[Msg] loadMore key not ready: $e');
     } catch (e) {
+      // Rethrown so the chat keeps its offset and offers Retry: a swallowed
+      // failure used to skip this page and mark history as ended (bug §1.3).
       debugPrint('[Msg] loadMore: $e');
+      rethrow;
     }
   }
 

@@ -16,6 +16,7 @@ import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../providers/chat_provider.dart';
 import '../providers/message_body_provider.dart';
 import '../chat_run_grouping.dart';
+import '../message_offline_policy.dart';
 import '../widgets/disappearing_dialog.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_context_menu.dart';
@@ -165,6 +166,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   int _offset = 40;
   bool _searchActive = false;
   bool _historyExhausted = false;
+  bool _historyLoadFailed = false;
   bool _showScrollToLatest = false;
   final Set<String> _selectedMessageIds = <String>{};
 
@@ -280,8 +282,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (awayFromLatest != _showScrollToLatest && mounted) {
       setState(() => _showScrollToLatest = awayFromLatest);
     }
+    // A failed page waits for Retry instead of refetching on every scroll tick.
     if (position.pixels >= position.maxScrollExtent - 200 &&
-        !_historyExhausted) {
+        !_historyExhausted &&
+        !_historyLoadFailed) {
       final loadedCount = _items.whereType<_MsgItem>().length;
       if (loadedCount < _offset) {
         if (mounted) setState(() => _historyExhausted = true);
@@ -293,9 +297,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Future<void> _loadMore() async {
     if (_loadingMore) return;
-    setState(() => _loadingMore = true);
-    await ref.read(messageRepositoryProvider).loadMoreMessages(_cid, _offset);
-    _offset += 40;
+    setState(() {
+      _loadingMore = true;
+      _historyLoadFailed = false;
+    });
+    try {
+      await ref.read(messageRepositoryProvider).loadMoreMessages(_cid, _offset);
+      _offset += 40;
+    } catch (_) {
+      // Offset stays put so Retry refetches the same page (bug §1.3).
+      _historyLoadFailed = true;
+    }
     if (mounted) setState(() => _loadingMore = false);
   }
 
@@ -632,6 +644,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 ),
               ),
 
+            if (_historyLoadFailed && !_loadingMore)
+              HistoryLoadFailedRow(online: isOnline, onRetry: _loadMore),
+
             if (!isOnline)
               _OfflineStrip(
                 onRetry: () => ref.invalidate(messagesProvider(_cid)),
@@ -799,7 +814,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   // here and never reaches the repository — the quote
                   // derives from the parent row at render time and the
                   // drain derives the server-bound copy from the same row.
-                  ref
+                  return ref
                       .read(sendMessageProvider.notifier)
                       .send(
                         conversationId: _cid,
@@ -1261,6 +1276,43 @@ class ChatLoadError extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// An older history page failed to load. Retry refetches the same page;
+/// offline it dims (38%) with the shared hint instead of firing a doomed call.
+class HistoryLoadFailedRow extends StatelessWidget {
+  const HistoryLoadFailedRow({
+    super.key,
+    required this.online,
+    required this.onRetry,
+  });
+
+  final bool online;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final caption = TextStyle(color: context.t.inkSoft, fontSize: 12);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        children: [
+          Text("Couldn't load older messages.", style: caption),
+          Opacity(
+            opacity: online ? 1 : .38,
+            child: TextButton(
+              onPressed: online ? onRetry : null,
+              child: const Text('Retry'),
+            ),
+          ),
+          if (!online) Text(kOfflineActionHint, style: caption),
+        ],
       ),
     );
   }

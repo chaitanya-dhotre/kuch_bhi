@@ -13,6 +13,7 @@ import 'package:video_compress/video_compress.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
 import 'attach_sheets.dart';
@@ -34,7 +35,8 @@ class MessageInput extends ConsumerStatefulWidget {
     this.replySenderName,
   });
 
-  final void Function(String) onSend;
+  /// May return the send's future; a throw restores the text with a toast.
+  final FutureOr<void> Function(String) onSend;
   final String conversationId;
   final VoidCallback? onTyping;
   final bool isLoading;
@@ -145,12 +147,24 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   // ── Text send ────────────────────────────────────────────────
 
-  void _send() {
+  Future<void> _send() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
-    widget.onSend(text);
+    final reply = ref.read(replyProvider);
+    // Called before the reply clears: the chat screen reads it inside onSend.
+    final sending = Future.sync(() => widget.onSend(text));
     _ctrl.clear();
     ref.read(replyProvider.notifier).state = null;
+    try {
+      await sending;
+    } catch (_) {
+      // Rejected before the row landed (offline sends queue instead): give
+      // the text and the reply back rather than losing them.
+      if (!mounted) return;
+      if (_ctrl.text.isEmpty) _ctrl.text = text;
+      ref.read(replyProvider.notifier).state ??= reply;
+      showToast(context, "Couldn't send. Try again.", error: true);
+    }
   }
 
   // ── Recording helpers ────────────────────────────────────────
@@ -320,21 +334,20 @@ class _MessageInputState extends ConsumerState<MessageInput>
             durationSeconds: durSecs,
             durationText: _previewDuration,
           );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send voice: $e')));
-      }
-    } finally {
       if (mounted) {
         setState(() {
-          _isSendingVoice = false;
           _voiceState = _VoiceState.idle;
           _tempPath = null;
           _previewDuration = null;
         });
       }
+    } catch (_) {
+      // Rejected before the row landed: keep the preview so it can be resent.
+      if (mounted) {
+        showToast(context, "Couldn't send voice note. Try again.", error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isSendingVoice = false);
     }
   }
 
@@ -430,13 +443,9 @@ class _MessageInputState extends ConsumerState<MessageInput>
             thumbnailFile: thumbnail,
             quality: quality,
           );
-    } catch (e) {
+    } catch (_) {
       if (!mounted || generation != _uploadGeneration) return;
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send image: $e')));
-      }
+      showToast(context, "Couldn't send photo. Try again.", error: true);
     } finally {
       if (_isUploadActive(generation)) {
         setState(() => _isUploadingImage = false);
@@ -456,13 +465,9 @@ class _MessageInputState extends ConsumerState<MessageInput>
             mediaType: 'document',
             mediaFile: docFile,
           );
-    } catch (e) {
+    } catch (_) {
       if (!mounted || generation != _uploadGeneration) return;
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send document: $e')));
-      }
+      showToast(context, "Couldn't send document. Try again.", error: true);
     } finally {
       if (_isUploadActive(generation)) {
         setState(() => _isUploadingDoc = false);
@@ -526,13 +531,9 @@ class _MessageInputState extends ConsumerState<MessageInput>
             videoWidth: videoWidth,
             videoHeight: videoHeight,
           );
-    } catch (e) {
+    } catch (_) {
       if (!mounted || generation != _uploadGeneration) return;
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send video: $e')));
-      }
+      showToast(context, "Couldn't send video. Try again.", error: true);
     } finally {
       sub.unsubscribe();
       if (_isUploadActive(generation)) {

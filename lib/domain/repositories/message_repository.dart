@@ -155,7 +155,8 @@ abstract class MessageRepository {
   /// Task 4's terminal banner Discard action.
   Future<void> discardOp(String opId);
 
-  /// Fetch older messages (pagination).
+  /// Fetch older messages (pagination). Throws on failure (8s bound) so the
+  /// caller keeps its offset instead of skipping the page.
   Future<void> loadMoreMessages(String conversationId, int offset);
 
   /// Fetch and cache a single message by its server ID.
