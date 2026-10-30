@@ -15,6 +15,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
+import 'attach_sheets.dart';
 import 'reply_quote.dart';
 
 // ── Recording state ────────────────────────────────────────────────────────
@@ -346,7 +347,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
   // ── Image sharing ────────────────────────────────────────────
 
   Future<void> _onAttachPressed() async {
-    final source = await _showSourcePicker();
+    final source = await showAttachSourceSheet(context);
     if (source == null) return;
 
     final picker = ImagePicker();
@@ -358,7 +359,9 @@ class _MessageInputState extends ConsumerState<MessageInput>
           source: source == 'camera' ? ImageSource.camera : ImageSource.gallery,
         );
         if (picked == null) return;
-        final quality = await _showQualityPicker(isVideo: false);
+        final quality = mounted
+            ? await showMediaQualitySheet(context, isVideo: false)
+            : null;
         if (quality == null) return;
         _focusNode.requestFocus();
         await _sendImage(File(picked.path), quality);
@@ -373,7 +376,9 @@ class _MessageInputState extends ConsumerState<MessageInput>
           maxDuration: const Duration(minutes: 5),
         );
         if (picked == null) return;
-        final quality = await _showQualityPicker(isVideo: true);
+        final quality = mounted
+            ? await showMediaQualitySheet(context, isVideo: true)
+            : null;
         if (quality == null) return;
         _focusNode.requestFocus();
         await _sendVideo(File(picked.path), quality);
@@ -392,93 +397,6 @@ class _MessageInputState extends ConsumerState<MessageInput>
         await _sendDocument(File(path));
         break;
     }
-  }
-
-  Future<String?> _showSourcePicker() {
-    return showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: context.t.surface,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(WarmPopTokens.radiusLg),
-        ),
-      ),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Camera'),
-              onTap: () => Navigator.pop(context, 'camera'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Photo Library'),
-              onTap: () => Navigator.pop(context, 'gallery'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined),
-              title: const Text('Video Camera'),
-              onTap: () => Navigator.pop(context, 'video_camera'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.video_library_outlined),
-              title: const Text('Video Library'),
-              onTap: () => Navigator.pop(context, 'video_gallery'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_file_outlined),
-              title: const Text('Document'),
-              onTap: () => Navigator.pop(context, 'document'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<String?> _showQualityPicker({required bool isVideo}) {
-    return showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: context.t.surface,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(WarmPopTokens.radiusLg),
-        ),
-      ),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                isVideo ? 'Video Quality' : 'Image Quality',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.compress),
-              title: const Text('Normal'),
-              subtitle: Text(isVideo ? '720p' : '60% quality, max 1280px'),
-              onTap: () => Navigator.pop(context, 'normal'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.hd),
-              title: const Text('High'),
-              subtitle: Text(isVideo ? '1080p' : '90% quality, max 2560px'),
-              onTap: () => Navigator.pop(context, 'high'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _sendImage(File original, String quality) async {

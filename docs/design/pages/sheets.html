@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheets — Page 8 board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from settings.html; nothing redefined). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:#8A7A5F;margin:0 0 8px}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:340px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.appbar .ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.appbar .act{font-size:15px;font-weight:600;padding:0 14px;height:40px;display:flex;align-items:center;border-radius:16px;color:var(--ink)}
+.appbar .act.off{color:var(--inkFaint)}
+.body{padding:4px 0 16px}
+.hdr{display:flex;flex-direction:column;align-items:center;padding:12px 16px 8px}
+.big{width:96px;height:96px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;position:relative}
+.big .cam{position:absolute;right:0;bottom:0;width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid var(--bg)}
+.big .scrim{position:absolute;inset:0;border-radius:999px;background:rgba(42,37,32,.45);display:flex;align-items:center;justify-content:center}
+.gname{font-size:20px;line-height:26px;font-weight:700;margin-top:12px;display:flex;align-items:center;gap:6px}
+.gname .pen{font-size:15px;color:var(--inkSoft)}
+.gcount{font-size:13px;color:var(--inkSoft);margin-top:2px}
+.sect{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px}
+.sect .lab{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkFaint)}
+.sect .r{display:flex;gap:8px;align-items:center}
+.pill{background:var(--surface2);color:var(--inkSoft);border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px}
+.addbtn{height:36px;border-radius:999px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;background:var(--accentSoft);color:var(--ink)}
+.list{background:var(--surface);margin:0 12px;border-radius:16px;border:1px solid var(--line);overflow:hidden}
+.m{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 6px 8px 12px;border-top:1px solid var(--line)}
+.m:first-child{border-top:0}
+.av{width:40px;height:40px;border-radius:999px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto}
+.who{flex:1;min-width:0}
+.who .nm{font-size:16px;line-height:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}
+.who .mt{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:11px;line-height:14px;font-weight:600;background:var(--accentSoft);color:var(--ink);border-radius:999px;padding:2px 8px;flex:0 0 auto}
+.more{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:18px;flex:0 0 auto}
+.spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:999px;animation:sp .8s linear infinite;margin:15px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tbtn{height:40px;padding:0 12px;border-radius:16px;display:flex;align-items:center;font-size:14px;font-weight:600;color:var(--ink)}
+.dim{opacity:.38}
+.hint{font-size:12px;color:var(--inkFaint);padding:0 16px;text-align:right}
+.st{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-top:1px solid var(--line)}
+.st:first-child{border-top:0}
+.st .well{width:36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto}
+.st .tt{flex:1;min-width:0}
+.st .tt .a{font-size:15px;font-weight:600;line-height:20px}
+.st .tt .b{font-size:13px;color:var(--inkSoft);line-height:18px}
+.st .tr{font-size:13px;color:var(--inkSoft)}
+.st.danger .well{color:var(--error)}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--line);position:relative;flex:0 0 auto}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:999px;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw.on{background:var(--accent)}
+.sw.on::after{left:21px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border:1px solid rgba(239,160,11,.45);border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 12px}
+.banner .retry{margin-left:auto;font-weight:700;min-height:36px;display:flex;align-items:center;padding:0 6px}
+.offline{display:flex;gap:8px;align-items:center;background:var(--accentSoft);color:var(--ink);font-size:13px;padding:8px 16px}
+.sk{background:var(--surface2);border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sh 1.4s infinite}
+.wrap.dark .sk::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.sheet{background:var(--surface);border-radius:20px 20px 0 0;padding:8px 0 12px;box-shadow:var(--cardShadow);border:1px solid var(--line)}
+.handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet .sh{display:flex;align-items:center;gap:12px;padding:4px 16px 12px;border-bottom:1px solid var(--line)}
+.sheet .row1{display:flex;align-items:center;gap:14px;min-height:52px;padding:0 20px;font-size:15px;font-weight:600}
+.sheet .row1 .ic{width:24px;text-align:center;color:var(--inkSoft)}
+.sheet .row1.danger .ic{color:var(--error)}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;box-shadow:var(--cardShadow);border:1px solid var(--line);color:var(--ink)}
+.dlg .t{font-size:20px;font-weight:700;line-height:26px}
+.dlg .s{font-size:15px;color:var(--inkSoft);margin-top:8px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.secondary{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.text{height:40px;color:var(--ink)}
+.btn.wide{width:100%}
+.btn.off{background:var(--surface2);color:var(--inkFaint);border:0}
+.chk{width:24px;height:24px;border-radius:999px;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:13px;margin-right:10px}
+.chk.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px 10px;border-bottom:1px solid var(--line)}
+.achip{height:36px;border-radius:999px;background:var(--accentSoft);border:1.5px solid var(--accent);display:flex;align-items:center;gap:6px;padding:0 6px 0 4px;font-size:13px;font-weight:600}
+.achip .av{width:28px;height:28px;font-size:12px}
+.search{margin:8px 16px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 16px;color:var(--inkFaint);font-size:15px;gap:8px}
+.field{margin:0 16px;border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;background:var(--surface)}
+.field.focus{border-color:var(--accent)}
+.field .lb{font-size:11px;font-weight:600;color:var(--inkSoft)}
+.field .v{font-size:16px;margin-top:2px}
+.field .ph{color:var(--inkFaint)}
+.cnt{font-size:12px;color:var(--inkFaint);text-align:right;padding:4px 18px 0}
+.err{display:flex;gap:10px;margin:12px 16px 0;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13px;line-height:18px}
+.err .ic{color:var(--error)}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 18px 30px}
+.capy{width:120px;height:106px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:54px;margin-bottom:14px}
+.empty .t{font-size:28px;font-weight:700;line-height:34px}
+.empty .t.sm{font-size:20px;line-height:26px}
+.empty .s{font-size:15px;color:var(--inkSoft);margin-top:8px;max-width:260px;line-height:22px}
+.empty .btn{margin-top:18px}
+.toast{position:absolute;left:14px;right:14px;bottom:14px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+.tblwrap{overflow-x:auto}
+/* Page 5 additions (same tokens; nothing redefined) */
+.big.photo{background:#C6894F;font-size:44px}
+.big.ed{cursor:pointer}
+.uname{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:2px}
+.about{font-size:15px;line-height:22px;text-align:center;max-width:280px;margin-top:8px;color:var(--ink)}
+.hdr .btn{margin-top:14px}
+.card{background:var(--surface);border-radius:20px;box-shadow:var(--cardShadow);margin:16px 12px 0;padding:18px 16px;text-align:center;border:1px solid var(--line)}
+.kick{font-size:11px;line-height:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--inkSoft)}
+.coderow{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}
+.code{font-size:28px;line-height:34px;font-weight:700;letter-spacing:4px;color:var(--ink);font-variant-numeric:tabular-nums}
+.copy{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:18px}
+.qrwell{background:#FFFFFF;border-radius:16px;padding:14px 14px 10px;margin-top:12px;display:inline-block;border:1px solid #E4DDD1}
+.qrwell svg{display:block;width:150px;height:150px}
+.qrcap{font-size:13px;line-height:18px;color:#6E655A;margin-top:8px}
+.field.bad{border-color:var(--error)}
+.field .pre{color:var(--inkSoft)}
+.field.ro{background:var(--surface2)}
+.helper{font-size:13px;line-height:18px;color:var(--inkSoft);padding:4px 18px 0}
+.ferr{display:flex;gap:6px;align-items:center;font-size:13px;line-height:18px;color:var(--ink);padding:4px 18px 0}
+.ferr .ic{color:var(--error)}
+.gap{height:14px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.st .chev{color:var(--inkSoft);font-size:16px}
+.copyic{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--ink);font-size:16px}
+.offhint{font-size:13px;color:var(--inkSoft);padding:4px 16px 0;text-align:right}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}.grid2{grid-template-columns:1fr}}
+/* Page 6 additions (same tokens; nothing redefined) */
+.amoled{
+  --bg:#000000; --surface:#0A0908; --surface2:#0D0D0D; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --error:#E5484D;
+  --cardShadow:0 0 0 1px rgba(243,237,227,.04);
+}
+.wrap.amo{background:#000;border-color:#3A342B}
+.wrap.amo .tag{color:#A99878}
+.sect .lab{text-transform:none;letter-spacing:.01em}
+.st .chk{margin-right:0}
+.st .ext{color:var(--inkSoft);font-size:15px;width:24px;text-align:center}
+.st .val{font-size:15px;color:var(--inkSoft)}
+.st.pressed{background:var(--surface2)}
+.logo{width:88px;height:88px;border-radius:24px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:40px}
+.appname{font-size:24px;line-height:30px;font-weight:700;margin-top:16px}
+.tagline{font-size:15px;line-height:22px;color:var(--inkSoft);margin-top:4px;text-align:center}
+.foot{font-size:13px;line-height:18px;color:var(--inkSoft);text-align:center;padding:20px 28px 4px}
+.verdict td:first-child{white-space:nowrap;font-weight:600}
+td.ok{background:#E3F4EC}
+/* Page 7 additions (same tokens; nothing redefined) */
+code{overflow-wrap:anywhere}
+.auth{padding:0 24px 20px}
+.auth .mid{display:flex;flex-direction:column;align-items:center;text-align:center}
+.h1{font-size:24px;line-height:30px;font-weight:700}
+.bodyc{font-size:15px;line-height:22px;color:var(--inkSoft)}
+.mascot{width:112px;height:95px;border-radius:16px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:52px}
+.af{border:1px solid var(--line);border-radius:16px;padding:8px 14px;background:var(--surface);display:flex;align-items:center;gap:8px;min-height:56px}
+.af.focus{border:1.5px solid var(--accent)}
+.af.bad{border-color:var(--error)}
+.af.ro{background:var(--surface2)}
+.af .in{flex:1;min-width:0}
+.af .lb{font-size:13px;line-height:16px;color:var(--inkSoft)}
+.af .v{font-size:15px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.af .v .pre{color:var(--inkSoft)}
+.af .v.soft{color:var(--inkSoft)}
+.af .v.ph{color:var(--inkFaint)}
+.af .eye{width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:16px;flex:0 0 auto;margin-right:-8px}
+.fh{font-size:13px;line-height:18px;color:var(--inkSoft);padding:4px 14px 0}
+.fe{display:flex;gap:6px;font-size:13px;line-height:18px;color:var(--ink);padding:4px 14px 0}
+.fe .ic{color:var(--error)}
+.endlink{display:flex;justify-content:flex-end}
+.btn .g{width:18px;height:18px;flex:0 0 auto}
+.btn .spin{margin:0}
+.btn.primary .spin{border-color:rgba(42,37,32,.25);border-top-color:var(--onAccent)}
+.or{display:flex;align-items:center;gap:12px;font-size:13px;line-height:18px;color:var(--inkSoft)}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.foot2{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0 4px;font-size:15px;line-height:22px;color:var(--inkSoft)}
+.foot2 .lnk{color:var(--ink);font-weight:600;min-height:40px;display:flex;align-items:center;padding:0 8px}
+.oh{font-size:13px;line-height:18px;color:var(--inkSoft);text-align:center;margin-top:6px}
+.disc72{width:72px;height:72px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:30px}
+.splash{height:520px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.splash .spin{margin:24px 0 0}
+.toast.ok{background:var(--ink);color:var(--bg)}
+.toast.bad{background:var(--surface);color:var(--ink);border:1px solid var(--error);display:flex;gap:8px;align-items:center;justify-content:center}
+.toast.bad .ic{color:var(--error)}
+.mini{font-size:12px;color:#6E655A}
+.s{height:var(--h)}
+.rcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px}
+.rcard .rt{font-size:16px;line-height:22px;font-weight:600}
+.rcard .rp{font-size:13px;line-height:18px;color:var(--inkSoft);margin-top:4px}
+.rcard .rn{font-size:13px;line-height:18px;color:var(--inkSoft);margin-top:8px;font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:999px;background:var(--surface2);overflow:hidden;margin-top:12px}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:999px}
+.frame.jk,.frame.jk *{font-family:"Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif}
+.frame.jk .a.sys{font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+.jkf{font-family:"Plus Jakarta Sans",sans-serif}
+/* Page 8 additions (same tokens; nothing redefined) */
+.behind{height:96px;background:var(--bg);position:relative}
+.behind::after{content:"";position:absolute;inset:0;background:rgba(42,37,32,.32)}
+.dark .behind::after,.amoled .behind::after{background:rgba(0,0,0,.6)}
+.sheet{border-left:0;border-right:0;border-bottom:0}
+.sheet .ttl{display:flex;align-items:center;gap:8px;padding:0 16px 8px;font-size:20px;line-height:26px;font-weight:700}
+.sheet .ttl .sp{flex:1;min-width:0}
+.sheet .ttl .btn{height:40px;padding:0 14px;font-size:15px}
+.sheet .row1{padding:0 16px;min-height:52px}
+.sheet .row1 .ic{width:24px;font-size:18px}
+.sheet .row1 .lbl{flex:1;min-width:0}
+.sheet .row1 .lbl .sub{display:block;font-size:13px;line-height:18px;font-weight:400;color:var(--inkSoft)}
+.sheet .row1 .trl{font-size:13px;line-height:18px;font-weight:400;color:var(--inkSoft);text-align:right;flex:0 1 auto}
+.sheet .row1.off .ic,.sheet .row1.off .lbl{opacity:.38}
+.sheet .row1.off .trl{opacity:1}
+.sheet .sep{height:1px;background:var(--line);margin:8px 16px}
+.prev{display:flex;align-items:center;gap:12px;padding:0 16px 4px}
+.prev .nm{font-size:15px;line-height:22px;font-weight:600}
+.prev .pv{font-size:13px;line-height:18px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.emorow{display:flex;gap:6px;padding:8px 16px 4px;overflow:hidden}
+.emo{width:48px;height:48px;border-radius:999px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
+.emo.add{background:var(--surface);border:1px solid var(--line);color:var(--inkSoft);font-size:20px}
+.emorow.off .emo{opacity:.38}
+/* mockup only: the board frame is narrower than a 360dp sheet (328 usable), so circles shrink here; the app uses 48 */
+@media(max-width:480px){.emorow{gap:4px}.emo{width:40px;height:40px;font-size:19px}}
+.egrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(48px,1fr));gap:4px;padding:4px 16px 12px}
+.egrid span{height:48px;display:flex;align-items:center;justify-content:center;font-size:24px;border-radius:10px}
+.tabs{display:flex;border-bottom:1px solid var(--line);margin:0 16px}
+.tabs span{flex:1;text-align:center;height:48px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:var(--inkSoft);border-bottom:3px solid transparent}
+.tabs span.on{color:var(--ink);border-bottom-color:var(--accent)}
+.pad{padding:12px 16px}
+.frow{display:flex;gap:8px;align-items:flex-start}
+.frow .af{flex:1}
+.ibtn{width:48px;height:56px;border-radius:16px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:18px;flex:0 0 auto}
+.ibtn.off{opacity:.38}
+.found{display:flex;align-items:center;gap:12px;background:var(--surface2);border-radius:16px;padding:12px;margin-top:16px}
+.av56{width:56px;height:56px;border-radius:999px;background:var(--accentSoft);color:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;flex:0 0 auto}
+.okwell{display:flex;flex-direction:column;align-items:center;text-align:center;padding:20px 8px 4px}
+.okwell .ic{font-size:36px;color:var(--success)}
+.okwell .t{font-size:16px;line-height:22px;font-weight:600;margin-top:8px}
+.scan{height:200px;margin:12px 16px;border-radius:16px;background:var(--surface2);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px;gap:6px}
+.scan .fab{position:absolute;right:12px;bottom:12px;width:48px;height:48px;border-radius:16px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center}
+.voice{display:flex;flex-direction:column;align-items:center;padding:4px 24px 8px}
+.voice .wellb{width:48px;height:48px;border-radius:16px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-size:20px}
+.voice .vt{font-size:16px;line-height:22px;font-weight:600;margin-top:10px}
+.voice .times{display:flex;justify-content:space-between;width:100%;font-size:13px;line-height:18px;color:var(--inkSoft);font-variant-numeric:tabular-nums;margin-top:6px}
+.voice .bar{width:100%}
+.disc56{width:56px;height:56px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:22px;margin-top:12px}
+.disc56.wait{background:var(--surface2)}
+.disc56 .spin{margin:0}
+.rx{display:flex;align-items:center;gap:12px;min-height:56px;padding:4px 16px}
+.rx .who{flex:1;min-width:0}
+.dlgwrap{padding:24px 16px;background:rgba(42,37,32,.32)}
+.dark .dlgwrap,.amoled .dlgwrap{background:rgba(0,0,0,.6)}
+.dlg .acts .btn{height:40px;padding:0 14px}
+.dlg .acts .btn.secondary{height:48px}
+.dlg .s{color:var(--ink)}
+.inv td,.inv th{font-size:12.5px}
+.inv td:nth-child(3){white-space:nowrap}
+.tag2{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px}
+.tag2.in{background:#E3F4EC;color:#0B5E42}
+.tag2.out{background:#F1ECE3;color:#6E655A}
+.tag2.ref{background:#FFF3DC;color:#5C4A22}
+</style>
+</head>
+<body>
+<h1>Sheets &amp; overlays — Page 8 board</h1>
+<p class="sub">Kuch Bhi · Warm Pop · Authority: <code>docs/design/00-foundation.md</code> → <code>docs/design/10-registry.md</code> → checklist <code>sheets.md</code>.
+Board sections <b>S1–S15</b> (page-local). Light shown plain; dark and AMOLED in dark inset frames. This is an audit of what exists, not a new design: the <b>14</b> <code>showModalBottomSheet</code> call sites and <b>8</b> <code>showDialog</code> call sites in <code>lib/</code> (trail grep, 2026-10-29, at <code>7735099</code>). There is no <code>PopupMenu</code>, <code>showMenu</code>, <code>OverlayEntry</code>, <code>showGeneralDialog</code> or <code>DraggableScrollableSheet</code> anywhere in <code>lib/</code>. <b>S1 is the inventory (in scope or not); S2 is the one chrome every sheet collapses into; S12 is which candidate features the app and PocketBase support today; S15 lists every difference from the current code.</b> No live PocketBase read was made for this page.</p>
+
+<!-- S1 -->
+<div class="band">
+<header><span class="n">S1</span><h2>Inventory, laws &amp; what the audit found</h2></header>
+<div class="tblwrap"><table class="inv">
+<tr><th>#</th><th>Surface</th><th>Where (today)</th><th>Scope</th><th>Becomes</th></tr>
+<tr><td>1</td><td>Message long-press menu</td><td><code>message_context_menu.dart</code> <code>showMessageMenu</code> :95</td><td><span class="tag2 in">IN</span></td><td>S2 chrome + rows (C4), S3</td></tr>
+<tr><td>2</td><td>Action sheet (Home long-press, member actions)</td><td><code>showActionSheet</code> :132 (C4a, page 4)</td><td><span class="tag2 in">IN</span></td><td>S2 chrome; stray divider fixed, S9</td></tr>
+<tr><td>3</td><td>Reaction picker (from the menu's ＋)</td><td><code>_showReactionPicker</code> :706</td><td><span class="tag2 in">IN</span></td><td><b>ONE</b> picker, S4</td></tr>
+<tr><td>4</td><td>Reaction picker (from a bubble's ＋ chip)</td><td><code>reaction_bar.dart</code> <code>_showPicker</code> :295</td><td><span class="tag2 in">IN</span></td><td>same ONE picker, S4</td></tr>
+<tr><td>5</td><td>Who reacted (long-press a reaction chip)</td><td><code>reaction_bar.dart</code> <code>_showReactionDetail</code> :174</td><td><span class="tag2 in">IN</span></td><td>S4</td></tr>
+<tr><td>6</td><td>New chat (FAB)</td><td><code>home_screen.dart</code> <code>_showNewChatSheet</code> :480</td><td><span class="tag2 in">IN</span></td><td>S5</td></tr>
+<tr><td>7–9</td><td>Add friend ×3 openers</td><td><code>home_screen.dart</code> <code>_showAddFriend</code> :543, <code>friend_requests_screen.dart</code> :374, <code>create_group_screen.dart</code> :396</td><td><span class="tag2 in">IN</span></td><td><b>ONE</b> opener, S6</td></tr>
+<tr><td>10</td><td>Chat ⋮ menu</td><td><code>chat_screen.dart</code> <code>_showChatMenu</code> :993</td><td><span class="tag2 in">IN</span></td><td>C4a action sheet, S7</td></tr>
+<tr><td>11</td><td>Attach source</td><td><code>message_input.dart</code> <code>_showSourcePicker</code> :397</td><td><span class="tag2 in">IN</span></td><td>S8 (chrome only)</td></tr>
+<tr><td>12</td><td>Photo / video quality</td><td><code>message_input.dart</code> <code>_showQualityPicker</code> :442</td><td><span class="tag2 in">IN</span></td><td>S8 (chrome only)</td></tr>
+<tr><td>13</td><td>Add to group</td><td><code>group_settings_screen.dart</code> <code>_openAddSheet</code> :369 + <code>_AddMembersSheet</code> :1208</td><td><span class="tag2 ref">REF</span></td><td>page 4's body kept; chrome → S2, S9</td></tr>
+<tr><td>14</td><td>Voice note player</td><td><code>media_docs_screen.dart</code> <code>_playInSheet</code> :419 + <code>_VoicePlaySheet</code> :439</td><td><span class="tag2 in">IN</span></td><td>S10</td></tr>
+<tr><td>D1</td><td>Delete message?</td><td><code>message_context_menu.dart</code> <code>_confirmDelete</code> :658</td><td><span class="tag2 in">IN</span></td><td>ONE confirm dialog, S11</td></tr>
+<tr><td>D2–D4</td><td>Remove member / Leave group / Edit group name</td><td><code>group_settings_screen.dart</code> :234, :280, :134 (+ <code>_RenameDialog</code> :1680)</td><td><span class="tag2 in">IN</span></td><td>confirm dialog; rename gets R13, S11</td></tr>
+<tr><td>D5</td><td>Discard changes?</td><td><code>edit_profile_screen.dart</code> <code>_onPopBlocked</code> :145</td><td><span class="tag2 in">IN</span></td><td>confirm dialog, S11</td></tr>
+<tr><td>D6</td><td>Sign out?</td><td><code>profile_screen.dart</code> <code>_confirmSignOut</code> :97</td><td><span class="tag2 in">IN</span></td><td>confirm dialog (the <code>signOut</code> call after it is frozen), S11</td></tr>
+<tr><td>D7</td><td>Disappearing messages</td><td><code>disappearing_dialog.dart</code> (C11, page 4)</td><td><span class="tag2 ref">REF</span></td><td>unchanged; picks up the dialog theme only</td></tr>
+<tr><td>D8</td><td>Forgot PIN</td><td><code>backup_pin_screen.dart</code> <code>_showForgotPinDialog</code> :331</td><td><span class="tag2 out">OUT</span></td><td>frozen file (page 7 key boundary); dialog theme only</td></tr>
+<tr><td>O1</td><td>Restore overlay + <code>ModalBarrier</code></td><td><code>backup_pin_screen.dart</code> :708, :984</td><td><span class="tag2 out">OUT</span></td><td>page 7 (J), done</td></tr>
+<tr><td>O2</td><td>Toasts</td><td><code>app_toast.dart</code> (R5)</td><td><span class="tag2 out">OUT</span></td><td>used, not changed</td></tr>
+<tr><td>O3</td><td>Image/video fullscreen pushes</td><td><code>image_message_bubble.dart</code> :42, <code>chat_screen.dart</code> :1075-1081</td><td><span class="tag2 out">OUT</span></td><td>page 9</td></tr>
+<tr><td>O4</td><td>Composer recording UI, in-chat search bar, jump highlight</td><td><code>message_input.dart</code>, <code>chat_screen.dart</code></td><td><span class="tag2 out">OUT</span></td><td>composer / chat (page 1)</td></tr>
+</table></div>
+<div class="row" style="margin-top:12px">
+  <div style="flex:1;min-width:260px"><h3>Contrast (C4), measured on light</h3><div class="tblwrap"><table>
+    <tr><th>Pair</th><th>Ratio</th><th>Today used for</th></tr>
+    <tr><td>error on surface</td><td class="bad">3.91</td><td><b>Delete for me</b>, <b>Delete for everyone</b> labels; dialog <b>Delete</b>; reaction <b>Remove</b>; add-friend search error</td></tr>
+    <tr><td>accent on surface</td><td class="bad">2.16</td><td>add-friend + who-reacted initials; voice sheet mic and play icons; TabBar selected label (Material default = primary)</td></tr>
+    <tr><td>success on surface</td><td class="bad">3.39</td><td><b>Request sent to …!</b></td></tr>
+    <tr><td>ink on surface</td><td>15.2</td><td>→ every label, incl. destructive ones (C4b)</td></tr>
+    <tr><td>inkSoft on surface</td><td>5.72</td><td>→ captions, row icons, offline hint</td></tr>
+  </table></div></div>
+  <div style="flex:1;min-width:260px"><h3>The two known smells, confirmed</h3><div style="font-size:13px"><b>Add friend opens from 4 buttons through 3 copies of the opener</b> (Home FAB sheet + Home empty state → <code>_showAddFriend</code>; Requests empty state; Create Group empty state). Each copy does <code>reset()</code> + its own <code>showModalBottomSheet</code>; Home's passes radius 20, the other two fall back to the theme's 24.<br><br><b>The emoji list and the grid picker exist twice</b>: <code>_reactionEmojis</code> (32 entries) is declared in both <code>message_context_menu.dart:17</code> and <code>reaction_bar.dart:14</code>; both files build their own <code>GridView</code> picker with different keys and heights. Worse, the menu's quick row already shows all 32, so its ＋ opens the same 32 again (decision 11).</div></div>
+</div>
+<div class="note warn"><b>What else the audit found.</b> (1) <b>Destructive rows use red labels</b> in the message menu (<code>color: t.error</code> goes to icon AND label, <code>:628, :645</code>), breaking C4b that page 4 just added for the same file. (2) <code>$e</code> reaches the user twice: <b>Could not read QR: $e</b> (<code>add_friend_screen.dart</code>) and <b>Failed to send request: $e</b> (<code>friend_request_provider.dart:598</code>). (3) <b>Raw SnackBars</b>: Copy, the pin limit, both QR errors. (4) <b>Who-reacted waits silently</b>: it fetches before opening, so on a slow network the long-press does nothing for seconds; a failed fetch (<code>catch (_) {}</code>) opens a sheet that says “3 reactions” and lists nobody; it is not scrollable (up to 50 rows). (5) <b>The voice sheet swallows a failed download</b> and shows a play button that does nothing. (6) Four different handles (custom <code>colorScheme.outline@30%</code>, custom <code>t.line</code>, custom 40px, and Material's <code>showDragHandle</code>), three top radii (20 literal, <code>radiusLg</code> 20, theme 24) and six title styles. (7) The add-friend sheet: hand-built field (radius 12), <code>FilledButton</code>s with inline spinners, Material <code>TabBar</code> (amber label), no offline state, and <code>MobileScannerController()</code> made per gallery pick and never disposed. (8) Font sizes 13.5, 12 and 18 (off the type scale) in the menus.</div>
+<div class="note"><b>Laws on this page:</b> L3: one definition each. New shared pieces: <b>R19</b> <code>showAppSheet</code> + <code>AppSheetChrome</code> + <code>SheetActionRow</code> (C4a's private chrome, promoted to core), <b>R20</b> <code>showConfirmDialog</code>, <b>C12</b> <code>showReactionPicker</code> + <code>kReactionEmojis</code>, <b>C13</b> <code>showAddFriendSheet</code>. Compose only R1, R3, R3a, R5, R10b, R11, R12, R13, R14. C3: <code>context.t.*</code> only. C4/C4b: accent = fill only; destructive = error icon + ink label.</div>
+<div class="note warn"><b>Frozen (logic is out of scope):</b> what each sheet starts. <code>message_repository_impl.dart</code> (whole file), <code>MessageInput</code>'s <code>_onAttachPressed</code> switch, <code>_sendImage</code> / <code>_sendVideo</code> / <code>_sendDocument</code>, <code>media_upload_service.dart</code>, <code>groupAdminProvider</code> (remove / leave / rotate / <code>sendInvites</code>), <code>_guard</code>, <code>friend_repository_impl.dart</code>, <code>signOut</code>, <code>showDisappearingDialog</code>'s write, every callback in the message menu. Where a file holding these is edited, those methods are diffed against HEAD at function level. The one lesson-driven logic edit: <code>AddFriendNotifier.searchByCode</code> / <code>sendRequest</code> (no <code>$e</code>, 8s bound on the network call).</div>
+</div>
+
+<!-- S2 -->
+<div class="band">
+<header><span class="n">S2</span><h2>One sheet chrome (R19): handle, title, rows, destructive, offline, insets</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · anatomy</span><div class="frame">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Title (h2 20/26 w700)</span><span class="btn primary">Action</span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">Row label 15/22 w600</span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">With a subtitle<span class="sub">13/18 inkSoft</span></span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">With a value</span><span class="trl">1 day</span></div>
+      <div class="row1 off"><span class="ic">◷</span><span class="lbl">Needs the network</span><span class="trl">Available online</span></div>
+      <div class="row1 danger"><span class="ic">🗑</span><span class="lbl">Destructive (ink label)</span></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · same sheet</span><div class="frame dark">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Title (h2 20/26 w700)</span><span class="btn primary">Action</span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">Row label 15/22 w600</span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">With a subtitle<span class="sub">13/18 inkSoft</span></span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">With a value</span><span class="trl">1 day</span></div>
+      <div class="row1 off"><span class="ic">◷</span><span class="lbl">Needs the network</span><span class="trl">Available online</span></div>
+      <div class="row1 danger"><span class="ic">🗑</span><span class="lbl">Destructive (ink label)</span></div>
+    </div>
+  </div></div>
+  <div class="wrap amo"><span class="tag">AMOLED · surface #0A0908 on black</span><div class="frame amoled">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Title</span></div>
+      <div class="row1"><span class="ic">◷</span><span class="lbl">Row label</span></div>
+      <div class="row1 danger"><span class="ic">🗑</span><span class="lbl">Destructive (ink label)</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Part</th><th>Spec</th><th>Today</th></tr>
+<tr><td>Open</td><td><code>showAppSheet(context, builder, {useRootNavigator = false})</code>: <code>isScrollControlled</code> + <code>useSafeArea</code> always, background <code>t.surface</code>, no surface tint, no Material drag handle. The ONLY <code>showModalBottomSheet</code> in <code>lib/</code> (grep gate). Reduced motion: <code>AnimationStyle.noAnimation</code> (decision 8). Root navigator stays where it is today (message menu, C4a)</td><td>14 hand-rolled calls, each with its own params</td></tr>
+<tr><td>Shape</td><td>top radius <code>radiusLg</code> 20, from <code>bottomSheetTheme</code> only (theme's literal 24 → <code>radiusLg</code>, decision 9); no per-call <code>shape:</code></td><td>20 literal ×3, <code>radiusLg</code> ×6, theme 24 ×4</td></tr>
+<tr><td>Handle</td><td>36×4, <code>t.line</code>, radius 2, 8 from the top, 12 below; <code>ExcludeSemantics</code>; keeps the existing keys (<code>message-menu-handle</code>, <code>conversation-menu-handle</code>, <code>action-sheet-handle</code>)</td><td>4 variants (see S1)</td></tr>
+<tr><td>Title</td><td>optional; h2 20/26 w700 ink in <code>Semantics(header: true)</code>; optional trailing R3 action (page 4's <b>Invite N</b> is the model); wraps, never overflows</td><td>18 w600, 16 w600, <code>titleLarge</code> w700, 20 w700</td></tr>
+<tr><td>Row</td><td><code>SheetActionRow</code> = C4a's <code>_menuActionTile</code> promoted, still a <code>ListTile</code>: min-h 52 (≥48 floor), icon 24 <code>inkSoft</code>, label 15/22 w600 ink, optional subtitle 13/18 inkSoft, optional trailing value 13/18 inkSoft that is <code>Flexible</code> and end-aligned (settings-row learning)</td><td>dense <code>ListTile</code>s at 13.5, default <code>ListTile</code>s at 16 w400</td></tr>
+<tr><td>Destructive</td><td>error icon + <b>ink</b> label (C4b)</td><td>red label in the message menu</td></tr>
+<tr><td>Offline</td><td>only rows that need the network: icon + label at one 38% dim, trailing <b>Available online</b> 13/18 inkSoft not dimmed, <code>enabled: false</code> in the real semantics tree</td><td>message menu only; Material disabled colours</td></tr>
+<tr><td>Space</td><td>16 side padding; 8 above the first row after a title or header; bottom 16 + <code>viewInsets.bottom</code> (keyboard) inside a bottom <code>SafeArea</code></td><td>16/20/24 mixed; two sheets ignore the keyboard</td></tr>
+<tr><td>Height &amp; scroll</td><td>max 90% of (screen − keyboard). Short sheets: the chrome scrolls its column. Sheets with their own list (add friend, add to group, picker, who reacted): the body is <code>Flexible</code> and scrolls itself; the handle and title stay put</td><td>who-reacted and attach do not scroll</td></tr>
+<tr><td>Dividers</td><td>a 1px <code>t.line</code> divider only between a header (preview row) and the rows; none when there is no header</td><td>C4a always draws one (stray line under the handle with no header)</td></tr>
+</table></div>
+</div>
+
+<!-- S3 -->
+<div class="band">
+<header><span class="n">S3</span><h2>Message long-press menu (C4)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · my message, online</span><div class="frame">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="prev"><div class="av">M</div><div style="min-width:0"><div class="nm">Mira</div><div class="pv">Trek on Saturday? Leaving 6am sharp</div></div></div>
+      <div class="emorow"><span class="emo">👍</span><span class="emo">❤️</span><span class="emo">😂</span><span class="emo">😮</span><span class="emo">😢</span><span class="emo add">＋</span></div>
+      <div class="sep"></div>
+      <div class="row1"><span class="ic">↩</span><span class="lbl">Reply</span></div>
+      <div class="row1"><span class="ic">☑</span><span class="lbl">Select</span></div>
+      <div class="row1"><span class="ic">⧉</span><span class="lbl">Copy</span></div>
+      <div class="row1"><span class="ic">☆</span><span class="lbl">Star</span></div>
+      <div class="row1"><span class="ic">📌</span><span class="lbl">Pin</span></div>
+      <div class="row1 danger"><span class="ic">🗑</span><span class="lbl">Delete for me</span></div>
+      <div class="row1 danger"><span class="ic">⊘</span><span class="lbl">Delete for everyone</span></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · offline</span><div class="frame dark">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="prev"><div class="av">M</div><div style="min-width:0"><div class="nm">Mira</div><div class="pv">Trek on Saturday? Leaving 6am sharp</div></div></div>
+      <div class="emorow off"><span class="emo">👍</span><span class="emo">❤️</span><span class="emo">😂</span><span class="emo">😮</span><span class="emo">😢</span><span class="emo add">＋</span></div>
+      <div class="offhint">Available online</div>
+      <div class="sep"></div>
+      <div class="row1"><span class="ic">↩</span><span class="lbl">Reply</span></div>
+      <div class="row1"><span class="ic">⧉</span><span class="lbl">Copy</span></div>
+      <div class="row1"><span class="ic">☆</span><span class="lbl">Star</span></div>
+      <div class="row1 off"><span class="ic">📌</span><span class="lbl">Pin</span><span class="trl">Available online</span></div>
+      <div class="row1 danger"><span class="ic">🗑</span><span class="lbl">Delete for me</span></div>
+      <div class="row1 danger off"><span class="ic">⊘</span><span class="lbl">Delete for everyone</span><span class="trl">Available online</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note"><b>Changes only the look:</b> rows via <code>SheetActionRow</code>; both delete rows get the C4b treatment (today red labels); sender name 15/22 w600 and preview 13/18 (today 13.5 / 13); the preview's fixed <code>SizedBox(height: 20)</code> becomes a minimum, so 200% text is not clipped; reaction circles 48 (tap floor; today 46) on <code>t.surface2</code> (today <code>colorScheme.surfaceContainerHighest</code>); the handle uses <code>t.line</code>. <b>Copy</b> → R5 toast <b>Copied</b>; the pin limit → R5 toast with the repository's own copy (<b>You can pin up to 3 messages.</b>), never a raw SnackBar. <b>Delete</b> confirms through R20 (S11). The P4 per-row hint stays exactly as it is (it is a user ruling and <code>message_menu_offline_widget_test.dart:100</code> reads <code>ListTile.trailing</code>). Every callback is unchanged.</div>
+<div class="note">The quick row is shown here with decision 11's default (👍 ❤️ 😂 😮 😢 + ＋). Today it scrolls through all 32 and the ＋ opens the same 32 again.</div>
+</div>
+
+<!-- S4 -->
+<div class="band">
+<header><span class="n">S4</span><h2>Reactions: ONE picker (C12) and “who reacted”</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · the one picker (both callers)</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a reaction</span></div>
+      <div class="egrid"><span>👍</span><span>👎</span><span>❤️</span><span>🔥</span><span>😂</span><span>😮</span><span>😢</span><span>🙏</span><span>🎉</span><span>💯</span><span>😍</span><span>🤔</span><span>😡</span><span>👏</span><span>🤣</span><span>😊</span><span>💪</span><span>🫡</span><span>✅</span><span>❌</span><span>⭐</span><span>💎</span><span>🚀</span><span>😴</span><span>🥹</span><span>🫶</span><span>😎</span><span>🤯</span><span>🥳</span><span>👀</span><span>💀</span><span>🫠</span></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · who reacted, loading (opens at once)</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">❤️ 3 reactions</span></div>
+      <div class="rx"><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div class="who"><div class="sk" style="width:140px;height:14px"></div></div></div>
+      <div class="rx"><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div class="who"><div class="sk" style="width:110px;height:14px"></div></div></div>
+      <div class="rx"><div class="sk" style="width:40px;height:40px;border-radius:999px"></div><div class="who"><div class="sk" style="width:130px;height:14px"></div></div></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · loaded, my row can Remove</span><div class="frame dark">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">❤️ 3 reactions</span></div>
+      <div class="rx"><div class="av">C</div><div class="who"><div class="nm">Chai</div><div class="mt">You</div></div><span class="tbtn">Remove</span></div>
+      <div class="rx"><div class="av">M</div><div class="who"><div class="nm">Mira Joshi</div></div></div>
+      <div class="rx"><div class="av">A</div><div class="who"><div class="nm">Alina</div></div></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · fetch failed or timed out (8s)</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">❤️ 3 reactions</span></div>
+      <div class="banner"><span>⚠</span><span>Couldn't load reactions.</span><span class="retry">Retry</span></div>
+      <div style="height:12px"></div>
+    </div>
+  </div></div>
+</div>
+<div class="note"><b>One picker:</b> <code>kReactionEmojis</code> (today's 32, same order) and <code>showReactionPicker(context) → Future&lt;String?&gt;</code> in NEW <code>lib/features/chat/widgets/reaction_picker.dart</code>. Both callers await it and keep their own write (frozen). Keys are reaction_bar's (<code>reaction-picker</code>, <code>reaction-picker-$emoji</code>; <code>reaction_bar_test.dart:101-108</code>). Cells ≥48 via a max-extent grid (6 across at 360dp, never fewer than 48px). Each cell is a button whose semantics label is the emoji.</div>
+<div class="note"><b>Who reacted:</b> opens at once with 3 R11 skeleton rows; the existing query (same filter, <code>expand</code>, <code>perPage: 50</code>) moves verbatim into an auto-dispose provider in <code>reaction_bar.dart</code> with an 8s bound on the <code>getList</code> call; error → R12 <b>Couldn't load reactions.</b> + Retry (re-reads the provider); the list scrolls; avatars are R1 (today a <code>CircleAvatar</code> with an amber initial); <b>Remove</b> is an R3 text button in ink (today red), dimmed with the sheet's one hint when offline. Moving the query into <code>MessageRepository</code> (L4) is decision 5.</div>
+</div>
+
+<!-- S5 + S6 -->
+<div class="band">
+<header><span class="n">S5</span><h2>New chat (Home FAB)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light</span><div class="frame">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">New chat</span></div>
+      <div class="row1"><span class="ic">👤</span><span class="lbl">Add a friend</span></div>
+      <div class="row1"><span class="ic">👥</span><span class="lbl">New group</span></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · offline (no dim: neither row needs the network to open)</span><div class="frame dark">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">New chat</span></div>
+      <div class="row1"><span class="ic">👤</span><span class="lbl">Add a friend</span></div>
+      <div class="row1"><span class="ic">👥</span><span class="lbl">New group</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note">Title <b>New chat</b> matches the FAB's tooltip (decision 7). Both rows open what they open today; the screens they reach handle their own offline state (add friend: S6; create group: page 4).</div>
+</div>
+
+<div class="band">
+<header><span class="n">S6</span><h2>Add a friend (ONE opener, C13)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · empty</span><div class="frame">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a friend</span></div>
+      <div class="tabs"><span class="on">Friend code</span><span>Scan QR</span></div>
+      <div class="pad"><div class="frow"><div class="af focus"><div class="in"><div class="lb">Friend code</div><div class="v ph">e.g. CHAI42</div></div></div><span class="ibtn">⌕</span></div>
+      <div class="fh">Six letters or numbers, from your friend's profile.</div></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · found</span><div class="frame">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a friend</span></div>
+      <div class="tabs"><span class="on">Friend code</span><span>Scan QR</span></div>
+      <div class="pad"><div class="frow"><div class="af"><div class="in"><div class="lb">Friend code</div><div class="v">MIRA42</div></div></div><span class="ibtn">⌕</span></div>
+      <div class="found"><div class="av56">M</div><div class="who"><div class="nm">Mira Joshi</div><div class="mt">@mira</div></div></div>
+      <div style="height:12px"></div><div class="btn primary wide">Send friend request</div></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · sent</span><div class="frame dark">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a friend</span></div>
+      <div class="tabs"><span class="on">Friend code</span><span>Scan QR</span></div>
+      <div class="pad"><div class="okwell"><span class="ic">✓</span><div class="t">Request sent to Mira Joshi.</div><div class="bodyc" style="font-size:13px;line-height:18px">They'll show up in your chats once they accept.</div></div>
+      <div style="height:12px"></div><div class="btn secondary wide">Done</div></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · no match / send failed</span><div class="frame">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a friend</span></div>
+      <div class="tabs"><span class="on">Friend code</span><span>Scan QR</span></div>
+      <div class="pad"><div class="frow"><div class="af bad"><div class="in"><div class="lb">Friend code</div><div class="v">ZZZZ99</div></div></div><span class="ibtn">⌕</span></div>
+      <div class="fe"><span class="ic">⚠</span><span>No user found.</span></div></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · offline</span><div class="frame dark">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a friend</span></div>
+      <div class="tabs"><span class="on">Friend code</span><span>Scan QR</span></div>
+      <div class="pad"><div class="frow"><div class="af focus"><div class="in"><div class="lb">Friend code</div><div class="v">MIRA42</div></div></div><span class="ibtn off">⌕</span></div>
+      <div class="offhint" style="padding:6px 0 0">Available online</div></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · Scan QR, camera refused</span><div class="frame">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add a friend</span></div>
+      <div class="tabs"><span>Friend code</span><span class="on">Scan QR</span></div>
+      <div class="scan"><span style="font-size:28px;color:var(--inkSoft)">⌧</span><div class="rt" style="font-size:15px;font-weight:600">Camera unavailable</div><div class="rp" style="font-size:13px;line-height:18px;color:var(--inkSoft)">Allow camera access in system settings, or pick a photo of the code.</div><span class="fab">🖼</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note"><b>One opener:</b> <code>showAddFriendSheet(context, ref)</code> next to <code>AddFriendSheet</code> in <code>add_friend_screen.dart</code>: <code>reset()</code> then <code>showAppSheet</code>. All four buttons call it (Home FAB row, Home empty state <code>home_screen.dart:456</code>, Requests empty state <code>:224</code>, Create Group empty state <code>:539</code>); the three private copies are deleted. Grep gate: <code>AddFriendSheet(</code> is built only in that file.</div>
+<div class="note"><b>Inside the sheet:</b> R13 field (label <b>Friend code</b>, hint <b>e.g. CHAI42</b>, helper line, error line in ink with an error icon, today red <code>Text</code>); the search button is an accent-filled 48×56 icon button with semantics <b>Search</b> and an R3a ring while searching; the found card uses R1 (initial in ink on accentSoft, today amber); <b>Send friend request</b> is R3 primary, expanded, <code>busy</code>; the sent state has a success icon with an <b>ink</b> line (today green text, 3.39:1) and R3 secondary <b>Done</b> (decision 4). Tabs: label 15 w600, ink selected / inkSoft not, a 3px accent indicator (fill), 48 tall. Offline: the search and send buttons get the sheet's one 38% dim and one hint; the field still types; scanning still works (it is local) but the search it starts is dimmed. <b>Copy fixes:</b> <b>Failed to send request: $e</b> → <b>Couldn't send the request. Try again.</b>; <b>Could not read QR: $e</b> → R5 <b>Couldn't read that photo.</b>; <b>No QR code found in image</b> → R5 <b>No QR code in that photo.</b> Both notifier calls get an 8s bound on the network call only (timeout = the existing failure copy).</div>
+</div>
+
+<!-- S7 -->
+<div class="band">
+<header><span class="n">S7</span><h2>Chat ⋮ menu → C4a</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · group chat</span><div class="frame">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="row1"><span class="ic">🖼</span><span class="lbl">Media and docs</span></div>
+      <div class="row1"><span class="ic">☆</span><span class="lbl">Starred messages</span></div>
+      <div class="row1"><span class="ic">👥</span><span class="lbl">Group info</span></div>
+      <div class="row1"><span class="ic">⏲</span><span class="lbl">Disappearing messages</span><span class="trl">1 day</span></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · 1:1 chat, timer off</span><div class="frame dark">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="row1"><span class="ic">🖼</span><span class="lbl">Media and docs</span></div>
+      <div class="row1"><span class="ic">☆</span><span class="lbl">Starred messages</span></div>
+      <div class="row1"><span class="ic">⏲</span><span class="lbl">Disappearing messages</span><span class="trl">Off</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note"><code>_showChatMenu</code> builds <code>ConversationMenuAction</code>s and calls <code>showActionSheet</code> (one chrome with Home long-press and member actions). No header (decision 10), so no divider. Each action's navigation is today's, verbatim. The trailing value is <code>disappearingDurationLabel</code> (C11), Flexible. No offline dim: none of these rows needs the network to open.</div>
+</div>
+
+<!-- S8 -->
+<div class="band">
+<header><span class="n">S8</span><h2>Attach source and quality (chrome only; sending is frozen)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · attach</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Attach</span></div>
+      <div class="row1"><span class="ic">📷</span><span class="lbl">Take a photo</span></div>
+      <div class="row1"><span class="ic">🖼</span><span class="lbl">Photo library</span></div>
+      <div class="row1"><span class="ic">🎥</span><span class="lbl">Record a video</span></div>
+      <div class="row1"><span class="ic">🎞</span><span class="lbl">Video library</span></div>
+      <div class="row1"><span class="ic">📎</span><span class="lbl">Document</span></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · photo quality (decision 2)</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Photo quality</span></div>
+      <div class="row1"><span class="ic">▤</span><span class="lbl">Normal<span class="sub">60% quality, up to 1280px · kept 60 days</span></span></div>
+      <div class="row1"><span class="ic">HD</span><span class="lbl">High<span class="sub">90% quality, up to 2560px · kept 30 days</span></span></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · video quality</span><div class="frame dark">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Video quality</span></div>
+      <div class="row1"><span class="ic">▤</span><span class="lbl">Normal<span class="sub">720p · kept 30 days</span></span></div>
+      <div class="row1"><span class="ic">HD</span><span class="lbl">High<span class="sub">1080p · kept 15 days</span></span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note"><b>Checked against the code:</b> the subtitles match <code>MediaUploadService.compressImage</code> (<code>media_upload_service.dart:123-124</code>: 1280/60 and 2560/90). <code>flutter_image_compress</code> drops EXIF by default (<code>keepExif: false</code>), so sent photos carry no GPS today; nothing to change. <b>What the sheet hides today:</b> <code>retentionExpiry</code> (<code>:47</code>) keeps <b>High</b> media half as long (photo 30 vs 60 days, video 15 vs 30, <code>app_constants.dart:28-32</code>). Decision 2 shows it, read from <code>AppConstants</code>, never hard-coded. The two sheets move to NEW <code>lib/features/chat/widgets/attach_sheets.dart</code> as <code>showAttachSourceSheet(context)</code> / <code>showMediaQualitySheet(context, isVideo:)</code>, returning the same strings (<code>'camera'</code>, <code>'gallery'</code>, <code>'video_camera'</code>, <code>'video_gallery'</code>, <code>'document'</code>, <code>'normal'</code>, <code>'high'</code>); each pops with its own sheet context. <code>_onAttachPressed</code> changes only in those two call expressions.</div>
+</div>
+
+<!-- S9 -->
+<div class="band">
+<header><span class="n">S9</span><h2>Page 4's sheets: add to group, Home long-press, member actions</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · add to group (body unchanged)</span><div class="frame">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl"><span class="sp">Add to group</span><span class="btn primary">Invite 2</span></div>
+      <div class="m" style="border-top:0"><span class="chk on">✓</span><div class="av">A</div><div class="who"><div class="nm">Alina</div><div class="mt">@alina</div></div></div>
+      <div class="m"><span class="chk on">✓</span><div class="av">B</div><div class="who"><div class="nm">Brody</div><div class="mt">@brody</div></div></div>
+      <div class="m"><span class="chk"></span><div class="av">K</div><div class="who"><div class="nm">Kabir</div><div class="mt">Invited · pending</div></div></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · Home long-press (C4a, header + divider)</span><div class="frame dark">
+    <div class="behind"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="prev"><div class="av">D</div><div style="min-width:0"><div class="nm">Design Crew</div><div class="pv">Latest message</div></div></div>
+      <div class="sep"></div>
+      <div class="row1"><span class="ic">📌</span><span class="lbl">Pin conversation</span><span class="trl">Off</span></div>
+      <div class="row1"><span class="ic">✓</span><span class="lbl">Mark as read</span></div>
+      <div class="row1"><span class="ic">ⓘ</span><span class="lbl">Conversation info</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note"><code>_AddMembersSheet</code> (page 4, user PASS) is already the model for a title-with-action sheet: it moves onto <code>AppSheetChrome</code>'s title row and loses its own <code>Container</code>/handle/<code>SafeArea</code>/inset code; its list, search, skeleton, banner and empty state are untouched, and <code>add_members_sheet_test.dart</code> stays green unedited. C4a's rows become <code>SheetActionRow</code> with the same keys (<code>registry_amendments_test.dart:145-176</code>, <code>group_info_actions_test.dart:246</code>).</div>
+</div>
+
+<!-- S10 -->
+<div class="band">
+<header><span class="n">S10</span><h2>Voice note player (Media &amp; docs)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · playing</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="voice"><div class="wellb">🎙</div><div class="vt">Voice message</div><div class="bar"><span style="width:42%"></span></div><div class="times"><span>0:12</span><span>0:29</span></div><div class="disc56">❚❚</div></div>
+    </div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · downloading</span><div class="frame dark">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="voice"><div class="wellb">🎙</div><div class="vt">Voice message</div><div class="bar"><span style="width:0"></span></div><div class="times"><span>0:00</span><span>0:29</span></div><div class="disc56 wait"><span class="spin"></span></div></div>
+    </div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · download failed</span><div class="frame">
+    <div class="behind" style="height:60px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="voice"><div class="wellb">🎙</div><div class="vt">Voice message</div><div class="bodyc" style="font-size:13px;line-height:18px;text-align:center;margin-top:6px">Couldn't load this voice message.</div><div style="height:8px"></div><span class="tbtn">Try again</span></div>
+    </div>
+  </div></div>
+</div>
+<div class="note">Mic in a <code>surface2</code> well in inkSoft (today a 40px amber icon); title 16/22 w600 <b>Voice message</b>, the passed duration only as the fallback total; bar = accent fill on <code>surface2</code>; times 13/18 inkSoft, tabular (today 12); play / pause = a 56 accent disc with an onAccent glyph and semantics <b>Play</b> / <b>Pause</b> (today an amber 48 icon); loading = R3a in a <code>surface2</code> disc (today a lone <code>CircularProgressIndicator</code>); failure = the line + R3 text <b>Try again</b>, which re-runs <code>_init</code> (today: nothing, a dead play button). The download and decrypt (<code>mediaFileProvider</code>) are unchanged.</div>
+</div>
+
+<!-- S11 -->
+<div class="band">
+<header><span class="n">S11</span><h2>Dialogs: ONE confirm dialog (R20) + the dialog theme</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · destructive</span><div class="frame">
+    <div class="dlgwrap"><div class="dlg"><div class="t">Delete message?</div><div class="s">This message will be deleted for everyone in this chat.</div><div class="acts"><span class="btn text">Cancel</span><span class="btn secondary"><span style="color:var(--error)">🗑</span>Delete</span></div></div></div>
+  </div></div>
+  <div class="wrap dark"><span class="tag">Dark · not destructive</span><div class="frame dark">
+    <div class="dlgwrap"><div class="dlg"><div class="t">Discard changes?</div><div class="s">Your edits won't be saved.</div><div class="acts"><span class="btn text">Keep editing</span><span class="btn secondary">Discard</span></div></div></div>
+  </div></div>
+  <div class="wrap amo"><span class="tag">AMOLED · leave group</span><div class="frame amoled">
+    <div class="dlgwrap"><div class="dlg"><div class="t">Leave Group?</div><div class="s">You will lose access to this group and its messages.<br>Alina will become the admin.</div><div class="acts"><span class="btn text">Cancel</span><span class="btn secondary"><span style="color:var(--error)">⇥</span>Leave</span></div></div></div>
+  </div></div>
+  <div class="wrap"><span class="tag">Light · rename (R13 field)</span><div class="frame">
+    <div class="dlgwrap"><div class="dlg"><div class="t">Edit Group Name</div><div style="height:12px"></div><div class="af focus"><div class="in"><div class="lb">Group name</div><div class="v">Weekend Trekkers</div></div></div><div class="cnt" style="padding-right:4px">16/50</div><div class="acts"><span class="btn text">Cancel</span><span class="btn primary" style="height:40px">Save</span></div></div></div>
+  </div></div>
+</div>
+<div class="note"><code>showConfirmDialog({context, title, body, confirmLabel, cancelLabel = 'Cancel', confirmIcon, destructive = false}) → Future&lt;bool&gt;</code> in NEW <code>lib/core/widgets/app_dialog.dart</code>: <code>AlertDialog</code> on <code>t.surface</code>, no tint, <code>radiusXl</code>; title = <code>pageTitleStyle</code> (R14, 20/26 w700); body 15/22 ink; R3 text cancel + R3 secondary confirm; <code>destructive</code> = error icon + ink label; a barrier tap = <code>false</code>. Profile's <b>Sign out?</b> is the model (it already looks like this). Five callers: delete message, remove member, leave group, sign out, discard changes. Each keeps its copy and what runs after it (frozen). <b>The dialog theme</b> (<code>app_theme.dart:86</code>) gains <code>surfaceTintColor: transparent</code>, the title and body styles above, so C11, the rename dialog and Backup PIN's (frozen) dialog match without per-site styling. The rename dialog keeps its own widget (it owns its controller; see the comment at <code>:1673</code>) and gets R13. Titles stay as page 4 accepted them (decision 1).</div>
+</div>
+
+<!-- S12 -->
+<div class="band">
+<header><span class="n">S12</span><h2>Candidate features, checked against the app and PocketBase today</h2></header>
+<div class="tblwrap"><table class="verdict">
+<tr><th>Candidate</th><th>What exists today</th><th>Verdict</th></tr>
+<tr><td>QR scan in add friend</td><td>Profile draws <code>QrImageView(data: 'kuchbhi://add/&lt;code&gt;')</code> (<code>profile_screen.dart:233</code>); the scanner strips that prefix; <code>mobile_scanner</code> + gallery decode installed</td><td class="ok">Supported end to end. Keep; restyle + camera-refused state</td></tr>
+<tr><td>Friend code length 6</td><td>Email sign-up makes 6 chars from A–Z0–9 (<code>auth_repository_impl.dart:739</code>); the Google hook makes its own on the server (not in the repo)</td><td>Keep the 6-char check. Confirming the hook's length needs a live read (decision 12)</td></tr>
+<tr><td>“That's you” / “Already friends” in add friend</td><td>Nothing stops sending a request to yourself or a friend; whether PocketBase rejects it is unknown without a live read. The current user id and <code>friendshipsProvider</code> are local</td><td>Possible with local data only: decision 3</td></tr>
+<tr><td>Quick-reaction row = a few emoji</td><td>Row shows all 32; ＋ opens the same 32</td><td>Decision 11</td></tr>
+<tr><td>Show how long media is kept</td><td><code>retentionExpiry</code> differs by quality; nothing tells the sender</td><td>Copy only, from <code>AppConstants</code>: decision 2</td></tr>
+<tr><td>Recent / frequently used emoji</td><td>No storage for it</td><td>Not offered (new feature)</td></tr>
+<tr><td>Custom emoji / emoji search</td><td>None; no emoji package</td><td>Not offered</td></tr>
+<tr><td>Share my code from the add-friend sheet</td><td>Profile has copy + QR already</td><td>Not offered (one place for it)</td></tr>
+<tr><td>Message menu: Forward, Info, Edit</td><td>No forward, read-receipt list or edit path in <code>MessageRepository</code></td><td>Not offered</td></tr>
+<tr><td>Chat menu: Mute, Block, Clear chat, Search</td><td>Mute/block not built (Page 6 learning); search lives in the app bar</td><td>Not offered</td></tr>
+<tr><td>Attach: location, contact, audio file</td><td>No send path for any of them</td><td>Not offered</td></tr>
+</table></div>
+</div>
+
+<!-- S13 -->
+<div class="band">
+<header><span class="n">S13</span><h2>A11y, motion, large text, copy &amp; out of scope</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · 360dp, 200% text, Plus Jakarta Sans</span><div class="frame jk" style="width:300px">
+    <div class="behind" style="height:40px"></div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="ttl" style="font-size:28px;line-height:36px"><span class="sp">Disappearing messages menu</span></div>
+      <div class="row1" style="font-size:24px;line-height:32px;min-height:64px"><span class="ic">⏲</span><span class="lbl">Disappearing messages</span><span class="trl" style="font-size:20px;line-height:26px">1 day</span></div>
+      <div class="row1 off" style="font-size:24px;line-height:32px;min-height:64px"><span class="ic">📌</span><span class="lbl">Pin</span><span class="trl" style="font-size:20px;line-height:26px">Available online</span></div>
+    </div>
+  </div></div>
+  <div style="flex:1;min-width:260px;font-size:13px">
+    <h3>Rules</h3>
+    <b>Large text:</b> every sheet and dialog at 360×640 with <code>textScaler 2.0</code>, and again with <b>Plus Jakarta Sans</b> selected (R18): no overflow; titles and labels wrap; trailing values wrap under their own <code>Flexible</code>; the sheet scrolls instead of growing past 90%.<br>
+    <b>Semantics</b> (asserted with <code>tester.getSemantics</code>): sheet titles are headers; the handle is excluded; disabled rows report not-enabled; destructive rows keep their label (no “red”); emoji cells are buttons named by their emoji; the voice disc is <b>Play</b> / <b>Pause</b>; the add-friend search button is <b>Search</b>.<br>
+    <b>Motion:</b> Material's sheet enter/exit (≤250ms) stays; under reduced motion sheets appear without the slide (decision 8). Long-press menus keep their <code>mediumImpact</code>; FAB and button sheets have no haptic (today).<br>
+    <b>Copy:</b> sentence case for strings this page owns; page 4's accepted, tested strings stay (decision 1). No <code>$e</code>; errors say what failed and what to do.<br>
+    <b>Out of scope:</b> what each sheet starts (sending, upload, quality, reaction writes, friend requests, group invites and key rotation, disappearing timers), E2E and keys, the bubble (incl. the reaction chips and their ＋), the composer, Backup PIN, fullscreen media (page 9), mascots (page 10).
+  </div>
+</div>
+</div>
+
+<!-- S14 -->
+<div class="band">
+<header><span class="n">S14</span><h2>Found while specifying, outside Page 8 (separate tasks)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Finding</th><th>Where</th><th>Why not here</th></tr>
+<tr><td>K1</td><td>Pin and reaction writes are unbounded and swallow their errors: the menu awaits <code>togglePin</code>'s PocketBase update (no timeout) before closing, so a dead network keeps the sheet up; <code>addReaction</code> / <code>removeReaction</code> catch and only <code>debugPrint</code>, so a failed reaction looks like it worked</td><td><code>message_repository_impl.dart:2304-2393</code></td><td>Repository logic (reaction writes are out of scope; the file is frozen)</td></tr>
+<tr><td>K2</td><td>Who-reacted reads PocketBase from a widget (L4)</td><td><code>reaction_bar.dart:177-213</code></td><td>Decision 5 (default: backlog)</td></tr>
+<tr><td>K3</td><td>Send-to-self and duplicate pending friend requests: unknown whether the <code>friend_requests</code> create rule rejects them</td><td>live PocketBase</td><td>Needs a live read (decision 12)</td></tr>
+<tr><td>K4</td><td><code>_VoicePlaySheet</code>'s three stream subscriptions are never cancelled (safe today only because <code>_player.dispose()</code> closes the streams)</td><td><code>media_docs_screen.dart:465-480</code></td><td>Media playback (page 9 / backlog); harmless as written</td></tr>
+</table></div>
+</div>
+
+<!-- S15 -->
+<div class="band">
+<header><span class="n">S15</span><h2>Diff vs current implementation</h2></header>
+<p class="mini">The full table, with checklist IDs, is in <code>sheets.md</code> → “Diff vs current implementation”. Summary:</p>
+<div class="tblwrap"><table>
+<tr><th>Area</th><th>Today</th><th>Spec</th></tr>
+<tr><td>Opening a sheet</td><td>14 hand-rolled <code>showModalBottomSheet</code> calls</td><td>R19 <code>showAppSheet</code> only (gate)</td></tr>
+<tr><td>Chrome</td><td>4 handles, 3 radii, 6 title styles, mixed padding, 2 sheets ignore the keyboard</td><td>R19 <code>AppSheetChrome</code></td></tr>
+<tr><td>Rows</td><td>dense <code>ListTile</code> 13.5 / default <code>ListTile</code> 16 w400</td><td>R19 <code>SheetActionRow</code> 15/22 w600</td></tr>
+<tr><td>Destructive</td><td>red labels (message menu, delete dialog, Remove)</td><td>C4b everywhere</td></tr>
+<tr><td>Dialogs</td><td>5 confirm dialogs hand-built, 2 with Material defaults</td><td>R20 + dialog theme</td></tr>
+<tr><td>Reaction picker</td><td>2 lists, 2 grids</td><td>C12, one each</td></tr>
+<tr><td>Add friend</td><td>3 openers; Material field/buttons/tabs; red, amber and green text; <code>$e</code>; no offline</td><td>C13; R13/R3/R1; ink text; offline dim</td></tr>
+<tr><td>Who reacted</td><td>silent wait, silent failure, no scroll</td><td>opens at once; skeleton / list / banner; 8s</td></tr>
+<tr><td>Voice sheet</td><td>amber icons, lone spinner, silent failure</td><td>accent disc, R3a, error + Try again</td></tr>
+<tr><td>Toasts</td><td>4 raw SnackBars</td><td>R5</td></tr>
+</table></div>
+</div>
+
+</body>
+</html>

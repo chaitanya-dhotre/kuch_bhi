@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +8,9 @@ import 'package:open_file/open_file.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_sheet.dart';
+import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../infrastructure/services/media_gallery_service.dart';
 import '../../chat/providers/chat_provider.dart';
@@ -422,14 +427,13 @@ class _VoiceTab extends ConsumerWidget {
     String serverId,
     String duration,
   ) {
-    showModalBottomSheet(
+    showAppSheet<void>(
       context:     context,
       builder:     (_) => _VoicePlaySheet(
         conversationId: conversationId,
         serverId:       serverId,
         duration:       duration,
       ),
-      isScrollControlled: false,
     );
   }
 }
@@ -454,6 +458,7 @@ class _VoicePlaySheet extends ConsumerStatefulWidget {
 class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
   final _player  = AudioPlayer();
   bool  _loading = true;
+  bool  _failed  = false;
   bool  _playing = false;
   Duration _pos  = Duration.zero;
   Duration _total = Duration.zero;
@@ -487,12 +492,27 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
       if (media == null) throw Exception('No media found');
 
       await _player.setFilePath(media.file.path);
-      await _player.play();
+      // play() completes only when playback stops; awaiting it kept the
+      // spinner up for the whole clip.
+      unawaited(_player.play());
     } catch (e) {
       debugPrint('[VoiceSheet] Error: $e');
+      _failed = true;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    // mediaFileProvider caches its null (it is not auto-disposed): drop it,
+    // or Try again would get the same failure back.
+    ref.invalidate(
+        mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)));
+    _init();
   }
 
   @override
@@ -513,49 +533,114 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
         ? (_pos.inMilliseconds / _total.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    final t = context.t;
+    final caption = TextStyle(
+      fontSize: 13,
+      height: 18 / 13,
+      color: t.inkSoft,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final total = _total > Duration.zero ? _fmt(_total) : widget.duration;
+
+    final Widget control;
+    if (_failed) {
+      control = Column(
+        children: [
+          Text(
+            "Couldn't load this voice message.",
+            textAlign: TextAlign.center,
+            style: caption,
+          ),
+          AppButton(
+            variant: AppButtonVariant.text,
+            onPressed: _retry,
+            child: const Text('Try again'),
+          ),
+        ],
+      );
+    } else if (_loading) {
+      control = Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(color: t.surface2, shape: BoxShape.circle),
+        alignment: Alignment.center,
+        child: const BusySpinner(),
+      );
+    } else {
+      control = Semantics(
+        button: true,
+        label: _playing ? 'Pause' : 'Play',
+        // excludeSemantics drops the child's tap; give it back here.
+        onTap: () => _playing ? _player.pause() : _player.play(),
+        excludeSemantics: true,
+        child: Material(
+          color: t.accent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => _playing ? _player.pause() : _player.play(),
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: Icon(
+                _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                size: 32,
+                color: t.onAccent,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return AppSheetChrome(
+      children: [
+        Row(
           children: [
-            Icon(Icons.mic, size: 40, color: context.t.accent),
-            const SizedBox(height: 12),
-            Text(
-              'Voice message · ${widget.duration}',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: t.surface2,
+                borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+              ),
+              child: Icon(Icons.mic_none_rounded, color: t.inkSoft),
             ),
-            const SizedBox(height: 16),
-            LinearProgressIndicator(
-              value:           progress,
-              backgroundColor: context.t.surface2,
-              valueColor:      AlwaysStoppedAnimation(context.t.accent),
-              minHeight:       4,
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(_fmt(_pos),   style: const TextStyle(fontSize: 12)),
-                Text(_fmt(_total), style: const TextStyle(fontSize: 12)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (_loading)
-              CircularProgressIndicator(color: context.t.accent)
-            else
-              IconButton(
-                iconSize: 48,
-                onPressed: () => _playing ? _player.pause() : _player.play(),
-                icon: Icon(
-                  _playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: context.t.accent,
-                  size: 48,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Voice message',
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 22 / 16,
+                  fontWeight: FontWeight.w600,
+                  color: t.ink,
                 ),
               ),
+            ),
           ],
         ),
-      ),
+        const SizedBox(height: 16),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusPill),
+          child: LinearProgressIndicator(
+            value:           progress,
+            backgroundColor: t.surface2,
+            valueColor:      AlwaysStoppedAnimation(t.accent),
+            minHeight:       4,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(_fmt(_pos), style: caption),
+            Text(total,      style: caption),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Center(child: control),
+      ],
     );
   }
 }

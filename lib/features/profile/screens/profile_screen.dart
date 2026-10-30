@@ -8,6 +8,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/widgets/section_header.dart';
@@ -95,39 +96,14 @@ class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
-    final t = context.t;
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: t.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
-        ),
-        title: Text('Sign out?', style: pageTitleStyle(ctx)),
-        content: Text(
+      title: 'Sign out?',
+      body:
           'This clears your chats from this phone. You can sign back in any time.',
-          style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
-        ),
-        actions: [
-          AppButton(
-            variant: AppButtonVariant.text,
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          AppButton(
-            variant: AppButtonVariant.secondary,
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.logout, size: 18, color: t.error),
-                const SizedBox(width: 8),
-                const Text('Sign out'),
-              ],
-            ),
-          ),
-        ],
-      ),
+      confirmLabel: 'Sign out',
+      confirmIcon: Icons.logout,
+      destructive: true,
     );
     if (ok == true) await ref.read(authProvider.notifier).signOut();
   }

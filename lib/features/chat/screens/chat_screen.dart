@@ -18,6 +18,7 @@ import '../providers/message_body_provider.dart';
 import '../chat_run_grouping.dart';
 import '../widgets/disappearing_dialog.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/message_context_menu.dart';
 import '../widgets/message_input.dart';
 import '../widgets/pinned_message_banner.dart';
 import '../../media/screens/media_docs_screen.dart';
@@ -997,76 +998,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         .getConversationById(_cid);
     if (!context.mounted) return;
     final disappearingDuration = row?.disappearingDuration ?? 0;
-    showModalBottomSheet<void>(
+    // F1: C4a, no header (decision 10); each callback is today's.
+    showActionSheet(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(WarmPopTokens.radiusLg),
+      haptic: false,
+      actions: [
+        ConversationMenuAction(
+          label: 'Media and docs',
+          icon: Icons.perm_media_outlined,
+          callback: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MediaDocsScreen(conversationId: _cid),
+              ),
+            );
+          },
         ),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.9,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.perm_media_outlined),
-                  title: const Text('Media & Docs'),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => MediaDocsScreen(conversationId: _cid),
-                      ),
-                    );
-                  },
+        ConversationMenuAction(
+          label: 'Starred messages',
+          icon: Icons.star_outline,
+          callback: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => StarredMessagesScreen(
+                  conversationId: _cid,
+                  onJump: (m) => unawaited(_jumpToMessage(m)),
                 ),
-                ListTile(
-                  leading: const Icon(Icons.star_outline),
-                  title: const Text('Starred Messages'),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => StarredMessagesScreen(
-                          conversationId: _cid,
-                          onJump: (m) => unawaited(_jumpToMessage(m)),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                if (conv.isGroup)
-                  ListTile(
-                    leading: const Icon(Icons.group_outlined),
-                    title: const Text('Group Info'),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      _openConversationInfo(conv);
-                    },
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined),
-                  title: const Text('Disappearing Messages'),
-                  trailing: Text(
-                    disappearingDurationLabel(disappearingDuration),
-                  ),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    unawaited(showDisappearingDialog(context, ref, _cid));
-                  },
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
-      ),
+        if (conv.isGroup)
+          ConversationMenuAction(
+            label: 'Group info',
+            icon: Icons.group_outlined,
+            callback: () {
+              _openConversationInfo(conv);
+            },
+          ),
+        ConversationMenuAction(
+          label: 'Disappearing messages',
+          icon: Icons.timer_outlined,
+          trailing: disappearingDurationLabel(disappearingDuration),
+          callback: () {
+            unawaited(showDisappearingDialog(context, ref, _cid));
+          },
+        ),
+      ],
     );
   }
 

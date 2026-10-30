@@ -85,13 +85,22 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: c.surface,
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl)),
+      titleTextStyle: TextStyle(
+          fontSize: 20,
+          height: 26 / 20,
+          fontWeight: FontWeight.w700,
+          color: c.ink),
+      contentTextStyle: TextStyle(fontSize: 15, height: 22 / 15, color: c.ink),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: c.surface,
+      surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          borderRadius: BorderRadius.vertical(
+              top: Radius.circular(WarmPopTokens.radiusLg))),
     ),
     dividerColor: c.line,
   );

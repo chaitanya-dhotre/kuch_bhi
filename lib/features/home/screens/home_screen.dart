@@ -9,6 +9,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_badge.dart';
+import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/chat_tile.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -453,7 +454,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             title: 'No chats yet',
             subtitle: 'Add friends to start chatting.',
             action: FilledButton.icon(
-              onPressed: () => _showAddFriend(context, ref),
+              onPressed: () => showAddFriendSheet(context, ref),
               icon: const Icon(Icons.person_add_outlined),
               label: const Text('Add a Friend'),
             ),
@@ -478,46 +479,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _showNewChatSheet(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet<void>(
+    showAppSheet<void>(
       context: context,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: sheetContext.t.line,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              _NewChatSheetRow(
-                icon: Icons.person_add_outlined,
-                label: 'Add Friend',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _showAddFriend(context, ref);
-                },
-              ),
-              _NewChatSheetRow(
-                icon: Icons.group_add_outlined,
-                label: 'New Group',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  context.push(AppRoutes.createGroup);
-                },
-              ),
-            ],
+      builder: (sheetContext) => AppSheetChrome(
+        title: 'New chat',
+        children: [
+          SheetActionRow(
+            icon: Icons.person_add_outlined,
+            label: 'Add a friend',
+            onTap: () {
+              Navigator.of(sheetContext).pop();
+              showAddFriendSheet(context, ref);
+            },
           ),
-        ),
+          SheetActionRow(
+            icon: Icons.group_add_outlined,
+            label: 'New group',
+            onTap: () {
+              Navigator.of(sheetContext).pop();
+              context.push(AppRoutes.createGroup);
+            },
+          ),
+        ],
       ),
     );
   }
@@ -538,19 +521,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
     }
-  }
-
-  void _showAddFriend(BuildContext context, WidgetRef ref) {
-    ref.read(addFriendProvider.notifier).reset();
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => const AddFriendSheet(),
-    );
   }
 }
 
@@ -920,36 +890,6 @@ class _HomeSkeletonTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _NewChatSheetRow extends StatelessWidget {
-  const _NewChatSheetRow({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      minVerticalPadding: 12,
-      leading: Icon(icon, color: context.t.inkSoft),
-      title: Text(
-        label,
-        style: TextStyle(
-          color: context.t.ink,
-          fontSize: 13.5,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      onTap: onTap,
     );
   }
 }

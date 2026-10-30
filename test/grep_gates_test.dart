@@ -445,6 +445,63 @@ void main() {
         isFalse,
         reason: 'F6: raw-bytes avatar upload (EXIF) is gone');
   });
+
+  test('Page 8 sheets: one opener, one picker, one add-friend, A11 hygiene',
+      () {
+    const appSheet = 'lib/core/widgets/app_sheet.dart';
+    const addFriend = 'lib/features/home/screens/add_friend_screen.dart';
+    const picker = 'lib/features/chat/widgets/reaction_picker.dart';
+    final lib = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'));
+    // A11: one way to open a sheet, one AddFriendSheet builder, one emoji
+    // list (any of its rarer entries stands for the literal).
+    final only = {
+      RegExp(r'showModalBottomSheet'): appSheet,
+      RegExp(r'(?<![A-Za-z_])AddFriendSheet\('): addFriend,
+      RegExp("'(🫡|🫠|🫶|🥹|💎)'"): picker,
+    };
+    only.forEach((needle, home) {
+      final hits = [
+        for (final f in lib)
+          if (needle.hasMatch(f.readAsStringSync())) f.path,
+      ];
+      expect(hits, [home], reason: '${needle.pattern} outside $home');
+    });
+
+    const sheetFiles = [
+      appSheet,
+      'lib/core/widgets/app_dialog.dart',
+      picker,
+      'lib/features/chat/widgets/attach_sheets.dart',
+      'lib/features/chat/widgets/message_context_menu.dart',
+      addFriend,
+    ];
+    final banned = {
+      'colorScheme': RegExp(r'colorScheme'),
+      'withValues(alpha': RegExp(r'withValues\(alpha'),
+      'textTheme': RegExp(r'textTheme'),
+      'surfaceContainerHighest': RegExp(r'surfaceContainerHighest'),
+      'CircularProgressIndicator': RegExp(r'CircularProgressIndicator'),
+      'SnackBar(': RegExp(r'SnackBar\('),
+      'fontSize: 13.5': RegExp(r'fontSize:\s*13\.5'),
+      'fontSize: 12': RegExp(r'fontSize:\s*12(?![\d.])'),
+      'raw radius': RegExp(r'(Border|Radius)\.circular\(\d'),
+    };
+    for (final path in sheetFiles) {
+      final src = File(path).readAsStringSync();
+      banned.forEach((name, re) {
+        expect(re.hasMatch(src), isFalse, reason: '$name in $path');
+      });
+      final shown = File(path)
+          .readAsLinesSync()
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      expect(RegExp(r'\$\{?e\b|\be\.toString\(\)').hasMatch(shown), isFalse,
+          reason: '\$e in $path');
+    }
+  });
 }
 
 const _bannedPurpleHexes = [

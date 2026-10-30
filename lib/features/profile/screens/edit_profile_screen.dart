@@ -8,6 +8,7 @@ import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_field.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../domain/entities/user.dart';
@@ -144,32 +145,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   Future<void> _onPopBlocked() async {
     if (_saving) return;
-    final t = context.t;
-    final discard = await showDialog<bool>(
+    final discard = await showConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: t.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
-        ),
-        title: Text('Discard changes?', style: pageTitleStyle(ctx)),
-        content: Text(
-          "Your edits won't be saved.",
-          style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
-        ),
-        actions: [
-          AppButton(
-            variant: AppButtonVariant.text,
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Keep editing'),
-          ),
-          AppButton(
-            variant: AppButtonVariant.secondary,
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Discard'),
-          ),
-        ],
-      ),
+      title: 'Discard changes?',
+      body: "Your edits won't be saved.",
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
     );
     if (discard == true && mounted) {
       setState(() => _allowPop = true);

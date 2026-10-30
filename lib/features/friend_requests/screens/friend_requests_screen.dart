@@ -371,15 +371,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
     });
   }
 
-  void _openAddFriend() {
-    ref.read(addFriendProvider.notifier).reset();
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => const AddFriendSheet(),
-    );
-  }
+  void _openAddFriend() => showAddFriendSheet(context, ref);
 
   static String _requestKey(String id) => 'friend:$id';
 

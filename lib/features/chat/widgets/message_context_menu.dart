@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_dialog.dart';
+import '../../../core/widgets/app_sheet.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
@@ -13,42 +16,7 @@ import '../providers/chat_provider.dart';
 import '../providers/message_body_provider.dart';
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
-
-// Extended emoji set — horizontally scrollable
-const _reactionEmojis = [
-  '👍',
-  '👎',
-  '❤️',
-  '🔥',
-  '😂',
-  '😮',
-  '😢',
-  '🙏',
-  '🎉',
-  '💯',
-  '😍',
-  '🤔',
-  '😡',
-  '👏',
-  '🤣',
-  '😊',
-  '💪',
-  '🫡',
-  '✅',
-  '❌',
-  '⭐',
-  '💎',
-  '🚀',
-  '😴',
-  '🥹',
-  '🫶',
-  '😎',
-  '🤯',
-  '🥳',
-  '👀',
-  '💀',
-  '🫠',
-];
+import 'reaction_picker.dart';
 
 /// A row displayed by [showConversationMenu].
 ///
@@ -101,15 +69,9 @@ void showMessageMenu({
   VoidCallback? onSelect,
 }) {
   HapticFeedback.mediumImpact();
-  showModalBottomSheet(
+  showAppSheet<void>(
     context: context,
     useRootNavigator: true,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(WarmPopTokens.radiusLg),
-      ),
-    ),
     builder: (_) => _ContextSheet(
       message: message,
       isMine: isMine,
@@ -129,6 +91,7 @@ void showMessageMenu({
 ///
 /// The optional key parameters exist so existing call sites (and their
 /// tests) keep addressing the same widgets; they default to generic keys.
+/// [haptic] is for long-press openers; a button-opened sheet passes false.
 void showActionSheet({
   required BuildContext context,
   Widget? header,
@@ -136,17 +99,12 @@ void showActionSheet({
   Key? sheetKey,
   Key? handleKey,
   Key? previewKey,
+  bool haptic = true,
 }) {
-  HapticFeedback.mediumImpact();
-  showModalBottomSheet<void>(
+  if (haptic) HapticFeedback.mediumImpact();
+  showAppSheet<void>(
     context: context,
     useRootNavigator: true,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(WarmPopTokens.radiusLg),
-      ),
-    ),
     builder: (_) => _ActionSheet(
       sheetKey: sheetKey ?? const Key('action-sheet'),
       handleKey: handleKey ?? const Key('action-sheet-handle'),
@@ -208,13 +166,15 @@ class _ActionSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _ContextSheetChrome(
+    final h = header;
+    return AppSheetChrome(
       key: sheetKey,
       handleKey: handleKey,
-      previewKey: previewKey,
-      header: header ?? const SizedBox.shrink(),
+      // F2: the divider comes with the header; none without one.
+      header: h == null || previewKey == null
+          ? h
+          : KeyedSubtree(key: previewKey, child: h),
       children: [
-        if (actions.isNotEmpty) const Divider(height: 20),
         for (var i = 0; i < actions.length; i++)
           _conversationActionTile(context, actions[i], i),
       ],
@@ -226,27 +186,17 @@ class _ActionSheet extends StatelessWidget {
     ConversationMenuAction action,
     int index,
   ) {
-    final trailing = action.trailing == null
-        ? null
-        : Text(
-            action.trailing!,
-            style: TextStyle(
-              fontSize: 12,
-              color: action.enabled ? context.t.inkSoft : null,
-            ),
-          );
-    return _menuActionTile(
+    return SheetActionRow(
       key: ValueKey('conversation-menu-action-$index'),
       icon: action.icon,
       // Registry C4b: destructive rows get an error icon and an INK label.
-      iconColor: action.destructive ? context.t.error : null,
-      labelColor: action.destructive ? context.t.ink : null,
+      destructive: action.destructive,
       label: action.label,
       onTap: () {
         Navigator.of(context).pop();
         action.invoke();
       },
-      trailing: trailing,
+      trailing: action.trailing,
       enabled: action.enabled,
       semanticsLabel: action.semanticsLabel,
     );
@@ -281,13 +231,15 @@ Widget _previewRow(
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: context.t.ink,
-                fontSize: 13.5,
+                fontSize: 15,
+                height: 22 / 15,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 20,
+            const SizedBox(height: 2),
+            // A minimum, not a fixed height: 200% text must not clip (B4).
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 20),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: preview,
@@ -300,114 +252,13 @@ Widget _previewRow(
   );
 }
 
-class _ContextSheetChrome extends StatelessWidget {
-  const _ContextSheetChrome({
-    super.key,
-    required this.handleKey,
-    required this.header,
-    required this.children,
-    this.previewKey,
-  });
-
-  final Key handleKey;
-  final Key? previewKey;
-  final Widget header;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final headerWidget =
-        previewKey == null ? header : KeyedSubtree(key: previewKey, child: header);
-    final mediaQuery = MediaQuery.of(context);
-    final maxHeight = (mediaQuery.size.height - mediaQuery.viewInsets.bottom)
-        .clamp(0.0, mediaQuery.size.height)
-        .toDouble();
-    return SafeArea(
-      top: false,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            12,
-            16,
-            mediaQuery.viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  key: handleKey,
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.outline.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              headerWidget,
-              const SizedBox(height: 10),
-              ...children,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-Widget _menuActionTile({
-  required IconData icon,
-  required String label,
-  required VoidCallback onTap,
-  Key? key,
-  Widget? trailing,
-  Color? color,
-  Color? iconColor,
-  Color? labelColor,
-  bool enabled = true,
-  String? semanticsLabel,
-}) {
-  final tile = ListTile(
-    key: key,
-    leading: Icon(icon, color: enabled ? (iconColor ?? color) : null),
-    title: Text(
-      label,
-      style: TextStyle(
-        color: enabled ? (labelColor ?? color) : null,
-        fontSize: 13.5,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-    trailing: trailing,
-    onTap: enabled ? onTap : null,
-    enabled: enabled,
-    dense: true,
-    contentPadding: EdgeInsets.zero,
-  );
-  final styledTile = tile;
-  if (semanticsLabel == null) return styledTile;
-  return Semantics(
-    label: semanticsLabel,
-    button: true,
-    enabled: enabled,
-    child: styledTile,
-  );
-}
-
 Widget _conversationPreview(BuildContext context, Object preview) {
   if (preview is Widget) return preview;
   return Text(
     preview.toString(),
     maxLines: 1,
     overflow: TextOverflow.ellipsis,
-    style: TextStyle(fontSize: 13, color: context.t.inkSoft),
+    style: TextStyle(fontSize: 13, height: 18 / 13, color: context.t.inkSoft),
   );
 }
 
@@ -451,105 +302,111 @@ class _ContextSheet extends ConsumerWidget {
     // stay enabled when the signal is unknown).
     final isOnline = ref.watch(isOnlineProvider).value ?? true;
 
-    return _ContextSheetChrome(
+    final reactionsEnabled = isMessageActionEnabled(
+      MessageAction.react,
+      isOnline: isOnline,
+    );
+
+    final name = isMine ? 'You' : senderName;
+    final previewStyle =
+        TextStyle(fontSize: 13, height: 18 / 13, color: context.t.inkSoft);
+
+    return AppSheetChrome(
       key: const Key('message-context-menu'),
       handleKey: const Key('message-menu-handle'),
-      previewKey: const Key('message-menu-preview'),
-      header: _previewRow(
-        context,
-        avatar: AppAvatar(
-          initials: _initialsFor(senderName),
-          radius: 20,
-          accentSoft: true,
-        ),
-        name: senderName,
-        nameKey: const Key('message-menu-preview-sender'),
-        preview: ClipRect(
-          child: MessageBodyText(
-            key: const Key('message-menu-preview-body'),
-            messageId: message.localId,
-            styleContext: 'preview',
-            decryptState: message.decryptState,
-            ciphertextLength: message.ciphertextLength,
-            style: TextStyle(fontSize: 13, color: context.t.inkSoft),
+      header: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          KeyedSubtree(
+            key: const Key('message-menu-preview'),
+            child: _previewRow(
+              context,
+              avatar: AppAvatar(
+                initials: _initialsFor(name),
+                radius: 20,
+                accentSoft: true,
+              ),
+              name: name,
+              nameKey: const Key('message-menu-preview-sender'),
+              // Media has no text body: its placeholder would load forever.
+              preview: message.type == 'text'
+                  ? ClipRect(
+                      child: MessageBodyText(
+                        key: const Key('message-menu-preview-body'),
+                        messageId: message.localId,
+                        styleContext: 'preview',
+                        decryptState: message.decryptState,
+                        ciphertextLength: message.ciphertextLength,
+                        style: previewStyle,
+                      ),
+                    )
+                  : Text(
+                      conversationPreviewLabel(message.type),
+                      key: const Key('message-menu-preview-body'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: previewStyle,
+                    ),
+            ),
           ),
-        ),
-      ),
-      children: [
-        // Scrollable reaction row — disabled offline (P4: reactions are
-        // network-only; a tap must never look like it worked).
-        Builder(
-          builder: (context) {
-            final reactionsEnabled = isMessageActionEnabled(
-              MessageAction.react,
-              isOnline: isOnline,
-            );
-            return Column(
-              children: [
-                SizedBox(
-                  height: 52,
-                  child: IgnorePointer(
-                    ignoring: !reactionsEnabled,
-                    child: Opacity(
-                      opacity: reactionsEnabled ? 1 : 0.38,
-                      child: ListView.separated(
-                        key: const Key('message-menu-reaction-row'),
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _reactionEmojis.length + 1,
-                        separatorBuilder: (_, __) => const SizedBox(width: 6),
-                        itemBuilder: (_, i) {
-                          if (i == _reactionEmojis.length) {
-                            return _reactionPickerButton(
-                              context,
-                              onTap: () => _showReactionPicker(context, ref),
-                            );
-                          }
-                          final emoji = _reactionEmojis[i];
-                          return GestureDetector(
-                            key: ValueKey('message-menu-reaction-$emoji'),
-                            onTap: () async {
-                              if (message.serverId != null) {
-                                await repo.addReaction(
-                                  message.serverId!,
-                                  emoji,
-                                );
-                              }
-                              if (context.mounted) _afterAction(context);
-                            },
-                            child: Container(
-                              width: 46,
-                              height: 46,
-                              decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  emoji,
-                                  style: const TextStyle(fontSize: 22),
-                                ),
-                              ),
-                            ),
+          const SizedBox(height: 12),
+          // Quick reactions (decision 11) — disabled offline (P4: reactions
+          // are network-only; a tap must never look like it worked).
+          IgnorePointer(
+            ignoring: !reactionsEnabled,
+            child: Opacity(
+              opacity: reactionsEnabled ? 1 : 0.38,
+              child: Wrap(
+                key: const Key('message-menu-reaction-row'),
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final emoji in kQuickReactions)
+                    _reactionCircle(
+                      context,
+                      key: ValueKey('message-menu-reaction-$emoji'),
+                      label: emoji,
+                      onTap: () async {
+                        if (message.serverId != null) {
+                          await repo.addReaction(
+                            message.serverId!,
+                            emoji,
                           );
-                        },
+                        }
+                        if (context.mounted) _afterAction(context);
+                      },
+                      child: Text(
+                        emoji,
+                        textScaler: TextScaler.noScaling,
+                        style: const TextStyle(fontSize: 22),
                       ),
                     ),
+                  _reactionPickerButton(
+                    context,
+                    onTap: () => _showReactionPicker(context, ref),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!reactionsEnabled)
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  kOfflineActionHint,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 18 / 13,
+                    color: context.t.inkSoft,
                   ),
                 ),
-                if (!reactionsEnabled)
-                  const Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(kOfflineActionHint),
-                  ),
-              ],
-            );
-          },
-        ),
-
-        const Divider(height: 20),
-
+              ),
+            ),
+        ],
+      ),
+      children: [
         // Actions
         _tile(Icons.reply_rounded, 'Reply', () {
           parentRef.read(replyProvider.notifier).state = message;
@@ -566,12 +423,7 @@ class _ContextSheet extends ConsumerWidget {
           _tile(Icons.copy_outlined, 'Copy', () {
             Clipboard.setData(ClipboardData(text: body));
             _afterAction(context);
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Copied'),
-                duration: Duration(seconds: 1),
-              ),
-            );
+            showToast(context, 'Copied');
           }, key: const Key('message-menu-copy')),
 
         _tile(
@@ -598,9 +450,7 @@ class _ContextSheet extends ConsumerWidget {
             } on StateError catch (e) {
               if (context.mounted) {
                 Navigator.of(context).pop();
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(e.message)));
+                showToast(context, e.message, error: true);
               }
             }
           },
@@ -625,7 +475,7 @@ class _ContextSheet extends ConsumerWidget {
             await repo.deleteMessage(message.localId);
             if (context.mounted) _afterAction(context);
           },
-          color: context.t.error,
+          destructive: true,
           key: const Key('message-menu-delete-me'),
         ),
 
@@ -642,7 +492,7 @@ class _ContextSheet extends ConsumerWidget {
               await repo.deleteMessage(message.localId, forEveryone: true);
               if (context.mounted) _afterAction(context);
             },
-            color: context.t.error,
+            destructive: true,
             // P4: delete-for-everyone is server-first; offline the local
             // mark is reverted by the next fetch. Disable + hint.
             enabled: isMessageActionEnabled(
@@ -655,89 +505,66 @@ class _ContextSheet extends ConsumerWidget {
     );
   }
 
-  Future<bool> _confirmDelete(BuildContext context, String body) async {
-    final result = await showDialog<bool>(
+  Future<bool> _confirmDelete(BuildContext context, String body) {
+    return showConfirmDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete message?'),
-        content: Text(body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+      title: 'Delete message?',
+      body: body,
+      confirmLabel: 'Delete',
+      confirmIcon: Icons.delete_outline,
+      destructive: true,
+    );
+  }
+
+  /// A 48 reaction circle (the tap floor), a button named by [label].
+  Widget _reactionCircle(
+    BuildContext context, {
+    required Key key,
+    required String label,
+    required VoidCallback onTap,
+    required Widget child,
+    bool outlined = false,
+  }) {
+    final t = context.t;
+    return Semantics(
+      button: true,
+      label: label,
+      // excludeSemantics drops the child's tap; give it back here.
+      onTap: onTap,
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: key,
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: outlined ? t.surface : t.surface2,
+            border: outlined ? Border.all(color: t.line) : null,
+            shape: BoxShape.circle,
           ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(
-              'Delete',
-              style: TextStyle(
-                color: Theme.of(dialogContext).colorScheme.error,
-              ),
-            ),
-          ),
-        ],
+          child: Center(child: child),
+        ),
       ),
     );
-    return result ?? false;
   }
 
   Widget _reactionPickerButton(
     BuildContext context, {
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
+    return _reactionCircle(
+      context,
       key: const Key('message-menu-reaction-add'),
+      label: 'More reactions',
+      outlined: true,
       onTap: onTap,
-      child: Container(
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-          color: context.t.surface,
-          border: Border.all(color: context.t.line),
-          shape: BoxShape.circle,
-        ),
-        child: Center(
-          child: Text('＋', style: TextStyle(color: context.t.inkSoft)),
-        ),
-      ),
+      child: Icon(Icons.add, size: 22, color: context.t.inkSoft),
     );
   }
 
   Future<void> _showReactionPicker(BuildContext context, WidgetRef ref) async {
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(WarmPopTokens.radiusLg),
-        ),
-      ),
-      showDragHandle: true,
-      builder: (pickerContext) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(pickerContext).height * 0.9,
-          ),
-          child: GridView.count(
-            key: const Key('message-menu-reaction-picker'),
-            crossAxisCount: 6,
-            padding: const EdgeInsets.all(16),
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            children: [
-              for (final emoji in _reactionEmojis)
-                InkResponse(
-                  key: ValueKey('message-menu-picker-$emoji'),
-                  onTap: () => Navigator.of(pickerContext).pop(emoji),
-                  child: Center(
-                    child: Text(emoji, style: const TextStyle(fontSize: 24)),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
+    final selected = await showReactionPicker(context);
     if (selected == null || message.serverId == null) return;
     await ref
         .read(messageRepositoryProvider)
@@ -750,18 +577,18 @@ class _ContextSheet extends ConsumerWidget {
     String label,
     VoidCallback onTap, {
     Key? key,
-    Color? color,
+    bool destructive = false,
     bool enabled = true,
   }) {
-    return _menuActionTile(
+    return SheetActionRow(
       key: key,
       // P4 defined-offline: disabled tiles show the hint instead of a
       // silent no-op (user ruling 2).
       icon: icon,
       label: label,
       onTap: onTap,
-      trailing: enabled ? null : const Text(kOfflineActionHint),
-      color: color,
+      trailing: enabled ? null : kOfflineActionHint,
+      destructive: destructive,
       enabled: enabled,
     );
   }

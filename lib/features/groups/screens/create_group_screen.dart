@@ -15,7 +15,6 @@ import '../../../core/widgets/app_chip.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/skeleton.dart';
-import '../../../features/friend_requests/providers/friend_request_provider.dart';
 import '../../../features/home/screens/add_friend_screen.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../data/local/database/app_database.dart';
@@ -393,15 +392,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     return 'Unknown';
   }
 
-  void _openAddFriend() {
-    ref.read(addFriendProvider.notifier).reset();
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => const AddFriendSheet(),
-    );
-  }
+  void _openAddFriend() => showAddFriendSheet(context, ref);
 
   @override
   Widget build(BuildContext context) {

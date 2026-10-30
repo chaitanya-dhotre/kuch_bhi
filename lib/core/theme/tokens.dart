@@ -86,6 +86,7 @@ class WarmPopTokens {
   static const radiusMd = 16.0;
   static const radiusLg = 20.0;
   static const radiusXl = 24.0;
+  static const radiusPill = 999.0;
   static const radiusBubble = 18.0;
   static const radiusBubbleTail = 6.0;
 

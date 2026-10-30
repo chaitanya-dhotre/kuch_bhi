@@ -9,6 +9,9 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_dialog.dart';
+import '../../../core/widgets/app_field.dart';
+import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -233,40 +236,13 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
 
   Future<void> _confirmRemove(User target) async {
     final name = _safeName(target.displayName);
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (ctx) {
-        final t = ctx.t;
-        return AlertDialog(
-          backgroundColor: t.surface,
-          surfaceTintColor: t.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
-          ),
-          title: const Text('Remove from Group'),
-          content: Text('Remove $name from the group?'),
-          actions: [
-            AppButton(
-              variant: AppButtonVariant.text,
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            // R3 secondary + error icon + ink label (C4 contrast).
-            AppButton(
-              variant: AppButtonVariant.secondary,
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.person_remove_outlined, size: 18, color: t.error),
-                  const SizedBox(width: 6),
-                  const Text('Remove'),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+      title: 'Remove from Group',
+      body: 'Remove $name from the group?',
+      confirmLabel: 'Remove',
+      confirmIcon: Icons.person_remove_outlined,
+      destructive: true,
     );
     if (confirmed != true || !mounted) return;
     await _guard(
@@ -296,44 +272,16 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       nextAdminName = _safeName(next.displayName);
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (ctx) {
-        final t = ctx.t;
-        return AlertDialog(
-          backgroundColor: t.surface,
-          surfaceTintColor: t.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
-          ),
-          title: const Text('Leave Group?'),
-          content: Text(
-            nextAdminName == null
-                ? 'You will lose access to this group and its messages.'
-                : 'You will lose access to this group and its messages.\n'
-                    '$nextAdminName will become the admin.',
-          ),
-          actions: [
-            AppButton(
-              variant: AppButtonVariant.text,
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            AppButton(
-              variant: AppButtonVariant.secondary,
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.logout, size: 18, color: t.error),
-                  const SizedBox(width: 6),
-                  const Text('Leave'),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+      title: 'Leave Group?',
+      body: nextAdminName == null
+          ? 'You will lose access to this group and its messages.'
+          : 'You will lose access to this group and its messages.\n'
+              '$nextAdminName will become the admin.',
+      confirmLabel: 'Leave',
+      confirmIcon: Icons.logout,
+      destructive: true,
     );
     if (confirmed != true || !mounted) return;
     setState(() => _leaving = true);
@@ -367,15 +315,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
   }
 
   void _openAddSheet(Iterable<User> members) {
-    showModalBottomSheet<void>(
+    showAppSheet<void>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(WarmPopTokens.radiusLg),
-        ),
-      ),
       builder: (_) => _AddMembersSheet(
         conversationId: _cid,
         existingMemberIds: members.map((m) => m.id).toSet(),
@@ -1289,7 +1230,6 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final friendsAsync = ref.watch(friendshipsProvider);
     final friends = friendsAsync.valueOrNull ?? const <Friendship>[];
     final available = _available(friends);
@@ -1298,76 +1238,33 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
         .where((f) => _selected.contains(f.friend.id))
         .length;
 
-    return Container(
+    return AppSheetChrome(
       key: const Key('add-members-sheet'),
-      decoration: BoxDecoration(
-        color: t.surface,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(WarmPopTokens.radiusLg),
-        ),
+      title: 'Add to group',
+      titleAction: AppButton(
+        busy: _sending,
+        onPressed: selectedCount == 0 || _sending
+            ? null
+            : () => unawaited(_send(available)),
+        child: Text('Invite $selectedCount'),
       ),
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (friends.length > 8)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: SearchField(
+                controller: _searchController,
+                hint: 'Search friends',
+                onChanged: (value) => setState(() => _query = value),
+              ),
+            ),
+          Flexible(
+            child: _sheetBody(friendsAsync, available, loaded),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 10),
-                  decoration: BoxDecoration(
-                    color: t.line,
-                    borderRadius:
-                        BorderRadius.circular(WarmPopTokens.radiusSm),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Add to group',
-                        style: TextStyle(
-                          fontSize: 20,
-                          height: 1.3,
-                          fontWeight: FontWeight.w700,
-                          color: t.ink,
-                        ),
-                      ),
-                    ),
-                    AppButton(
-                      busy: _sending,
-                      onPressed: selectedCount == 0 || _sending
-                          ? null
-                          : () => unawaited(_send(available)),
-                      child: Text('Invite $selectedCount'),
-                    ),
-                  ],
-                ),
-              ),
-              if (friends.length > 8)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: SearchField(
-                    controller: _searchController,
-                    hint: 'Search friends',
-                    onChanged: (value) => setState(() => _query = value),
-                  ),
-                ),
-              Flexible(
-                child: _sheetBody(friendsAsync, available, loaded),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -1707,11 +1604,6 @@ class _RenameDialogState extends State<_RenameDialog> {
     final value = _controller.text.trim();
     final canSave = value.isNotEmpty && value != widget.currentName.trim();
     return AlertDialog(
-      backgroundColor: t.surface,
-      surfaceTintColor: t.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
-      ),
       title: const Text('Edit Group Name'),
       content: TextField(
         controller: _controller,
@@ -1719,12 +1611,10 @@ class _RenameDialogState extends State<_RenameDialog> {
         maxLength: 50,
         onChanged: (_) => setState(() {}),
         style: TextStyle(fontSize: 15, color: t.ink),
-        decoration: InputDecoration(
-          labelText: 'Group name',
-          hintText: 'Enter group name…',
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
-          ),
+        decoration: appFieldDecoration(
+          context,
+          label: 'Group name',
+          hint: 'Enter group name…',
         ),
       ),
       actions: [

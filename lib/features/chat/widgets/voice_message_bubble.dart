@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -102,7 +104,9 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
       _cachedPath = media.file.path;
       await _player.setFilePath(_cachedPath!);
       await _player.setSpeed(_speed);
-      await _player.play();
+      // play() completes only when playback stops; awaiting it kept the
+      // spinner up for the whole clip.
+      unawaited(_player.play());
     } catch (e) {
       if (mounted) setState(() => _hasError = true);
     } finally {

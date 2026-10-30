@@ -569,12 +569,14 @@ class AddFriendNotifier extends Notifier<AddFriendState> {
     try {
       final user = await ref
           .read(friendRepositoryProvider)
-          .findUserByCode(code.trim().toUpperCase());
+          .findUserByCode(code.trim().toUpperCase())
+          .timeout(const Duration(seconds: 8));
 
       state = user == null
           ? state.copyWith(isSearching: false, searchError: 'No user found.')
           : state.copyWith(isSearching: false, foundUser: user);
     } catch (e) {
+      debugPrint('Search by code error: $e');
       state = state.copyWith(
         isSearching: false,
         searchError: 'Search failed. Check your connection.',
@@ -589,13 +591,16 @@ class AddFriendNotifier extends Notifier<AddFriendState> {
     state = state.copyWith(isSendingRequest: true);
 
     try {
-      await ref.read(friendRepositoryProvider).sendRequest(user.id);
+      await ref
+          .read(friendRepositoryProvider)
+          .sendRequest(user.id)
+          .timeout(const Duration(seconds: 8));
       state = state.copyWith(isSendingRequest: false, requestSent: true);
     } catch (e) {
       debugPrint('Send request error: $e');
       state = state.copyWith(
         isSendingRequest: false,
-        searchError: 'Failed to send request: $e',
+        searchError: "Couldn't send the request. Try again.",
       );
     }
   }
