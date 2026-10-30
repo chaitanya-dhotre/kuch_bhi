@@ -1,7 +1,7 @@
+import 'package:drift/drift.dart' show BooleanExpressionOperators, OrderingTerm;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/network/pocketbase_client.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_sheet.dart';
@@ -11,14 +11,9 @@ import '../../../data/local/database/app_database.dart';
 import '../../../data/local/database/tables/app_settings_table.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
-import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import '../../../core/theme/tokens.dart';
 import 'reaction_picker.dart';
-
-// shortcut: one small list per message seen this run, never evicted; move
-// reactions into drift if this ever matters.
-final _lastReactions = <String, List<ReactionGroup>>{};
 
 class ReactionBar extends ConsumerWidget {
   const ReactionBar({
@@ -39,23 +34,13 @@ class ReactionBar extends ConsumerWidget {
       }
     });
     final groupsAsync = ref.watch(reactionsProvider(messageServerId));
-    final isOnline = ref.watch(isOnlineProvider).value ?? true;
-    final reactionsEnabled = isMessageActionEnabled(
-      MessageAction.react,
-      isOnline: isOnline,
-    );
 
     // A reconnect re-reads: keep the chips up meanwhile, no blink.
     return groupsAsync.when(
       skipLoadingOnReload: true,
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
-      data: (read) {
-        // An offline read answers [] (the repository swallows the failure):
-        // that is not "no reactions", so keep the last known set.
-        final groups = !isOnline && read.isEmpty
-            ? _lastReactions[messageServerId] ?? read
-            : _lastReactions[messageServerId] = read;
+      data: (groups) {
         if (groups.isEmpty) return const SizedBox.shrink();
         return Padding(
           padding: EdgeInsets.only(
@@ -64,35 +49,19 @@ class ReactionBar extends ConsumerWidget {
             top: 2,
             bottom: 4,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            alignment: isMine ? WrapAlignment.end : WrapAlignment.start,
             children: [
-              IgnorePointer(
-                ignoring: !reactionsEnabled,
-                child: Opacity(
-                  opacity: reactionsEnabled ? 1 : 0.38,
-                  child: Wrap(
-                    spacing: 4,
-                    runSpacing: 4,
-                    alignment: isMine ? WrapAlignment.end : WrapAlignment.start,
-                    children: [
-                      ...groups.map(
-                        (g) => _ReactionChip(
-                          group: g,
-                          messageServerId: messageServerId,
-                          isMine: isMine,
-                        ),
-                      ),
-                      _ReactionAddChip(messageServerId: messageServerId),
-                    ],
-                  ),
+              ...groups.map(
+                (g) => _ReactionChip(
+                  group: g,
+                  messageServerId: messageServerId,
+                  isMine: isMine,
                 ),
               ),
-              if (!reactionsEnabled)
-                const Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(kOfflineActionHint),
-                ),
+              _ReactionAddChip(messageServerId: messageServerId),
             ],
           ),
         );
@@ -136,7 +105,6 @@ class _ReactionChip extends ConsumerWidget {
         } else {
           await repo.addReaction(messageServerId, group.emoji);
         }
-        ref.invalidate(reactionsProvider(messageServerId));
       },
       onLongPress: () => _showReactionDetail(context, ref),
       child: Semantics(
@@ -178,53 +146,42 @@ typedef Reactor = ({
   String? avatarUrl,
 });
 
-/// Who reacted to a message with one emoji, keyed by (message, emoji).
-/// Decision 5: the PocketBase query stays here for now (K2); the 8s bound is
-/// on the `getList` call only.
-final reactionDetailProvider = FutureProvider.autoDispose
+/// Who reacted to a message with one emoji, from the local store (names
+/// and avatars from cached users), live as reactions change.
+final reactionDetailProvider = StreamProvider.autoDispose
     .family<({String myId, List<Reactor> reactors}), (String, String)>((
       ref,
       key,
-    ) async {
+    ) async* {
       final (messageServerId, emoji) = key;
-      final pb = ref.read(pocketbaseClientProvider).pb;
       final db = ref.read(appDatabaseProvider);
       final myId =
           await db.settingsDao.getSetting(AppSettingsKeys.currentUserId) ?? '';
-
-      final reactors = <Reactor>[];
-      final res = await pb
-          .collection('reactions')
-          .getList(
-            filter: 'message_id="$messageServerId"&&emoji="$emoji"',
-            expand: 'user_id',
-            perPage: 50,
-          )
-          .timeout(const Duration(seconds: 8));
-      for (final r in res.items) {
-        final uid = r.getStringValue('user_id');
-        final localUser = await db.usersDao.getUserById(uid);
-        // user_id is a single relation: it expands to one object, which a
-        // dot path reads ('' when the rule hides it).
-        final expandedName = r.getStringValue('expand.user_id.display_name');
-        final name = expandedName.isNotEmpty
-            ? expandedName
-            : localUser?.displayName.isNotEmpty == true
-            ? localUser!.displayName
-            : 'Unknown';
-        final cachedAvatar = localUser?.avatarUrl;
-        final expandedAvatar = r.getStringValue('expand.user_id.avatar');
-        final avatarUrl = cachedAvatar?.isNotEmpty == true
-            ? cachedAvatar
-            : _avatarUrl(pb.baseURL, uid, expandedAvatar);
-        reactors.add((
-          name: name,
-          userId: uid,
-          reactionId: r.id,
-          avatarUrl: avatarUrl,
-        ));
+      final msg = await db.messagesDao.getMessageByServerId(messageServerId);
+      if (msg == null) {
+        yield (myId: myId, reactors: const <Reactor>[]);
+        return;
       }
-      return (myId: myId, reactors: reactors);
+      final rows = (db.select(db.reactionsTable)
+            ..where((r) =>
+                r.messageLocalId.equals(msg.localId) & r.emoji.equals(emoji))
+            ..orderBy([(r) => OrderingTerm(expression: r.createdAt)]))
+          .watch();
+      await for (final list in rows) {
+        final reactors = <Reactor>[];
+        for (final r in list) {
+          final user = await db.usersDao.getUserById(r.userId);
+          reactors.add((
+            name: user?.displayName.isNotEmpty == true
+                ? user!.displayName
+                : 'Unknown',
+            userId: r.userId,
+            reactionId: r.id,
+            avatarUrl: user?.avatarUrl,
+          ));
+        }
+        yield (myId: myId, reactors: reactors);
+      }
     });
 
 class _ReactionDetailSheet extends ConsumerWidget {
@@ -238,14 +195,8 @@ class _ReactionDetailSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final t = context.t;
     final key = (messageServerId, group.emoji);
     final async = ref.watch(reactionDetailProvider(key));
-    final online = isMessageActionEnabled(
-      MessageAction.react,
-      isOnline: ref.watch(isOnlineProvider).value ?? true,
-    );
-    final caption = TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft);
 
     final Widget body = switch (async) {
       AsyncData(:final value) => ListView(
@@ -253,13 +204,7 @@ class _ReactionDetailSheet extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
           for (final r in value.reactors)
-            _reactorRow(context, ref, r, isMe: r.userId == value.myId,
-                online: online),
-          if (!online && value.reactors.any((r) => r.userId == value.myId))
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: Text(kOfflineActionHint, style: caption),
-            ),
+            _reactorRow(context, ref, r, isMe: r.userId == value.myId),
         ],
       ),
       AsyncError() => Padding(
@@ -306,7 +251,6 @@ class _ReactionDetailSheet extends ConsumerWidget {
     WidgetRef ref,
     Reactor r, {
     required bool isMe,
-    required bool online,
   }) {
     final t = context.t;
     return ConstrainedBox(
@@ -348,26 +292,19 @@ class _ReactionDetailSheet extends ConsumerWidget {
             ),
           ),
           if (isMe)
-            // C4: ink, not red. Offline: one 38% dim, as the reaction row.
-            IgnorePointer(
-              ignoring: !online,
-              child: Opacity(
-                opacity: online ? 1 : 0.38,
-                child: AppButton(
-                  variant: AppButtonVariant.text,
-                  onPressed: () async {
-                    // The sheet may be swiped away mid-write; its ref dies
-                    // with it, the container does not.
-                    final container = ProviderScope.containerOf(context);
-                    await container
-                        .read(messageRepositoryProvider)
-                        .removeReaction(r.reactionId);
-                    container.invalidate(reactionsProvider(messageServerId));
-                    if (context.mounted) Navigator.pop(context);
-                  },
-                  child: const Text('Remove'),
-                ),
-              ),
+            // C4: ink, not red. Works offline: the removal is queued.
+            AppButton(
+              variant: AppButtonVariant.text,
+              onPressed: () async {
+                // The sheet may be swiped away mid-write; its ref dies with
+                // it, the container does not.
+                final container = ProviderScope.containerOf(context);
+                await container
+                    .read(messageRepositoryProvider)
+                    .removeReaction(r.reactionId);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('Remove'),
             ),
         ],
       ),
@@ -407,17 +344,5 @@ class _ReactionAddChip extends ConsumerWidget {
     await ref
         .read(messageRepositoryProvider)
         .addReaction(messageServerId, selected);
-    ref.invalidate(reactionsProvider(messageServerId));
   }
-}
-
-String? _avatarUrl(String baseUrl, String userId, String avatar) {
-  if (avatar.isEmpty) return null;
-  if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
-    return avatar;
-  }
-  final root = baseUrl.endsWith('/')
-      ? baseUrl.substring(0, baseUrl.length - 1)
-      : baseUrl;
-  return '$root/api/files/users/$userId/$avatar';
 }

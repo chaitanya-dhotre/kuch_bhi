@@ -82,6 +82,14 @@ abstract class MessageRepository {
   /// Get grouped reactions for a server message.
   Future<List<ReactionGroup>> getReactions(String messageServerId);
 
+  /// Grouped reactions for a server message from the local store, emitting
+  /// again on every local change or synced server read (offline-first).
+  Stream<List<ReactionGroup>> watchReactions(String messageServerId);
+
+  /// Pulls the server's reactions for one message into the local store,
+  /// keeping queued adds and removes. Offline or on error it changes nothing.
+  Future<void> refreshReactions(String messageServerId);
+
   /// Emits the serverId of a message whenever its reactions change.
   Stream<String> get reactionsChanges;
 

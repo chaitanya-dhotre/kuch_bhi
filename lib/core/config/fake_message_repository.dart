@@ -6,6 +6,8 @@ import 'package:kuch_bhi/domain/entities/group_invite.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
 import 'package:kuch_bhi/domain/entities/user.dart';
 import 'package:kuch_bhi/domain/repositories/message_repository.dart';
+import 'package:kuch_bhi/features/chat/providers/chat_provider.dart'
+    show ReactionGroup;
 
 /// Map-backed fake for mock-build screen development (spec §10).
 /// Screen-facing reads are implemented; the rest fail LOUD on purpose —
@@ -175,6 +177,20 @@ class FakeMessageRepository implements MessageRepository {
   @override
   Future<List<GroupInvite>> getIncomingGroupInvites() async =>
       const <GroupInvite>[];
+
+  // Reactions: no local store here, so "watch" replays the server-shaped
+  // getReactions + reactionsChanges pair that test subclasses override.
+  @override
+  Stream<List<ReactionGroup>> watchReactions(String messageServerId) async* {
+    yield await getReactions(messageServerId);
+    await for (final _
+        in reactionsChanges.where((id) => id == messageServerId)) {
+      yield await getReactions(messageServerId);
+    }
+  }
+
+  @override
+  Future<void> refreshReactions(String messageServerId) async {}
 
   // Everything else: LOUD failure with the member name — extend when a
   // consuming screen actually needs it (never a silent wrong answer).

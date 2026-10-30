@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:kuch_bhi/core/config/fake_message_repository.dart';
-import 'package:kuch_bhi/core/network/pocketbase_client.dart';
 import 'package:kuch_bhi/core/widgets/app_avatar.dart';
 import 'package:kuch_bhi/core/widgets/skeleton.dart';
 import 'package:kuch_bhi/data/local/database/app_database.dart';
@@ -15,7 +12,6 @@ import 'package:kuch_bhi/features/chat/providers/chat_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/reaction_bar.dart';
 import 'package:kuch_bhi/infrastructure/offline/connectivity_signal.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
-import 'package:pocketbase/pocketbase.dart';
 
 import '../core/sheet_harness.dart';
 
@@ -23,9 +19,7 @@ class _Repo extends FakeMessageRepository {
   final removed = <String>[];
   Completer<void>? removeGate;
   var reads = 0;
-
-  /// The real repository swallows a network failure and answers `[]`.
-  var offline = false;
+  var refreshes = 0;
 
   @override
   Stream<String> get reactionsChanges => const Stream.empty();
@@ -33,11 +27,13 @@ class _Repo extends FakeMessageRepository {
   @override
   Future<List<ReactionGroup>> getReactions(String messageServerId) async {
     reads++;
-    if (offline) return const [];
     return const [
       ReactionGroup(emoji: '❤️', count: 2, isMine: true, reactionId: 'r_me'),
     ];
   }
+
+  @override
+  Future<void> refreshReactions(String messageServerId) async => refreshes++;
 
   @override
   Future<void> removeReaction(String reactionId) async {
@@ -80,7 +76,8 @@ Future<_Repo> _pump(
 }
 
 Override _detail(Future<_Detail> Function() answer) =>
-    reactionDetailProvider.overrideWith((ref, key) => answer());
+    reactionDetailProvider
+        .overrideWith((ref, key) => Stream.fromFuture(answer()));
 
 final _sheet = find.byType(BottomSheet);
 
@@ -133,8 +130,8 @@ void main() {
     expect(_sheet, findsNothing);
   });
 
-  testWidgets('Remove, then the sheet is swiped away mid-write: no throw, '
-      'the bar still refreshes', (tester) async {
+  testWidgets('Remove, then the sheet is swiped away mid-write: no throw',
+      (tester) async {
     final repo = await _pump(tester, detail: [_detail(() async => _data)]);
     repo.removeGate = Completer<void>();
     await tester.longPress(_chip);
@@ -144,13 +141,11 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(_sheet, findsNothing);
-    final before = repo.reads;
 
     repo.removeGate!.complete();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(repo.removed, ['r_me']);
-    expect(repo.reads, greaterThan(before), reason: 'reactions re-read');
   });
 
   testWidgets("error: Couldn't load reactions. + Retry re-reads",
@@ -175,121 +170,71 @@ void main() {
     expect(find.text("Couldn't load reactions."), findsNothing);
   });
 
-  testWidgets('the real query gives up at 8s against a silent server',
-      (tester) async {
+  testWidgets('reads the local store: cached names, no network', (tester) async {
     final db = AppDatabase.test();
     addTearDown(db.close);
-    final pb = PocketBase(
-      'http://pb.test',
-      httpClientFactory: () =>
-          MockClient((_) => Completer<http.Response>().future),
-    );
-    await _pump(tester, detail: [
-      appDatabaseProvider.overrideWithValue(db),
-      pocketbaseClientProvider.overrideWithValue(PocketBaseClient.forTest(pb)),
-    ]);
+    final at = DateTime.utc(2026, 1, 1);
+    await tester.runAsync(() async {
+      await db.settingsDao.setSetting('current_user_id', 'u_me');
+      await db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
+        localId: 'loc1',
+        conversationId: 'g1',
+        senderId: 'u_mira',
+        type: 'text',
+        encryptedBody: 'x',
+        iv: '',
+        serverId: const Value('m1'),
+        createdAt: at,
+        updatedAt: at,
+      ));
+      await db.usersDao.upsertUser(UsersTableCompanion.insert(
+          id: 'u_mira',
+          displayName: 'Mira Joshi',
+          username: 'mira',
+          friendCode: 'MIRA01',
+          createdAt: at,
+          updatedAt: at));
+      for (final (id, uid) in [('r_m', 'u_mira'), ('r_x', 'u_gone')]) {
+        await db.into(db.reactionsTable).insert(ReactionsTableCompanion.insert(
+              id: id,
+              messageLocalId: 'loc1',
+              conversationId: 'g1',
+              userId: uid,
+              emoji: '❤️',
+              createdAt: at,
+            ));
+      }
+    });
+    await _pump(tester, detail: [appDatabaseProvider.overrideWithValue(db)]);
     await tester.longPress(_chip);
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 7));
-    expect(find.byKey(const Key('reaction-detail-loading')), findsOneWidget);
-    expect(find.text("Couldn't load reactions."), findsNothing);
-
-    await tester.pump(const Duration(seconds: 1, milliseconds: 100));
-    await tester.pump();
-    expect(find.text("Couldn't load reactions."), findsOneWidget);
-  });
-
-  testWidgets('the real query reads the single expanded user (names shown)',
-      (tester) async {
-    final db = AppDatabase.test();
-    addTearDown(db.close);
-    final pb = PocketBase(
-      'http://pb.test',
-      httpClientFactory: () => MockClient((_) async => http.Response(
-            jsonEncode({
-              'page': 1,
-              'perPage': 50,
-              'totalItems': 1,
-              'totalPages': 1,
-              'items': [
-                {
-                  'id': 'r_m',
-                  'collectionId': 'c',
-                  'collectionName': 'reactions',
-                  'user_id': 'u_mira',
-                  'emoji': '❤️',
-                  // A single relation expands to one object, not a list.
-                  'expand': {
-                    'user_id': {
-                      'id': 'u_mira',
-                      'collectionId': 'u',
-                      'collectionName': 'users',
-                      'display_name': 'Mira Joshi',
-                      'avatar': '',
-                    },
-                  },
-                },
-              ],
-            }),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          )),
-    );
-    await _pump(tester, detail: [
-      appDatabaseProvider.overrideWithValue(db),
-      pocketbaseClientProvider.overrideWithValue(PocketBaseClient.forTest(pb)),
-    ]);
-    await tester.longPress(_chip);
+    await tester.runAsync(() => Future<void>.delayed(
+        const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
-    expect(find.text("Couldn't load reactions."), findsNothing);
     expect(find.text('Mira Joshi'), findsOneWidget);
+    expect(find.text('Unknown'), findsOneWidget,
+        reason: 'a reactor with no cached profile');
+    expect(find.text("Couldn't load reactions."), findsNothing);
+    // Drift's watch keeps a stream open; close it before the db.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(Duration.zero);
   });
 
-  testWidgets('offline keeps the last reactions; back online reads again',
-      (tester) async {
+  testWidgets('coming back online asks the server again', (tester) async {
     final online = StreamController<bool>();
     addTearDown(online.close);
-    final show = ValueNotifier(true);
-    final repo = _Repo();
-    online.add(true);
-    await pumpHost(
-      tester,
-      Scaffold(
-        body: ValueListenableBuilder<bool>(
-          valueListenable: show,
-          builder: (_, visible, __) => visible
-              ? const ReactionBar(messageServerId: 'm9', isMine: false)
-              : const SizedBox(),
-        ),
-      ),
-      overrides: [
-        messageRepositoryProvider.overrideWithValue(repo),
-        isOnlineProvider.overrideWith((ref) => online.stream),
-      ],
-    );
-    await tester.pumpAndSettle();
-    final chip = find.byKey(const Key('reaction-chip-m9-❤️'));
-    expect(chip, findsOneWidget);
-
-    repo.offline = true;
     online.add(false);
+    final repo = await _pump(tester,
+        detail: [_detail(() async => _data)], online: online.stream);
     await tester.pumpAndSettle();
-    // The chat list rebuilds its rows: the bar comes back while offline.
-    show.value = false;
-    await tester.pumpAndSettle();
-    show.value = true;
-    await tester.pumpAndSettle();
-    expect(chip, findsOneWidget, reason: 'an offline read is not "no reactions"');
+    final before = repo.refreshes;
 
-    repo.offline = false;
-    final before = repo.reads;
     online.add(true);
     await tester.pumpAndSettle();
-    expect(repo.reads, greaterThan(before), reason: 're-read on reconnect');
-    expect(chip, findsOneWidget);
+    expect(repo.refreshes, greaterThan(before));
+    expect(_chip, findsOneWidget, reason: 'no blink while it re-reads');
   });
 
-  testWidgets('offline while open: Remove dimmed once, one hint',
+  testWidgets('offline while open: Remove stays live (queued), no hint',
       (tester) async {
     final online = StreamController<bool>();
     addTearDown(online.close);
@@ -302,12 +247,12 @@ void main() {
     online.add(false);
     await tester.pump();
     await tester.pump();
-    final dim = find.ancestor(
-        of: find.text('Remove'), matching: find.byType(Opacity));
-    expect(tester.widget<Opacity>(dim).opacity, 0.38);
+    expect(
+        find.ancestor(of: find.text('Remove'), matching: find.byType(Opacity)),
+        findsNothing);
     expect(
       find.descendant(of: _sheet, matching: find.text('Available online')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 }

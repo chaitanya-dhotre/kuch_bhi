@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -204,18 +205,18 @@ final pinnedMessagesProvider = StreamProvider.autoDispose
 /// Reactive reactions provider — re-fetches whenever the repository
 /// broadcasts a change for this specific message.
 final reactionsProvider = StreamProvider.autoDispose
-    .family<List<ReactionGroup>, String>((ref, serverId) async* {
+    .family<List<ReactionGroup>, String>((ref, serverId) {
       final repo = ref.read(messageRepositoryProvider);
 
-      // Emit initial data immediately
-      yield await repo.getReactions(serverId);
-
-      // Re-emit whenever any reaction changes for THIS message
-      await for (final _ in repo.reactionsChanges.where(
-        (id) => id == serverId,
-      )) {
-        yield await repo.getReactions(serverId);
-      }
+      // Offline-first: the local store is what shows. A server read (now,
+      // and on every live change for THIS message) lands in it and
+      // re-emits from there; offline the read changes nothing.
+      unawaited(repo.refreshReactions(serverId));
+      final sub = repo.reactionsChanges
+          .where((id) => id == serverId)
+          .listen((_) => repo.refreshReactions(serverId));
+      ref.onDispose(sub.cancel);
+      return repo.watchReactions(serverId);
     });
 
 class ReactionGroup {

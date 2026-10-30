@@ -12,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/features/chat/message_offline_policy.dart';
 
 void main() {
-  test('network-required set: pin, deleteForEveryone, react — nothing else',
+  test('network-required set: pin, deleteForEveryone — nothing else',
       () {
     expect(messageActionRequiresOnline(MessageAction.pin), isTrue,
         reason: 'pin writes local but fetch/SSE clobbers from server truth — '
@@ -20,8 +20,9 @@ void main() {
     expect(messageActionRequiresOnline(MessageAction.deleteForEveryone), isTrue,
         reason: 'delete-for-everyone is server-first; offline the local tombstone '
             'is reverted by the next fetch');
-    expect(messageActionRequiresOnline(MessageAction.react), isTrue,
-        reason: 'reactions are network-only with a silent catch today');
+    expect(messageActionRequiresOnline(MessageAction.react), isFalse,
+        reason: 'reactions are offline-first (user, 2026-10-30): Drift row '
+            '+ outbox op, server reads keep queued ops');
 
     expect(messageActionRequiresOnline(MessageAction.star), isFalse,
         reason: 'star writes is_starred locally first (P4 ruling 1) — fetch '
@@ -37,7 +38,6 @@ void main() {
     for (final a in [
       MessageAction.pin,
       MessageAction.deleteForEveryone,
-      MessageAction.react,
     ]) {
       expect(isMessageActionEnabled(a, isOnline: false), isFalse,
           reason: '$a must be disabled offline (defined behavior)');
@@ -45,6 +45,7 @@ void main() {
           reason: '$a must be enabled online');
     }
     for (final a in [
+      MessageAction.react,
       MessageAction.star,
       MessageAction.deleteForMe,
       MessageAction.reply,

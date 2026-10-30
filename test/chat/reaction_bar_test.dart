@@ -112,7 +112,7 @@ void main() {
     expect(repo.added, [('m1', '🫠')]);
   });
 
-  testWidgets('reaction controls are visibly disabled offline with hint', (
+  testWidgets('reaction controls stay live offline (queued), no hint', (
     tester,
   ) async {
     final repo = _ReactionRepository([
@@ -123,13 +123,12 @@ void main() {
     await tester.pumpWidget(_host(repo, online: false));
     await tester.pump();
 
-    final opacity = tester.widget<Opacity>(
-      find.ancestor(
-        of: find.byKey(const Key('reaction-chip-m1-👍')),
-        matching: find.byType(Opacity),
-      ),
-    );
-    expect(opacity.opacity, 0.38);
-    expect(find.text('Available online'), findsOneWidget);
+    final chip = find.byKey(const Key('reaction-chip-m1-👍'));
+    expect(find.ancestor(of: chip, matching: find.byType(Opacity)),
+        findsNothing);
+    expect(find.text('Available online'), findsNothing);
+    await tester.tap(chip);
+    await tester.pump();
+    expect(repo.added, [('m1', '👍')]);
   });
 }

@@ -297,15 +297,10 @@ class _ContextSheet extends ConsumerWidget {
         ref.watch(messageBodyProvider(message.localId)).valueOrNull ??
         '';
     // P4 (user ruling 2): defined-offline gating. Unwired actions (pin,
-    // delete-for-everyone, react) render disabled with a hint offline —
+    // delete-for-everyone) render disabled with a hint offline —
     // never a silent no-op. Loading/error → online (fail-safe: controls
     // stay enabled when the signal is unknown).
     final isOnline = ref.watch(isOnlineProvider).value ?? true;
-
-    final reactionsEnabled = isMessageActionEnabled(
-      MessageAction.react,
-      isOnline: isOnline,
-    );
 
     final name = isMine ? 'You' : senderName;
     final previewStyle =
@@ -350,60 +345,38 @@ class _ContextSheet extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
-          // Quick reactions (decision 11) — disabled offline (P4: reactions
-          // are network-only; a tap must never look like it worked).
-          IgnorePointer(
-            ignoring: !reactionsEnabled,
-            child: Opacity(
-              opacity: reactionsEnabled ? 1 : 0.38,
-              child: Wrap(
-                key: const Key('message-menu-reaction-row'),
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final emoji in kQuickReactions)
-                    _reactionCircle(
-                      context,
-                      key: ValueKey('message-menu-reaction-$emoji'),
-                      label: emoji,
-                      onTap: () async {
-                        if (message.serverId != null) {
-                          await repo.addReaction(
-                            message.serverId!,
-                            emoji,
-                          );
-                        }
-                        if (context.mounted) _afterAction(context);
-                      },
-                      child: Text(
+          // Quick reactions (decision 11). Offline-first: a tap is queued.
+          Wrap(
+            key: const Key('message-menu-reaction-row'),
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final emoji in kQuickReactions)
+                _reactionCircle(
+                  context,
+                  key: ValueKey('message-menu-reaction-$emoji'),
+                  label: emoji,
+                  onTap: () async {
+                    if (message.serverId != null) {
+                      await repo.addReaction(
+                        message.serverId!,
                         emoji,
-                        textScaler: TextScaler.noScaling,
-                        style: const TextStyle(fontSize: 22),
-                      ),
-                    ),
-                  _reactionPickerButton(
-                    context,
-                    onTap: () => _showReactionPicker(context, ref),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (!reactionsEnabled)
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  kOfflineActionHint,
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 18 / 13,
-                    color: context.t.inkSoft,
+                      );
+                    }
+                    if (context.mounted) _afterAction(context);
+                  },
+                  child: Text(
+                    emoji,
+                    textScaler: TextScaler.noScaling,
+                    style: const TextStyle(fontSize: 22),
                   ),
                 ),
+              _reactionPickerButton(
+                context,
+                onTap: () => _showReactionPicker(context, ref),
               ),
-            ),
+            ],
+          ),
         ],
       ),
       children: [

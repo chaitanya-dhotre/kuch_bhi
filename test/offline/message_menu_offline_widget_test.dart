@@ -81,7 +81,7 @@ Future<void> _openMenu(
 
 void main() {
   testWidgets('offline menu: pin + delete-for-everyone disabled with hint; '
-      'reactions greyed; star/delete-for-me/reply/copy enabled', (
+      'reactions live; star/delete-for-me/reply/copy enabled', (
     tester,
   ) async {
     await _openMenu(tester, online: false);
@@ -139,19 +139,11 @@ void main() {
     );
     expect(find.byKey(const Key('message-menu-preview-body')), findsOneWidget);
 
-    // Reaction row greyed (opacity < 1) — network-only.
-    final opacity = tester.widget<Opacity>(
+    // Reactions are offline-first (user, 2026-10-30): the row stays live.
+    expect(
       find.ancestor(of: find.text('👍'), matching: find.byType(Opacity)),
-    );
-    expect(
-      opacity.opacity,
-      lessThan(1.0),
-      reason: 'reaction row visibly disabled offline',
-    );
-    expect(
-      find.text('Available online'),
-      findsWidgets,
-      reason: 'reaction row carries the same offline hint',
+      findsNothing,
+      reason: 'reactions work offline (queued): never dimmed',
     );
   });
 

@@ -46,6 +46,8 @@ import 'package:kuch_bhi/data/local/database/app_database.dart';
 import 'package:kuch_bhi/domain/entities/conversation.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
 import 'package:kuch_bhi/features/chat/providers/message_body_provider.dart';
+import 'package:kuch_bhi/features/chat/providers/chat_provider.dart'
+    show reactionsProvider;
 import 'package:kuch_bhi/features/chat/providers/outbox_status_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_body_text.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
@@ -323,6 +325,7 @@ void main() {
         messageRepositoryProvider.overrideWithValue(repo),
         outboxStatusProvider
             .overrideWith((ref, convId) => Stream.value(const [])),
+        reactionsProvider.overrideWith((ref, id) => Stream.value(const [])),
       ],
       child: MaterialApp(
         theme: warmPopLight(),
@@ -383,6 +386,7 @@ void main() {
         messageRepositoryProvider.overrideWithValue(repo),
         outboxStatusProvider
             .overrideWith((ref, convId) => Stream.value(const [])),
+        reactionsProvider.overrideWith((ref, id) => Stream.value(const [])),
       ],
       child: MaterialApp(
         theme: warmPopLight(),
@@ -476,6 +480,7 @@ void main() {
         messageRepositoryProvider.overrideWithValue(repo),
         outboxStatusProvider
             .overrideWith((ref, convId) => Stream.value(const [])),
+        reactionsProvider.overrideWith((ref, id) => Stream.value(const [])),
         // Keyless row: the provider resolves null (spec §8).
         messageBodyProvider.overrideWith((ref, id) async => null),
       ],
@@ -516,6 +521,7 @@ void main() {
         messageRepositoryProvider.overrideWithValue(repo),
         outboxStatusProvider
             .overrideWith((ref, convId) => Stream.value(const [])),
+        reactionsProvider.overrideWith((ref, id) => Stream.value(const [])),
         messageBodyProvider.overrideWith((ref, id) async => null),
       ],
       child: MaterialApp(

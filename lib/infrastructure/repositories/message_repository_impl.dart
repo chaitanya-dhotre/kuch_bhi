@@ -1238,6 +1238,10 @@ class MessageRepositoryImpl implements MessageRepository {
     switch (op.kind) {
       case 'text_send':
         return _sendTextOp(op);
+      case _reactionAdd:
+        return _sendReactionAddOp(op);
+      case _reactionRemove:
+        return _sendReactionRemoveOp(op);
       default:
         throw StateError('No sender wired for outbox kind "${op.kind}"');
     }
@@ -2346,86 +2350,258 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  // ── Reactions: offline-first ────────────────────────────────────────
+  // Drift is the truth the UI watches. A local add/remove writes Drift and
+  // queues an outbox op; the op's sender pushes it (the row id IS the server
+  // record id, so a retry can't duplicate). A server read merges into Drift
+  // without undoing ops still queued.
+
+  static const _reactionAdd = 'reaction_add';
+  static const _reactionRemove = 'reaction_remove';
+
   @override
   Future<void> addReaction(String messageServerId, String emoji) async {
+    final msg = await db.messagesDao.getMessageByServerId(messageServerId);
+    if (msg == null) return;
     final myId = await _myId();
-
-    try {
-      final message = await db.messagesDao.getMessageByServerId(
-        messageServerId,
-      );
-      final conversationId = message?.conversationId;
-      if (conversationId == null || conversationId.isEmpty) return;
-
-      final existing = await _pb
-          .collection('reactions')
-          .getList(
-            filter:
-                'message_id="$messageServerId"&&user_id="$myId"&&emoji="$emoji"',
-            perPage: 1,
-          );
-      if (existing.items.isNotEmpty) {
-        await _pb.collection('reactions').delete(existing.items.first.id);
-      } else {
-        await _pb
-            .collection('reactions')
-            .create(
-              body: {
-                'message_id': messageServerId,
-                'conversation_id': conversationId,
-                'user_id': myId,
-                'emoji': emoji,
-              },
-            );
-      }
-    } catch (e) {
-      debugPrint('[Reaction] add: $e');
-    }
+    final id = generateOpId();
+    final now = DateTime.now();
+    // Check and insert in one transaction: a double tap can't add twice.
+    final existingId = await db.transaction(() async {
+      final mine = await (db.select(db.reactionsTable)
+            ..where((r) =>
+                r.messageLocalId.equals(msg.localId) &
+                r.userId.equals(myId) &
+                r.emoji.equals(emoji)))
+          .get();
+      if (mine.isNotEmpty) return mine.first.id;
+      await db.into(db.reactionsTable).insert(ReactionsTableCompanion.insert(
+            id: id,
+            messageLocalId: msg.localId,
+            conversationId: msg.conversationId,
+            userId: myId,
+            emoji: emoji,
+            createdAt: now,
+          ));
+      await db.outboxDao.enqueue(OutboxTableCompanion.insert(
+        opId: generateOpId(),
+        kind: _reactionAdd,
+        ref: id,
+        conversationId: msg.conversationId,
+        seq: await db.outboxDao.nextSeq(msg.conversationId),
+        createdAt: now,
+      ));
+      return null;
+    });
+    // Same emoji again = take it back (the old server-side toggle).
+    if (existingId != null) return removeReaction(existingId);
+    outboxWorker.kick();
   }
 
   @override
   Future<void> removeReaction(String reactionId) async {
-    try {
-      await _pb.collection('reactions').delete(reactionId);
-    } catch (e) {
-      debugPrint('[Reaction] remove: $e');
-    }
+    final row = await (db.select(db.reactionsTable)
+          ..where((r) => r.id.equals(reactionId)))
+        .getSingleOrNull();
+    if (row == null) return;
+    await db.transaction(() async {
+      await (db.delete(db.reactionsTable)
+            ..where((r) => r.id.equals(reactionId)))
+          .go();
+      // An add never tried yet: cancel it, the server never hears of
+      // either. Decided here, in the txn, so the worker can't pick it up in
+      // between; a tried add (attempts > 0) may have landed with its
+      // answer lost, so that one gets a delete (404 = done).
+      final cancelled = await (db.delete(db.outboxTable)
+            ..where((o) =>
+                o.kind.equals(_reactionAdd) &
+                o.ref.equals(reactionId) &
+                o.state.equalsValue(OutboxState.queued) &
+                o.attempts.equals(0)))
+          .go();
+      if (cancelled > 0) return;
+      await db.outboxDao.enqueue(OutboxTableCompanion.insert(
+        opId: generateOpId(),
+        kind: _reactionRemove,
+        ref: reactionId,
+        conversationId: row.conversationId,
+        seq: await db.outboxDao.nextSeq(row.conversationId),
+        createdAt: DateTime.now(),
+      ));
+    });
+    outboxWorker.kick();
   }
 
   @override
-  Future<List<ReactionGroup>> getReactions(String messageServerId) async {
-    try {
-      final myId = await _myId();
-      final res = await _pb
-          .collection('reactions')
-          .getList(filter: 'message_id="$messageServerId"', perPage: 50);
+  Future<List<ReactionGroup>> getReactions(String messageServerId) =>
+      watchReactions(messageServerId).first;
 
-      final Map<String, List<RecordModel>> grouped = {};
-      for (final r in res.items) {
-        final emoji = r.getStringValue('emoji');
-        grouped.putIfAbsent(emoji, () => []).add(r);
+  @override
+  Stream<List<ReactionGroup>> watchReactions(String messageServerId) async* {
+    final msg = await db.messagesDao.getMessageByServerId(messageServerId);
+    if (msg == null) {
+      yield const [];
+      return;
+    }
+    final myId = await _myId();
+    yield* (db.select(db.reactionsTable)
+          ..where((r) => r.messageLocalId.equals(msg.localId))
+          ..orderBy([(r) => OrderingTerm(expression: r.createdAt)]))
+        .watch()
+        .map((rows) {
+      final byEmoji = <String, List<ReactionsTableData>>{};
+      for (final r in rows) {
+        byEmoji.putIfAbsent(r.emoji, () => []).add(r);
+      }
+      return [
+        for (final MapEntry(key: emoji, value: rs) in byEmoji.entries)
+          ReactionGroup(
+            emoji: emoji,
+            count: rs.length,
+            isMine: rs.any((r) => r.userId == myId),
+            reactionId: rs.where((r) => r.userId == myId).firstOrNull?.id,
+          ),
+      ];
+    });
+  }
+
+  @override
+  Future<void> refreshReactions(String messageServerId) async {
+    final epoch = _sessionEpoch;
+    try {
+      final msg = await db.messagesDao.getMessageByServerId(messageServerId);
+      if (msg == null) return;
+      final pendingAdds = <String>{};
+      final pendingRemoves = <String>{};
+      // Pending = any reaction op not yet `sent`. Read BEFORE the server
+      // (an op that is sent during the read still counts) and AGAIN inside
+      // the write txn (an op queued during the read counts too).
+      Future<void> readPending() async {
+        for (final o
+            in await db.outboxDao.forConversation(msg.conversationId)) {
+          if (o.state == OutboxState.sent) continue;
+          if (o.kind == _reactionAdd) pendingAdds.add(o.ref);
+          if (o.kind == _reactionRemove) pendingRemoves.add(o.ref);
+        }
       }
 
-      return grouped.entries.map((entry) {
-        RecordModel? mine;
-        for (final reaction in entry.value) {
-          if (reaction.getStringValue('user_id') == myId) {
-            mine = reaction;
-            break;
-          }
+      await readPending();
+      final res = await _pb
+          .collection('reactions')
+          .getList(filter: 'message_id="$messageServerId"', perPage: 200)
+          .timeout(const Duration(seconds: 8));
+      await db.transaction(() async {
+        // Signed out (or switched account) during the read: the wipe has
+        // run, so nothing of the old session may be written back.
+        if (!sessionStillValid(
+          epochAtStart: epoch,
+          currentEpoch: _sessionEpoch,
+          authValid: _pb.authStore.isValid,
+        )) {
+          return;
         }
-
-        return ReactionGroup(
-          emoji: entry.key,
-          count: entry.value.length,
-          isMine: mine != null,
-          reactionId: mine?.id,
-        );
-      }).toList();
+        await readPending();
+        final known = {
+          for (final r in await (db.select(db.reactionsTable)
+                ..where((r) => r.messageLocalId.equals(msg.localId)))
+              .get())
+            r.id: r.createdAt,
+        };
+        await (db.delete(db.reactionsTable)
+              ..where((r) =>
+                  r.messageLocalId.equals(msg.localId) &
+                  r.id.isNotIn(pendingAdds)))
+            .go();
+        for (final r in res.items) {
+          if (pendingRemoves.contains(r.id)) continue;
+          await db.into(db.reactionsTable).insertOnConflictUpdate(
+                ReactionsTableCompanion.insert(
+                  id: r.id,
+                  messageLocalId: msg.localId,
+                  conversationId: msg.conversationId,
+                  userId: r.getStringValue('user_id'),
+                  emoji: r.getStringValue('emoji'),
+                  // No server stamp: keep ours, so chips don't reorder.
+                  createdAt:
+                      DateTime.tryParse(r.getStringValue('created')) ??
+                          known[r.id] ??
+                          DateTime.now(),
+                ),
+              );
+        }
+      });
     } catch (e) {
-      debugPrint('[Reaction] get: $e');
-      return [];
+      // Offline or refused: Drift keeps what it has.
+      debugPrint('[Reaction] refresh: $e');
     }
+  }
+
+  /// A refusal the worker would mark terminal; for a reaction that would
+  /// stall every later op in the conversation, so the sender drops it.
+  static bool _refused(int status) => const {400, 403, 404, 413}.contains(status);
+
+  Future<OpSendOutcome> _sendReactionAddOp(OutboxTableData op) async {
+    final row = await (db.select(db.reactionsTable)
+          ..where((r) => r.id.equals(op.ref)))
+        .getSingleOrNull();
+    final msg = row == null
+        ? null
+        : await db.messagesDao.getMessageByLocalId(row.messageLocalId);
+    if (row == null || msg == null) {
+      await db.outboxDao.deleteOp(op.opId); // reaction or message gone
+      return OpSendOutcome.deferred;
+    }
+    final serverId = msg.serverId;
+    if (serverId == null || serverId.isEmpty) {
+      // Can't happen today (adds need a server id); a deferred op here would
+      // block every later op in the conversation, so drop it instead.
+      await _dropReactionAdd(op, row.id);
+      return OpSendOutcome.deferred;
+    }
+    try {
+      await _pb.collection('reactions').create(body: {
+        'id': row.id,
+        'message_id': serverId,
+        'conversation_id': row.conversationId,
+        'user_id': row.userId,
+        'emoji': row.emoji,
+      });
+    } on ClientException catch (e) {
+      if (!_refused(e.statusCode)) rethrow;
+      // A retry after a lost answer collides with our own id: already done.
+      if (e.statusCode == 400) {
+        try {
+          await _pb.collection('reactions').getOne(row.id);
+          return OpSendOutcome.sent;
+        } catch (_) {}
+      }
+      debugPrint('[Reaction] add refused (${e.statusCode}), dropped');
+      await _dropReactionAdd(op, row.id);
+      return OpSendOutcome.deferred;
+    }
+    return OpSendOutcome.sent;
+  }
+
+  Future<void> _dropReactionAdd(OutboxTableData op, String reactionId) =>
+      db.transaction(() async {
+        await (db.delete(db.reactionsTable)
+              ..where((r) => r.id.equals(reactionId)))
+            .go();
+        await db.outboxDao.deleteOp(op.opId);
+      });
+
+  Future<OpSendOutcome> _sendReactionRemoveOp(OutboxTableData op) async {
+    try {
+      await _pb.collection('reactions').delete(op.ref);
+    } on ClientException catch (e) {
+      if (e.statusCode == 404) return OpSendOutcome.sent; // already gone
+      if (!_refused(e.statusCode)) rethrow;
+      // Refused: drop the op; the next server read shows the row again.
+      debugPrint('[Reaction] remove refused (${e.statusCode}), dropped');
+      await db.outboxDao.deleteOp(op.opId);
+      return OpSendOutcome.deferred;
+    }
+    return OpSendOutcome.sent;
   }
 
   @override

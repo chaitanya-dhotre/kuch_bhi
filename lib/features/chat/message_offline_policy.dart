@@ -9,11 +9,13 @@
 ///                (P4 ruling 1; pinned by test/offline/star_offline_test.dart)
 /// - deleteMe   — local tombstone, preserved across re-caches
 /// - reply/copy — pure local UI
+/// - react      — Drift row + outbox op; server reads keep queued ops
+///                (user, 2026-10-30: reactions work like the rest of an
+///                offline-first app)
 /// Still network-only (post-merge backlog wires them properly):
 /// - pin              — local write exists but fetch/SSE clobbers from
 ///                      server truth → offline pin silently reverts
 /// - deleteForEveryone — server-first; local mark reverted by next fetch
-/// - react            — network-only, errors swallowed
 library;
 
 /// Every action exposed by the message long-press menu.
@@ -26,10 +28,8 @@ const String kOfflineActionHint = 'Available online';
 /// True when [action] cannot complete while offline (no durable local
 /// path that survives server-truth sync).
 bool messageActionRequiresOnline(MessageAction action) => switch (action) {
-      MessageAction.pin ||
-      MessageAction.deleteForEveryone ||
-      MessageAction.react =>
-        true,
+      MessageAction.pin || MessageAction.deleteForEveryone => true,
+      MessageAction.react ||
       MessageAction.star ||
       MessageAction.deleteForMe ||
       MessageAction.reply ||
