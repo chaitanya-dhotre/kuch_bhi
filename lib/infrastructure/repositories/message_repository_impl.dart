@@ -1996,15 +1996,17 @@ class MessageRepositoryImpl implements MessageRepository {
       final nowUtc = DateTime.now().toUtc().toIso8601String();
 
       // 1) Mark all my existing unread receipts in this conversation as read.
+      // Fetch read ones too: step 2 must skip them, or every open re-creates
+      // a receipt per old message (unique-index 400s, then 429 on *:create).
       final res = await _pb
           .collection('message_receipts')
           .getFullList(
             filter:
-                'conversation_id="$conversationId"'
-                '&&recipient_id="$myId"&&read_at=""',
+                'conversation_id="$conversationId"&&recipient_id="$myId"',
             batch: 200,
           );
       for (final r in res) {
+        if (r.getStringValue('read_at').isNotEmpty) continue;
         try {
           await _pb
               .collection('message_receipts')
