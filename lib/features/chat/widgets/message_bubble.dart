@@ -455,14 +455,18 @@ class _OptimisticMediaPlaceholder extends StatelessWidget {
       );
     }
 
+    // A failed upload never gets a server id, so it stays here: say so
+    // instead of spinning forever.
+    final failed = status == 'failed';
     final content = switch (type) {
-      'voice' => _OptimisticVoiceContent(isMine: isMine),
-      _ => _OptimisticDocumentContent(isMine: isMine),
+      'voice' => _OptimisticVoiceContent(isMine: isMine, failed: failed),
+      _ => _OptimisticDocumentContent(isMine: isMine, failed: failed),
     };
+    // Default shell (full accent when mine): onAccent ink on the 18% shell
+    // was unreadable in dark mode.
     return ChatBubbleFrame(
       isMine: isMine,
       runEnd: runEnd,
-      background: shellColor,
       showShadow: false,
       fillWidth: true,
       showTimestamp: true,
@@ -497,13 +501,21 @@ class _OptimisticSkeletonBox extends StatelessWidget {
 }
 
 class _OptimisticVoiceContent extends StatelessWidget {
-  const _OptimisticVoiceContent({required this.isMine});
+  const _OptimisticVoiceContent({required this.isMine, required this.failed});
 
   final bool isMine;
+  final bool failed;
 
   @override
   Widget build(BuildContext context) {
     final foreground = isMine ? context.t.onAccent : context.t.accent;
+    if (failed) {
+      return _FailedUploadRow(
+        icon: Icons.mic_none_outlined,
+        label: 'Voice note not sent',
+        foreground: foreground,
+      );
+    }
     return Row(
       children: [
         SizedBox.square(
@@ -526,13 +538,24 @@ class _OptimisticVoiceContent extends StatelessWidget {
 }
 
 class _OptimisticDocumentContent extends StatelessWidget {
-  const _OptimisticDocumentContent({required this.isMine});
+  const _OptimisticDocumentContent({
+    required this.isMine,
+    required this.failed,
+  });
 
   final bool isMine;
+  final bool failed;
 
   @override
   Widget build(BuildContext context) {
     final foreground = isMine ? context.t.onAccent : context.t.accent;
+    if (failed) {
+      return _FailedUploadRow(
+        icon: Icons.insert_drive_file_outlined,
+        label: 'Document not sent',
+        foreground: foreground,
+      );
+    }
     return Row(
       children: [
         Container(
@@ -560,6 +583,45 @@ class _OptimisticDocumentContent extends StatelessWidget {
         SizedBox.square(
           dimension: 18,
           child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+        ),
+      ],
+    );
+  }
+}
+
+/// Static row for an upload that failed; the timestamp's ⚠ carries the state.
+class _FailedUploadRow extends StatelessWidget {
+  const _FailedUploadRow({
+    required this.icon,
+    required this.label,
+    required this.foreground,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: foreground.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: foreground),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: foreground, fontSize: 13),
+          ),
         ),
       ],
     );

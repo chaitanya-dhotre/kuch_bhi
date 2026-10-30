@@ -58,3 +58,11 @@ Status: **gates green, review done, waiting for the user's device PASS. Nothing 
 ## Out of scope (untouched)
 
 §4 cached-failure bubbles, §6 other timeouts, §3.1 PIN screen, §7.1 friend code, dead-code audit, security §8.2.
+
+## Follow-up: failed voice/doc bubbles (after device PASS, wave 1 committed `74b4ebf`)
+
+The user found on device that failed voice and doc bubbles drew in near-invisible dark amber. This was older code, not caused by wave 1. A failed upload never gets a server id, so the bubble stays on `_OptimisticMediaPlaceholder`. That placeholder drew `onAccent` ink on an `accent @18%` shell, which is unreadable in dark mode, and kept saying "Uploading document…" with a spinner after the upload had failed.
+Fix (`message_bubble.dart`): own voice and doc placeholders use the default frame (full accent, like every other own bubble). `status == 'failed'` shows a static "Voice note not sent" / "Document not sent" row with no spinner; the timestamp's ⚠ carries the state. Photo and video placeholders are unchanged.
+Test: `test/chat/failed_media_placeholder_test.dart` (+3). RED: no "not sent" text, and the in-flight shell was not accent. 669/669, analyze 0 errors.
+Device check: in airplane mode send a voice note and a document. Each shows a readable amber bubble with "… not sent" and ⚠, and no spinner. Back online, a fresh send shows "Uploading document…" readable on amber.
+Not done: there is still no retry for failed media. The upload pipeline is frozen, so that's a candidate follow-up.
