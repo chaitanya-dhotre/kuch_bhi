@@ -148,25 +148,23 @@ class _MediaGridTile extends ConsumerWidget {
         ),
       );
 
-  Future<void> _open(BuildContext context, WidgetRef ref) async {
-    final media = await ref.read(
-      mediaFileProvider(MediaRef(conversationId, serverId)).future,
+  void _open(BuildContext context, WidgetRef ref) {
+    // Opens at once on the thumbnail; the viewer loads the full file.
+    final thumb = ref
+        .read(mediaFileProvider(MediaRef(conversationId, serverId, thumb: true)))
+        .valueOrNull;
+    pushMediaViewer(
+      context,
+      MediaViewerArgs(
+        conversationId: conversationId,
+        serverId:       serverId,
+        mediaType:      mediaType,
+        senderName:     senderName,
+        timestamp:      created,
+        heroTag:        heroTag,
+        thumbPath:      thumb?.file.path,
+      ),
     );
-    if (media != null && context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => MediaViewerScreen(
-            args: MediaViewerArgs(
-              localPath:  media.file.path,
-              mediaType:  mediaType,
-              senderName: senderName,
-              timestamp:  created,
-              heroTag:    heroTag,
-            ),
-          ),
-        ),
-      );
-    }
   }
 
   @override

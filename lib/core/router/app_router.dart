@@ -16,7 +16,6 @@ import '../../features/chat/screens/chat_screen.dart';
 import '../../features/friend_requests/screens/friend_requests_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/media/screens/media_docs_screen.dart';
-import '../../features/media/screens/media_viewer_screen.dart';
 import '../../features/groups/screens/create_group_screen.dart';
 import '../../features/groups/screens/group_settings_screen.dart';
 import '../../features/profile/screens/edit_profile_screen.dart';
@@ -40,7 +39,6 @@ class AppRoutes {
   static const String addFriend      = '/add-friend';
   static const String about          = '/about';
   static const String starredMessages = '/starred/:conversationId';
-  static const String mediaViewer     = '/media-viewer';
   static const String mediaDocs       = '/media-docs/:conversationId';
   static const String createGroup     = '/create-group';
   static const String groupSettings   = '/group-settings';
@@ -192,13 +190,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final convId = state.pathParameters['conversationId']!;
           return StarredMessagesScreen(conversationId: convId);
-        },
-      ),
-      GoRoute(
-        path: AppRoutes.mediaViewer,
-        builder: (context, state) {
-          final args = state.extra as MediaViewerArgs;
-          return MediaViewerScreen(args: args);
         },
       ),
       GoRoute(

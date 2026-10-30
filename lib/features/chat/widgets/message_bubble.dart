@@ -266,6 +266,7 @@ class MessageBubble extends ConsumerWidget {
               runEnd: runEnd,
               status: message.status,
               createdAt: message.createdAt,
+              senderName: senderName,
             )
           else if (message.type == 'video' && message.serverId != null)
             VideoMessageBubble(
@@ -276,6 +277,7 @@ class MessageBubble extends ConsumerWidget {
               runEnd: runEnd,
               status: message.status,
               createdAt: message.createdAt,
+              senderName: senderName,
             )
           else if (message.type == 'document' && message.serverId != null)
             DocumentMessageBubble(

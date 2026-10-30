@@ -5,6 +5,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
+import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import 'expiry_badge.dart';
 
@@ -18,6 +19,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
     this.runEnd = true,
     this.status,
     this.createdAt,
+    this.senderName = '',
   });
 
   final String conversationId;
@@ -27,6 +29,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
   final bool runEnd;
   final String? status;
   final DateTime? createdAt;
+  final String senderName;
 
   @override
   ConsumerState<VideoMessageBubble> createState() => _VideoMessageBubbleState();
@@ -34,7 +37,6 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
 
 class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
   double _aspectRatio = 16 / 9;
-  bool _opening = false;
 
   String _durationText(int secs) {
     final m = secs ~/ 60;
@@ -95,66 +97,58 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
         }
 
         final expiryLabel = compactExpiryLabel(expiresAt);
+        final local = ref.watch(
+          mediaFullLocalProvider(
+            MediaRef(widget.conversationId, widget.serverId),
+          ),
+        );
+        // Only on a positive "not on disk": an unknown row keeps Play.
+        final notDownloaded = local.hasValue && local.value == null;
 
         return Semantics(
           button: true,
-          label: 'Open video',
+          label: notDownloaded ? 'Open video, not downloaded' : 'Open video',
           child: GestureDetector(
-            onTap: () async {
-              if (_opening) return;
-              _opening = true;
-              final navigator = Navigator.of(context);
-              // Fetch + decrypt the full video, then open the viewer.
-              final full = await ref.read(
-                mediaFileProvider(
-                  MediaRef(widget.conversationId, widget.serverId),
-                ).future,
-              );
-              _opening = false;
-              if (full == null || !mounted) return;
-              navigator.push(
-                MaterialPageRoute(
-                  builder: (_) => MediaViewerScreen(
-                    args: MediaViewerArgs(
-                      localPath: full.file.path,
-                      mediaType: 'video',
-                      senderName: widget.isMine ? 'You' : 'Video',
-                      timestamp: widget.createdAt ?? DateTime.now(),
-                    ),
-                  ),
-                ),
-              );
-            },
+            // Opens at once on the poster; the viewer loads the full file.
+            onTap: () => pushMediaViewer(
+              context,
+              MediaViewerArgs(
+                conversationId: widget.conversationId,
+                serverId: widget.serverId,
+                mediaType: 'video',
+                senderName: widget.isMine
+                    ? 'You'
+                    : widget.senderName.isEmpty
+                    ? 'Video'
+                    : widget.senderName,
+                timestamp: widget.createdAt ?? DateTime.now(),
+                heroTag: 'media_${widget.serverId}',
+                thumbPath: media.file.path,
+              ),
+            ),
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Image.file(
-                  media.file,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: context.t.surface2,
-                    child: Center(
-                      child: Icon(
-                        Icons.broken_image,
-                        color: context.t.inkFaint,
+                Hero(
+                  tag: 'media_${widget.serverId}',
+                  child: Image.file(
+                    media.file,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: context.t.surface2,
+                      child: Center(
+                        child: Icon(
+                          Icons.broken_image,
+                          color: context.t.inkFaint,
+                        ),
                       ),
                     ),
                   ),
                 ),
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow,
-                      color: Colors.white,
-                      size: 26,
-                    ),
-                  ),
+                MediaDisc(
+                  icon: notDownloaded
+                      ? Icons.download_rounded
+                      : Icons.play_arrow,
                 ),
                 // Expiry badge — top right
                 if (expiryLabel != null) ExpiryBadge(label: expiryLabel),

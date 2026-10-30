@@ -25,6 +25,10 @@ class MediaBlobDao extends DatabaseAccessor<AppDatabase>
       (select(mediaBlobTable)..where((t) => t.blobId.equals(blobId)))
           .getSingleOrNull();
 
+  Stream<MediaBlobTableData?> watchById(String blobId) =>
+      (select(mediaBlobTable)..where((t) => t.blobId.equals(blobId)))
+          .watchSingleOrNull();
+
   /// FSM transition. Optional fields are written only when provided —
   /// `failed` passes `errorClass`, `ready` passes `localPath`/`bytes`/
   /// `lastAccess` together.

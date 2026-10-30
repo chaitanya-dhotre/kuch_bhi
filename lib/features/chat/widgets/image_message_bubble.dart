@@ -7,6 +7,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
+import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import 'expiry_badge.dart';
 
@@ -20,6 +21,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
     this.runEnd = true,
     this.status,
     this.createdAt,
+    this.senderName = '',
   });
 
   final String conversationId;
@@ -29,6 +31,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
   final bool runEnd;
   final String? status;
   final DateTime? createdAt;
+  final String senderName;
 
   @override
   ConsumerState<ImageMessageBubble> createState() => _ImageMessageBubbleState();
@@ -37,19 +40,21 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
 class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
   double _aspectRatio = 4 / 3;
 
-  void _openFullScreen(File fullFile) {
-    final heroTag = 'media_${widget.serverId}';
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => MediaViewerScreen(
-          args: MediaViewerArgs(
-            localPath: fullFile.path,
-            mediaType: 'image',
-            senderName: widget.isMine ? 'You' : 'Photo',
-            timestamp: widget.createdAt ?? DateTime.now(),
-            heroTag: heroTag,
-          ),
-        ),
+  void _openFullScreen(File thumb) {
+    pushMediaViewer(
+      context,
+      MediaViewerArgs(
+        conversationId: widget.conversationId,
+        serverId: widget.serverId,
+        mediaType: 'image',
+        senderName: widget.isMine
+            ? 'You'
+            : widget.senderName.isEmpty
+            ? 'Photo'
+            : widget.senderName,
+        timestamp: widget.createdAt ?? DateTime.now(),
+        heroTag: 'media_${widget.serverId}',
+        thumbPath: thumb.path,
       ),
     );
   }
@@ -115,21 +120,27 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
         }
 
         final expiryLabel = compactExpiryLabel(expiresAt);
+        final local = ref.watch(
+          mediaFullLocalProvider(
+            MediaRef(widget.conversationId, widget.serverId),
+          ),
+        );
+        // Only on a positive "not on disk": an unknown row shows no disc.
+        final notDownloaded = local.hasValue && local.value == null;
+        final full = local.valueOrNull;
+        final thumbImage = Image.file(
+          media.file,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const _ImageUnavailable(),
+        );
 
         // ── actual bubble ──────────────────────────────────────
         return Semantics(
           button: true,
-          label: 'Open image',
+          label: notDownloaded ? 'Open image, not downloaded' : 'Open image',
           child: GestureDetector(
-            onTap: () async {
-              // Fetch the full-res file on tap, then open the viewer.
-              final full = await ref.read(
-                mediaFileProvider(
-                  MediaRef(widget.conversationId, widget.serverId),
-                ).future,
-              );
-              if (full != null && mounted) _openFullScreen(full.file);
-            },
+            // Opens at once on the thumbnail; the viewer loads the full file.
+            onTap: () => _openFullScreen(media.file),
             child: _BubbleWrapper(
               isMine: widget.isMine,
               runEnd: widget.runEnd,
@@ -145,15 +156,27 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                       aspectRatio: _aspectRatio,
                       child: Hero(
                         tag: 'media_${widget.serverId}',
-                        child: Image.file(
-                          media.file,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
-                              const _ImageUnavailable(),
-                        ),
+                        // Downloaded: the full photo at bubble size, so it
+                        // is never the small thumbnail blown up.
+                        child: full == null
+                            ? thumbImage
+                            : Image.file(
+                                full,
+                                fit: BoxFit.cover,
+                                cacheWidth: (ChatBubbleGeometry.mediaMaxWidth *
+                                        MediaQuery.devicePixelRatioOf(context))
+                                    .round(),
+                                frameBuilder: (_, child, frame, sync) =>
+                                    sync || frame != null ? child : thumbImage,
+                                errorBuilder: (_, __, ___) => thumbImage,
+                              ),
                       ),
                     ),
                   ),
+                  if (notDownloaded)
+                    const Positioned.fill(
+                      child: MediaDisc(icon: Icons.download_rounded),
+                    ),
                   // Expiry badge — top right
                   if (expiryLabel != null) ExpiryBadge(label: expiryLabel),
                 ],

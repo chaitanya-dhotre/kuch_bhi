@@ -213,3 +213,51 @@ Spec PASSed with these six at their defaults (`docs/design/pages/group-info.{htm
 - `[DEFERRED]` **4. Media & Docs after leaving.** Default: still visible to left members (media is local). Alternative: hide it.
 - `[DEFERRED]` **5. Remove/Leave 30s UI bound.** Default: unlock after 30s with "Still working — this can take a moment." (repo call never cancelled/retried — it rotates the group key). Alternative: no UI bound on those two. **Concurrency risk FIXED 2026-10-29:** after the unlock, a second remove/leave in the same group could start a second key rotation alongside the first (and so could the join / key-gap background rotations). Every rotation now runs through one per-group queue in the repository (`SerialPerKey`, `lib/core/utils/serial_per_key.dart`); a stuck predecessor holds the queue for at most 2 min, after which the existing collision-retry in `_rotateGroupKeyNow` covers the rare overlap. Still per device: two admins on two phones rotating at once is handled only by that server-side collision retry.
 - `[DEFERRED]` **6. Member row tap.** Default: admins can tap the whole row (not just ⋮) to open member actions. Alternative: ⋮ only.
+
+## 12. Media + chat ideas (user, 2026-10-30) `[BACKLOG]`
+
+Raised during the Page 9 (Media fullscreen) spec. Page 9 itself took only "where does the delete date show"
+(viewer line, `docs/design/pages/media.md` B6). Everything else waits here. Suggested order for the media
+tasks: Page 9 → 12.2 → 12.4 → 12.5 → 12.1 (12.2 reuses Page 9's blob-status provider; 12.5 needs Page 9's
+viewer; 12.1 is independent and can go any time).
+
+**Media tasks (from the Page 9 triage)**
+- `[BACKLOG]` **12.1 Share into the app.** Photos, videos and files from other apps or a file manager. No
+  `SEND`/`SEND_MULTIPLE` intent filter exists in `AndroidManifest.xml` today. Needs a receive plugin, a
+  "send to which chat" picker, then the existing send pipeline (quality sheet included).
+- `[BACKLOG]` **12.2 Media bubble states in the chat.** Deleted, can't decrypt, expired, failed download,
+  loading, each with a clear look. Today photo/video bubbles have a skeleton, a broken-image icon and a 10.5px
+  **Media expired**; no can't-decrypt or failed state; the expiry pill shows only in the last 7 days. Go
+  after Page 9 (same files; reuses its read-only blob-status provider).
+- `[BACKLOG]` **12.4 Media send.** Keep the original format (GIF/PNG/WebP as is; JPEG/HEIC still re-encoded to
+  strip GPS, see the photo learning), sharper thumbnails (today 200px at 60%), and a simple crop / mark-up /
+  video trim screen. No filters or edits. Merges Page 9 parked items 15a (GIF → JPEG) and 15b (thumbnails).
+  Video trim needs a maintained native transcoder (the common FFmpeg Flutter wrapper was retired in 2025);
+  check before choosing.
+- `[BACKLOG]` **12.5 Albums.** Several photos/videos sent together show as one bubble that scrolls sideways
+  (reference: the user's mock; no like/dislike, reactions already exist), and open as an auto-arranged
+  collage that fits each item by orientation, then fullscreen with swipe between items (Page 9 decision 6).
+  Needs a way to know what belongs together: a batch id on the messages, or grouping by sender + time.
+- `[BACKLOG]` Page 9 parked items, still separate: offline media resend that never retries · upload cancel ·
+  Chat J8 download progress (no progress source) · 200% overflows on Home rows and the chat app bar's
+  "Last seen" · no timeout on the media store's download (bound the `http.get` only, never around decrypt).
+
+**Ideas (not media fullscreen)**
+- `[IDEA]` **12.6 Voice recorder redesign.** Live waveform, timer, cancel ✕ / record / send (user's reference
+  image: centred "Voice note" title, waveform, 01:14, three round controls). Accent only as fill, no purple
+  (C1/C2).
+- `[IDEA]` **12.7 Keep a message in a disappearing chat.** An option on one text, photo, video or document so it
+  does not disappear when the timer runs out. Needs design: the purge runs on every member's device, so "kept"
+  must reach the other side too, and media retention on the server is separate from the disappearing timer.
+- `[IDEA]` **12.8 Multi-select that works.** Today you long-press each message and pick Select; then the only
+  action is delete, and it deletes at once with no confirmation (confirmed: `chat_screen.dart:986-992`
+  loops `deleteMessage` for me, no dialog; R20 `showConfirmDialog` exists). Wanted: once selecting, a tap adds
+  a message; drag/range select for many; a confirm before delete; more actions (copy, star, forward if it
+  ever exists, add to list 12.9).
+- `[IDEA]` **12.9 Lists / notes per chat or group.** Pick messages of any type into a list, reorder them, merge
+  several into one point (e.g. a sunset photo + its name + its location), add a note to each point, choose the
+  style (plain, dotted, numbered, checklist), keep it private or share it with the chat. Example: an itinerary
+  of hidden spots with location links.
+- `[IDEA]` **12.10 Tags through lists.** Notes from 12.9 tag photos/videos so in-chat search can find them.
+- `[IDEA]` **12.11 App lock.** PIN, biometrics or password to open the app. Not built today (the Settings learning:
+  app lock "looks built but is not").

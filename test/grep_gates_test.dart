@@ -502,6 +502,45 @@ void main() {
           reason: '\$e in $path');
     }
   });
+
+  // J1 (Page 9 media): the one fullscreen viewer rides tokens, R3a, R5 and
+  // fixed copy; the dead player, its route and both old packages are gone.
+  test('Page 9 media: tokens, R3a/R5, no \$e, no chewie/photo_view/dead route',
+      () {
+    const viewerFiles = [
+      'lib/features/media/screens/media_viewer_screen.dart',
+      'lib/features/media/providers/media_viewer_providers.dart',
+    ];
+    final banned = <String, RegExp>{
+      'Colors.': RegExp(r'Colors\.'),
+      'Color(0x': RegExp(r'Color\(0x'),
+      'LinearGradient': RegExp(r'LinearGradient'),
+      'SnackBar(': RegExp(r'SnackBar\('),
+      'CircularProgressIndicator': RegExp(r'CircularProgressIndicator'),
+      'showModalBottomSheet': RegExp(r'showModalBottomSheet'),
+    };
+    for (final path in viewerFiles) {
+      final src = File(path).readAsStringSync();
+      banned.forEach((name, re) {
+        expect(re.hasMatch(src), isFalse, reason: '$name in $path');
+      });
+      final shown = File(path)
+          .readAsLinesSync()
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      expect(RegExp(r'\$\{?e\b|\be\.toString\(\)').hasMatch(shown), isFalse,
+          reason: '\$e in $path');
+    }
+    final gone = RegExp(r'VideoPlayerScreen|package:chewie|package:photo_view|'
+        r'AppRoutes\.mediaViewer');
+    final hits = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .where((f) => gone.hasMatch(f.readAsStringSync()))
+        .map((f) => f.path);
+    expect(hits, isEmpty);
+  });
 }
 
 const _bannedPurpleHexes = [

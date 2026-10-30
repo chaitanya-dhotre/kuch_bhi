@@ -16,6 +16,27 @@ String? compactExpiryLabel(DateTime? expiresAt) {
   return '${days}d';
 }
 
+/// The fullscreen viewer's line saying when the server drops the media.
+/// Same thresholds as [compactExpiryLabel], but always shown (null only when
+/// there is no date or it has passed).
+String? viewerExpiryLabel(DateTime? expiresAt, {DateTime? now}) {
+  if (expiresAt == null) return null;
+  now ??= DateTime.now();
+  final remaining = expiresAt.difference(now);
+  if (remaining.isNegative) return null;
+  if (remaining.inDays > 7) {
+    final local = expiresAt.toLocal();
+    final pattern = local.year == now.toLocal().year ? 'MMM d' : 'MMM d, yyyy';
+    return 'Expires ${DateFormat(pattern).format(local)}';
+  }
+  if (remaining.inHours < 24) {
+    final hours = remaining.inHours < 1 ? 1 : remaining.inHours;
+    return 'Expires in $hours ${hours == 1 ? 'hour' : 'hours'}';
+  }
+  final days = remaining.inDays;
+  return 'Expires in $days ${days == 1 ? 'day' : 'days'}';
+}
+
 /// Shared geometry for every non-system chat message surface.
 ///
 /// Keeping the frame here prevents each media type from inventing its own
@@ -278,6 +299,29 @@ class ExpiryBadge extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Centre disc on a media bubble: play, or download when the full file is
+/// not on the phone yet (the thumbnail alone must not look loaded).
+class MediaDisc extends StatelessWidget {
+  const MediaDisc({super.key, required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.5),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.white, size: 26),
       ),
     );
   }

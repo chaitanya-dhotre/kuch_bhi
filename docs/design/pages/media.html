@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media — Page 9 board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from sheets.html; nothing redefined). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10);
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --error:#E5484D; --cardShadow:0 2px 10px rgba(0,0,0,.35);
+}
+.amoled{
+  --bg:#000000; --surface:#0A0908; --surface2:#0D0D0D; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --error:#E5484D; --cardShadow:0 0 0 1px rgba(243,237,227,.04);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.wrap.amo{background:#000;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag,.wrap.amo .tag{color:#A99878}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.mini{font-size:12px;color:#6E655A}
+.tag2{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px}
+.tag2.in{background:#E3F4EC;color:#0B5E42}
+.tag2.out{background:#F1ECE3;color:#6E655A}
+.tag2.ref{background:#FFF3DC;color:#5C4A22}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+
+/* ── Page 9: the viewer frame (always AMOLED tokens, decision 1) ── */
+.vf{position:relative;width:320px;max-width:100%;height:540px;border-radius:22px;overflow:hidden;border:1px solid #3A342B;background:var(--bg);color:var(--ink)}
+.vf.short{height:420px}
+.vf.land{width:560px;height:290px}
+.media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.media svg{width:100%;height:auto;display:block}
+.bar{position:absolute;left:0;right:0;top:0;background:rgba(0,0,0,.64);padding:22px 4px 6px;display:flex;align-items:center;gap:0}
+.bar .sb{position:absolute;top:4px;left:14px;right:14px;display:flex;justify-content:space-between;font-size:10px;font-weight:600;color:var(--ink)}
+.ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:19px;color:var(--ink);flex:0 0 auto}
+.ib .spin{margin:0}
+.meta{flex:1;min-width:0;padding:0 4px}
+.meta .nm{font-size:16px;line-height:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta .dt{font-size:13px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strip{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.64);padding:8px 16px 18px;display:flex;align-items:center;gap:10px;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.scrub{flex:1;height:48px;display:flex;align-items:center}
+.scrub .tr{position:relative;width:100%;height:4px;border-radius:999px;background:rgba(243,237,227,.16)}
+.scrub .bf{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:rgba(243,237,227,.40)}
+.scrub .pl{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--accent)}
+.disc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:24px}
+.spin{width:32px;height:32px;border:3px solid var(--surface2);border-top-color:var(--accent);border-radius:999px;animation:sp .8s linear infinite}
+.spin.sm{width:20px;height:20px;border-width:2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center}
+.center .ic{font-size:40px;line-height:48px}
+.center .t{font-size:15px;line-height:22px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.btn.secondary{background:var(--surface);color:var(--ink);border:1.5px solid var(--line)}
+.btn.text{height:40px;color:var(--ink);padding:0 12px}
+.btn.accent{background:var(--accent);color:var(--onAccent)}
+.dim{opacity:.38}
+.hint{font-size:13px;line-height:18px;color:var(--ink)}
+.offrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+.thumb{filter:none;opacity:1}
+.toast{position:absolute;left:14px;right:14px;bottom:18px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+.toast.bad{background:var(--surface);color:var(--ink);border:1.5px solid var(--error);display:flex;gap:8px;align-items:center;justify-content:center}
+.toast.bad .x{color:var(--error)}
+/* chat behind a swipe-down (themed by the app frame) */
+.behind{position:absolute;inset:0;background:var(--bg)}
+.behind .ab{height:64px;display:flex;align-items:center;gap:10px;padding:18px 12px 0;font-weight:700;font-size:16px;color:var(--ink)}
+.behind .av{width:32px;height:32px;border-radius:999px;background:var(--accentSoft)}
+.behind .bub{margin:10px 12px 0;max-width:62%;padding:9px 12px;border-radius:18px 18px 18px 6px;background:var(--surface);color:var(--ink);font-size:14px;border:1px solid var(--line)}
+.behind .bub.me{margin-left:auto;border-radius:18px 18px 6px 18px;background:var(--accent);color:var(--onAccent);border:0}
+.ground{position:absolute;inset:0;background:#000}
+.lbl{position:absolute;right:10px;bottom:10px;font-size:11px;font-weight:700;background:rgba(0,0,0,.64);color:#F3EDE3;border-radius:999px;padding:2px 8px}
+.zoombox{position:absolute;inset:0;overflow:hidden}
+.zoombox svg{position:absolute;width:250%;left:-60%;top:8%}
+.dlg{position:absolute;left:16px;right:16px;top:50%;transform:translateY(-50%);background:var(--surface);border-radius:24px;padding:20px;border:1px solid var(--line);color:var(--ink)}
+.dlg .t{font-size:20px;font-weight:700;line-height:26px}
+.dlg .s{font-size:15px;margin-top:8px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.6)}
+.jk,.jk *{font-family:"Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif}
+.big .meta .nm{font-size:32px;line-height:44px}
+.big .meta .dt{font-size:26px;line-height:36px}
+.big .center .t{font-size:30px;line-height:44px}
+.light-app{--bg:#FAF7F1;--surface:#FFFFFF;--ink:#2A2520;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC}
+.dark-app{--bg:#171512;--surface:#211E1A;--ink:#F3EDE3;--line:#3B362F;--accent:#EFA00B;--onAccent:#21260F;--accentSoft:#3A2E14}
+.amo-app{--bg:#000000;--surface:#0A0908;--ink:#F3EDE3;--line:#3B362F;--accent:#EFA00B;--onAccent:#21260F;--accentSoft:#3A2E14}
+.lightground{background:#FAF7F1;color:#2A2520}
+.lightground .bar{background:rgba(250,247,241,.80)}
+.lightground .bar .ib,.lightground .bar .meta,.lightground .bar .sb{color:#2A2520}
+</style>
+</head>
+<body>
+<h1>Media fullscreen — Page 9 board</h1>
+<p class="sub">
+Board sections <b>S1–S15</b> (page-local). The viewer always runs on the AMOLED tokens (decision 1), so each state is drawn once on black; where the app theme shows (the chat behind a swipe-down, the Hero start), light, dark and AMOLED are drawn side by side. Audit at <code>1a8d416</code>, 2026-10-30 (trail grep + plain grep). <b>S1 is every way into fullscreen media; S12 is which viewer actions the app and PocketBase support today; S13 is the parked media items; S15 is the diff.</b> No live PocketBase read was needed. Checklist: <code>media.md</code>.
+</p>
+
+<!-- reusable photo: a bright, mostly white scene (worst case for chrome contrast) -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="photo" viewBox="0 0 320 240">
+      <rect width="320" height="240" fill="#FFFFFF"/>
+      <rect y="150" width="320" height="90" fill="#EDEDED"/>
+      <circle cx="250" cy="60" r="26" fill="#F4E3B5"/>
+      <path d="M0 170 L90 80 L150 140 L210 70 L320 175 L320 240 L0 240 Z" fill="#DADFE3"/>
+      <path d="M60 200 h40 v-30 h-40 z" fill="#C9A27A"/>
+      <circle cx="160" cy="185" r="14" fill="#8B5E3E"/>
+    </symbol>
+    <symbol id="thumb" viewBox="0 0 32 24">
+      <rect width="32" height="24" fill="#F7F7F7"/>
+      <rect y="15" width="32" height="9" fill="#E8E8E8"/>
+      <rect x="0" y="9" width="32" height="8" fill="#DCE0E3"/>
+      <rect x="15" y="17" width="3" height="3" fill="#8B5E3E"/>
+    </symbol>
+    <symbol id="video" viewBox="0 0 320 180">
+      <rect width="320" height="180" fill="#3B4A3F"/>
+      <rect y="110" width="320" height="70" fill="#2C362E"/>
+      <circle cx="80" cy="60" r="20" fill="#C6894F"/>
+      <rect x="180" y="70" width="70" height="60" fill="#5C3B28"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- S1 -->
+<div class="band">
+<header><span class="n">S1</span><h2>Every way into fullscreen media (in scope or not)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Entry</th><th>Where (<code>1a8d416</code>)</th><th>Today</th><th>Page 9</th></tr>
+<tr><td>1</td><td>Chat photo bubble tap</td><td><code>image_message_bubble.dart:124-131</code> → <code>_openFullScreen</code> <code>:40-55</code></td><td>awaits full download + decrypt, then <code>MaterialPageRoute</code>; Hero <code>media_{serverId}</code>; title "Photo" for others; no in-flight guard</td><td><span class="tag2 in">IN</span> open at once (A1, A2, A4)</td></tr>
+<tr><td>2</td><td>Chat video bubble tap</td><td><code>video_message_bubble.dart:103-127</code></td><td>same await; <code>_opening</code> never reset on a throw; no Hero; title "Video"</td><td><span class="tag2 in">IN</span> open at once + Hero (A2, G1)</td></tr>
+<tr><td>3</td><td>Media &amp; docs → Photos / Videos tile</td><td><code>media_docs_screen.dart:151-170</code></td><td>same await; Hero <code>media_docs_{recordId}</code> on photos</td><td><span class="tag2 in">IN</span> only <code>_open</code> changes (A2)</td></tr>
+<tr><td>4</td><td>GoRoute <code>/media-viewer</code></td><td><code>app_router.dart:43, :197-203</code></td><td><b>dead</b>: nothing navigates to it; casts <code>state.extra</code> (route-extras rule)</td><td><span class="tag2 in">IN</span> delete (decision 13)</td></tr>
+<tr><td>5</td><td><code>VideoPlayerScreen</code></td><td><code>video_player_screen.dart</code> (141 lines)</td><td><b>dead</b>: 0 references in <code>lib/</code> or <code>test/</code>. The registry's "video bubble still references it" is wrong: the bubble opens <code>MediaViewerScreen</code> (<code>:117</code>). One live player.</td><td><span class="tag2 in">IN</span> delete (decision 13)</td></tr>
+<tr><td>6</td><td>Reply-quote thumbnail</td><td><code>reply_quote.dart:333</code></td><td>tap jumps to the message</td><td><span class="tag2 out">OUT</span> not a viewer</td></tr>
+<tr><td>7</td><td>Pinned banner media row</td><td><code>pinned_message_banner.dart</code></td><td>tap jumps</td><td><span class="tag2 out">OUT</span></td></tr>
+<tr><td>8</td><td>Document bubble / Docs tab</td><td><code>document_message_bubble.dart:70</code>, <code>media_docs_screen.dart:711</code></td><td>opens externally</td><td><span class="tag2 out">OUT</span> not fullscreen media</td></tr>
+<tr><td>9</td><td>Voice note / voice sheet</td><td>bubble, <code>media_docs_screen.dart:443</code></td><td>in place / R19 sheet (Page 8)</td><td><span class="tag2 out">OUT</span></td></tr>
+<tr><td>10</td><td>Avatars, group icon</td><td>R1</td><td>no fullscreen view exists</td><td><span class="tag2 out">OUT</span> not offered (not asked)</td></tr>
+<tr><td>11</td><td>Avatar cropper <code>InteractiveViewer</code></td><td><code>crop_photo_screen.dart:227</code></td><td>edit tool, not a viewer</td><td><span class="tag2 out">OUT</span></td></tr>
+</table></div>
+<div class="note"><b>Greps run:</b> <code>MediaViewerScreen</code> (8 hits, 5 files), <code>VideoPlayerScreen</code> (own file only), <code>Hero(</code> (3: bubble, docs tile, viewer), <code>Navigator.of(context).push(</code> (9: 3 media, the rest other screens), <code>PhotoView|InteractiveViewer</code>, <code>mediaViewer</code>. <code>chewie</code> and <code>photo_view</code> are imported only by the viewer and the dead file.</div>
+<div class="note warn"><b>Confirmed smells:</b> silent fetch-then-open (45s offline on an uncached photo) · two viewers on a double tap · <code>$e</code> in two toasts · gradient chrome (C1) with a date line at ~1.4:1 on a white photo · no video error path · video can't be swiped away · "Photo"/"Video" instead of the sender · actions with no semantics · immersive from frame 1 and restored to <code>manual</code> · swipe-down can fire while zoomed.</div>
+</div>
+
+<!-- S2 -->
+<div class="band">
+<header><span class="n">S2</span><h2>Anatomy: one flat bar on black, in every app theme (decisions 1, 4)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light app · tall photo, bar on white (worst case)</span>
+    <div class="vf amoled">
+      <div class="media"><svg viewBox="0 0 320 240" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div>
+        <span class="ib">✕</span>
+        <div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div><div class="dt">Expires Dec 29</div></div>
+        <span class="ib">⤴</span><span class="ib">⤓</span>
+      </div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark app · same viewer</span>
+    <div class="vf amoled">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div>
+        <span class="ib">✕</span>
+        <div class="meta"><div class="nm">You</div><div class="dt">Oct 30, 2026 · 14:02</div></div>
+        <span class="ib">⤴</span><span class="ib">⤓</span>
+      </div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">AMOLED app · same viewer</span>
+    <div class="vf amoled">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div>
+        <span class="ib">✕</span>
+        <div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div>
+        <span class="ib">⤴</span><span class="ib">⤓</span>
+      </div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">Decision 1 alternative · follows the light theme</span>
+    <div class="vf lightground">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div>
+        <span class="ib">✕</span>
+        <div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div>
+        <span class="ib">⤴</span><span class="ib">⤓</span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="note"><b>Bar:</b> close 48 · sender (title 16/22 w600, 1 line) over date (caption 13/18, 1 line) · Share 48 · Save 48. Background <b>flat</b> <code>t.bg</code> @ 64% (no gradient, C1), the status bar drawn inside it. All text and icons <code>t.ink</code> #F3EDE3. Tooltips <b>Close</b>, <b>Share</b>, <b>Save to gallery</b>. Actions appear only once the full file is loaded (B5). No bottom bar (decision 4). <b>B6 (decision 17, first frame):</b> once loaded, a third line says when the server drops it: <b>Expires Dec 29</b> (&gt;7 days), <b>Expires in 3 days</b>, <b>Expires in 5 hours</b>; same thresholds as the bubble pill. Today the date is invisible until the last 7 days.</div>
+</div>
+
+<!-- S3 -->
+<div class="band">
+<header><span class="n">S3</span><h2>Chrome hidden = immersive; contrast against the scrim, not the token background</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">Tap → chrome + system bars hidden</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+    </div>
+  </div>
+  <div style="flex:1;min-width:260px">
+    <div class="tblwrap"><table>
+    <tr><th>Text on the bar</th><th>Over a white photo</th><th>Over black</th></tr>
+    <tr><td>Today: <code>white70</code> date where the gradient thins (~40% black)</td><td class="bad">1.4:1</td><td>12:1</td></tr>
+    <tr><td><code>t.ink</code> on flat 50%</td><td class="bad">3.4:1</td><td>18:1</td></tr>
+    <tr><td><code>t.inkSoft</code> on flat 64%</td><td class="bad">2.2:1</td><td>6.9:1</td></tr>
+    <tr><td><b><code>t.ink</code> on flat 64% (spec)</b></td><td class="ok"><b>5.7:1</b></td><td class="ok">18:1</td></tr>
+    <tr><td><code>t.accent</code> as text on flat 64%</td><td class="bad">3.1:1</td><td>9.7:1</td></tr>
+    <tr><td><code>t.onAccent</code> on the accent disc</td><td colspan="2" class="ok">7.2:1 (fill, not text on the scrim)</td></tr>
+    </table></div>
+    <div class="note"><b>H1:</b> chrome shown → <code>SystemUiMode.edgeToEdge</code> (light icons, transparent bars); hidden → <code>immersiveSticky</code>; closing → <code>edgeToEdge</code> (the app's mode). Hidden chrome is <code>IgnorePointer</code> + <code>ExcludeSemantics</code>; under TalkBack (<code>accessibleNavigation</code>) it never hides. One tap toggles the bar <i>and</i> the video controls together (fade 150ms).</div>
+  </div>
+</div>
+</div>
+
+<!-- S4 -->
+<div class="band">
+<header><span class="n">S4</span><h2>Gestures: pinch, double-tap at the finger, swipe-down shows the chat (decisions 8, 9)</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">Double-tap on the figure → 2.5× there</span>
+    <div class="vf amoled short">
+      <div class="zoombox"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <span class="lbl">2.5× · drag pans, never closes</span>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">Light app · dragging down 140dp</span>
+    <div class="vf light-app short">
+      <div class="behind"><div class="ab"><span class="av"></span>Aanya</div><div class="bub">see the snow!!</div><div class="bub me">wow</div></div>
+      <div class="ground" style="opacity:.53"></div>
+      <div class="media" style="transform:translateY(140px)"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark app · same drag</span>
+    <div class="vf dark-app short">
+      <div class="behind"><div class="ab"><span class="av"></span>Aanya</div><div class="bub">see the snow!!</div><div class="bub me">wow</div></div>
+      <div class="ground" style="opacity:.53"></div>
+      <div class="media" style="transform:translateY(140px)"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">AMOLED app · same drag</span>
+    <div class="vf amo-app short">
+      <div class="behind"><div class="ab"><span class="av"></span>Aanya</div><div class="bub">see the snow!!</div><div class="bub me">wow</div></div>
+      <div class="ground" style="opacity:.53"></div>
+      <div class="media" style="transform:translateY(140px)"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+    </div>
+  </div>
+</div>
+<div class="note"><b>C1–C4:</b> <code>InteractiveViewer</code> 1×–4× (replaces <code>photo_view</code>). Double-tap at fit → 2.5× centred on the finger; again → fit (250ms; reduced motion jumps). At fit, a vertical drag moves the photo and fades the ground to <code>1 − |dy|/300</code> (floor 0.3) on a non-opaque route, so the chat shows through; past 120dp or 600 px/s → close, else snap back 150ms. Zoomed (&gt;1.01×) a drag only pans. Videos close the same way (decision 9).</div>
+</div>
+
+<!-- S5 -->
+<div class="band">
+<header><span class="n">S5</span><h2>Loading: open at once on the thumbnail (decision 2)</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">Loading · thumbnail + R3a</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 32 24" style="image-rendering:pixelated"><use href="#thumb"/></svg></div>
+      <div class="center"><span class="spin"></span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Offline, never downloaded</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 32 24" style="image-rendering:pixelated"><use href="#thumb"/></svg></div>
+      <div class="center"><span class="spin"></span><span class="t" style="background:rgba(0,0,0,.64);border-radius:12px;padding:4px 10px">Waiting for a connection</span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>✈ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">No thumbnail (rare) · ring alone</span>
+    <div class="vf amoled short">
+      <div class="center"><span class="spin"></span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Photo</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="flow"><span class="bx">tap bubble</span><span class="ar">→</span><span class="bx ok">push now (thumbPath, Hero)</span><span class="ar">→</span><span class="bx">viewer watches <code>mediaFileProvider</code></span><span class="ar">→</span><span class="bx ok">full file fades in (150ms)</span></div>
+<div class="flow"><span class="bx">offline</span><span class="ar">→</span><span class="bx">“Waiting for a connection”</span><span class="ar">→</span><span class="bx">online</span><span class="ar">→</span><span class="bx ok"><code>ref.invalidate</code> then re-read</span></div>
+<div class="note"><b>D1, D2, D6:</b> the thumbnail shows only until the full file lands, so the 200px thumbnail (S13 b) is a placeholder here, not the photo. No timeout is wrapped around the load: <code>requestBlob</code> decrypts inside. The line under the ring is information, not an action: nothing dims.</div>
+</div>
+
+<!-- S6 -->
+<div class="band">
+<header><span class="n">S6</span><h2>Errors: only what can be retried gets Try again (decision 3)</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">Load failed · online</span>
+    <div class="vf amoled short">
+      <div class="center"><span class="ic">⚠</span><span class="t">Couldn't load this photo.</span><span class="btn secondary">Try again</span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Load failed · offline</span>
+    <div class="vf amoled short">
+      <div class="center"><span class="ic">⚠</span><span class="t">Couldn't load this photo.</span><div class="offrow"><span class="btn secondary dim">Try again</span><span class="hint">Available online</span></div></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>✈ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Expired (retention / 401 / 404)</span>
+    <div class="vf amoled short">
+      <div class="center"><span class="ic">⏲</span><span class="t">This photo has expired.</span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Aug 2, 2026 · 09:11</div></div></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Decrypt / verify failed</span>
+    <div class="vf amoled short">
+      <div class="center"><span class="ic">🔒</span><span class="t">Can't decrypt</span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="note"><b>D3–D5:</b> icon 48 <code>t.ink</code>, copy body 15/22 ink, R3 secondary <b>Try again</b> (invalidate, then re-read). Offline: one 38% dim on the button, <b>Available online</b> beside it, not inside the dim. The store never retries a <code>failed</code> blob, so expired and can't-decrypt get no button (read-only look at the blob row, decision 3). A photo that fails to decode gets the first block. Bubble-sized <code>ExpiredPlaceholder</code> (10.5px, inkSoft @50%) is not reused: unreadable at this size.</div>
+</div>
+
+<!-- S7 -->
+<div class="band">
+<header><span class="n">S7</span><h2>Video: own controls, one chrome (decision 7)</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">Playing · chrome shown</span>
+    <div class="vf amoled">
+      <div class="media"><svg viewBox="0 0 320 180"><use href="#video"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib">⤓</span></div>
+      <span class="disc">❚❚</span>
+      <div class="strip"><span>0:12</span><span class="scrub"><span class="tr"><span class="bf" style="width:55%"></span><span class="pl" style="width:19%"></span></span></span><span>1:05</span></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Opening · poster + R3a</span>
+    <div class="vf amoled">
+      <div class="media"><svg viewBox="0 0 320 180"><use href="#video"/></svg></div>
+      <div class="center"><span class="spin"></span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Ended · Play again</span>
+    <div class="vf amoled">
+      <div class="media"><svg viewBox="0 0 320 180"><use href="#video"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib">⤓</span></div>
+      <span class="disc">↻</span>
+      <div class="strip"><span>1:05</span><span class="scrub"><span class="tr"><span class="bf" style="width:100%"></span><span class="pl" style="width:100%"></span></span></span><span>1:05</span></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Init failed</span>
+    <div class="vf amoled">
+      <div class="center"><span class="ic">⚠</span><span class="t">Couldn't play this video.</span><span class="btn secondary">Try again</span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="note"><b>E1–E6:</b> <code>video_player</code> + our widgets; <code>chewie</code> leaves (its own tap layer and options sheet collided with our bar). Disc 64 <code>t.accent</code> fill + <code>t.onAccent</code> glyph: <b>Pause</b> / <b>Play</b> / <b>Play again</b>. Strip on the same flat 64% scrim: elapsed · <code>VideoProgressIndicator(allowScrubbing)</code> (played accent fill, buffered ink @40%, track ink @16%, ≥48 touch, <b>Video position</b>) · total, caption 13/18 tabular. Autoplay, no loop, no mute (hardware volume). Swipe-down closes and disposes. Background → paused.</div>
+</div>
+
+<!-- S8 -->
+<div class="band">
+<header><span class="n">S8</span><h2>Save and share: local, R3a busy, R5 toasts; what leaves the app (decision 5)</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">Saving · busy</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib"><span class="spin sm"></span></span></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Saved · R5</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib">⤓</span></div>
+      <div class="toast">Saved to gallery</div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Save failed · R5 error</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib">⤓</span></div>
+      <div class="toast bad"><span class="x">⚠</span>Couldn't save. Try again.</div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">Decision 5B only · one-time R20 notice</span>
+    <div class="vf amoled short">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="scrim"></div>
+      <div class="dlg"><div class="t">Saved copies aren't encrypted</div><div class="s">Anyone with access to your gallery or the app you share to can see it.</div><div class="acts"><span class="btn text">Cancel</span><span class="btn accent">Save</span></div></div>
+    </div>
+  </div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Outcome</th><th>Toast (R5, fixed copy)</th></tr>
+<tr><td>Saved</td><td><b>Saved to gallery</b></td></tr>
+<tr><td>Access denied (<code>Gal.requestAccess</code> → false)</td><td><b>Allow photo access in Settings to save.</b> (error)</td></tr>
+<tr><td><code>GalExceptionType.notEnoughSpace</code></td><td><b>Not enough space to save.</b> (error)</td></tr>
+<tr><td>Anything else</td><td><b>Couldn't save. Try again.</b> (error)</td></tr>
+<tr><td>Share threw</td><td><b>Couldn't share.</b> (error)</td></tr>
+<tr><td>Share sheet dismissed</td><td>none</td></tr>
+</table></div>
+<div class="note warn"><b>Decision 5 (what leaves the app):</b> a saved or shared file is the decrypted copy. Photos were re-encoded without EXIF at send (no GPS). Videos: <b>not verified</b> (<code>video_compress</code> transcodes; container metadata not checked). Default 5A: Save + Share everywhere, no confirmation. 5B: the one-time notice above. 5C: hide both in chats with disappearing messages on (by the conversation's current setting: the <code>Message</code> entity has no per-message expiry).</div>
+</div>
+
+<!-- S9 -->
+<div class="band">
+<header><span class="n">S9</span><h2>Hero handoff and reduced motion</h2></header>
+<div class="flow"><span class="bx">bubble thumbnail (cover)</span><span class="ar">→ Hero <code>media_{serverId}</code> →</span><span class="bx">viewer thumbnail (contain)</span><span class="ar">→ 150ms fade →</span><span class="bx ok">full photo / video</span></div>
+<div class="flow"><span class="bx">docs tile</span><span class="ar">→ Hero <code>media_docs_{recordId}</code> →</span><span class="bx">viewer thumbnail</span></div>
+<div class="flow"><span class="bx bad">reduced motion</span><span class="ar">→</span><span class="bx">no Hero in the tree · zero-duration route · chrome, swap, snap-back, double-tap all jump</span><span class="ar">·</span><span class="bx">the drag still follows the finger</span></div>
+<div class="note"><b>G1:</b> both ends of the Hero are the same thumbnail picture, so the flight never swaps image mid-air (today the viewer's Hero holds the full-res <code>PhotoView</code>). Videos get a Hero too. Route: non-opaque fade, 250ms in, 150ms out (A5).</div>
+</div>
+
+<!-- S10 -->
+<div class="band">
+<header><span class="n">S10</span><h2>Orientation: follows the phone (the app allows all four)</h2></header>
+<div class="row">
+  <div class="wrap amo" style="max-width:100%"><span class="tag">Landscape · video · cutout left</span>
+    <div class="vf amoled land">
+      <div class="media"><svg viewBox="0 0 320 180" style="height:100%;width:auto"><use href="#video"/></svg></div>
+      <div class="bar" style="padding-left:34px;padding-top:6px"><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib">⤓</span></div>
+      <span class="disc">❚❚</span>
+      <div class="strip" style="padding-left:44px"><span>0:12</span><span class="scrub"><span class="tr"><span class="bf" style="width:55%"></span><span class="pl" style="width:19%"></span></span></span><span>1:05</span></div>
+    </div>
+  </div>
+</div>
+<div class="note"><b>H2:</b> no lock. Rotating keeps the video position and play state; a zoomed photo resets to fit. Bar and strip pad for the cutout (<code>SafeArea</code> left/right).</div>
+</div>
+
+<!-- S11 -->
+<div class="band">
+<header><span class="n">S11</span><h2>A11y and 360dp × 200% text, Plus Jakarta Sans</h2></header>
+<div class="row">
+  <div class="wrap amo"><span class="tag">200% · Jakarta · long name</span>
+    <div class="vf amoled short jk big">
+      <div class="media"><svg viewBox="0 0 320 240"><use href="#photo"/></svg></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya Kulkarni-Deshpande</div><div class="dt">Oct 30, 2026 · 14:02</div></div><span class="ib">⤴</span><span class="ib">⤓</span></div>
+    </div>
+  </div>
+  <div class="wrap amo"><span class="tag">200% · Jakarta · error block wraps</span>
+    <div class="vf amoled short jk big">
+      <div class="center"><span class="ic">⚠</span><span class="t">Couldn't load this photo.</span><span class="btn secondary" style="font-size:30px;height:auto;padding:8px 18px">Try again</span></div>
+      <div class="bar"><div class="sb"><span>14:05</span><span>▴ ◔ ▮</span></div><span class="ib">✕</span><div class="meta"><div class="nm">Aanya</div><div class="dt">Oct 30</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="note"><b>I1–I3:</b> semantics: <b>Close</b>, <b>Share</b>, <b>Save to gallery</b> buttons; the photo is one node <b>Photo from Aanya Kulkarni, Oct 30, 2026 · 14:02</b>; video adds <b>Play/Pause/Play again</b> and <b>Video position</b>. Bar text ellipsises at one line; blocks wrap and centre. No <code>Text</code> in <code>t.accent</code> / <code>t.error</code>.</div>
+</div>
+
+<!-- S12 -->
+<div class="band">
+<header><span class="n">S12</span><h2>Viewer actions vs what the app and PocketBase support today</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Action</th><th>Support today</th><th>Needs network?</th><th>Page 9</th></tr>
+<tr><td>Save to gallery</td><td><code>gal 2.3.2</code> (<code>putImage</code>/<code>putVideo</code>, <code>hasAccess</code>/<code>requestAccess</code>); manifest has <code>WRITE_EXTERNAL_STORAGE maxSdk 28</code></td><td>no (local file)</td><td class="ok">kept, fixed (F1–F3)</td></tr>
+<tr><td>Share</td><td><code>share_plus 10</code> <code>shareXFiles</code></td><td>no</td><td class="ok">kept, fixed (F1–F3)</td></tr>
+<tr><td>Zoom / double-tap</td><td><code>photo_view</code> today; <code>InteractiveViewer</code> is built in</td><td>no</td><td class="ok">kept, rebuilt (C1–C4, decision 8)</td></tr>
+<tr><td>Swipe down to close</td><td>photos only</td><td>no</td><td class="ok">photos + videos (decision 9)</td></tr>
+<tr><td>Swipe between items</td><td>no list source in the viewer; chat-local media rows exist in drift</td><td>no</td><td>separate task (decision 6)</td></tr>
+<tr><td>Forward</td><td><b>does not exist</b> in the app</td><td>yes</td><td>not offered (decision 14)</td></tr>
+<tr><td>Delete / reply / star</td><td>exist in the long-press menu (Page 8)</td><td>delete for everyone: yes</td><td>not in the viewer (decision 14)</td></tr>
+<tr><td>Expired media</td><td>retention <code>expires_at</code> per media; store classes <code>expired</code>/<code>dead_link</code></td><td>—</td><td class="ok">expired block (D4)</td></tr>
+<tr><td>Key missing / decrypt failed</td><td>store class <code>decrypt</code>/<code>verify</code> (terminal); missing key → <code>queued</code></td><td>—</td><td class="ok"><b>Can't decrypt</b> (D4)</td></tr>
+<tr><td>Download progress %</td><td>none (one <code>http.get</code>, Chat J8)</td><td>—</td><td>indeterminate R3a; J8 separate</td></tr>
+<tr><td>Captions</td><td>none (no caption field on media messages)</td><td>—</td><td>nothing to show</td></tr>
+<tr><td>Screenshot blocking</td><td>no plugin / platform code</td><td>—</td><td>not offered (decision 12)</td></tr>
+<tr><td>Keep screen awake</td><td><code>wakelock_plus</code> only transitive (via chewie, which leaves)</td><td>—</td><td>not offered (decision 10)</td></tr>
+</table></div>
+</div>
+
+<!-- S13 -->
+<div class="band">
+<header><span class="n">S13</span><h2>The parked media items: in scope, or a separate task (decision 15)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Item</th><th>What the code says</th><th>Default</th></tr>
+<tr><td>a</td><td>GIFs sent as JPEG</td><td>confirmed: every image goes through <code>FlutterImageCompress … CompressFormat.jpeg</code> (<code>media_upload_service.dart:126-132</code>), so only the first frame survives</td><td>separate task (upload). The viewer already animates GIFs (C5)</td></tr>
+<tr><td>b</td><td>Pixelated thumbnails</td><td>confirmed: 200px wide at 60% (<code>:139-151</code>); a bubble is ~260dp × ~3 dpr</td><td>separate task (upload); in the viewer the thumbnail is only a placeholder</td></tr>
+<tr><td>c</td><td>Offline media resend never retries</td><td>upload path, outbox</td><td>separate task</td></tr>
+<tr><td>d</td><td>Upload cancel</td><td>composer + upload</td><td>separate task</td></tr>
+<tr><td>e</td><td>Chat J8: determinate download progress</td><td>no progress source (one <code>http.get</code>, <code>media_blob_store.dart:250</code>)</td><td>separate task; indeterminate R3a here</td></tr>
+<tr><td>f</td><td>200% overflows: Home rows, chat app bar "Last seen"</td><td>not media files</td><td>separate task (one small session)</td></tr>
+<tr><td>g</td><td>Store download has no timeout</td><td><code>_httpClient.get</code> unbounded (<code>:250</code>); frozen file</td><td>separate task: bound the <code>http.get</code> only, never around decrypt</td></tr>
+</table></div>
+</div>
+
+<!-- S13b -->
+<div class="band">
+<header><span class="n">S13b</span><h2>User requests 2026-10-30: here or a separate task</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Request</th><th>Default</th><th>Why</th></tr>
+<tr><td>1</td><td>Share into the app from other apps / file manager</td><td>separate task</td><td>no <code>SEND</code> intent filter today; needs a receive plugin + a chat picker + the send pipeline</td></tr>
+<tr><td>2</td><td>Media bubble states in the chat (deleted, can't decrypt, expired, failed)</td><td>separate task, right after Page 9</td><td>bubbles frozen here; reuses this page's blob-status provider, so it follows, not runs alongside</td></tr>
+<tr><td>3</td><td>Where the delete date shows</td><td><span class="tag2 in">HERE</span> B6</td><td>third bar line in the viewer</td></tr>
+<tr><td>4</td><td>Original format + crop / mark-up / trim before sending</td><td>separate task (“media send”) with S13 a + b</td><td>upload + composer; JPEG/HEIC must still be re-encoded to drop GPS; trim needs a maintained native transcoder</td></tr>
+<tr><td>5</td><td>Album bubble (sideways scroll) + auto collage</td><td>separate task (“albums”), owns decision 6</td><td>needs a batch id or grouping rule, a new bubble, the collage, and a pager around this viewer</td></tr>
+</table></div>
+</div>
+
+<!-- S14 -->
+<div class="band">
+<header><span class="n">S14</span><h2>Found, not here</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Finding</th><th>Where</th><th>Why not here</th></tr>
+<tr><td>K1</td><td>Media &amp; docs tabs show <code>Text('Error: $e')</code> and lone <code>CircularProgressIndicator</code>s</td><td><code>media_docs_screen.dart:242-243</code>, <code>:307</code>, <code>:375</code>, <code>:661</code></td><td>the grid, not the viewer (fold into the next pass on that screen)</td></tr>
+<tr><td>K2</td><td><code>mediaFileProvider</code> waits 45s for the media row before returning null, also when the real cause is offline</td><td><code>chat_provider.dart:74-80</code></td><td>frozen; the viewer works around it (D2 re-reads on reconnect)</td></tr>
+<tr><td>K3</td><td>A missing conversation key leaves the blob <code>queued</code>, so the viewer can only say <b>Couldn't load</b>, not <b>Can't decrypt</b></td><td><code>media_blob_store.dart</code> pipeline</td><td>frozen key/decrypt path</td></tr>
+<tr><td>K4</td><td><code>Message</code> has no per-message <code>expiresAt</code> (the drift table has it)</td><td><code>message.dart</code>, <code>messages_table.dart:47</code></td><td>domain entity; only matters for decision 5C</td></tr>
+<tr><td>K5</td><td>Registry C10 says the video bubble still references <code>VideoPlayerScreen</code>: it does not</td><td><code>10-registry.md:66</code></td><td>fixed by the C10 amendment (J2)</td></tr>
+</table></div>
+</div>
+
+<!-- S15 -->
+<div class="band">
+<header><span class="n">S15</span><h2>Diff vs current implementation</h2></header>
+<p class="mini">The full table, with checklist IDs and line refs, is in <code>media.md</code> → “Diff vs current implementation”. Summary:</p>
+<div class="tblwrap"><table>
+<tr><th>Area</th><th>Today</th><th>Spec</th></tr>
+<tr><td>Opening</td><td>silent fetch-then-open (45s offline); double tap = two viewers</td><td>opens at once on the thumbnail; viewer loads</td></tr>
+<tr><td>Players / routes</td><td>one live viewer, one dead player, one dead route on <code>state.extra</code></td><td>one viewer; dead code deleted</td></tr>
+<tr><td>Chrome</td><td>two gradient bars (C1), <code>white70</code> 12px, no semantics</td><td>one flat 64% bar, ink, IconButtons with tooltips</td></tr>
+<tr><td>Ground</td><td><code>Colors.black</code></td><td>AMOLED tokens in every theme</td></tr>
+<tr><td>Zoom / dismiss</td><td><code>PhotoView</code>; can dismiss while zoomed; video can't be dismissed</td><td><code>InteractiveViewer</code>; tap-point zoom; dismiss only at fit; videos too</td></tr>
+<tr><td>States</td><td>lone spinner; broken-image icon; video spins forever</td><td>thumbnail + R3a; offline line; load / expired / can't-decrypt blocks</td></tr>
+<tr><td>Video</td><td>chewie with its own tap layer and options sheet</td><td>own disc + strip</td></tr>
+<tr><td>Save / share</td><td>raw SnackBars with <code>$e</code>; no access check</td><td>R5 fixed copy; <code>hasAccess</code>; R3a busy</td></tr>
+<tr><td>Motion / system UI</td><td>reduced motion ignored; immersive from frame 1; restore to <code>manual</code></td><td>no Hero + jumps; edge-to-edge ⇄ immersive with the chrome</td></tr>
+<tr><td>Dependencies</td><td><code>photo_view</code>, <code>chewie</code></td><td>both removed</td></tr>
+</table></div>
+</div>
+
+</body>
+</html>

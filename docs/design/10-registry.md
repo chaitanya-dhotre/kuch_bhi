@@ -63,7 +63,7 @@ ThemeExtension); geometry via `WarmPopTokens` statics. No hardcoded color.
 | C7 | Expiry affordance (unify) | today divergent: `ExpiryBadge` (img/vid), text label (voice/doc), `ExpiredMediaPlaceholder` | spec: ONE `ExpiryBadge` pill, top-right on all media; expired content = one `ExpiredMediaPlaceholder` pattern |
 | C8 | Jump-to-message + landing highlight | `chat_screen.dart _jumpToMessage` + `_HighlightWrapper` | ANY jump source (search/pin/star/reply) lands with the same brief highlight flash (chat spec §8) |
 | C9 | `ConversationPreviewText` | `message_body_text.dart` (export) | derived preview (P7) for home tiles — page 2 uses, never string-caches |
-| C10 | `MediaViewerScreen` | `lib/features/media/` | canonical image/video fullscreen handoff (Hero `media_{serverId}`); `video_player_screen.dart` = divergent dead path — out of scope, backlog |
+| C10 | `MediaViewerScreen(args: MediaViewerArgs(conversationId, serverId, mediaType, senderName, timestamp, heroTag?, thumbPath?))` + `pushMediaViewer(context, args)` | `lib/features/media/screens/media_viewer_screen.dart` | the ONE fullscreen viewer for photos and videos; opens at once on the thumbnail and loads the full file itself; AMOLED ground in every theme; own video controls; `video_player_screen.dart` and the `/media-viewer` route deleted. Opened by the chat photo/video bubbles (Hero `media_{serverId}`) and the Media & docs grid (Hero `media_docs_{recordId}`) only (page 9, 2026-10-30) |
 
 ## Destination boundary (screens reached FROM chat — not re-specced here)
 

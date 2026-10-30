@@ -136,7 +136,8 @@ class MediaUploadService {
     return File(result.path);
   }
 
-  /// Generates a 200px thumbnail at 60% quality.
+  /// Generates a 640px thumbnail at 70% quality: a 210dp bubble is ~630px on
+  /// a 3x screen, and the old 200px one read as pixelated.
   Future<File> generateImageThumbnail(File image) async {
     final tmpDir  = await getTemporaryDirectory();
     final ts      = DateTime.now().millisecondsSinceEpoch;
@@ -145,9 +146,9 @@ class MediaUploadService {
     final result = await FlutterImageCompress.compressAndGetFile(
       image.absolute.path,
       outPath,
-      minWidth:    200,
-      minHeight:   200,
-      quality:     60,
+      minWidth:    640,
+      minHeight:   640,
+      quality:     70,
       format:      CompressFormat.jpeg,
     );
 
