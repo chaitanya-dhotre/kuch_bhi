@@ -108,7 +108,7 @@ class FcmService {
 
     // Token refresh listener
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-      debugPrint('[FCM] Token refreshed: $newToken');
+      debugPrint('[FCM] Token refreshed.');
       try {
         final localDb = _db ?? AppDatabase();
         final userId = await localDb.settingsDao.getSetting(AppSettingsKeys.currentUserId);

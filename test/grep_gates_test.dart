@@ -541,6 +541,82 @@ void main() {
         .map((f) => f.path);
     expect(hits, isEmpty);
   });
+
+  test('security wave 1 §8.1: starred path sends and shows no server body',
+      () {
+    final repo = File(
+      'lib/infrastructure/repositories/message_repository_impl.dart',
+    ).readAsStringSync();
+    expect(repo.contains("'message_preview'"), isFalse,
+        reason: 'starred_messages.message_preview is plaintext at rest');
+    final screen = File(
+      'lib/features/starred_messages/screens/starred_messages_screen.dart',
+    ).readAsStringSync();
+    expect(screen.contains('MessageBodyText('), isTrue,
+        reason: 'text cards use the keyed body renderer + placeholder');
+    expect(screen.contains('🔒 Encrypted'), isFalse);
+    expect(screen.contains('messageBodyProvider(msg.localId)'), isTrue,
+        reason: 'voice/doc labels decrypt on device, not from the server');
+  });
+
+  test('security wave 1 §3: FCM token and user id are not logged', () {
+    expect(File('lib/services/fcm_debug_helper.dart').existsSync(), isFalse);
+    for (final f in ['lib/main.dart', 'lib/services/fcm_service.dart']) {
+      final src = File(f).readAsStringSync();
+      expect(src.contains('FcmDebugHelper'), isFalse, reason: f);
+      expect(
+        RegExp(r'debugPrint\([^;]*\$\{?(newToken|fcmToken|token)\b')
+            .hasMatch(src),
+        isFalse,
+        reason: '$f logs an FCM token',
+      );
+    }
+  });
+
+  test('security wave 1 §4.2: Android backup and D2D transfer are off', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(manifest.contains('android:allowBackup="false"'), isTrue);
+    expect(
+      manifest.contains(
+        'android:dataExtractionRules="@xml/data_extraction_rules"',
+      ),
+      isTrue,
+    );
+    final rules = File(
+      'android/app/src/main/res/xml/data_extraction_rules.xml',
+    ).readAsStringSync();
+    for (final section in ['cloud-backup', 'device-transfer']) {
+      expect(rules.contains('<$section>'), isTrue, reason: section);
+    }
+    for (final domain in [
+      'root',
+      'file',
+      'database',
+      'sharedpref',
+      'external',
+      'device_root',
+      'device_file',
+      'device_database',
+      'device_sharedpref',
+    ]) {
+      expect(rules.contains('<exclude domain="$domain" path="."/>'), isTrue,
+          reason: domain);
+    }
+  });
+
+  test('security wave 1 §2.1: google-services copies are git-ignored', () {
+    // --no-index: without it git never reports a tracked file as ignored.
+    bool ignored(String path) => Process.runSync(
+          'git',
+          ['check-ignore', '-q', '--no-index', path],
+        ).exitCode ==
+        0;
+    expect(ignored('android/app/google-services (2).json'), isTrue);
+    expect(ignored('android/app/google-services (9).json'), isTrue);
+    expect(ignored('android/app/google-services.json'), isFalse,
+        reason: 'the real, tracked config stays tracked');
+  });
 }
 
 const _bannedPurpleHexes = [

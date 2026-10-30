@@ -2280,7 +2280,8 @@ class MessageRepositoryImpl implements MessageRepository {
                     'user_id': myId,
                     'message_id': msg.serverId,
                     'conversation_id': msg.conversationId,
-                    'message_preview': bodyCache.get(msg.localId) ?? '',
+                    // §8.1: no body field — a decrypted preview here is
+                    // plaintext at rest on the server.
                     'sender_id': msg.senderId,
                   },
                 );
@@ -2619,26 +2620,23 @@ class MessageRepositoryImpl implements MessageRepository {
       final out = <Message>[];
       for (final record in res.items) {
         final serverId = record.getStringValue('message_id');
-        // Resolve the REAL message type from the local cache — the
-        // starred_messages PB collection only stores message_preview (text),
-        // so without this lookup every starred media item would render as
-        // plaintext and look blank. Fall back to 'text' only when the
-        // message isn't in the local cache yet.
-        String realType = 'text';
+        // §8.1: the server record carries ids only. Type and body come from
+        // the local row (body decrypted on device); a message that isn't
+        // local renders the keyed placeholder (null body, 'text').
+        MessagesTableData? local;
         try {
-          final local = await db.messagesDao.getMessageByServerId(serverId);
-          if (local != null && local.type.isNotEmpty) {
-            realType = local.type;
-          }
+          local = await db.messagesDao.getMessageByServerId(serverId);
         } catch (_) {}
         out.add(
           Message(
-            localId: record.id,
+            localId: local?.localId ?? record.id,
             serverId: serverId,
             conversationId: record.getStringValue('conversation_id'),
             senderId: record.getStringValue('sender_id'),
-            type: realType,
-            decryptedBody: record.getStringValue('message_preview'),
+            type: (local?.type.isNotEmpty ?? false) ? local!.type : 'text',
+            decryptedBody: local == null ? null : bodyCache.get(local.localId),
+            decryptState: local?.decryptState ?? 'pending',
+            ciphertextLength: local?.encryptedBody.length ?? 0,
             status: 'read',
             createdAt: DateTime.tryParse(record.created) ?? DateTime.now(),
             isStarred: true,
@@ -2648,7 +2646,15 @@ class MessageRepositoryImpl implements MessageRepository {
       return out;
     } catch (e) {
       debugPrint('[Star] getStarredMessages: $e');
-      return [];
+      // Offline: list the locally starred rows instead of an empty screen.
+      try {
+        // '' not _myId(): the mapper never reads it, and _myId can poll 10s.
+        final rows = await db.messagesDao.getStarredMessages(conversationId);
+        return rows.map((r) => _rowToMessage(r, '')).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      } catch (_) {
+        return [];
+      }
     }
   }
 

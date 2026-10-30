@@ -8,6 +8,8 @@ import '../../../core/theme/tokens.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../chat/providers/chat_provider.dart';
+import '../../chat/providers/message_body_provider.dart';
+import '../../chat/widgets/message_body_text.dart';
 
 final _starredProvider = FutureProvider.autoDispose
     .family<List<Message>, String>((ref, conversationId) {
@@ -186,7 +188,10 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
   /// Media-aware card content — never blank, even for video/voice/document.
   Widget _buildContent(BuildContext context) {
     final msg  = widget.message;
-    final body = msg.decryptedBody ?? '';
+    // Voice duration / file name decrypt on device after a cold start.
+    final body = ref.watch(messageBodyProvider(msg.localId)).valueOrNull ??
+        msg.decryptedBody ??
+        '';
 
     switch (msg.type) {
       case 'image':
@@ -210,9 +215,12 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
           body.isNotEmpty ? body : 'Document',
         );
       default:
-        return Text(
-          msg.decryptedBody ?? '🔒 Encrypted',
-          style: const TextStyle(fontSize: 15),
+        // Body resolves on device (cache → decrypt); never a server copy.
+        return MessageBodyText(
+          messageId: msg.localId,
+          styleContext: 'bubble',
+          decryptState: msg.decryptState,
+          ciphertextLength: msg.ciphertextLength,
         );
     }
   }

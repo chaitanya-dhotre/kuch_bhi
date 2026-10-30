@@ -15,7 +15,6 @@ import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
-import 'services/fcm_debug_helper.dart';
 import 'services/fcm_service.dart';
 
 @pragma('vm:entry-point')
@@ -63,7 +62,6 @@ Future<void> main() async {
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // FCM token registration is handled by auth_repository_impl and fcm_service.
-  await FcmDebugHelper.printFcmDebugInfo();
 
   runApp(
     ProviderScope(
