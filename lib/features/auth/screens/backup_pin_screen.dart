@@ -1,35 +1,46 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/recovery_key.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_dialog.dart';
+import '../../../core/widgets/app_field.dart';
+import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/repositories/message_repository.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/encryption_service.dart';
 import '../../settings/widgets/font_choice_group.dart';
 import '../../settings/widgets/notifications_status_row.dart';
 import '../../settings/widgets/theme_mode_group.dart';
+import '../providers/auth_provider.dart';
 import '../providers/encryption_sync_provider.dart';
+import '../widgets/auth_text_field.dart';
+import '../widgets/auth_ui.dart';
 
 enum BackupPinMode { setup, restore, change }
 
 /// High-level restore steps. Drives the loading overlay message + icon so
-/// the user gets continuous feedback during PIN restore (which can take
+/// the user gets continuous feedback during restore (which can take
 /// 1–3 minutes re-paging the full encrypted history).
 enum RestorePhase {
   idle,
-  deriving,         // PBKDF2 + AES-GCM decrypt of the encrypted private key
-  finalisingKey,    // Saving decrypted key to secure storage
-  fetchingConvs,    // Re-downloading the conversation list
-  downloadingMsgs,  // Paging through all messages across conversations
-  decrypting,       // AES-GCM decrypt of every message ciphertext
-  ready,            // All done, transitioning to home
+  deriving, // Opening the key backup (PBKDF2 for a legacy PIN)
+  finalisingKey, // Saving decrypted key to secure storage
+  fetchingConvs, // Re-downloading the conversation list
+  downloadingMsgs, // Paging through all messages across conversations
+  decrypting, // AES-GCM decrypt of every message ciphertext
+  ready, // All done, transitioning to home
 }
 
 extension _RestorePhaseCopy on RestorePhase {
@@ -39,7 +50,7 @@ extension _RestorePhaseCopy on RestorePhase {
       case RestorePhase.idle:
         return '';
       case RestorePhase.deriving:
-        return 'Deriving your encryption key…';
+        return 'Checking your key…';
       case RestorePhase.finalisingKey:
         return 'Unlocking your account…';
       case RestorePhase.fetchingConvs:
@@ -52,6 +63,38 @@ extension _RestorePhaseCopy on RestorePhase {
         return 'Almost there…';
     }
   }
+}
+
+// E1 copy. Detail goes to debugPrint only, never into these.
+const kMalformedKeyCopy =
+    'A recovery key has 25 letters and numbers. Check that you have all of it.';
+const kKeyMismatchCopy =
+    'That\'s not the key on the last screen. Tap "Show the key again" and copy it.';
+const kWrongSecretCopy =
+    "That doesn't match your backup. Check for typos and try again.";
+const kNoBackupCopy =
+    'This account has no backup to restore. Tap "I lost it" to start fresh.';
+const kUnsupportedBackupCopy =
+    'This backup was made by a newer version of Kuch Bhi. Update the app, then try again.';
+
+/// E1: what a failed save, restore or Start Fresh says.
+String backupErrorCopy(
+  Object error, {
+  bool restoring = false,
+  bool startingFresh = false,
+}) {
+  if (error is KeyMismatchException) {
+    return "This phone's key isn't your account's current key, so your backup wasn't changed.";
+  }
+  if (startingFresh) {
+    return "Couldn't start fresh. Check your connection and try again.";
+  }
+  if (isUnreachableError(error)) {
+    return "Can't reach the server. Check your connection and try again.";
+  }
+  return restoring
+      ? "Couldn't restore your messages. Try again."
+      : "Couldn't save your backup. Try again.";
 }
 
 class BackupPinScreen extends ConsumerStatefulWidget {
@@ -68,12 +111,29 @@ class BackupPinScreen extends ConsumerStatefulWidget {
   ConsumerState<BackupPinScreen> createState() => _BackupPinScreenState();
 }
 
+/// entry = restore's field or change's intro; key → check wherever a
+/// recovery key is made (setup, Start Fresh, change, upgrade).
+enum _Step { entry, key, check }
+
 class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
-  late BackupPinMode _currentMode;
+  late _Step _step = widget.mode == BackupPinMode.setup
+      ? _Step.key
+      : _Step.entry;
+
+  /// C4: the canonical recovery key lives only here until it is saved:
+  /// never logged, stored or routed. Leaving the screen drops it.
+  late String? _recoveryKey = widget.mode == BackupPinMode.setup
+      ? generateRecoveryKey()
+      : null;
   bool _isStartingFresh = false;
+
+  /// B2: a legacy PIN just unlocked the backup; the history sync waits.
+  bool _upgrading = false;
   bool _isLoading = false;
-  bool _isValid = false;
-  String? _errorMessage;
+  bool _savingBackup = false;
+  bool _obscured = false;
+  String? _fieldError;
+  String? _cardError;
 
   // ── Progress (restore mode only) ──────────────────────────────
   // Drives the loading overlay's message and animated icon so the user has
@@ -86,189 +146,244 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
   int _msgTotal = 0;
   DateTime? _restoreStartedAt;
 
-  final List<TextEditingController> _pinControllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _pinFocusNodes = List.generate(6, (_) => FocusNode());
+  final _restoreInput = TextEditingController();
+  final _restoreFocus = FocusNode();
+  final _checkInput = TextEditingController();
+  final _checkFocus = FocusNode();
+  final _usernameHint = TextEditingController();
 
-  final List<TextEditingController> _confirmControllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _confirmFocusNodes = List.generate(6, (_) => FocusNode());
+  bool get _online => ref.read(isOnlineProvider).valueOrNull ?? true;
+  bool get _matches =>
+      _recoveryKey != null &&
+      parseRecoveryKey(_checkInput.text) == _recoveryKey;
 
   @override
   void initState() {
     super.initState();
-    _currentMode = widget.mode;
-
-    // Attach key listener to focus nodes for empty backspace detection
-    for (int i = 0; i < 6; i++) {
-      _pinFocusNodes[i] = FocusNode(
-        onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.backspace) {
-            if (_pinControllers[i].text.isEmpty && i > 0) {
-              _pinControllers[i - 1].clear();
-              _pinFocusNodes[i - 1].requestFocus();
-              _validateInput();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        },
-      );
-
-      _confirmFocusNodes[i] = FocusNode(
-        onKeyEvent: (node, event) {
-          if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.backspace) {
-            if (_confirmControllers[i].text.isEmpty && i > 0) {
-              _confirmControllers[i - 1].clear();
-              _confirmFocusNodes[i - 1].requestFocus();
-              _validateInput();
-              return KeyEventResult.handled;
-            }
-          }
-          return KeyEventResult.ignored;
-        },
+    if (widget.mode == BackupPinMode.restore) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _restoreFocus.requestFocus(),
       );
     }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pinFocusNodes[0].requestFocus();
-    });
   }
 
   @override
   void dispose() {
-    for (final c in _pinControllers) {
-      c.dispose();
-    }
-    for (final f in _pinFocusNodes) {
-      f.dispose();
-    }
-    for (final c in _confirmControllers) {
-      c.dispose();
-    }
-    for (final f in _confirmFocusNodes) {
-      f.dispose();
-    }
+    _restoreInput.dispose();
+    _restoreFocus.dispose();
+    _checkInput.dispose();
+    _checkFocus.dispose();
+    _usernameHint.dispose();
     super.dispose();
   }
 
-  void _validateInput() {
+  /// Decision 11: a key is never shown twice; every visit makes a new one.
+  void _newKey() => setState(() {
+    _recoveryKey = generateRecoveryKey();
+    _checkInput.clear();
+    _fieldError = null;
+    _cardError = null;
+    _step = _Step.key;
+  });
+
+  void _toCheck() {
+    final auth = ref.read(authProvider).valueOrNull;
+    _usernameHint.text = auth is AuthAuthenticated ? auth.user.email : '';
     setState(() {
-      _errorMessage = null;
-      final pin = _getPin();
-      final isDigitsOnly = RegExp(r'^\d+$').hasMatch(pin);
-      if (_currentMode == BackupPinMode.change) {
-        _isValid = pin.length == 6 && isDigitsOnly;
-      } else if (_currentMode == BackupPinMode.setup) {
-        final confirmPin = _getConfirmPin();
-        final isConfirmDigitsOnly = RegExp(r'^\d+$').hasMatch(confirmPin);
-        _isValid = pin.length == 6 &&
-            confirmPin.length == 6 &&
-            pin == confirmPin &&
-            isDigitsOnly &&
-            isConfirmDigitsOnly;
-      } else {
-        _isValid = pin.length == 6 && isDigitsOnly;
+      _fieldError = null;
+      _cardError = null;
+      _step = _Step.check;
+    });
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _checkFocus.requestFocus(),
+    );
+  }
+
+  /// Android side in MainActivity: a sensitive-flagged copy and a real clear.
+  static const _clipboard = MethodChannel('kuch_bhi/clipboard');
+
+  /// C7: flagged sensitive so keyboard clipboard histories (Gboard, Samsung)
+  /// don't keep the key. Plain copy where the channel doesn't exist.
+  Future<void> _copyKey() async {
+    final text = formatRecoveryKey(_recoveryKey!);
+    try {
+      await _clipboard.invokeMethod('copySensitive', {'text': text});
+    } on MissingPluginException {
+      await Clipboard.setData(ClipboardData(text: text));
+    }
+    if (mounted) showToast(context, 'Recovery key copied.');
+  }
+
+  /// C7: a saved key shouldn't linger on the clipboard.
+  /// shortcut: keyboard histories keep their own copy (device check
+  /// 2026-10-31: Gboard keeps it masked as dots, Samsung Keyboard ignores the
+  /// flag and shows it); no Android API deletes those entries.
+  Future<void> _clearClipboard(String key) async {
+    try {
+      final clip = await Clipboard.getData(Clipboard.kTextPlain);
+      if (parseRecoveryKey(clip?.text ?? '') != key) return;
+      try {
+        await _clipboard.invokeMethod('clear');
+      } on MissingPluginException {
+        await Clipboard.setData(const ClipboardData(text: ''));
       }
+    } catch (e) {
+      debugPrint('[Backup] clipboard clear failed: $e');
+    }
+  }
+
+  void _onCheckChanged(String value) {
+    final parsed = parseRecoveryKey(value);
+    setState(() {
+      _cardError = null;
+      _fieldError = parsed != null && parsed != _recoveryKey
+          ? kKeyMismatchCopy
+          : null;
     });
   }
 
-  String _getPin() => _pinControllers.map((c) => c.text).join();
-  String _getConfirmPin() => _confirmControllers.map((c) => c.text).join();
-
-  Future<void> _submit() async {
-    if (!_isValid || _isLoading) return;
+  Future<void> _save() async {
+    final key = _recoveryKey;
+    if (key == null || _isLoading || !_online) return;
+    if (!_matches) {
+      setState(() => _fieldError = kKeyMismatchCopy);
+      _checkFocus.requestFocus();
+      return;
+    }
     FocusScope.of(context).unfocus();
-
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _savingBackup = true;
+      _cardError = null;
       _restoreStartedAt = DateTime.now();
     });
 
-    final pin = _getPin();
-
+    final enc = ref.read(encryptionServiceProvider);
     try {
-      final enc = ref.read(encryptionServiceProvider);
-      if (_currentMode == BackupPinMode.change) {
-        setState(() => _restorePhase = RestorePhase.deriving);
-        final success = await enc.restorePrivateKey(pin);
-        if (success) {
-          setState(() {
-            _isLoading = false;
-            _restorePhase = RestorePhase.idle;
-            _currentMode = BackupPinMode.setup;
-            _isValid = false;
-          });
-          for (final c in _pinControllers) {
-            c.clear();
-          }
-          for (final c in _confirmControllers) {
-            c.clear();
-          }
-          _pinFocusNodes[0].requestFocus();
-        } else {
-          setState(() {
-            _isLoading = false;
-            _restorePhase = RestorePhase.idle;
-            _errorMessage = "Incorrect current PIN. Try again.";
-          });
-          for (final c in _pinControllers) {
-            c.clear();
-          }
-          _pinFocusNodes[0].requestFocus();
-        }
-      } else if (_currentMode == BackupPinMode.setup) {
-        if (_isStartingFresh) {
-          await enc.generateAndBackupNewKey(pin);
-        } else {
-          await enc.backupOrCreateKey(pin);
-        }
-        ref.invalidate(encryptionSyncProvider);
-        ref.invalidate(showBackupBannerProvider);
-        if (mounted) {
-          if (widget.mode == BackupPinMode.change) {
-            context.pop();
-          } else {
-            context.go(AppRoutes.home);
-          }
-        }
+      if (_isStartingFresh) {
+        // B8: the new key pair is made only now, after the key was checked.
+        await enc.generateAndBackupNewKey(key);
+      } else if (widget.mode == BackupPinMode.setup) {
+        await enc.backupOrCreateKey(key);
       } else {
-        // ── Restore mode ──
-        // Two long jobs back-to-back:
-        //   1. EncryptionService.restorePrivateKey(pin) — PBKDF2 + AES-GCM
-        //      (~5-10 s) then save to secure storage.
-        //   2. MessageRepository.syncAllHistory() — page through every
-        //      conversation's history and decrypt every message (~1-3 min).
-        setState(() => _restorePhase = RestorePhase.deriving);
-        final success = await enc.restorePrivateKey(pin);
-        if (!success) {
-          setState(() {
-            _isLoading = false;
-            _restorePhase = RestorePhase.idle;
-            _errorMessage = "Incorrect PIN. Try again.";
-          });
-          for (final c in _pinControllers) {
-            c.clear();
-          }
-          _pinFocusNodes[0].requestFocus();
-          return;
-        }
-        setState(() => _restorePhase = RestorePhase.finalisingKey);
+        // Change and upgrade re-wrap the device key; never a restore (B5).
+        await enc.backupPrivateKey(key);
+      }
+    } catch (e) {
+      debugPrint('[Backup] save failed: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _savingBackup = false;
+          _cardError = backupErrorCopy(e, startingFresh: _isStartingFresh);
+        });
+      }
+      return;
+    }
 
-        // Reinstall recovery: re-download + decrypt the full history now
-        // that the private key is restored.
-        try {
-          setState(() => _restorePhase = RestorePhase.fetchingConvs);
-          await ref.read(messageRepositoryProvider).syncAllHistory(
+    // backupOrCreateKey writes nothing when another phone backed up first;
+    // then the router re-routes and nothing should claim a saved key.
+    final saved = widget.mode != BackupPinMode.setup ||
+        _isStartingFresh ||
+        await enc.hasLocalPrivateKey();
+    TextInput.finishAutofillContext(shouldSave: saved);
+    if (saved) await _clearClipboard(key);
+    ref.invalidate(showBackupBannerProvider);
+    ref.invalidate(showBackupUpgradeBannerProvider);
+    if (!mounted) return;
+    if (_upgrading) {
+      showToast(context, 'Recovery key saved.');
+      return _restoreHistory();
+    }
+    if (widget.mode == BackupPinMode.change) {
+      showToast(context, 'New recovery key saved.');
+      context.pop();
+      return;
+    }
+    ref.invalidate(encryptionSyncProvider);
+    if (saved) showToast(context, 'Backup is on.');
+    context.go(AppRoutes.home);
+  }
+
+  Future<void> _restore() async {
+    if (_isLoading || !_online) return;
+    final input = _restoreInput.text.trim();
+    // C6: a legacy 6-digit PIN or a whole recovery key, checked before any
+    // server call.
+    if (!RegExp(r'^\d{6}$').hasMatch(input) &&
+        parseRecoveryKey(input) == null) {
+      setState(() => _fieldError = kMalformedKeyCopy);
+      _restoreFocus.requestFocus();
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _isLoading = true;
+      _fieldError = null;
+      _cardError = null;
+      _restoreStartedAt = DateTime.now();
+      _restorePhase = RestorePhase.deriving;
+    });
+
+    final RestoreResult result;
+    try {
+      result = await ref
+          .read(encryptionServiceProvider)
+          .restorePrivateKey(input);
+    } catch (e) {
+      debugPrint('[Restore] restore failed: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _restorePhase = RestorePhase.idle;
+          _cardError = backupErrorCopy(e, restoring: true);
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    if (result == RestoreResult.restored) return _restoreHistory();
+
+    setState(() {
+      _isLoading = false;
+      _restorePhase = RestorePhase.idle;
+    });
+    switch (result) {
+      case RestoreResult.restoredLegacy:
+        // B2: the key is on the device; offer a recovery key before the sync.
+        _upgrading = true;
+        _restoreInput.clear(); // the PIN has done its job
+        _newKey();
+      case RestoreResult.wrongSecret:
+        setState(() => _fieldError = kWrongSecretCopy);
+        _restoreFocus.requestFocus();
+      case RestoreResult.noBackup:
+        setState(() => _cardError = kNoBackupCopy);
+      case RestoreResult.unsupported:
+        setState(() => _cardError = kUnsupportedBackupCopy);
+      case RestoreResult.restored:
+        break;
+    }
+  }
+
+  /// The restore continuation: re-download + decrypt the full history now
+  /// that the private key is restored (~1-3 min), then Home.
+  Future<void> _restoreHistory() async {
+    setState(() {
+      _isLoading = true;
+      _savingBackup = false;
+      _restorePhase = RestorePhase.finalisingKey;
+    });
+    try {
+      setState(() => _restorePhase = RestorePhase.fetchingConvs);
+      await ref
+          .read(messageRepositoryProvider)
+          .syncAllHistory(
             onProgress: (p) {
               switch (p.phase) {
                 case HistorySyncPhase.fetchingConversations:
                   if (_restorePhase != RestorePhase.fetchingConvs) {
-                    setState(() => _restorePhase =
-                        RestorePhase.fetchingConvs);
+                    setState(() => _restorePhase = RestorePhase.fetchingConvs);
                   }
                   break;
                 case HistorySyncPhase.downloadingMessages:
@@ -297,20 +412,12 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
               }
             },
           );
-        } catch (e) {
-          debugPrint('[Restore] history sync failed: $e');
-        }
-        ref.invalidate(encryptionSyncProvider);
-        if (mounted) {
-          context.go(AppRoutes.home);
-        }
-      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _restorePhase = RestorePhase.idle;
-        _errorMessage = "An error occurred: ${e.toString()}";
-      });
+      debugPrint('[Restore] history sync failed: $e');
+    }
+    ref.invalidate(encryptionSyncProvider);
+    if (mounted) {
+      context.go(AppRoutes.home);
     }
   }
 
@@ -328,374 +435,385 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
     }
   }
 
-  void _showForgotPinDialog() {
-    showDialog(
+  Future<void> _lostIt() async {
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Start Fresh?'),
-          content: const Text(
-            'Without your PIN, your existing encrypted messages cannot be decrypted.\n\n'
-            'If you choose to start fresh, a new key pair will be generated. '
-            'You will be able to send and receive new messages, but all historical messages will be permanently undecryptable. '
-            'To secure the new key, you will need to set a new PIN.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                setState(() {
-                  _currentMode = BackupPinMode.setup;
-                  _isStartingFresh = true;
-                  for (final c in _pinControllers) {
-                    c.clear();
-                  }
-                  for (final c in _confirmControllers) {
-                    c.clear();
-                  }
-                  _validateInput();
-                });
-                _pinFocusNodes[0].requestFocus();
-              },
-              child: Text(
-                'Start Fresh',
-                style: TextStyle(color: context.t.error),
-              ),
-            ),
-          ],
-        );
-      },
+      title: 'Start fresh?',
+      body:
+          "Without your recovery key, your old messages can't be opened.\n\n"
+          'Starting fresh makes a new key. New messages work, but every older '
+          'message stays locked for good.',
+      confirmLabel: 'Start fresh',
+      confirmIcon: Icons.warning_amber_rounded,
+      destructive: true,
     );
-  }
-
-  Widget _buildPinRow(
-    List<TextEditingController> controllers,
-    List<FocusNode> focusNodes,
-  ) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: List.generate(6, (index) {
-        return SizedBox(
-          width: 44,
-          height: 52,
-          child: TextFormField(
-            controller: controllers[index],
-            focusNode: focusNodes[index],
-            keyboardType: TextInputType.number,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0,
-                ),
-            maxLength: 1,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(1),
-            ],
-            decoration: InputDecoration(
-              counterText: "",
-              contentPadding: EdgeInsets.zero,
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.15),
-                  width: 1.5,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.primary,
-                  width: 2.2,
-                ),
-              ),
-            ),
-            onChanged: (value) {
-              if (value.isNotEmpty) {
-                if (index < 5) {
-                  focusNodes[index + 1].requestFocus();
-                } else {
-                  if (_currentMode == BackupPinMode.setup &&
-                      controllers == _pinControllers) {
-                    _confirmFocusNodes[0].requestFocus();
-                  } else {
-                    focusNodes[index].unfocus();
-                  }
-                }
-              }
-              _validateInput();
-            },
-          ),
-        );
-      }),
-    );
+    if (!ok || !mounted) return;
+    _isStartingFresh = true;
+    _newKey();
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _currentMode == BackupPinMode.change
-        ? "Change Backup PIN"
-        : _currentMode == BackupPinMode.setup
-            ? (_isStartingFresh ? "Start Fresh: New PIN" : "Create Backup PIN")
-            : "Restore Encryption Key";
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
+    final change = widget.mode == BackupPinMode.change;
+    final back = switch (_step) {
+      _Step.check => _Step.key,
+      _Step.key when _isStartingFresh => _Step.entry,
+      _ => null,
+    };
 
-    final bodyText = _currentMode == BackupPinMode.change
-        ? "Enter your current 6-digit backup PIN to verify it's you."
-        : _currentMode == BackupPinMode.setup
-            ? "This 6-digit PIN protects your encryption key. You'll need it if you reinstall the app. Store it safely."
-            : "Enter your backup PIN to restore your encrypted messages. This is the PIN you set when you first registered.";
-
-    final hasExplanatoryPrefix =
-        widget.isOptionalSetup && _currentMode == BackupPinMode.setup;
+    final children = switch (_step) {
+      _Step.entry when change => _changeIntro(),
+      _Step.entry => _restoreForm(online),
+      _Step.key => _keyStep(),
+      _Step.check => _checkStep(online),
+    };
 
     return Stack(
       children: [
-        Scaffold(
-          appBar: widget.mode == BackupPinMode.change
-              ? AppBar(
-                  title: const Text('Change PIN'),
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                )
-              : null,
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 16),
-                    // Logo Icon
-                    Container(
-                      width: 64,
-                      height: 64,
-                      margin: const EdgeInsets.symmetric(horizontal: 130),
-                      decoration: BoxDecoration(
-                        color: context.t.accent,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Center(
-                        child: Icon(
-                          Icons.lock_person_outlined,
-                          color: context.t.onAccent,
-                          size: 32,
-                        ),
-                      ),
-                    ).animate().scale(delay: 100.ms, duration: 400.ms),
-                    const SizedBox(height: 24),
-
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+        PopScope(
+          canPop: back == null && !_upgrading,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (back == null) {
+              // Upgrade key step: leaving would skip the history sync.
+              if (!_isLoading) _restoreHistory();
+              return;
+            }
+            setState(() {
+              _step = back;
+              _fieldError = null;
+              _cardError = null;
+              if (back == _Step.entry) {
+                _isStartingFresh = false;
+                _recoveryKey = null;
+              }
+            });
+          },
+          child: Scaffold(
+            appBar: change ? pageAppBar(context, 'Recovery key') : null,
+            body: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    kAuthGutter,
+                    8,
+                    kAuthGutter,
+                    24,
+                  ),
+                  child: AutofillGroup(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: children,
                     ),
-                    const SizedBox(height: 10),
-
-                    if (hasExplanatoryPrefix) ...[
-                      Text(
-                        "Set up a backup PIN to protect your key.",
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: context.t.accent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-
-                    Text(
-                      bodyText,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.6),
-                            height: 1.4,
-                          ),
-                    ),
-                    const SizedBox(height: 36),
-
-                    // PIN Entry Section
-                    Card(
-                      elevation: 0,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withValues(alpha: 0.4),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        side: BorderSide(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.08),
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 24,
-                          horizontal: 16,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              _currentMode == BackupPinMode.change
-                                  ? "Enter Current PIN"
-                                  : _currentMode == BackupPinMode.setup
-                                      ? "Choose PIN"
-                                      : "Enter PIN",
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(alpha: 0.65),
-                                  ),
-                            ),
-                            const SizedBox(height: 12),
-                            _buildPinRow(_pinControllers, _pinFocusNodes),
-                            if (_currentMode == BackupPinMode.setup) ...[
-                              const SizedBox(height: 24),
-                              Text(
-                                "Confirm PIN",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withValues(alpha: 0.65),
-                                    ),
-                              ),
-                              const SizedBox(height: 12),
-                              _buildPinRow(
-                                _confirmControllers,
-                                _confirmFocusNodes,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ).animate().fade(duration: 350.ms),
-
-                    if (_errorMessage != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: context.t.error,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ).animate().shake(),
-                    ],
-
-                    const SizedBox(height: 28),
-
-                    // Save/Restore Button
-                    FilledButton(
-                      onPressed: _isValid && !_isLoading ? _submit : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: context.t.accent,
-                        foregroundColor: context.t.onAccent,
-                        minimumSize: const Size.fromHeight(52),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: _isLoading
-                          ? SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: context.t.onAccent,
-                              ),
-                            )
-                          : Text(
-                              _currentMode == BackupPinMode.change
-                                  ? "Verify PIN"
-                                  : _currentMode == BackupPinMode.setup
-                                      ? "Save PIN"
-                                      : "Restore",
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Lower text actions
-                    if (_currentMode == BackupPinMode.setup && widget.mode != BackupPinMode.change) ...[
-                      Center(
-                        child: TextButton(
-                          onPressed: _isLoading ? null : _skipBackup,
-                          child: Text(
-                            "Skip for now",
-                            style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withValues(alpha: 0.4),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ] else if (_currentMode == BackupPinMode.restore) ...[
-                      Center(
-                        child: TextButton(
-                          onPressed: _isLoading ? null : _showForgotPinDialog,
-                          child: Text(
-                            "I forgot my PIN",
-                            style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withValues(alpha: 0.4),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
-        if (_isLoading) _RestoreOverlay(
-          phase: _restorePhase,
-          startedAt: _restoreStartedAt,
-          convIndex: _convIndex,
-          convTotal: _convTotal,
-          msgCurrent: _msgCurrent,
-          msgTotal: _msgTotal,
-        ),
+        // The restore view is a second root Scaffold, so a toast shows in
+        // both; without heroes off, leaving for Home asserts.
+        if (_isLoading)
+          HeroMode(
+            enabled: false,
+            child: _RestoreOverlay(
+              key: ValueKey(_savingBackup),
+              isRestore: widget.mode == BackupPinMode.restore && !_savingBackup,
+              phase: _restorePhase,
+              startedAt: _restoreStartedAt,
+              convIndex: _convIndex,
+              convTotal: _convTotal,
+              msgCurrent: _msgCurrent,
+              msgTotal: _msgTotal,
+            ),
+          ),
       ],
+    );
+  }
+
+  List<Widget> _header(
+    String title,
+    String body, {
+    IconData icon = Icons.key_rounded,
+  }) {
+    final change = widget.mode == BackupPinMode.change;
+    final align = change ? TextAlign.start : TextAlign.center;
+    final t = context.t;
+    return [
+      if (!change) ...[
+        Center(
+          child: Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: t.accent,
+              borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+            ),
+            child: Icon(icon, color: t.onAccent, size: 28),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+      AuthTitle(title, align: align),
+      const SizedBox(height: 8),
+      Text(body, textAlign: align, style: authBodyStyle(context)),
+      const SizedBox(height: 16),
+    ];
+  }
+
+  Widget _textAction(String label, VoidCallback onPressed) => Center(
+    child: AppButton(
+      variant: AppButtonVariant.text,
+      onPressed: _isLoading ? null : onPressed,
+      child: Text(label),
+    ),
+  );
+
+  Widget _primary(
+    String label,
+    VoidCallback? onPressed, {
+    bool needsNetwork = false,
+    bool online = true,
+  }) => OfflineDim(
+    online: !needsNetwork || online,
+    child: AppButton(
+      expanded: true,
+      onPressed: _isLoading || (needsNetwork && !online) ? null : onPressed,
+      child: Text(label),
+    ),
+  );
+
+  List<Widget> _changeIntro() => [
+    const SizedBox(height: 8),
+    Text(
+      'Make a new recovery key for your backup. Your old key or PIN '
+      'stops working once the new one is saved.',
+      style: authBodyStyle(context),
+    ),
+    const SizedBox(height: 16),
+    _primary('Make a new key', _newKey),
+  ];
+
+  List<Widget> _restoreForm(bool online) => [
+    ..._header(
+      'Restore your messages',
+      'Enter the recovery key you saved. If you set a 6-digit PIN '
+          'before, enter that instead.',
+      icon: Icons.lock_outline,
+    ),
+    AuthTextField(
+      controller: _restoreInput,
+      focusNode: _restoreFocus,
+      label: 'Recovery key or PIN',
+      keyField: true,
+      obscureText: _obscured,
+      textCapitalization: TextCapitalization.characters,
+      textInputAction: TextInputAction.done,
+      autofillHints: const [AutofillHints.password],
+      errorText: _fieldError,
+      suffixIcon: PasswordToggle(
+        obscured: _obscured,
+        noun: 'key',
+        onPressed: () => setState(() => _obscured = !_obscured),
+      ),
+      onChanged: (_) => setState(() {
+        _fieldError = null;
+        _cardError = null;
+      }),
+      onEditingComplete: _restore,
+    ),
+    if (_cardError != null) _ErrorCard(_cardError!),
+    const SizedBox(height: 16),
+    _primary(
+      'Restore',
+      _restoreInput.text.trim().isEmpty ? null : _restore,
+      needsNetwork: true,
+      online: online,
+    ),
+    if (!online) const OfflineActionHint(),
+    const SizedBox(height: 8),
+    _textAction('I lost it', _lostIt),
+  ];
+
+  List<Widget> _keyStep() {
+    final change = widget.mode == BackupPinMode.change;
+    final title = _upgrading
+        ? 'Make your backup stronger'
+        : _isStartingFresh
+        ? 'Start fresh: save your new recovery key'
+        : change
+        ? 'Your new recovery key'
+        : 'Save your recovery key';
+    final body = _upgrading
+        ? "You're in. Your backup still uses a 6-digit PIN, which is easy to "
+              'crack. Save this recovery key to replace it.'
+        : _isStartingFresh
+        ? 'This makes a new key for your messages. Save this recovery key '
+              'to protect it.'
+        : 'Your messages are locked with a key that lives on this phone. '
+              'This recovery key unlocks a copy of it on our server, so you '
+              'can get your messages back after a reinstall. Nobody else has '
+              'it, and nobody can reset it.';
+    final t = context.t;
+    return [
+      if (widget.isOptionalSetup && widget.mode == BackupPinMode.setup) ...[
+        Text(
+          'Set up a recovery key to protect your messages.',
+          textAlign: TextAlign.center,
+          style: authBodyStyle(
+            context,
+          ).copyWith(color: t.ink, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+      ],
+      ..._header(title, body),
+      _KeyBlock(_recoveryKey!),
+      const SizedBox(height: 10),
+      AppButton(
+        variant: AppButtonVariant.secondary,
+        expanded: true,
+        onPressed: _copyKey,
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.copy_rounded, size: 18),
+            SizedBox(width: 8),
+            Flexible(child: Text('Copy')),
+          ],
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        "Save it in your password manager or write it down. Don't keep it "
+        'only on this phone.',
+        style: TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft),
+      ),
+      const SizedBox(height: 14),
+      _primary("I've saved it", _toCheck),
+      if (widget.mode == BackupPinMode.setup)
+        _textAction('Skip for now', _skipBackup),
+      if (_upgrading) _textAction('Not now', _restoreHistory),
+    ];
+  }
+
+  List<Widget> _checkStep(bool online) => [
+    ..._header(
+      'Check your recovery key',
+      'Type or paste the key you just saved. This makes sure you can get '
+          'back in later.',
+    ),
+    // D3: the account the key belongs to, so a password manager saves it
+    // under the right name. Never shown or focused.
+    Offstage(
+      child: ExcludeSemantics(
+        child: ExcludeFocus(
+          child: TextField(
+            controller: _usernameHint,
+            autofillHints: const [AutofillHints.username],
+          ),
+        ),
+      ),
+    ),
+    AuthTextField(
+      controller: _checkInput,
+      focusNode: _checkFocus,
+      label: 'Recovery key',
+      keyField: true,
+      textCapitalization: TextCapitalization.characters,
+      textInputAction: TextInputAction.done,
+      autofillHints: const [AutofillHints.newPassword],
+      errorText: _fieldError,
+      onChanged: _onCheckChanged,
+      onEditingComplete: _save,
+    ),
+    if (_cardError != null) _ErrorCard(_cardError!),
+    const SizedBox(height: 16),
+    _primary(
+      'Turn on backup',
+      _matches ? _save : null,
+      needsNetwork: true,
+      online: online,
+    ),
+    if (!online) const OfflineActionHint(),
+    const SizedBox(height: 8),
+    _textAction(
+      'Show the key again',
+      () => setState(() {
+        _fieldError = null;
+        _cardError = null;
+        _step = _Step.key;
+      }),
+    ),
+    if (_upgrading) _textAction('Not now', _restoreHistory),
+  ];
+}
+
+/// C1 / G2: the key in groups of 5 that wrap whole, read out by TalkBack
+/// one character at a time.
+class _KeyBlock extends StatelessWidget {
+  const _KeyBlock(this.recoveryKey);
+  final String recoveryKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final groups = recoveryKeyGroups(recoveryKey);
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: groups.map((g) => g.split('').join(', ')).join(', then '),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+          border: Border.all(color: t.line),
+        ),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 12,
+          runSpacing: 2,
+          children: [
+            for (final g in groups)
+              Text(
+                g,
+                softWrap: false,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 19,
+                  height: 30 / 19,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.1,
+                  color: t.ink,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// E4: a save / restore failure, ink text with an error icon, announced once.
+class _ErrorCard extends StatelessWidget {
+  const _ErrorCard(this.message);
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+          border: Border.all(color: t.line),
+        ),
+        child: appFieldError(context, message),
+      ),
     );
   }
 }
@@ -707,6 +825,8 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
 /// clearly disabled.
 class _RestoreOverlay extends StatefulWidget {
   const _RestoreOverlay({
+    super.key,
+    required this.isRestore,
     required this.phase,
     required this.startedAt,
     required this.convIndex,
@@ -715,6 +835,9 @@ class _RestoreOverlay extends StatefulWidget {
     required this.msgTotal,
   });
 
+  /// J1: restore gets the progress view; saving a backup (setup, change,
+  /// upgrade, Start Fresh) gets the saving card below.
+  final bool isRestore;
   final RestorePhase phase;
   final DateTime? startedAt;
   final int convIndex;
@@ -731,9 +854,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   late final Stopwatch _stopwatch;
   late final AnimationController _pulseCtrl;
 
-  /// J1: restore gets the progress view; PIN setup / change keep the
-  /// saving card below unchanged.
-  late final bool _isRestore;
+  late final bool _isRestore = widget.isRestore;
 
   /// J6: the count line is announced at most once per 10% step.
   int _announcedStep = -1;
@@ -742,34 +863,39 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   @override
   void initState() {
     super.initState();
-    _isRestore = context.findAncestorWidgetOfExactType<BackupPinScreen>()
-            ?.mode ==
-        BackupPinMode.restore;
     _stopwatch = Stopwatch()..start();
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
     if (_isRestore) return;
-    _pulseCtrl.repeat(reverse: true);
     // Tick the elapsed-time display every second.
     _tick();
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isRestore) return;
+    // G5: reduced motion parks the saving card's pulse at full strength.
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pulseCtrl.value = 1;
+    } else if (!_pulseCtrl.isAnimating) {
+      _pulseCtrl.repeat(reverse: true);
+    }
+  }
+
+  @override
   void dispose() {
     _stopwatch.stop();
+    _ticker?.cancel();
     _pulseCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _tick() async {
-    while (mounted) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return;
-      setState(() {});
-    }
-  }
+  Timer? _ticker;
+  void _tick() => _ticker =
+      Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
 
   String _formatElapsed() {
     final s = _stopwatch.elapsed.inSeconds;
@@ -796,22 +922,6 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
       case RestorePhase.idle:
         return Icons.hourglass_empty;
     }
-  }
-
-  /// Secondary detail line shown below the main message — tells the user
-  /// where they are in the multi-conversation download / decrypt cycle.
-  String? _detailFor(RestorePhase phase) {
-    if (phase == RestorePhase.downloadingMsgs && widget.msgTotal > 0) {
-      return 'Message ${widget.msgCurrent} of ${widget.msgTotal}'
-          '${widget.convTotal > 1 ? " · chat ${widget.convIndex}/${widget.convTotal}" : ""}';
-    }
-    if (phase == RestorePhase.decrypting && widget.convTotal > 0) {
-      return 'Chat ${widget.convIndex} of ${widget.convTotal}';
-    }
-    if (phase == RestorePhase.ready) {
-      return 'Opening your chats…';
-    }
-    return null;
   }
 
   /// Chats fraction once a total is known (the bar follows chats, S13).
@@ -968,12 +1078,10 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   }
 
   Widget _buildSaving(BuildContext context) {
-    // In setup/change PIN modes we don't drive [_restorePhase] — fall back
-    // to a generic "Saving your PIN…" message that still feels alive.
+    // Saving doesn't drive [_restorePhase]: one message, still alive.
     final phase = widget.phase == RestorePhase.idle
         ? RestorePhase.deriving
         : widget.phase;
-    final detail = _detailFor(phase);
 
     return Stack(
       children: [
@@ -990,12 +1098,12 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                 horizontal: 24, vertical: 28),
             decoration: BoxDecoration(
               color: WarmPopTokens.ink,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
+              borderRadius: BorderRadius.circular(WarmPopTokens.radiusLg),
+              boxShadow: const [
                 BoxShadow(
-                  color: WarmPopTokens.ink.withValues(alpha: 0.4),
+                  color: WarmPopTokens.shadowDark,
                   blurRadius: 24,
-                  offset: const Offset(0, 8),
+                  offset: Offset(0, 8),
                 ),
               ],
             ),
@@ -1026,7 +1134,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                   transitionBuilder: (child, anim) =>
                       FadeTransition(opacity: anim, child: child),
                   child: Text(
-                    phase.message,
+                    'Locking your backup…',
                     key: ValueKey(phase),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -1037,26 +1145,12 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                     ),
                   ),
                 ),
-                if (detail != null) ...[
-                  const SizedBox(height: 8),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: Text(
-                      detail,
-                      key: ValueKey('${phase.name}-$detail'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: WarmPopTokens.surface.withValues(alpha: 0.6),
-                        fontSize: 13,
-                        decoration: TextDecoration.none,
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 18),
                 LinearProgressIndicator(
+                  // G5: parked like the restore bar under reduced motion.
+                  value: MediaQuery.disableAnimationsOf(context) ? .3 : null,
                   minHeight: 4,
-                  backgroundColor: WarmPopTokens.surface.withValues(alpha: 0.1),
+                  backgroundColor: WarmPopTokens.lineDark,
                   valueColor: const AlwaysStoppedAnimation<Color>(
                       WarmPopTokens.accent),
                 ),
@@ -1064,8 +1158,8 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                 Text(
                   'Elapsed ${_formatElapsed()}',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: WarmPopTokens.surface.withValues(alpha: 0.45),
+                  style: const TextStyle(
+                    color: WarmPopTokens.inkSoftDark,
                     fontSize: 12,
                     decoration: TextDecoration.none,
                   ),

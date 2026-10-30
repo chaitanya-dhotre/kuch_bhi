@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key backup board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (same as auth.html; nothing redefined). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+.amoled{
+  --bg:#000000; --surface:#0A0908; --surface2:#0D0D0D; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --cardShadow:0 0 0 1px rgba(243,237,227,.04);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px;max-width:1400px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.wrap.amo{background:#000;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag,.wrap.amo .tag{color:#A99878}
+.frame{position:relative;width:340px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame,.wrap.amo .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.appbar .ib{width:48px;height:48px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.pg{padding:8px 24px 20px}
+.logo{width:56px;height:56px;border-radius:18px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:24px;margin:8px auto 12px}
+.ttl{font-size:24px;line-height:30px;font-weight:700;text-align:center}
+.bd{font-size:15px;line-height:22px;color:var(--inkSoft);text-align:center;margin:8px 0 16px}
+.fld{border:1.5px solid var(--line);border-radius:16px;padding:8px 6px 8px 14px;background:var(--surface);display:flex;align-items:center;gap:6px}
+.fld.focus{border-color:var(--accent)}
+.fld.bad{border-color:var(--error)}
+.fld .in{flex:1;min-width:0}
+.fld .lb{font-size:13px;color:var(--inkSoft)}
+.fld .v{font-size:16px;letter-spacing:.12em;margin-top:1px}
+.fld .v.ph{letter-spacing:0;color:var(--inkFaint)}
+.fld .eye{width:48px;height:40px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);font-size:15px}
+.help{font-size:13px;line-height:18px;color:var(--inkSoft);margin:6px 4px 0}
+.ferr{font-size:13px;line-height:18px;color:var(--ink);margin:6px 4px 0;display:flex;gap:6px}
+.ferr .ic{color:var(--error)}
+.key{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 10px;font:600 19px/30px ui-monospace,"Roboto Mono",Menlo,monospace;letter-spacing:.06em;display:flex;flex-wrap:wrap;justify-content:center;gap:2px 12px;color:var(--ink)}
+.key span{white-space:nowrap}
+.fld .v.mono{font-family:ui-monospace,"Roboto Mono",Menlo,monospace;letter-spacing:.04em;overflow-wrap:anywhere}
+.gap{height:12px}
+.btn{height:48px;border-radius:16px;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px;margin-top:14px}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.tonal{background:var(--accentSoft);color:var(--ink);margin-top:10px}
+.btn.off{background:var(--surface2);color:var(--inkFaint)}
+.btn.text{height:40px;color:var(--ink);margin-top:6px}
+.offhint{font-size:13px;color:var(--inkSoft);text-align:center;margin-top:6px}
+.ecard{display:flex;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13px;line-height:18px;margin:0 0 4px}
+.ecard .ic{color:var(--error)}
+.banner{display:flex;gap:9px;align-items:center;background:var(--accentSoft);color:var(--ink);border-radius:16px;padding:5px 4px 5px 12px;font-size:13px;font-weight:600;margin:8px 12px}
+.banner .x{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--inkSoft);flex:0 0 auto}
+.banner .w{color:var(--accent)}
+.search{margin:8px 12px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 16px;color:var(--inkFaint);font-size:15px}
+.tile{display:flex;gap:12px;align-items:center;padding:10px 16px}
+.av{width:40px;height:40px;border-radius:999px;background:var(--surface2)}
+.ln{height:10px;border-radius:5px;background:var(--surface2);margin:4px 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;margin:24px}
+.card .t{font-size:16px;font-weight:600}
+.card .p{font-size:13px;color:var(--inkSoft);margin-top:4px}
+.bar{height:6px;border-radius:3px;background:var(--surface2);margin-top:12px;overflow:hidden}
+.bar i{display:block;height:100%;width:40%;background:var(--accent);border-radius:3px}
+.toast{position:absolute;left:14px;right:14px;bottom:14px;background:var(--ink);color:var(--bg);border-radius:16px;padding:12px 16px;font-size:14px;text-align:center}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;border:1px solid var(--line);margin:40px 16px}
+.dlg .t{font-size:20px;font-weight:700}
+.dlg .s{font-size:15px;line-height:22px;margin-top:8px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
+.dlg .a{height:40px;padding:0 14px;border-radius:16px;display:flex;align-items:center;font-weight:600}
+.dlg .a.sec{border:1.5px solid var(--line)}
+.dlg .a.sec .ic{color:var(--error);margin-right:6px}
+.big .ttl{font-size:48px;line-height:56px;overflow-wrap:anywhere}
+.big .bd{font-size:30px;line-height:44px}
+.big .fld .lb{font-size:26px}
+.big .fld .v{font-size:32px}
+.big .key{font-size:36px;line-height:48px}
+.big .help{font-size:26px;line-height:36px}
+.big .btn{font-size:30px;height:auto;min-height:48px;padding:10px 18px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;word-break:break-word}
+pre{background:#2A2520;color:#F3EDE3;border-radius:10px;padding:12px;font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+td.good{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.flow .bx{background:#F7F2EA;border:1px solid #D8CDBA;border-radius:10px;padding:6px 10px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+</style>
+</head>
+<body>
+<h1>Key backup: recovery key, legacy-PIN migration</h1>
+<p class="sub">Board sections <b>S1–S12</b> (page-local), 2026-10-30 rev 2 (recovery key, your decision), as of <code>6164166</code>. Source: security audit <code>docs/audits/2026-10-30-security.md</code> §8.2 (high). Checklist, decisions, test gates and device checks: <code>key-backup.md</code>. Light shown plain; dark and AMOLED in dark inset frames. <b>Phase 1 only: no code until your spec PASS.</b> Live PocketBase was read (approved) and the owner-only hide hook is live (S10).</p>
+
+<section class="band" id="s1">
+<header><span class="n">S1</span><h2>The finding, why a recovery key, and what each option buys</h2></header>
+<ul>
+<li>Exactly 6 digits: six one-character controllers <code>backup_pin_screen.dart:89-95</code>; valid only when <code>pin.length == 6 &amp;&amp; isDigitsOnly</code> <code>:157-176</code>.</li>
+<li>PBKDF2-HMAC-SHA256 at 100,000 iterations: <code>_isoPbkdf2</code> <code>encryption_service.dart:151-163</code>, called at <code>:818-822</code> and <code>:878-882</code>.</li>
+<li>Ciphertext + 32-byte salt on the <code>users</code> record: <code>backupPrivateKey</code> <code>:801-852</code>, fields at <code>:846-847</code>. Until 2026-10-30 any signed-in account could list them all (S10).</li>
+<li>Also found: <b>Change PIN "verifies" by restoring</b> (<code>backup_pin_screen.dart:195-197</code> → <code>restorePrivateKey</code> overwrites the device key, re-publishes the public key and wipes cached keys <code>encryption_service.dart:897-934</code>); <b>no-backup reads as "Incorrect PIN"</b> (<code>:869-872</code>); <b><code>$e</code> in user text</b> <code>backup_pin_screen.dart:312</code>.</li>
+</ul>
+<div class="tblwrap"><table>
+<tr><th>Secret + KDF</th><th>Guesses</th><th>One high-end GPU (estimate, not measured)</th></tr>
+<tr><td class="bad">6-digit PIN + PBKDF2-100k (today)</td><td>10<sup>6</sup></td><td class="bad">~10–20 seconds</td></tr>
+<tr><td>6-digit PIN + Argon2id 64 MiB</td><td>10<sup>6</sup></td><td>~10 minutes</td></tr>
+<tr><td>8-digit PIN + Argon2id 64 MiB</td><td>10<sup>8</sup></td><td>~half a day to a day</td></tr>
+<tr><td>Human-chosen passphrase + Argon2id 64 MiB</td><td>10<sup>9</sup>–10<sup>13</sup></td><td>days to centuries, depending on the person</td></tr>
+<tr><td class="good">Generated recovery key, 25 chars = 125 bits + HKDF (chosen)</td><td>4×10<sup>37</sup></td><td class="good">never</td></tr>
+</table></div>
+<div class="note"><b>How WhatsApp and Signal get away with short PINs:</b> the guess counter lives in tamper-resistant hardware (WhatsApp's HSM Backup Key Vault, Signal's SGX enclaves) that never hands out the encrypted key and locks after a few wrong tries. Their long codes (WhatsApp's 64-digit key, Signal's backup recovery key) are for when that box isn't trusted. PocketBase has no such box and the blob can be copied, so the secret itself must be unguessable. 125 bits is beyond any GPU farm; the X25519 key it protects is ~128-bit itself, so more bits would buy nothing. The real risks are where people keep it and losing it, which D2's copy and decision 11 address.</div>
+</section>
+
+<section class="band" id="s2">
+<header><span class="n">S2</span><h2>Every caller</h2></header>
+<div class="flow"><span class="bx">Router <code>needsSetup</code></span><span class="ar">→</span><span class="bx">Setup</span><span class="ar">→</span><span class="bx"><code>backupOrCreateKey</code></span><span class="ar">→</span><span class="bx ok"><code>backupPrivateKey</code> (the one writer)</span></div>
+<div class="flow"><span class="bx">Home banner (no backup)</span><span class="ar">→</span><span class="bx">Setup, optional + Skip for now</span><span class="ar">→</span><span class="bx">same</span></div>
+<div class="flow"><span class="bx">I forgot my PIN → dialog</span><span class="ar">→</span><span class="bx">Start Fresh setup</span><span class="ar">→</span><span class="bx"><code>generateAndBackupNewKey</code>: public key, local save, then the writer</span></div>
+<div class="flow"><span class="bx">Profile "Change Backup PIN"</span><span class="ar">→</span><span class="bx bad">Change: <code>restorePrivateKey</code> as a check</span><span class="ar">→</span><span class="bx">Setup form → writer</span></div>
+<div class="flow"><span class="bx">Router <code>needsRestore</code> (K1/K3)</span><span class="ar">→</span><span class="bx">Restore</span><span class="ar">→</span><span class="bx"><code>restorePrivateKey</code></span><span class="ar">→</span><span class="bx">Page 7 restore-wait overlay + <code>syncAllHistory</code></span></div>
+<div class="flow"><span class="bx">Router, banner, <code>backupOrCreateKey</code></span><span class="ar">→</span><span class="bx"><code>tryHasPocketBaseBackup</code> (tri-state, frozen)</span></div>
+<div class="note">Tests on this path: <code>encryption_sync_offline_test.dart</code> (K1/K3, must stay green unedited), <code>restore_overlay_test.dart</code> (fake's return type changes), <code>grep_gates_test.dart:408</code> (<code>backup_pin_screen.dart</code> leaves the Page 7 frozen list).</div>
+</section>
+
+<section class="band" id="s3">
+<header><span class="n">S3</span><h2>Decisions (defaults recommended; detail in key-backup.md)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Decision</th><th>Default</th><th>Alternatives</th></tr>
+<tr><td>1</td><td>Secret</td><td class="good"><b>Settled:</b> generated recovery key, 25 chars (125 bits), 5 groups of 5</td><td>26 chars (128 bits, uneven last group)</td></tr>
+<tr><td>2</td><td>KDF</td><td>HKDF-SHA256, instant</td><td>Argon2id 64 MiB as well (+1.83 s on the Redmi, no gain)</td></tr>
+<tr><td>3</td><td>Version marker</td><td><code>v2:</code> prefix in the existing field (no schema change)</td><td>New number field <code>private_key_backup_version</code> (S10 migration)</td></tr>
+<tr><td>4</td><td>Who can read the blob</td><td class="good"><b>Done live:</b> owner-only hook</td><td>&mdash;</td></tr>
+<tr><td>5</td><td>Rate limiting</td><td>No new limits (defaults already on)</td><td>Limiter on <code>users:view</code></td></tr>
+<tr><td>6</td><td>After a legacy-PIN restore</td><td>Recovery-key steps next, with Not now</td><td>Forced · banner only</td></tr>
+<tr><td>7</td><td>Change asks for the old secret?</td><td>No; public-key guard</td><td>Ask, checked read-only</td></tr>
+<tr><td>8</td><td>Restore field</td><td>One field, key or old PIN; the blob decides</td><td>Read the record first, switch copy/keyboard</td></tr>
+<tr><td>9</td><td>Visual scope</td><td>Rebuild on Page 7 auth pieces</td><td>Swap only the 6 boxes</td></tr>
+<tr><td>10</td><td>Naming</td><td>"Recovery key" in copy; code names stay</td><td>Rename code too</td></tr>
+<tr><td>11</td><td>Keep the key on the phone?</td><td>No; any working phone can make a new one</td><td>Secure storage + "Show recovery key"</td></tr>
+<tr><td>12</td><td>Upgrade banner</td><td>Dismissable 7 days</td><td>Not dismissable</td></tr>
+<tr><td>13</td><td>Check step</td><td>Type or paste the whole key</td><td>Last group only · no check</td></tr>
+<tr><td>14</td><td>Copy button</td><td>Yes; clipboard cleared after save</td><td>No Copy button</td></tr>
+</table></div>
+</section>
+
+<section class="band" id="s4">
+<header><span class="n">S4</span><h2>Setup: the key step and the check step (C1–C7, D2, D3)</h2></header>
+<div class="row" data-themes="key"></div>
+<div class="row" style="margin-top:12px" data-themes="check" data-extra="checkErr"></div>
+<div class="note">The key is made on the phone (25 × <code>Random.secure().nextInt(32)</code>, Crockford alphabet without I, L, O, U) and lives only in the screen's state until saved. <b>Copy</b> → toast <b>Recovery key copied.</b> The check step takes the whole key, typed or pasted, any case, with or without dashes; autofill <code>newPassword</code> so a password manager offers to save it. <b>Turn on backup</b> enables only on a match; then the clipboard is cleared if it still holds the key. TalkBack reads the key character by character, groups separated. Start Fresh uses the same two steps (title <b>Start fresh: save your new recovery key</b>) and only then makes the new key pair.</div>
+</section>
+
+<section class="band" id="s5">
+<header><span class="n">S5</span><h2>Restore at sign-in (D6, C6, E1)</h2></header>
+<div class="row" data-themes="restore"></div>
+<div class="note">One field takes the recovery key or the old 6-digit PIN (decision 8); the stored blob decides how the input is read. Visible by default (it's long), with a show/hide toggle. <b>I lost it</b> opens the Start Fresh dialog (S7). Below: wrong key (field kept so a typo can be fixed), a short key (caught before any server call), no backup.</div>
+<div class="row" style="margin-top:12px" data-themes="restoreErr" data-only="light" data-extra="restoreShort,restoreNet"></div>
+</section>
+
+<section class="band" id="s6">
+<header><span class="n">S6</span><h2>After a legacy-PIN unlock: the upgrade step (B2, D5)</h2></header>
+<div class="row" data-themes="upgrade"></div>
+<div class="note">Shown only when restore returns <code>restoredLegacy</code>, before the history sync. <b>I've saved it</b> → check step → <b>Turn on backup</b> → v2 write → toast <b>Recovery key saved.</b> → the frozen Page 7 restore wait. <b>Not now</b> (either step) → the same restore wait, nothing written; Home then shows the upgrade banner (S8).</div>
+</section>
+
+<section class="band" id="s7">
+<header><span class="n">S7</span><h2>Change (Profile), errors, Start Fresh dialog (B5, D7, D8, E1)</h2></header>
+<div class="row" data-themes="change"></div>
+<div class="row" style="margin-top:12px" data-themes="dialog" data-only="light" data-extra="changeErr"></div>
+<div class="tblwrap"><table>
+<tr><th>Case</th><th>Copy (verbatim; detail goes to debugPrint only)</th></tr>
+<tr><td>Malformed input</td><td>A recovery key has 25 letters and numbers. Check that you have all of it.</td></tr>
+<tr><td>Check-step mismatch</td><td>That's not the key on the last screen. Tap "Show the key again" and copy it.</td></tr>
+<tr><td>Wrong key or PIN</td><td>That doesn't match your backup. Check for typos and try again.</td></tr>
+<tr><td>No backup</td><td>This account has no backup to restore. Tap "I lost it" to start fresh.</td></tr>
+<tr><td>Newer format</td><td>This backup was made by a newer version of Kuch Bhi. Update the app, then try again.</td></tr>
+<tr><td>Network</td><td>Can't reach the server. Check your connection and try again.</td></tr>
+<tr><td>Key guard</td><td>This phone's key isn't your account's current key, so your backup wasn't changed.</td></tr>
+<tr><td>Other, saving / restoring</td><td>Couldn't save your backup. Try again. / Couldn't restore your messages. Try again.</td></tr>
+<tr><td>Start Fresh failed</td><td>Couldn't start fresh. Check your connection and try again.</td></tr>
+</table></div>
+</section>
+
+<section class="band" id="s8">
+<header><span class="n">S8</span><h2>Home upgrade banner, saving card, offline, 360dp at 200%</h2></header>
+<div class="row" data-themes="banner"></div>
+<div class="row" style="margin-top:12px">
+  <div class="wrap"><span class="tag">Saving (setup / change / upgrade)</span><div class="frame" data-tpl="saving"></div></div>
+  <div class="wrap"><span class="tag">Offline · check step</span><div class="frame" data-tpl="offline"></div></div>
+  <div class="wrap"><span class="tag">360dp · 200% text</span><div class="frame big" style="width:300px" data-tpl="big"></div></div>
+</div>
+<div class="note">Offline: the key step works (the key is made on the phone); fields stay editable; Turn on backup / Restore dimmed with <b>Available online</b>; Skip for now, Not now and I lost it stay live. Going offline mid-save keeps the same key on screen for the retry. Reduced motion: no shake, the saving card's pulse parks. At 200% everything scrolls; the key wraps by group, never mid-group; buttons stay full width.</div>
+</section>
+
+<section class="band" id="s9">
+<header><span class="n">S9</span><h2>Format and migration</h2></header>
+<div class="tblwrap"><table>
+<tr><th></th><th>v1 (legacy, read only)</th><th>v2 (every new write)</th></tr>
+<tr><td>Marker</td><td>no <code>v&lt;n&gt;:</code> prefix (base64 has no <code>:</code>)</td><td><code>v2:</code> prefix (or version field = 2, decision 3)</td></tr>
+<tr><td>Secret</td><td>6 digits</td><td>recovery key, canonical 25 chars (uppercase, no dashes, O→0, I/L→1)</td></tr>
+<tr><td>KDF</td><td>PBKDF2-HMAC-SHA256, 100,000 it., 32-byte salt (3.55 s on the Redmi)</td><td>HKDF-SHA256, 16-byte salt, info <code>"kuch_bhi key backup v2"</code>, 32-byte key (instant)</td></tr>
+<tr><td>Cipher</td><td>AES-256-GCM, 12-byte nonce, no AAD</td><td>AES-256-GCM, 12-byte nonce, AAD = <code>"kuch_bhi key backup v2 " + userId</code></td></tr>
+<tr><td>Blob</td><td>base64(nonce‖ct‖tag)</td><td><code>v2:</code> + base64(nonce‖ct‖tag)</td></tr>
+<tr><td>Unknown <code>v3:</code>+</td><td colspan="2"><code>unsupported</code>: no guess, no write</td></tr>
+</table></div>
+<div class="flow"><span class="bx">v1 on server</span><span class="ar">→ restore with PIN →</span><span class="bx">key on device (restoredLegacy)</span><span class="ar">→ save + check recovery key →</span><span class="bx ok">one PATCH: v2 blob + salt</span></div>
+<div class="flow"><span class="bx">v1 on server</span><span class="ar">→ Not now / wrong / offline / killed →</span><span class="bx">v1 untouched, opens with the old PIN</span></div>
+<div class="flow"><span class="bx">set-up phone, v1</span><span class="ar">→ banner → Make a new key →</span><span class="bx">guard: server public_key = device key?</span><span class="ar">yes →</span><span class="bx ok">v2 PATCH</span><span class="ar">no →</span><span class="bx bad">refuse, zero PATCH</span></div>
+<div class="flow"><span class="bx">Start Fresh</span><span class="ar">→</span><span class="bx">key step + check step</span><span class="ar">→ only then →</span><span class="bx"><code>generateAndBackupNewKey(key)</code>: public key, local save, v2 backup</span></div>
+<div class="note"><b>The K1/K3 rule holds.</b> This page never generates an X25519 key and never uploads a public key. The single writer re-reads the record and refuses when the server's <code>public_key</code> differs from the device key, so a re-wrap only ever replaces a blob with the same key under a new secret. Interrupted at any point: the server record is the only truth (one atomic PATCH); no local "in progress" flag.</div>
+</section>
+
+<section class="band" id="s10">
+<header><span class="n">S10</span><h2>Server: what the live read found, the hook (live), the alternative migration</h2></header>
+<div class="note warn"><b>Confirmed live 2026-10-30 (read-only): worse than the audit says.</b> <code>users</code> listRule and viewRule are both <code>@request.auth.id != ""</code>, neither backup field was hidden, and no hook hid them. Any signed-in account could list all 5 users' backup blobs in one request. Rate limiting is on (PocketBase defaults) but cannot help: guessing happens offline. <b>The H2 hook below went live on 2026-10-30</b> and was verified on a DB copy and on both phones; blobs copied before then stay crackable until their owner moves to a recovery key, and even then the old copy opens the same X25519 key.</div>
+<p><b>R1–R3, read-only (done, approved):</b></p>
+<pre>sudo sqlite3 -readonly /opt/pocketbase/pb_data/data.db "select listRule, viewRule from _collections where name='users';"
+sudo sqlite3 -readonly /opt/pocketbase/pb_data/data.db "select json_extract(f.value,'\$.name'), json_extract(f.value,'\$.hidden') from _collections c, json_each(c.fields) f where c.name='users';"
+sudo sqlite3 -readonly /opt/pocketbase/pb_data/data.db "select count(*), sum(private_key_encrypted like 'v2:%') from users where private_key_encrypted != '';"
+sudo sqlite3 -readonly /opt/pocketbase/pb_data/data.db "select json_extract(value,'\$.rateLimits') from _params where id='settings';"</pre>
+<p><b>H2, live since 2026-10-30:</b> <code>pb_hooks/key_backup_hide.pb.js</code>, deployed by scp + <code>sudo mv</code>, backup <code>/home/ubuntu/pb_backups/pb_hooks.20261030-key-backup-hide-pre</code>. Rollback: delete the file, restart.</p>
+<pre>/// &lt;reference path="../pb_data/types.d.ts" /&gt;
+// Security §8.2: only the owner (or a superuser) sees their encrypted key backup.
+onRecordEnrich((e) =&gt; {
+  const auth = e.requestInfo ? e.requestInfo.auth : null
+  if (!auth || (auth.id !== e.record.id &amp;&amp; !auth.isSuperuser())) {
+    e.record.hide("private_key_encrypted", "private_key_salt")
+  }
+  return e.next()
+}, "users")</pre>
+<p>Verified on a throwaway DB copy (same binary, port 8099): A lists users → only A's own blob + salt; B's absent, public keys present; A reading B → absent; A reading A → present. Live: health 200, no 4xx/5xx after restart, both phones open Home with no backup banner. Not separately tested: a user record reached through <code>expand</code> (same enrich path).</p>
+<p><b>H3, only if decision 3 = separate field:</b> <code>pb_migrations/&lt;unix&gt;_users_backup_version.js</code>, same pattern as the 2026-10-29 avatar migration (backup <code>data.db</code>, scp, <code>sudo mv</code>, restart, check <code>_migrations</code>).</p>
+<pre>/// &lt;reference path="../pb_data/types.d.ts" /&gt;
+migrate((app) =&gt; {
+  const users = app.findCollectionByNameOrId("users")
+  users.fields.add(new NumberField({ name: "private_key_backup_version", onlyInt: true, min: 0, max: 99 }))
+  app.save(users)
+}, (app) =&gt; {
+  const users = app.findCollectionByNameOrId("users")
+  users.fields.removeByName("private_key_backup_version")
+  app.save(users)
+})</pre>
+<p><b>Rate limiting (decision 5): no new limits.</b> One fetch is enough for an offline attack, and the app reads <code>users</code> records constantly.</p>
+</section>
+
+<section class="band" id="s11">
+<header><span class="n">S11</span><h2>KDF timing evidence (why v2 needs no slow KDF, and what legacy restore costs)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Setting (cryptography 2.9.0, pure Dart, release AOT, in a background isolate)</th><th>Dev box (Ryzen 7 7840HS)</th><th>Redmi S2 (measured)</th><th>Galaxy M52 (measured)</th></tr>
+<tr><td>PBKDF2-SHA256 100k (today; the v1 restore path, unchanged)</td><td>375 ms</td><td>3.55 s</td><td>0.71 s</td></tr>
+<tr><td>Argon2id 64 MiB t3 p4 (decision 2 alternative)</td><td>178 ms</td><td>1.83 s</td><td>0.45 s</td></tr>
+<tr><td>Argon2id 64 MiB t2 p4</td><td>&mdash;</td><td>1.24 s</td><td>0.30 s</td></tr>
+<tr><td>Argon2id 64 MiB t3 p1</td><td>445 ms</td><td>5.49 s</td><td>0.99 s</td></tr>
+<tr><td>Argon2id 32 MiB t3 p4</td><td>79 ms</td><td>0.76 s</td><td>0.15 s</td></tr>
+<tr><td>Argon2id 32 MiB t3 p1</td><td>&mdash;</td><td>2.67 s</td><td>0.46 s</td></tr>
+<tr><td>Argon2id 19 MiB t2 p1 (OWASP minimum)</td><td>86 ms</td><td>1.07 s</td><td>0.17 s</td></tr>
+<tr><td class="bad">PBKDF2-SHA256 600k (OWASP)</td><td>2,273 ms</td><td class="bad">21.3 s</td><td>4.21 s</td></tr>
+<tr><td class="good">HKDF-SHA256 (v2, chosen)</td><td>&lt; 1 ms</td><td class="good">&lt; 1 ms</td><td class="good">&lt; 1 ms</td></tr>
+</table></div>
+<div class="note">Measured 2026-10-30, median of 3 per row, throwaway release APK on both phones (not the app); HKDF not benchmarked (one HMAC pair). Had we kept a passphrase, Argon2id 64 MiB would have been cheap enough even on the Redmi. With a random 125-bit key it buys nothing, so v2 restores instantly; only legacy-PIN restores keep today's 3.55 s.</div>
+</section>
+
+<section class="band" id="s12">
+<header><span class="n">S12</span><h2>Diff vs current implementation</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Area</th><th>Today</th><th>Spec</th></tr>
+<tr><td>1</td><td>Secret</td><td>user-chosen 6 digits, 6 boxes</td><td>generated 125-bit recovery key; old PIN still accepted at restore</td></tr>
+<tr><td>2</td><td>KDF</td><td>PBKDF2-SHA256 100k</td><td>HKDF-SHA256 (v2); PBKDF2 read-only for v1</td></tr>
+<tr><td>3</td><td>Format</td><td>unversioned blob, 32-byte salt</td><td><code>v2:</code> marker, 16-byte salt, AAD = user id</td></tr>
+<tr><td>4</td><td>Unknown version</td><td>n/a</td><td>unsupported, no write</td></tr>
+<tr><td>5</td><td>Restore result</td><td><code>bool</code>; no backup = wrong PIN</td><td><code>RestoreResult</code> enum; still throws offline; path chosen by the blob</td></tr>
+<tr><td>6</td><td>Change verify</td><td>overwrites the device key</td><td>makes a new key; no old-secret step; guard</td></tr>
+<tr><td>7</td><td>Write guard</td><td>none</td><td>one writer, public-key match</td></tr>
+<tr><td>8</td><td>Legacy users</td><td>n/a</td><td>upgrade step + upgrade banner</td></tr>
+<tr><td>9</td><td><code>$e</code></td><td>"An error occurred: ${e}"</td><td>E1 copy only</td></tr>
+<tr><td>10</td><td>Copy</td><td>"Backup PIN", "6-digit", "I forgot my PIN"</td><td>recovery-key copy</td></tr>
+<tr><td>11</td><td>Visuals</td><td>hand-styled boxes, transparent AppBar, Material dialog</td><td>Page 7 auth pieces, key block, R14, R20</td></tr>
+<tr><td>12</td><td>Gates</td><td>screen frozen out of the Page 7 gate</td><td>in the gate</td></tr>
+<tr><td>13</td><td>Saving / deriving copy</td><td>"Saving your PIN…", "Deriving your encryption key…"</td><td>"Locking your backup…", "Checking your key…"</td></tr>
+<tr><td>14</td><td>Banner</td><td>one copy, "Backup your…"</td><td>no-backup + upgrade copies</td></tr>
+<tr><td>15</td><td>Server visibility</td><td>any signed-in user could list every blob</td><td>owner only (live 2026-10-30)</td></tr>
+<tr><td>16</td><td>Comment</td><td>"use a strong PIN"</td><td>v1/v2 + guard</td></tr>
+<tr><td>17</td><td>Start Fresh order</td><td>PIN, then new key pair</td><td>recovery key saved and checked, then new key pair</td></tr>
+</table></div>
+</section>
+
+<!-- Phone templates: cloned into light / dark / AMOLED wraps by the script below. -->
+<template id="t-key">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔑</div>
+    <div class="ttl">Save your recovery key</div>
+    <div class="bd">Your messages are locked with a key that lives on this phone. This recovery key unlocks a copy of it on our server, so you can get your messages back after a reinstall. Nobody else has it, and nobody can reset it.</div>
+    <div class="key" aria-label="7, K, Q, 2, M, then 9, X, H, M, A, …"><span>7KQ2M</span><span>9XHMA</span><span>4TRBC</span><span>8D1WZ</span><span>P6YVN</span></div>
+    <div class="btn tonal">⧉ Copy</div>
+    <div class="help">Save it in your password manager or write it down. Don't keep it only on this phone.</div>
+    <div class="btn primary">I've saved it</div>
+    <div class="btn text">Skip for now</div>
+  </div>
+</template>
+<template id="t-check">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔑</div>
+    <div class="ttl">Check your recovery key</div>
+    <div class="bd">Type or paste the key you just saved. This makes sure you can get back in later.</div>
+    <div class="fld focus"><div class="in"><div class="lb">Recovery key</div><div class="v mono">7KQ2M-9XHMA-4TRBC-8D1WZ-P6YVN</div></div></div>
+    <div class="btn primary">Turn on backup</div>
+    <div class="btn text">Show the key again</div>
+  </div>
+</template>
+<template id="t-checkErr">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔑</div>
+    <div class="ttl">Check your recovery key</div>
+    <div class="bd">Type or paste the key you just saved. This makes sure you can get back in later.</div>
+    <div class="fld bad focus"><div class="in"><div class="lb">Recovery key</div><div class="v mono">7KQ2M-9XHMA-4TRBC-8D1WZ-P6YVM</div></div></div>
+    <div class="ferr"><span class="ic">⚠</span>That's not the key on the last screen. Tap "Show the key again" and copy it.</div>
+    <div class="btn off">Turn on backup</div>
+    <div class="btn text">Show the key again</div>
+  </div>
+</template>
+<template id="t-restore">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔒</div>
+    <div class="ttl">Restore your messages</div>
+    <div class="bd">Enter the recovery key you saved. If you set a 6-digit PIN before, enter that instead.</div>
+    <div class="fld focus"><div class="in"><div class="lb">Recovery key or PIN</div><div class="v mono">7KQ2M 9XHMA 4TRBC 8D1WZ P6YVN</div></div><div class="eye" title="Hide key">👁</div></div>
+    <div class="btn primary">Restore</div>
+    <div class="btn text">I lost it</div>
+  </div>
+</template>
+<template id="t-restoreErr">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔒</div>
+    <div class="ttl">Restore your messages</div>
+    <div class="bd">Enter the recovery key you saved. If you set a 6-digit PIN before, enter that instead.</div>
+    <div class="fld bad focus"><div class="in"><div class="lb">Recovery key or PIN</div><div class="v mono">7KQ2M 9XHMA 4TRBC 8D1WZ P6YVM</div></div><div class="eye">👁</div></div>
+    <div class="ferr"><span class="ic">⚠</span>That doesn't match your backup. Check for typos and try again.</div>
+    <div class="btn primary">Restore</div>
+    <div class="btn text">I lost it</div>
+  </div>
+</template>
+<template id="t-restoreShort">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔒</div>
+    <div class="ttl">Restore your messages</div>
+    <div class="bd">Enter the recovery key you saved. If you set a 6-digit PIN before, enter that instead.</div>
+    <div class="fld bad focus"><div class="in"><div class="lb">Recovery key or PIN</div><div class="v mono">7KQ2M 9XHMA 4TRBC 8D1WZ</div></div><div class="eye">👁</div></div>
+    <div class="ferr"><span class="ic">⚠</span>A recovery key has 25 letters and numbers. Check that you have all of it.</div>
+    <div class="btn primary">Restore</div>
+    <div class="btn text">I lost it</div>
+  </div>
+</template>
+<template id="t-restoreNet">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔒</div>
+    <div class="ttl">Restore your messages</div>
+    <div class="bd">Enter the recovery key you saved. If you set a 6-digit PIN before, enter that instead.</div>
+    <div class="ecard"><span class="ic">⚠</span>This account has no backup to restore. Tap "I lost it" to start fresh.</div>
+    <div class="fld"><div class="in"><div class="lb">Recovery key or PIN</div><div class="v mono">482913</div></div><div class="eye">👁</div></div>
+    <div class="btn primary">Restore</div>
+    <div class="btn text">I lost it</div>
+  </div>
+</template>
+<template id="t-upgrade">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="pg">
+    <div class="logo">🔑</div>
+    <div class="ttl">Make your backup stronger</div>
+    <div class="bd">You're in. Your backup still uses a 6-digit PIN, which is easy to crack. Save this recovery key to replace it.</div>
+    <div class="key"><span>H3NQ8</span><span>Z2WKC</span><span>5RMTA</span><span>Y9F0D</span><span>B7XJE</span></div>
+    <div class="btn tonal">⧉ Copy</div>
+    <div class="help">Save it in your password manager or write it down. Don't keep it only on this phone.</div>
+    <div class="btn primary">I've saved it</div>
+    <div class="btn text">Not now</div>
+  </div>
+</template>
+<template id="t-change">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="appbar"><div class="ib">←</div><div class="t">Recovery key</div></div>
+  <div class="pg">
+    <div class="bd" style="text-align:left;margin-top:0">Make a new recovery key for your backup. Your old key or PIN stops working once the new one is saved.</div>
+    <div class="btn primary">Make a new key</div>
+  </div>
+  <div style="height:80px"></div>
+</template>
+<template id="t-changeErr">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="appbar"><div class="ib">←</div><div class="t">Recovery key</div></div>
+  <div class="pg">
+    <div class="ttl" style="font-size:20px;line-height:26px;text-align:left">Check your recovery key</div>
+    <div class="ecard" style="margin-top:12px"><span class="ic">⚠</span>This phone's key isn't your account's current key, so your backup wasn't changed.</div>
+    <div class="fld"><div class="in"><div class="lb">Recovery key</div><div class="v mono">H3NQ8-Z2WKC-5RMTA-Y9F0D-B7XJE</div></div></div>
+    <div class="btn primary">Turn on backup</div>
+  </div>
+</template>
+<template id="t-dialog">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="dlg">
+    <div class="t">Start fresh?</div>
+    <div class="s">Without your recovery key, your old messages can't be opened.<br><br>Starting fresh makes a new key. New messages work, but every older message stays locked for good.</div>
+    <div class="acts"><div class="a">Cancel</div><div class="a sec"><span class="ic">⚠</span>Start fresh</div></div>
+  </div>
+</template>
+<template id="t-banner">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="appbar"><div class="t" style="padding-left:8px">Chats</div><div class="ib">☺</div></div>
+  <div class="banner"><span class="w">⚠</span><span style="flex:1">Your backup uses a short PIN that's easy to crack. Tap to get a recovery key.</span><span class="x" title="Dismiss reminder">✕</span></div>
+  <div class="search">Search</div>
+  <div class="tile"><div class="av"></div><div style="flex:1"><div class="ln" style="width:50%"></div><div class="ln" style="width:80%"></div></div></div>
+  <div class="tile"><div class="av"></div><div style="flex:1"><div class="ln" style="width:40%"></div><div class="ln" style="width:70%"></div></div></div>
+  <div class="toast">New recovery key saved.</div>
+  <div style="height:56px"></div>
+</template>
+<template id="t-saving">
+  <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="card"><div class="t">Locking your backup…</div><div class="p">Elapsed 1s</div><div class="bar"><i></i></div></div>
+  <div class="card"><div class="t">Unlocking your chats</div><div class="p">Checking your key…</div><div class="bar"><i style="width:15%"></i></div></div>
+</template>
+<template id="t-offline">
+  <div class="status"><span>9:41</span><span>✈ ▮</span></div>
+  <div class="pg">
+    <div class="ttl" style="font-size:20px;line-height:26px">Check your recovery key</div>
+    <div class="fld" style="margin-top:14px"><div class="in"><div class="lb">Recovery key</div><div class="v mono">7KQ2M-9XHMA-4TRBC-8D1WZ-P6YVN</div></div></div>
+    <div class="btn off" style="opacity:.38">Turn on backup</div>
+    <div class="offhint">Available online</div>
+    <div class="btn text">Show the key again</div>
+  </div>
+</template>
+<template id="t-big">
+  <div class="pg" style="padding:8px 16px 16px">
+    <div class="ttl">Save your recovery key</div>
+    <div class="key"><span>7KQ2M</span><span>9XHMA</span><span>4TRBC</span><span>8D1WZ</span><span>P6YVN</span></div>
+    <div class="btn tonal">⧉ Copy</div>
+    <div class="btn primary">I've saved it</div>
+  </div>
+</template>
+<script>
+(function () {
+  const themes = [['light', '', ''], ['dark', 'dark', 'dark'], ['AMOLED', 'amo', 'amoled']];
+  const addFrame = (row, label, wrapCls, frameCls, tplId) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'wrap ' + wrapCls;
+    wrap.innerHTML = '<span class="tag">' + label + '</span>';
+    const frame = document.createElement('div');
+    frame.className = 'frame ' + frameCls;
+    frame.appendChild(document.getElementById('t-' + tplId).content.cloneNode(true));
+    wrap.appendChild(frame);
+    row.appendChild(wrap);
+  };
+  document.querySelectorAll('[data-themes]').forEach((row) => {
+    const only = row.dataset.only;
+    themes.forEach(([label, wrapCls, frameCls]) => {
+      if (only && label !== only) return;
+      addFrame(row, label, wrapCls, frameCls, row.dataset.themes);
+    });
+    (row.dataset.extra || '').split(',').filter(Boolean).forEach((id) => {
+      addFrame(row, 'light · ' + id.replace(/([A-Z])/g, ' $1').toLowerCase(), '', '', id);
+    });
+  });
+  document.querySelectorAll('[data-tpl]').forEach((f) => {
+    f.appendChild(document.getElementById('t-' + f.dataset.tpl).content.cloneNode(true));
+  });
+})();
+</script>
+</body>
+</html>

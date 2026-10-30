@@ -240,7 +240,7 @@ class ProfileScreen extends ConsumerWidget {
           SettingsGroup(children: [
             SettingsTile(
               icon: Icons.lock_reset_outlined,
-              title: 'Change Backup PIN',
+              title: 'Recovery key',
               trailing: Icon(Icons.chevron_right, color: t.inkFaint),
               onTap: () => context.push(AppRoutes.backupPinChange),
             ),

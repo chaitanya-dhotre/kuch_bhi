@@ -405,7 +405,11 @@ void main() {
 
   test('Page 7 auth: tokens, R3/R5, L4, no \$e, no key or network imports',
       () {
-    const frozen = ['backup_pin_screen.dart', 'encryption_sync_provider.dart'];
+    const frozen = ['encryption_sync_provider.dart'];
+    // The backup screen drives the key backup itself (key-backup spec).
+    final keyImports = RegExp(
+        r"^import '[./]*/(services/encryption_service|providers/encryption_sync_provider)\.dart';$",
+        multiLine: true);
     final files = Directory('lib/features/auth')
         .listSync(recursive: true)
         .whereType<File>()
@@ -428,7 +432,10 @@ void main() {
           multiLine: true),
     };
     for (final f in files) {
-      final src = f.readAsStringSync();
+      var src = f.readAsStringSync();
+      if (f.path.endsWith('backup_pin_screen.dart')) {
+        src = src.replaceAll(keyImports, '');
+      }
       banned.forEach((name, re) {
         expect(re.hasMatch(src), isFalse, reason: '$name in ${f.path}');
       });

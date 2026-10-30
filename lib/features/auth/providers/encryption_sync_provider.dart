@@ -108,7 +108,18 @@ void _recheckOnReconnect(Ref ref, Future<bool?> Function() shouldReroute) {
   });
 }
 
-final showBackupBannerProvider = FutureProvider<bool>((ref) async {
+/// The "set up a backup" Home banner: the server answers that this account
+/// has no backup at all.
+final showBackupBannerProvider = FutureProvider<bool>((ref) =>
+    _backupBannerDue(ref, BackupKind.none, 'backup_reminder_dismissed_at'));
+
+/// B4: the "get a recovery key" Home banner for a phone still backed up
+/// with a legacy 6-digit PIN. Its own 7-day dismissal (decision 12).
+final showBackupUpgradeBannerProvider = FutureProvider<bool>((ref) =>
+    _backupBannerDue(ref, BackupKind.legacy, 'backup_upgrade_dismissed_at'));
+
+Future<bool> _backupBannerDue(
+    Ref ref, BackupKind kind, String dismissedAtKey) async {
   final authState = ref.watch(authProvider).valueOrNull;
   if (authState is! AuthAuthenticated) return false;
   final user = authState.user;
@@ -119,14 +130,13 @@ final showBackupBannerProvider = FutureProvider<bool>((ref) async {
   final hasLocal = await enc.hasLocalPrivateKey();
   if (!hasLocal) return false;
 
-  // P6: tri-state — an offline check is unknown, and nagging a user to back
-  // up a key that is very likely already backed up (server just unreachable)
-  // is the same conflation that broke the cold-start route.
-  final hasBackup = await enc.tryHasPocketBaseBackup(user.id);
-  if (hasBackup != false) return false; // true = backed up; null = unknown
+  // P6: tri-state — an offline check is unknown (null), and nagging a user
+  // to back up a key that is very likely already backed up (server just
+  // unreachable) is the same conflation that broke the cold-start route.
+  if (await enc.tryGetBackupKind(user.id) != kind) return false;
 
   // Check if they dismissed the reminder within the last 7 days
-  final dismissedAtStr = await db.settingsDao.getSetting('backup_reminder_dismissed_at');
+  final dismissedAtStr = await db.settingsDao.getSetting(dismissedAtKey);
   if (dismissedAtStr != null) {
     final dismissedAt = DateTime.tryParse(dismissedAtStr);
     if (dismissedAt != null) {
@@ -138,4 +148,4 @@ final showBackupBannerProvider = FutureProvider<bool>((ref) async {
   }
 
   return true;
-});
+}

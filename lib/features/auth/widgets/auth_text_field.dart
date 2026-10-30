@@ -22,6 +22,7 @@ class AuthTextField extends StatelessWidget {
     this.errorText,
     this.autofillHints,
     this.textCapitalization = TextCapitalization.none,
+    this.keyField = false,
     this.onChanged,
     this.onEditingComplete,
     this.validator,
@@ -42,6 +43,9 @@ class AuthTextField extends StatelessWidget {
   final String? errorText;
   final Iterable<String>? autofillHints;
   final TextCapitalization textCapitalization;
+
+  /// A recovery key or PIN: monospace, no suggestions, no autocorrect.
+  final bool keyField;
   final ValueChanged<String>? onChanged;
   final VoidCallback? onEditingComplete;
   final String? Function(String?)? validator;
@@ -60,8 +64,8 @@ class AuthTextField extends StatelessWidget {
           textInputAction: textInputAction,
           readOnly: readOnly,
           obscureText: obscureText,
-          autocorrect: !obscureText && autofillHints == null,
-          enableSuggestions: !obscureText,
+          autocorrect: !keyField && !obscureText && autofillHints == null,
+          enableSuggestions: !keyField && !obscureText,
           autofillHints: readOnly ? null : autofillHints,
           textCapitalization: textCapitalization,
           onEditingComplete: onEditingComplete,
@@ -72,6 +76,8 @@ class AuthTextField extends StatelessWidget {
           style: TextStyle(
               fontSize: 15,
               height: 22 / 15,
+              fontFamily: keyField ? 'monospace' : null,
+              letterSpacing: keyField ? .6 : null,
               color: readOnly ? t.inkSoft : t.ink),
           decoration: appFieldDecoration(
             context,

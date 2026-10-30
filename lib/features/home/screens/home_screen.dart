@@ -66,6 +66,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _searchFocused = false;
   bool _backupBannerVisible = false;
   bool _backupBannerDismissed = false;
+  bool _upgradeBannerDismissed = false;
   double? _searchOriginOffset;
 
   @override
@@ -160,6 +161,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         (backupAsync.hasValue
             ? backupAsync.valueOrNull == true
             : _backupBannerVisible);
+    // B4 / D9: one banner at a time, no backup wins.
+    final showUpgradeBanner = !showBackupBanner &&
+        !_upgradeBannerDismissed &&
+        ref.watch(showBackupUpgradeBannerProvider).valueOrNull == true;
 
     return Scaffold(
       appBar: AppBar(
@@ -190,9 +195,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: Column(
         children: [
           _BackupBannerSlot(
-            visible: showBackupBanner,
-            onTap: () => context.push(AppRoutes.backupPinSetup),
-            onDismiss: _dismissBackupBanner,
+            upgrade: showUpgradeBanner,
+            visible: showBackupBanner || showUpgradeBanner,
+            onTap: () => context.push(showUpgradeBanner
+                ? AppRoutes.backupPinChange
+                : AppRoutes.backupPinSetup),
+            onDismiss: showUpgradeBanner
+                ? _dismissUpgradeBanner
+                : _dismissBackupBanner,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -253,6 +263,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       DateTime.now().toIso8601String(),
     );
     ref.invalidate(showBackupBannerProvider);
+  }
+
+  Future<void> _dismissUpgradeBanner() async {
+    setState(() => _upgradeBannerDismissed = true);
+    await ref.read(appDatabaseProvider).settingsDao.setSetting(
+          'backup_upgrade_dismissed_at',
+          DateTime.now().toIso8601String(),
+        );
+    ref.invalidate(showBackupUpgradeBannerProvider);
   }
 
   Future<void> _refreshHome() async {
@@ -695,11 +714,13 @@ class _OfflineBanner extends StatelessWidget {
 
 class _BackupBannerSlot extends StatelessWidget {
   const _BackupBannerSlot({
+    required this.upgrade,
     required this.visible,
     required this.onTap,
     required this.onDismiss,
   });
 
+  final bool upgrade;
   final bool visible;
   final VoidCallback onTap;
   final VoidCallback onDismiss;
@@ -714,9 +735,17 @@ class _BackupBannerSlot extends StatelessWidget {
       ),
       child: visible
           ? Padding(
-              key: const ValueKey('home-backup-banner'),
+              key: ValueKey(
+                  upgrade ? 'home-upgrade-banner' : 'home-backup-banner'),
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: _BackupBanner(onTap: onTap, onDismiss: onDismiss),
+              child: upgrade
+                  ? _BackupBanner(
+                      copy: _BackupBanner.upgradeCopy,
+                      dismissLabel: 'Dismiss reminder',
+                      onTap: onTap,
+                      onDismiss: onDismiss,
+                    )
+                  : _BackupBanner(onTap: onTap, onDismiss: onDismiss),
             )
           : const SizedBox.shrink(key: ValueKey('home-no-backup-banner')),
     );
@@ -724,20 +753,29 @@ class _BackupBannerSlot extends StatelessWidget {
 }
 
 class _BackupBanner extends StatelessWidget {
-  const _BackupBanner({required this.onTap, required this.onDismiss});
+  const _BackupBanner({
+    required this.onTap,
+    required this.onDismiss,
+    this.copy = setupCopy,
+    this.dismissLabel = 'Dismiss backup reminder',
+  });
 
   final VoidCallback onTap;
   final VoidCallback onDismiss;
+  final String copy;
+  final String dismissLabel;
 
-  static const _copy =
-      'Backup your encryption key to restore messages after reinstall. Tap to set up.';
+  static const setupCopy =
+      'Back up your encryption key so you can restore your messages after a reinstall. Tap to set up.';
+  static const upgradeCopy =
+      "Your backup uses a short PIN that's easy to crack. Tap to get a recovery key.";
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Semantics(
       container: true,
-      label: _copy,
+      label: copy,
       child: Material(
         color: t.accentSoft,
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
@@ -750,18 +788,19 @@ class _BackupBanner extends StatelessWidget {
               children: [
                 Icon(Icons.warning_amber_rounded, color: t.accent),
                 const SizedBox(width: 9),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    _copy,
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    copy,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                 ),
                 Semantics(
                   button: true,
-                  label: 'Dismiss backup reminder',
+                  label: dismissLabel,
                   child: IconButton(
                     onPressed: onDismiss,
-                    tooltip: 'Dismiss backup reminder',
+                    tooltip: dismissLabel,
                     icon: Icon(Icons.close, color: t.inkSoft, size: 20),
                   ),
                 ),

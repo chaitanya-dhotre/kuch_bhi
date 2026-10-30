@@ -346,7 +346,7 @@ void main() {
     expect(await _route(h.encryption, h.db), EncryptionSyncStatus.needsSetup);
 
     // What Backup PIN setup runs on submit.
-    await h.encryption.backupOrCreateKey('123456');
+    await h.encryption.backupOrCreateKey('7KQ2M-9XHMA-4TRBC-8D1WZ-P6YVN');
 
     final pub = await h.storage.getLocalPublicKey();
     expect(pub, isNotNull);

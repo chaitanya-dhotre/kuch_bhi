@@ -90,14 +90,19 @@ class AuthFooter extends StatelessWidget {
 
 /// C5: the show-password toggle.
 class PasswordToggle extends StatelessWidget {
-  const PasswordToggle(
-      {super.key, required this.obscured, required this.onPressed});
+  const PasswordToggle({
+    super.key,
+    required this.obscured,
+    required this.onPressed,
+    this.noun = 'password',
+  });
   final bool obscured;
   final VoidCallback onPressed;
+  final String noun;
 
   @override
   Widget build(BuildContext context) => IconButton(
-        tooltip: obscured ? 'Show password' : 'Hide password',
+        tooltip: obscured ? 'Show $noun' : 'Hide $noun',
         icon: Icon(
           obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
           color: context.t.inkSoft,

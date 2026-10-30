@@ -17,7 +17,8 @@ import '../fakes/fake_message_repository.dart';
 
 class _Enc implements EncryptionService {
   @override
-  Future<bool> restorePrivateKey(String pin) async => true;
+  Future<RestoreResult> restorePrivateKey(String pin) async =>
+      RestoreResult.restored;
   @override
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }
@@ -85,9 +86,7 @@ Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
     ),
   ));
   await tester.pump(const Duration(milliseconds: 400));
-  for (var i = 0; i < 6; i++) {
-    await tester.enterText(find.byType(TextField).at(i), '${i + 1}');
-  }
+  await tester.enterText(find.byType(TextField), '123456');
   await tester.pump();
   await tester.ensureVisible(find.text('Restore'));
   await tester.tap(find.text('Restore'));

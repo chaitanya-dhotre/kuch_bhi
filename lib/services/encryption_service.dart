@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
 
 import '../core/network/pocketbase_client.dart';
+import '../core/utils/recovery_key.dart';
 import '../data/local/secure_storage/secure_storage_service.dart';
 
 class EncryptResult {
@@ -24,6 +25,23 @@ class MissingKeyException implements Exception {
   @override
   String toString() => 'MissingKeyException: $message';
 }
+
+/// [EncryptionService.restorePrivateKey]'s outcome. Offline is a throw.
+enum RestoreResult { restored, restoredLegacy, wrongSecret, noBackup, unsupported }
+
+/// What the server holds for an account: nothing, a legacy 6-digit-PIN
+/// backup (v1), or a recovery-key backup (v2 or newer).
+enum BackupKind { none, legacy, current }
+
+/// K3: the backup writer refused, because the device key isn't the public
+/// key the account publishes.
+class KeyMismatchException implements Exception {
+  const KeyMismatchException();
+}
+
+/// A request that never got an answer: offline, dropped or timed out.
+bool isUnreachableError(Object e) =>
+    (e is ClientException && e.statusCode == 0) || e is TimeoutException;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Isolate entry points. All heavy crypto (AES-GCM, X25519 ECDH, HKDF,
@@ -787,18 +805,34 @@ class EncryptionService {
     _memLoaded = false;
   }
 
-  // ── PIN Backup & Restore ───────────────────────────────────────
+  // ── Key backup (recovery key) ──────────────────────────────────
   // Note: Drift AppSettingsTable (including 'pin_backup_skipped' setting) is wiped on reinstall.
   // This is correct as it forces a new PIN setup or key restoration for security.
 
-  // SECURITY: The private key is backed up to PocketBase encrypted with
-  // a PIN-derived AES key. This means: (a) the PIN must remain secret,
-  // (b) the PocketBase server admin can see the encrypted blob but cannot
-  // decrypt without the PIN, (c) brute-forcing the PIN offline is possible
-  // if the encrypted blob is leaked — use a strong PIN and rotate it
-  // periodically via profile settings.
+  // SECURITY: the private key is backed up on the user's PocketBase record,
+  // which an owner-only hook hides from other accounts. Anyone holding a
+  // copy can guess offline, so only the v2 format is ever written:
+  //   v2 = "v2:" + base64(nonce‖ct‖tag), AES-GCM under HKDF-SHA256 of a
+  //        generated 125-bit recovery key, AAD bound to the user id.
+  //   v1 = unprefixed, PBKDF2-100k of a 6-digit PIN (legacy, read-only:
+  //        one GPU guesses it in seconds).
+  // [backupPrivateKey] is the only writer, and it refuses to back up a key
+  // that isn't the account's published one (K3).
 
-  Future<void> backupPrivateKey(String pin) async {
+  static const _v2Info = 'kuch_bhi key backup v2';
+
+  static Future<SecretKey> _v2Key(String recoveryKey, List<int> salt) =>
+      Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(
+        secretKey: SecretKey(ascii.encode(recoveryKey)),
+        nonce: salt,
+        info: utf8.encode(_v2Info),
+      );
+
+  static List<int> _v2Aad(String userId) => utf8.encode('$_v2Info $userId');
+
+  Future<void> backupPrivateKey(String recoveryKey) async {
+    final key = parseRecoveryKey(recoveryKey);
+    if (key == null) throw ArgumentError('Not a recovery key.');
     final userId = await _storage.getCurrentUserId();
     if (userId == null) {
       throw Exception('[Enc] No current user ID stored locally.');
@@ -810,139 +844,144 @@ class EncryptionService {
     }
     final privBytes = base64.decode(privB64);
 
-    // Generate 32 random bytes as salt
+    // K3: back up only the key peers encrypt to. Fresh read, never a cache.
+    final devicePub = await (await _x25519.newKeyPairFromSeed(privBytes))
+        .extractPublicKey();
+    final record = await _pb.collection('users').getOne(userId);
+    final serverPub = record.getStringValue('public_key');
+    if (serverPub.isNotEmpty && serverPub != base64.encode(devicePub.bytes)) {
+      throw const KeyMismatchException();
+    }
+
     final rng = Random.secure();
-    final salt = List<int>.generate(32, (_) => rng.nextInt(256));
-
-    // Derive AES-256 key from PIN and salt (off the UI isolate).
-    final keyBytes = await compute(_isoPbkdf2, {
-      'pin': pin,
-      'salt': salt,
-      'iterations': 100000,
-    });
-    final secretKey = await _aesGcm.newSecretKeyFromBytes(keyBytes);
-
-    // Encrypt private key with AES-GCM
+    final salt = List<int>.generate(16, (_) => rng.nextInt(256));
     final nonce = _aesGcm.newNonce();
-    final secretBox = await _aesGcm.encrypt(
+    final box = await _aesGcm.encrypt(
       privBytes,
-      secretKey: secretKey,
+      secretKey: await _v2Key(key, salt),
       nonce: nonce,
+      aad: _v2Aad(userId),
     );
 
-    // Prepend the 12-byte IV/nonce to ciphertext + MAC
-    final encryptedBytes = [
-      ...nonce,
-      ...secretBox.cipherText,
-      ...secretBox.mac.bytes,
-    ];
+    // One update: blob and salt land together or not at all.
+    await _pb.collection('users').update(userId, body: {
+      'private_key_encrypted':
+          'v2:${base64.encode([...nonce, ...box.cipherText, ...box.mac.bytes])}',
+      'private_key_salt': base64.encode(salt),
+    });
 
-    // Store to PocketBase
-    await _pb
-        .collection('users')
-        .update(
-          userId,
-          body: {
-            'private_key_encrypted': base64.encode(encryptedBytes),
-            'private_key_salt': base64.encode(salt),
-          },
-        );
-
-    debugPrint('[Enc] Private key backed up to PocketBase');
+    debugPrint('[Enc] Private key backed up to PocketBase (v2)');
   }
 
-  Future<bool> restorePrivateKey(String pin) async {
+  /// Decrypts the backup with [secret] (a recovery key, or a legacy 6-digit
+  /// PIN for a v1 blob) and installs it as the device key. The blob's format
+  /// picks how [secret] is read. Throws when the record can't be read (K3:
+  /// offline is an error to show, not a wrong secret).
+  Future<RestoreResult> restorePrivateKey(String secret) async {
     final userId = await _storage.getCurrentUserId();
     if (userId == null) {
-      debugPrint('[Enc] Cannot restore private key: No current user ID');
-      return false;
+      throw Exception('[Enc] No current user ID stored locally.');
     }
 
-    // Outside the try (K3): an unreachable server is an error for the screen
-    // to show, not "Incorrect PIN" — Restore is where an offline no-key
-    // route lands.
     final userRecord = await _pb.collection('users').getOne(userId);
-    try {
-      final encryptedB64 = userRecord.getStringValue('private_key_encrypted');
-      final saltB64 = userRecord.getStringValue('private_key_salt');
-
-      if (encryptedB64.isEmpty || saltB64.isEmpty) {
-        debugPrint('[Enc] No backup exists on PocketBase for user: $userId');
-        return false;
-      }
-
-      final encryptedBytes = base64.decode(encryptedB64);
-      final salt = base64.decode(saltB64);
-
-      // Re-derive AES-256 key from PIN and salt (off the UI isolate).
-      final keyBytes = await compute(_isoPbkdf2, {
-        'pin': pin,
-        'salt': salt,
-        'iterations': 100000,
-      });
-      final secretKey = await _aesGcm.newSecretKeyFromBytes(keyBytes);
-
-      if (encryptedBytes.length < 12 + 16) {
-        debugPrint('[Enc] Invalid backup length');
-        return false;
-      }
-
-      // Separate IV (12 bytes), Ciphertext, and MAC (16 bytes)
-      final nonce = encryptedBytes.sublist(0, 12);
-      final rest = encryptedBytes.sublist(12);
-      final cipherText = rest.sublist(0, rest.length - 16);
-      final mac = Mac(rest.sublist(rest.length - 16));
-
-      // Attempt AES-GCM Decryption
-      final clear = await _aesGcm.decrypt(
-        SecretBox(cipherText, nonce: nonce, mac: mac),
-        secretKey: secretKey,
-      );
-
-      // Store private key in secure storage
-      await _storage.savePrivateKey(base64.encode(clear));
-
-      // Re-derive the matching public key. For X25519 the 32-byte private
-      // scalar IS the seed accepted by newKeyPairFromSeed, so this
-      // reproduces the exact public key that is stored on the server.
-      final kp = await _x25519.newKeyPairFromSeed(clear);
-      final pubKey = await kp.extractPublicKey();
-      await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
-
-      // Re-publish the restored public key: the server's copy may have been
-      // replaced by a regenerate-on-mismatch during an account switch, and
-      // without re-publishing here the login-time mismatch guard would drop
-      // the just-restored keypair (and group_keys rows would stay
-      // unwrappable). Restore is a rollback to the account's ORIGINAL key —
-      // peers' existing DM derivations stay valid.
-      try {
-        await _pb
-            .collection('users')
-            .update(userId, body: {'public_key': base64.encode(pubKey.bytes)});
-      } catch (e) {
-        debugPrint('[Enc] Restored pubkey re-upload failed: $e');
-      }
-
-      // Invalidate all cached derived keys so they get re-derived with the
-      // restored private key. Cover every prefix the app actually uses.
-      final allKeys = await _storage.readAll();
-      for (final key in allKeys.keys) {
-        if (key.startsWith('conv_key_') ||
-            key.startsWith('group_key_') ||
-            key.startsWith('contact_key_')) {
-          await _storage.delete(key: key);
-        }
-      }
-      clearAllGroupKeyCache(); // C: disk wipe must evict the RAM map too
-
-      debugPrint(
-        '[Enc] Private key successfully restored and cached keys cleared',
-      );
-      return true;
-    } catch (e) {
-      debugPrint('[Enc] Decryption/restore failed: $e');
-      return false;
+    final blob = userRecord.getStringValue('private_key_encrypted');
+    final saltB64 = userRecord.getStringValue('private_key_salt');
+    if (blob.isEmpty || saltB64.isEmpty) {
+      debugPrint('[Enc] No backup exists on PocketBase for user: $userId');
+      return RestoreResult.noBackup;
     }
+
+    final version = RegExp(r'^v(\d+):').firstMatch(blob)?.group(1);
+    if (version != null && version != '2') return RestoreResult.unsupported;
+
+    final List<int> clear;
+    try {
+      final salt = base64.decode(saltB64);
+      if (version == '2') {
+        final key = parseRecoveryKey(secret);
+        if (key == null) return RestoreResult.wrongSecret;
+        clear = await _openBackup(
+          base64.decode(blob.substring(3)),
+          await _v2Key(key, salt),
+          aad: _v2Aad(userId),
+        );
+      } else {
+        // v1: PBKDF2-HMAC-SHA256 off the UI isolate (seconds on slow phones).
+        final keyBytes = await compute(_isoPbkdf2, {
+          'pin': secret.trim(),
+          'salt': salt,
+          'iterations': 100000,
+        });
+        clear = await _openBackup(
+          base64.decode(blob),
+          await _aesGcm.newSecretKeyFromBytes(keyBytes),
+        );
+      }
+    } on SecretBoxAuthenticationError {
+      // Only a failed tag means a wrong secret (or a tampered / moved blob);
+      // a malformed record throws, so it isn't retyped forever.
+      debugPrint('[Enc] Backup did not open: wrong secret');
+      return RestoreResult.wrongSecret;
+    }
+
+    // Store private key in secure storage
+    await _storage.savePrivateKey(base64.encode(clear));
+
+    // Re-derive the matching public key. For X25519 the 32-byte private
+    // scalar IS the seed accepted by newKeyPairFromSeed, so this
+    // reproduces the exact public key that is stored on the server.
+    final kp = await _x25519.newKeyPairFromSeed(clear);
+    final pubKey = await kp.extractPublicKey();
+    await _storage.saveLocalPublicKey(base64.encode(pubKey.bytes));
+
+    // Re-publish the restored public key: the server's copy may have been
+    // replaced by a regenerate-on-mismatch during an account switch, and
+    // without re-publishing here the login-time mismatch guard would drop
+    // the just-restored keypair (and group_keys rows would stay
+    // unwrappable). Restore is a rollback to the account's ORIGINAL key —
+    // peers' existing DM derivations stay valid.
+    try {
+      await _pb
+          .collection('users')
+          .update(userId, body: {'public_key': base64.encode(pubKey.bytes)});
+    } catch (e) {
+      debugPrint('[Enc] Restored pubkey re-upload failed: $e');
+    }
+
+    // Invalidate all cached derived keys so they get re-derived with the
+    // restored private key. Cover every prefix the app actually uses.
+    final allKeys = await _storage.readAll();
+    for (final key in allKeys.keys) {
+      if (key.startsWith('conv_key_') ||
+          key.startsWith('group_key_') ||
+          key.startsWith('contact_key_')) {
+        await _storage.delete(key: key);
+      }
+    }
+    clearAllGroupKeyCache(); // C: disk wipe must evict the RAM map too
+
+    debugPrint(
+      '[Enc] Private key successfully restored and cached keys cleared',
+    );
+    return version == null
+        ? RestoreResult.restoredLegacy
+        : RestoreResult.restored;
+  }
+
+  /// nonce 12 ‖ ciphertext ‖ GCM tag 16 → plaintext; throws on a bad tag.
+  Future<List<int>> _openBackup(List<int> bytes, SecretKey key,
+      {List<int> aad = const []}) {
+    if (bytes.length < 12 + 16) throw const FormatException('short backup');
+    final rest = bytes.sublist(12);
+    return _aesGcm.decrypt(
+      SecretBox(
+        rest.sublist(0, rest.length - 16),
+        nonce: bytes.sublist(0, 12),
+        mac: Mac(rest.sublist(rest.length - 16)),
+      ),
+      secretKey: key,
+      aad: aad,
+    );
   }
 
   Future<void> generateAndBackupNewKey(String pin) async {
@@ -1014,6 +1053,21 @@ class EncryptionService {
       return encrypted.isNotEmpty;
     } catch (e) {
       debugPrint('[Enc] hasPocketBaseBackup check failed (unknown): $e');
+      return null;
+    }
+  }
+
+  /// Tri-state like [tryHasPocketBaseBackup]: null on ANY error.
+  Future<BackupKind?> tryGetBackupKind(String userId) async {
+    try {
+      final userRecord = await _pb.collection('users').getOne(userId);
+      final encrypted = userRecord.getStringValue('private_key_encrypted');
+      if (encrypted.isEmpty) return BackupKind.none;
+      return RegExp(r'^v\d+:').hasMatch(encrypted)
+          ? BackupKind.current
+          : BackupKind.legacy;
+    } catch (e) {
+      debugPrint('[Enc] backup kind check failed (unknown): $e');
       return null;
     }
   }
