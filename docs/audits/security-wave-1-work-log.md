@@ -2,7 +2,7 @@
 
 Source: `docs/audits/2026-10-30-security.md` (static audit by Mimo, nothing
 executed). Claude end to end (E2E-adjacent). Baseline 650/650 on `86d72fc`.
-Status: **user device PASS 2026-10-30; committed. Live PB cleanup still pending the user's OK.**
+Status: **user device PASS 2026-10-30; committed. Live PB checked: no plaintext stored, nothing to clean.**
 
 ## Findings confirmed in code before fixing
 
@@ -77,11 +77,14 @@ spec. Not fixed in this wave.
   one log line); `encryption_service.dart`, `lib/core/decrypt/`,
   `lib/infrastructure/media/`, `auth_repository_impl.dart` byte-identical.
 
-## Live PocketBase cleanup (NOT done; needs the user's OK)
+## Live PocketBase cleanup: checked 2026-10-30, nothing to clean
 
-Existing `starred_messages` rows still hold plaintext previews. Do it only
-after BOTH phones run this build, because an old build uploads a preview on
-every star. See the session report for the exact command.
+The user approved a cleanup. A read-only check found 12 `starred_messages` rows
+(2026-06-30 → 2026-10-30), all with `message_preview` = '' (length 0, not NULL).
+No hook or rule blanks the field, so the old stars were probably made while
+`bodyCache` was empty and sent `''`. No backup and no write were made. The
+newest row (2026-10-30 15:13, from the device test of the new build) proves a
+star is created without the field, so the field is not required.
 
 ## Follow-ups (not in this wave)
 
