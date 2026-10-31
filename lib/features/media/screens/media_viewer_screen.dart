@@ -7,6 +7,7 @@ import 'package:gal/gal.dart';
 import 'package:intl/intl.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
@@ -276,11 +277,11 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
       message = switch (e.type) {
         GalExceptionType.accessDenied => 'Allow photo access in Settings to save.',
         GalExceptionType.notEnoughSpace => 'Not enough space to save.',
-        _ => "Couldn't save. Try again.",
+        _ => kSaveFailedCopy,
       };
     } catch (e) {
       debugPrint('[MediaViewer] save failed: $e');
-      message = "Couldn't save. Try again.";
+      message = kSaveFailedCopy;
     }
     if (!mounted) return;
     setState(() => _saving = false);
@@ -437,7 +438,7 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
 
   Widget _media(BuildContext context, LocalMediaFile? file, bool still) {
     final a = widget.args;
-    final kind = _isVideo ? 'Video' : 'Photo';
+    final kind = _isVideo ? kMediaRowVideoLabel : kMediaRowPhotoLabel;
     Widget? poster = a.thumbPath == null
         ? null
         : Image.file(

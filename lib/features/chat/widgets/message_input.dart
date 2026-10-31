@@ -13,6 +13,7 @@ import 'package:video_compress/video_compress.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../domain/entities/message.dart';
 import '../../../services/media_upload_service.dart';
@@ -173,12 +174,6 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   // ── Recording helpers ────────────────────────────────────────
 
-  String _formatDuration(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   Future<void> _startRecording() async {
     if (_voiceState != _VoiceState.idle || _isSendingVoice) return;
 
@@ -272,7 +267,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
         return;
       }
 
-      final duration = _formatDuration(elapsed);
+      final duration = formatMmSs(elapsed);
       setState(() {
         _voiceState = _VoiceState.preview;
         _previewDuration = duration;
@@ -912,8 +907,6 @@ class _RecordingRow extends StatelessWidget {
   final void Function(double) onDragUpdate;
   final VoidCallback onStop;
 
-  String _fmt(int s) => '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
-
   @override
   Widget build(BuildContext context) {
     final cancelled = dragOffsetX < -80;
@@ -933,7 +926,7 @@ class _RecordingRow extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                _fmt(elapsed),
+                formatMmSs(elapsed),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -1037,19 +1030,13 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
     await _player.play();
   }
 
-  String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60);
-    final s = d.inSeconds.remainder(60);
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final progress = _total.inMilliseconds > 0
         ? (_position.inMilliseconds / _total.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
     final displayDuration = _total > Duration.zero
-        ? _fmt(_total - _position)
+        ? formatMmSs((_total - _position).inSeconds)
         : widget.duration;
 
     return Padding(

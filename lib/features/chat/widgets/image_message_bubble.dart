@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
@@ -51,10 +52,10 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
         senderName: widget.isMine
             ? 'You'
             : widget.senderName.isEmpty
-            ? 'Photo'
+            ? kMediaRowPhotoLabel
             : widget.senderName,
         timestamp: widget.createdAt ?? DateTime.now(),
-        heroTag: 'media_${widget.serverId}',
+        heroTag: mediaHeroTag(widget.serverId),
         thumbPath: thumb.path,
       ),
     );
@@ -160,7 +161,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                     child: AspectRatio(
                       aspectRatio: _aspectRatio,
                       child: Hero(
-                        tag: 'media_${widget.serverId}',
+                        tag: mediaHeroTag(widget.serverId),
                         // Downloaded: the full photo at bubble size, so it
                         // is never the small thumbnail blown up.
                         child: full == null
@@ -264,7 +265,7 @@ class _ImageUnavailable extends StatelessWidget {
           ? Icon(Icons.broken_image_outlined, color: context.t.inkFaint)
           : MediaRetry(
               media: retry!,
-              what: 'Photo',
+              what: kMediaRowPhotoLabel,
               icon: Icons.broken_image_outlined,
             ),
     );

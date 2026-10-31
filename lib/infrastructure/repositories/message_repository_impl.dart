@@ -9,6 +9,7 @@ import 'package:pocketbase/pocketbase.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/constants/app_strings.dart';
 import '../../core/decrypt/body_cache.dart';
 import '../../core/decrypt/decrypt_pass.dart';
 import '../../core/decrypt/device_key_store.dart';
@@ -3404,7 +3405,7 @@ class MessageRepositoryImpl implements MessageRepository {
       final name = await _userName(userId);
       await _emitSystemMessage(
         conversationId,
-        '$name is now an admin',
+        adminPromotedCopy(name),
         actorUserId: myId,
       );
     } catch (e) {
@@ -3443,7 +3444,7 @@ class MessageRepositoryImpl implements MessageRepository {
       final name = await _userName(userId);
       await _emitSystemMessage(
         conversationId,
-        '$name is no longer an admin',
+        adminDemotedCopy(name),
         actorUserId: myId,
       );
     } catch (e) {
@@ -4804,13 +4805,13 @@ class MessageRepositoryImpl implements MessageRepository {
     if (parent == null) return null;
     switch (parent.type) {
       case 'image':
-        return '📷 Photo';
+        return kPreviewPhotoLabel;
       case 'video':
-        return '🎬 Video';
+        return kPreviewVideoLabel;
       case 'voice':
-        return '🎤 Voice message';
+        return kPreviewVoiceLabel;
       case 'document':
-        return '📎 Document';
+        return kPreviewDocumentLabel;
       case 'poll':
         return '📊 Poll';
       case 'system':

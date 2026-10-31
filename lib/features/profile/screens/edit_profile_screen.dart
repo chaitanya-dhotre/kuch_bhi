@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_strings.dart';
+import '../../../core/utils/username_rules.dart';
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
@@ -17,9 +19,6 @@ import '../../../features/auth/providers/auth_provider.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../chat/message_offline_policy.dart';
 import 'crop_photo_screen.dart';
-
-const _offlineCopy = "You're offline — actions are available when you're back.";
-final _usernamePattern = RegExp(r'^[a-zA-Z0-9_]+$');
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -78,12 +77,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   String? get _usernameError {
     final raw = _usernameController.text.trim();
-    if (raw.isEmpty) return 'Enter a username';
-    if (raw.length < 3) return 'At least 3 characters';
-    if (!_usernamePattern.hasMatch(raw)) {
-      return 'Letters, numbers and underscores only';
-    }
-    if (_takenUsername == _username) return 'That username is taken.';
+    final error = validateUsername(raw);
+    if (error != null) return error;
+    if (_takenUsername == _username) return kUsernameTakenCopy;
     return null;
   }
 
@@ -137,7 +133,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       if (mounted) setState(() => _takenUsername = _username);
     } catch (e) {
       debugPrint('[Profile] save failed: $e');
-      if (mounted) showToast(context, "Couldn't save. Try again.", error: true);
+      if (mounted) showToast(context, kSaveFailedCopy, error: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -222,7 +218,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _offlineCopy,
+                        kOfflineActionsCopy,
                         style: TextStyle(fontSize: 13, color: t.ink),
                       ),
                     ),

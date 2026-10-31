@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/emoji_utils.dart';
@@ -52,10 +53,10 @@ Color _colorForSender(String senderId, Brightness brightness) {
 }
 
 String _messageTypeLabel(String type) => switch (type) {
-  'image' => 'Photo',
-  'video' => 'Video',
-  'voice' => 'Voice message',
-  'document' => 'Document',
+  'image' => kMediaRowPhotoLabel,
+  'video' => kMediaRowVideoLabel,
+  'voice' => kMediaRowVoiceLabel,
+  'document' => kMediaRowDocumentLabel,
   'poll' => 'Poll',
   'system' => 'System message',
   _ => 'Message',

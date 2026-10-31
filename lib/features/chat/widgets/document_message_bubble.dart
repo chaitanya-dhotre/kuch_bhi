@@ -3,20 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
 import 'media_retry.dart';
-
-String _formatSize(dynamic raw) {
-  final bytes = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
-  if (bytes <= 0) return '';
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  return '${(bytes / 1048576).toStringAsFixed(1)} MB';
-}
 
 String _formatType(String fileName, String? mimeType) {
   final mime = mimeType?.trim();
@@ -119,8 +113,9 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
           }
           if (media == null) return _retryTile();
           final fileName = media.fileName ?? 'file';
-          final size = _formatSize(
+          final size = formatFileSize(
             media.file.existsSync() ? media.file.lengthSync() : 0,
+            bytesUnitSpaced: true,
           );
           final type = _formatType(fileName, media.mimeType);
           final expiresAt = media.expiresAt;
@@ -261,7 +256,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
 
   Widget _retryTile() => MediaRetry(
     media: MediaRef(widget.conversationId, widget.serverId),
-    what: 'Document',
+    what: kMediaRowDocumentLabel,
     icon: Icons.insert_drive_file_outlined,
     ink: widget.isMine
         ? context.t.onAccent.withValues(alpha: 0.70)

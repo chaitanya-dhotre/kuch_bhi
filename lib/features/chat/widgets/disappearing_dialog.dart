@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../data/local/database/app_database.dart';
@@ -73,7 +74,7 @@ Future<void> showDisappearingDialog(
                     if (context.mounted) {
                       showToast(
                         context,
-                        "Couldn't update. Try again.",
+                        kUpdateFailedCopy,
                         error: true,
                       );
                     }

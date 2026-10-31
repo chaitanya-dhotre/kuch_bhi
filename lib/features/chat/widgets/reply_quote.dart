@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -76,10 +77,10 @@ class ReplyQuote extends ConsumerWidget {
     final body = msg.decryptedBody;
     // Media previews should show a type label, not the (possibly empty) body
     final String? preview = switch (msg.type) {
-      'image' => 'Photo',
-      'video' => 'Video',
-      'voice' => body?.startsWith('🎤') == true ? body : '🎤 Voice message',
-      'document' => body?.isNotEmpty == true ? body : 'Document',
+      'image' => kMediaRowPhotoLabel,
+      'video' => kMediaRowVideoLabel,
+      'voice' => body?.startsWith('🎤') == true ? body : kPreviewVoiceLabel,
+      'document' => body?.isNotEmpty == true ? body : kMediaRowDocumentLabel,
       _ =>
         body == null
             ? null
@@ -169,9 +170,9 @@ class ReplyQuote extends ConsumerWidget {
     } else {
       switch (resolvedType) {
         case 'image':
-          previewLine = _line('Photo', previewColor);
+          previewLine = _line(kMediaRowPhotoLabel, previewColor);
         case 'video':
-          previewLine = _line('Video', previewColor);
+          previewLine = _line(kMediaRowVideoLabel, previewColor);
         case 'voice':
           // T9/P7: row bodies live in the session cache only.
           final origBody = original == null
@@ -179,16 +180,17 @@ class ReplyQuote extends ConsumerWidget {
               : bodyCache.get(original.localId);
           final dur = _stripEmoji(origBody ?? '');
           previewLine = _line(
-            dur.isNotEmpty && dur != 'Voice message'
-                ? 'Voice message · $dur'
-                : 'Voice message',
+            dur.isNotEmpty && dur != kMediaRowVoiceLabel
+                ? voiceMessageRowCopy(dur)
+                : kMediaRowVoiceLabel,
             previewColor,
           );
         case 'document':
           final doc = original == null
               ? ''
               : _stripEmoji(bodyCache.get(original.localId) ?? '');
-          previewLine = _line(doc.isNotEmpty ? doc : 'Document', previewColor);
+          previewLine =
+              _line(doc.isNotEmpty ? doc : kMediaRowDocumentLabel, previewColor);
         default:
           // text (or the parent row is gone): messageBodyProvider is the
           // single read path. A gone/unresolvable parent resolves null ⇒

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../data/local/database/app_database.dart';
 
 /// App theme options. AMOLED is a true-black dark variant.
@@ -19,7 +20,7 @@ extension AppThemeModeX on AppThemeMode {
   }
 
   String get label => switch (this) {
-        AppThemeMode.system => 'System default',
+        AppThemeMode.system => kSystemDefaultLabel,
         AppThemeMode.light  => 'Light',
         AppThemeMode.dark   => 'Dark',
         AppThemeMode.amoled => 'AMOLED (true black)',

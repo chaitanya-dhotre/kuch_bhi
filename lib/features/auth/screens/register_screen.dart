@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/username_rules.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/page_app_bar.dart';
@@ -13,21 +14,14 @@ import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/auth_ui.dart';
 
-final _usernamePattern = RegExp(r'^[a-zA-Z0-9_]+$');
+/// The one validator lives in core (audit §3.2); re-exported so existing
+/// `register_screen.dart` imports keep resolving it.
+export '../../../core/utils/username_rules.dart' show validateUsername;
 
 /// D3 / F4: shared with Google onboarding.
 String? validateDisplayName(String? v) {
   if (v == null || v.trim().isEmpty) return 'Enter your name';
   if (v.trim().length < 2) return 'At least 2 characters';
-  return null;
-}
-
-String? validateUsername(String? v) {
-  if (v == null || v.trim().isEmpty) return 'Enter a username';
-  if (v.trim().length < 3) return 'At least 3 characters';
-  if (!_usernamePattern.hasMatch(v.trim())) {
-    return 'Letters, numbers and underscores only';
-  }
   return null;
 }
 

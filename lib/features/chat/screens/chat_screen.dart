@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
@@ -1502,7 +1503,7 @@ class _OfflineStrip extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              "You're offline — messages will send when you're back.",
+              kOfflineSendCopy,
               style: TextStyle(color: context.t.ink, fontSize: 12),
             ),
           ),

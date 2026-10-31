@@ -7,7 +7,9 @@ import 'package:just_audio/just_audio.dart';
 import 'package:open_file/open_file.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/app_toast.dart';
@@ -62,19 +64,9 @@ DateTime? _expiresAt(MediaRecord r) {
   return raw.isNotEmpty ? DateTime.tryParse(raw)?.toLocal() : null;
 }
 
-String _formatSize(dynamic raw) {
-  final bytes = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
-  if (bytes <= 0)   return '';
-  if (bytes < 1024) return '${bytes}B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-}
-
 String _formatDuration(dynamic raw) {
   final secs = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
-  final m = secs ~/ 60;
-  final s = secs % 60;
-  return '$m:${s.toString().padLeft(2, '0')}';
+  return formatMmSs(secs);
 }
 
 String _formatDate(String iso) {
@@ -322,7 +314,7 @@ class _PhotosTab extends ConsumerWidget {
               serverId:       serverId,
               heroTag:        'media_docs_${r.id}',
               mediaType:      'image',
-              senderName:     'Photo',
+              senderName:     kMediaRowPhotoLabel,
               created:        created,
             );
           },
@@ -391,7 +383,7 @@ class _VideosTab extends ConsumerWidget {
               serverId:       serverId,
               heroTag:        'media_docs_${r.id}',
               mediaType:      'video',
-              senderName:     'Video',
+              senderName:     kMediaRowVideoLabel,
               created:        created,
               durationLabel:  dur,
             );
@@ -455,7 +447,7 @@ class _VoiceTab extends ConsumerWidget {
                 backgroundColor: context.t.accent.withValues(alpha: 0.12),
                 child: Icon(Icons.mic, color: context.t.accent),
               ),
-              title: Text('Voice message · $dur'),
+              title: Text(voiceMessageRowCopy(dur)),
               subtitle: Text(date),
               trailing: Icon(Icons.play_circle_outline, color: context.t.accent),
               onTap: () => _playInSheet(context, conversationId, serverId, dur),
@@ -569,12 +561,6 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
     super.dispose();
   }
 
-  String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60);
-    final s = d.inSeconds.remainder(60);
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final progress = _total.inMilliseconds > 0
@@ -588,7 +574,8 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
       color: t.inkSoft,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
-    final total = _total > Duration.zero ? _fmt(_total) : widget.duration;
+    final total =
+        _total > Duration.zero ? formatMmSs(_total.inSeconds) : widget.duration;
 
     final Widget control;
     if (_failed) {
@@ -657,7 +644,7 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Voice message',
+                kMediaRowVoiceLabel,
                 style: TextStyle(
                   fontSize: 16,
                   height: 22 / 16,
@@ -682,7 +669,7 @@ class _VoicePlaySheetState extends ConsumerState<_VoicePlaySheet> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_fmt(_pos), style: caption),
+            Text(formatMmSs(_pos.inSeconds), style: caption),
             Text(total,      style: caption),
           ],
         ),
@@ -736,8 +723,10 @@ class _DocsTab extends ConsumerWidget {
           itemBuilder:  (context, i) {
             final r        = visible[i];
             final serverId = r.getStringValue('message_id');
-            final fileName = r.data['file_name']?.toString() ?? 'Document';
-            final size     = _formatSize(r.data['file_size']);
+            final fileName =
+                r.data['file_name']?.toString() ?? kMediaRowDocumentLabel;
+            final size     =
+                formatFileSize(r.data['file_size'], bytesUnitSpaced: false);
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
               leading: CircleAvatar(

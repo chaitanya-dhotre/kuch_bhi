@@ -102,40 +102,6 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<GooglePrefill?> getGooglePrefill() async {
-    try {
-      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
-      final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) return null; // user cancelled
-      return GooglePrefill(
-        email:       googleUser.email,
-        displayName: googleUser.displayName,
-      );
-    } on AuthException {
-      rethrow;
-    } catch (e) {
-      throw AuthException('Google sign in failed: $e');
-    }
-  }
-
-  @override
-  Future<GooglePrefill?> fetchGoogleProfile() async {
-    try {
-      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
-      final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) return null; // user cancelled
-      return GooglePrefill(
-        email: googleUser.email,
-        displayName: googleUser.displayName,
-      );
-    } on AuthException {
-      rethrow;
-    } catch (e) {
-      throw AuthException('Google sign in failed: $e');
-    }
-  }
-
-  @override
   Future<GoogleAuthResult?> signInWithGoogle() async {
     try {
       final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);

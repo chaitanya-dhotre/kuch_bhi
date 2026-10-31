@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
 
@@ -33,15 +34,15 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
     final body = msg.decryptedBody ?? '';
     switch (msg.type) {
       case 'image':
-        return '📷 Photo';
+        return kPreviewPhotoLabel;
       case 'video':
-        return body.isNotEmpty ? '🎬 Video · $body' : '🎬 Video';
+        return body.isNotEmpty ? '🎬 Video · $body' : kPreviewVideoLabel;
       case 'voice':
-        return body.isNotEmpty && body != 'Voice message'
+        return body.isNotEmpty && body != kMediaRowVoiceLabel
             ? '🎤 Voice message · $body'
-            : '🎤 Voice message';
+            : kPreviewVoiceLabel;
       case 'document':
-        return body.isNotEmpty ? '📎 $body' : '📎 Document';
+        return body.isNotEmpty ? '📎 $body' : kPreviewDocumentLabel;
       default:
         return 'New message';
     }

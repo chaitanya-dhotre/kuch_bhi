@@ -7,6 +7,11 @@ import '../../media/providers/media_viewer_providers.dart';
 import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 
+/// One hero-tag namespace for a message's media (audit §3.10): the bubble's
+/// thumbnail and its fullscreen viewer must agree on the tag, so both wrap it
+/// in this helper.
+String mediaHeroTag(String serverId) => 'media_$serverId';
+
 /// The placeholder for a photo, video or document whose load came back
 /// empty. mediaFileProvider keeps that result, so the tap drops it and the
 /// bubble fetches again. Offline the tap waits for the network (38% + hint);

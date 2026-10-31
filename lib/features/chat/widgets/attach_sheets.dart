@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/constants/app_strings.dart';
 import '../../../core/widgets/app_sheet.dart';
 
 /// Attach source: `'camera'`, `'gallery'`, `'video_camera'`,
@@ -21,7 +22,7 @@ Future<String?> showAttachSourceSheet(BuildContext context) {
           row(Icons.photo_library_outlined, 'Photo library', 'gallery'),
           row(Icons.videocam_outlined, 'Record a video', 'video_camera'),
           row(Icons.video_library_outlined, 'Video library', 'video_gallery'),
-          row(Icons.attach_file_outlined, 'Document', 'document'),
+          row(Icons.attach_file_outlined, kMediaRowDocumentLabel, 'document'),
         ],
       );
     },

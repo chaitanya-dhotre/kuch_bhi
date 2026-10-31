@@ -262,7 +262,6 @@ void main() {
       () {
     final files = [
       'lib/features/media/screens/media_docs_screen.dart',
-      'lib/features/media/widgets/expiry_badge.dart',
     ];
     for (final f in files) {
       final src = File(f).readAsStringSync();

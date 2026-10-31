@@ -19,6 +19,7 @@ import '../../../features/home/screens/add_friend_screen.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
+import '../../../core/constants/app_strings.dart';
 import '../../../domain/entities/friendship.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../features/chat/screens/chat_screen.dart';
@@ -512,8 +513,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     // H1: R7 error state — no `$e`, and the app bar stays reachable.
     if (friendsAsync.hasError && friendsAsync.valueOrNull == null) {
       return EmptyState(
-        title: "Couldn't load friends.",
-        subtitle: 'Check your connection and try again.',
+        title: kLoadFriendsFailedCopy,
+        subtitle: kConnectionRetryCopy,
         action: AppButton(
           onPressed: () => ref.invalidate(friendshipsProvider),
           child: const Text('Retry'),
@@ -528,7 +529,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         subtitle: 'Add a friend to start a group.',
         action: AppButton(
           onPressed: _openAddFriend,
-          child: const Text('Add a Friend'),
+          child: const Text(kAddFriendCtaLabel),
         ),
       );
     }
@@ -956,10 +957,6 @@ class _SelectedChips extends StatelessWidget {
   }
 }
 
-// ── Offline strip (I1) ─────────────────────────────────────────────
-
-const _offlineCopy =
-    "You're offline — actions are available when you're back.";
 
 class _OfflineStrip extends StatelessWidget {
   const _OfflineStrip({required this.visible});
@@ -977,7 +974,7 @@ class _OfflineStrip extends StatelessWidget {
           ? Semantics(
               key: const ValueKey('create-group-offline-strip'),
               container: true,
-              label: _offlineCopy,
+              label: kOfflineActionsCopy,
               child: Container(
                 width: double.infinity,
                 color: t.accentSoft,
@@ -991,7 +988,7 @@ class _OfflineStrip extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _offlineCopy,
+                        kOfflineActionsCopy,
                         style: TextStyle(fontSize: 13, color: t.ink),
                       ),
                     ),

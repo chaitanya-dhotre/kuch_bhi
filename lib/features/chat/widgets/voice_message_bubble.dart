@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../message_offline_policy.dart';
@@ -127,12 +128,6 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
     _player.setSpeed(_speed);
   }
 
-  String _fmtDur(Duration d) {
-    final m = d.inMinutes.remainder(60);
-    final s = d.inSeconds.remainder(60);
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final onBubble = widget.isMine
@@ -146,7 +141,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         : 0.0;
 
     final displayDuration = _total > Duration.zero
-        ? '${_fmtDur(_total - _position)} / ${_fmtDur(_total)}'
+        ? '${formatMmSs((_total - _position).inSeconds)} / ${formatMmSs(_total.inSeconds)}'
         : widget.durationText ?? '0:00';
 
     // Purged on the server for sure: no download, no retry.

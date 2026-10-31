@@ -6,6 +6,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
@@ -33,12 +34,9 @@ import '../../../features/media/screens/media_docs_screen.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../providers/group_admin_provider.dart';
 
-/// Requests H1 string, verbatim (I1).
-const _offlineCopy = "You're offline — actions are available when you're back.";
-
-/// Stable mutation-failure copy (R5, shared with the Requests page).
-const _updateFailed = "Couldn't update. Try again.";
-
+/// Stable mutation-failure copy (R5, shared with the Requests page) — the
+/// string itself lives in app_strings as `kUpdateFailedCopy`.
+///
 /// Remove/Leave 30s UI bound outcome (E3).
 const _stillWorking = "Still working — this can take a moment.";
 
@@ -85,7 +83,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     Future<bool> Function() action, {
     String? success,
     bool announce = false,
-    String timeoutCopy = _updateFailed,
+    String timeoutCopy = kUpdateFailedCopy,
     VoidCallback? onSuccess,
   }) async {
     try {
@@ -103,7 +101,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       return false;
     } catch (e) {
       debugPrint('[Group] mutation failed: $e');
-      if (mounted) showToast(context, _updateFailed, error: true);
+      if (mounted) showToast(context, kUpdateFailedCopy, error: true);
       return false;
     }
   }
@@ -222,7 +220,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     final name = _safeName(target.displayName);
     await _guard(
       () => ref.read(groupAdminProvider.notifier).promote(_cid, target.id),
-      success: '$name is now an admin',
+      success: adminPromotedCopy(name),
     );
   }
 
@@ -230,7 +228,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     final name = _safeName(target.displayName);
     await _guard(
       () => ref.read(groupAdminProvider.notifier).demote(_cid, target.id),
-      success: '$name is no longer an admin',
+      success: adminDemotedCopy(name),
     );
   }
 
@@ -1306,7 +1304,7 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
       return Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
         child: StatusBanner(
-          message: "Couldn't load friends.",
+          message: kLoadFriendsFailedCopy,
           onRetry: () => ref.invalidate(friendshipsProvider),
         ),
       );
@@ -1440,7 +1438,7 @@ class _OfflineStrip extends StatelessWidget {
           ? Semantics(
               key: const ValueKey('group-info-offline-strip'),
               container: true,
-              label: _offlineCopy,
+              label: kOfflineActionsCopy,
               child: Container(
                 width: double.infinity,
                 color: t.accentSoft,
@@ -1454,7 +1452,7 @@ class _OfflineStrip extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _offlineCopy,
+                        kOfflineActionsCopy,
                         style: TextStyle(fontSize: 13, color: t.ink),
                       ),
                     ),

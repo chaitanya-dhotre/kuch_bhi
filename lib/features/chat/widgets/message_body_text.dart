@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../domain/entities/conversation.dart';
@@ -565,10 +566,10 @@ class _PlaceholderMetrics {
 /// render time from the row's `type` — the same glyphs the old stored
 /// `last_message_preview` column held, but never written anywhere).
 String conversationPreviewLabel(String type) => switch (type) {
-  'image' => '📷 Photo',
-  'video' => '🎬 Video',
-  'voice' => '🎤 Voice message',
-  'document' => '📎 Document',
+  'image' => kPreviewPhotoLabel,
+  'video' => kPreviewVideoLabel,
+  'voice' => kPreviewVoiceLabel,
+  'document' => kPreviewDocumentLabel,
   'poll' => '📊 Poll',
   'system' => 'New message',
   _ => 'New message',

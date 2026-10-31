@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_logo_tile.dart';
@@ -72,7 +73,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             const AppLogoTile(),
             const SizedBox(height: 16),
             Text(
-              'Kuch Bhi',
+              AppConstants.appName,
               style: TextStyle(
                 fontSize: 24,
                 height: 30 / 24,

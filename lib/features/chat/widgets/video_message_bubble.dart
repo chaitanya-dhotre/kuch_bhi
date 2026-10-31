@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
@@ -39,12 +41,6 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
 class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
   double _aspectRatio = 16 / 9;
 
-  String _durationText(int secs) {
-    final m = secs ~/ 60;
-    final s = secs % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final thumbRef = MediaRef(
@@ -61,7 +57,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
       color: context.t.surface2,
       child: MediaRetry(
         media: thumbRef,
-        what: 'Video',
+        what: kMediaRowVideoLabel,
         icon: Icons.videocam_off,
       ),
     );
@@ -120,10 +116,10 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                 senderName: widget.isMine
                     ? 'You'
                     : widget.senderName.isEmpty
-                    ? 'Video'
+                    ? kMediaRowVideoLabel
                     : widget.senderName,
                 timestamp: widget.createdAt ?? DateTime.now(),
-                heroTag: 'media_${widget.serverId}',
+                heroTag: mediaHeroTag(widget.serverId),
                 thumbPath: media.file.path,
               ),
             ),
@@ -131,7 +127,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
               fit: StackFit.expand,
               children: [
                 Hero(
-                  tag: 'media_${widget.serverId}',
+                  tag: mediaHeroTag(widget.serverId),
                   child: Image.file(
                     media.file,
                     fit: BoxFit.cover,
@@ -184,7 +180,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                               ),
                               const SizedBox(width: 3),
                               Text(
-                                _durationText(durationSec),
+                                formatMmSs(durationSec),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,

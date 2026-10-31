@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../data/local/database/app_database.dart';
 
 /// P11: system font default; Plus Jakarta Sans optional.
@@ -18,7 +19,7 @@ extension AppFontX on AppFont {
   }
 
   String get label => switch (this) {
-        AppFont.system  => 'System default',
+        AppFont.system  => kSystemDefaultLabel,
         AppFont.jakarta => 'Plus Jakarta Sans',
       };
 

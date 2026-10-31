@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/constants/app_constants.dart';
+import '../../../core/constants/app_strings.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
@@ -174,7 +176,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         title: const Text(
-          'Kuch Bhi',
+          AppConstants.appName,
           style: TextStyle(
             fontSize: 21,
             fontWeight: FontWeight.w800,
@@ -327,7 +329,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               size: Size(84, 76),
             ),
             title: 'Couldn’t load your chats',
-            subtitle: 'Check your connection and try again.',
+            subtitle: kConnectionRetryCopy,
             action: FilledButton(
               onPressed: () => unawaited(_refreshHome()),
               child: const Text('Retry'),
@@ -477,7 +479,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             action: FilledButton.icon(
               onPressed: () => showAddFriendSheet(context, ref),
               icon: const Icon(Icons.person_add_outlined),
-              label: const Text('Add a Friend'),
+              label: const Text(kAddFriendCtaLabel),
             ),
           ),
         ),
@@ -560,7 +562,8 @@ class _RequestsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = count > 0 ? '$count pending requests' : 'No pending requests';
+    final label =
+        count > 0 ? '$count pending requests' : kNoPendingRequestsCopy;
     return Semantics(
       button: true,
       label: label,
@@ -680,7 +683,7 @@ class _OfflineBanner extends StatelessWidget {
     final t = context.t;
     return Semantics(
       container: true,
-      label: "You're offline — messages will send when you're back.",
+      label: kOfflineSendCopy,
       child: Material(
         color: t.accentSoft,
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
@@ -699,7 +702,7 @@ class _OfflineBanner extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    "You're offline — messages will send when you're back.",
+                    kOfflineSendCopy,
                     style: TextStyle(fontSize: 12, color: t.ink),
                   ),
                 ),

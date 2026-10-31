@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -47,7 +48,7 @@ class StarredMessagesScreen extends ConsumerWidget {
         // R7: plain copy and a Retry, never the exception.
         error:   (_, __) => EmptyState(
           title: "Couldn't load starred messages.",
-          subtitle: 'Check your connection and try again.',
+          subtitle: kConnectionRetryCopy,
           // The mascot does not fit at 200% text on a 360dp phone.
           withMascot: false,
           action: AppButton(
@@ -208,23 +209,25 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
     switch (msg.type) {
       case 'image':
         if (msg.serverId != null) return _buildImageContent();
-        return _mediaRow(context, Icons.camera_alt_outlined, 'Photo');
+        return _mediaRow(
+            context, Icons.camera_alt_outlined, kMediaRowPhotoLabel);
       case 'video':
-        return _mediaRow(context, Icons.videocam_outlined, 'Video');
+        return _mediaRow(
+            context, Icons.videocam_outlined, kMediaRowVideoLabel);
       case 'voice':
         final dur = body.replaceFirst('🎤', '').trim();
         return _mediaRow(
           context,
           Icons.mic_none,
-          dur.isNotEmpty && dur != 'Voice message'
-              ? 'Voice message · $dur'
-              : 'Voice message',
+          dur.isNotEmpty && dur != kMediaRowVoiceLabel
+              ? voiceMessageRowCopy(dur)
+              : kMediaRowVoiceLabel,
         );
       case 'document':
         return _mediaRow(
           context,
           Icons.description_outlined,
-          body.isNotEmpty ? body : 'Document',
+          body.isNotEmpty ? body : kMediaRowDocumentLabel,
         );
       default:
         // Body resolves on device (cache → decrypt); never a server copy.
@@ -272,7 +275,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         // Reuse any caption/body if present, otherwise just the label.
         (widget.message.decryptedBody ?? '').isNotEmpty
             ? widget.message.decryptedBody!
-            : 'Photo',
+            : kMediaRowPhotoLabel,
       );
     }
     return ClipRRect(
@@ -289,7 +292,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
           Icons.camera_alt_outlined,
           (widget.message.decryptedBody ?? '').isNotEmpty
               ? widget.message.decryptedBody!
-              : 'Photo',
+              : kMediaRowPhotoLabel,
         ),
       ),
     );

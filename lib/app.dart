@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/constants/app_constants.dart';
 import 'core/decrypt/body_cache.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
@@ -129,7 +130,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     };
 
     return MaterialApp.router(
-      title:                     'Kuch Bhi',
+      title:                     AppConstants.appName,
       debugShowCheckedModeBanner: false,
       theme:       warmPopLight(fontFamily: fontFamily),
       darkTheme:   darkTheme,

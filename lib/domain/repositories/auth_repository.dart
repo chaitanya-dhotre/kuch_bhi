@@ -14,26 +14,11 @@ abstract class AuthRepository {
     required String password,
   });
 
-  /// Fetch email + display name from a Google account for prefilling
-  /// registration. Does NOT authenticate — the user still completes normal
-  /// email+password registration.
-  /// Returns null if the user cancels the Google sign-in flow.
-  /// Throws [AuthException] on failure.
-  Future<GooglePrefill?> getGooglePrefill();
-
   /// Full Google OAuth: authenticates against PocketBase (creating the
   /// account when it doesn't exist yet). Returns null when cancelled.
   /// [GoogleAuthResult.isNew] tells the UI whether to run onboarding.
   /// Throws [AuthException] on failure.
   Future<GoogleAuthResult?> signInWithGoogle();
-
-  /// Step-1 of Google sign-in: fetch Google account profile without
-  /// authenticating. Returns email + display name so the onboarding
-  /// screen can autofill (and the user can edit) before the server
-  /// creates the PocketBase account.
-  /// Returns null if the user cancels the Google picker.
-  /// Throws [AuthException] on failure.
-  Future<GooglePrefill?> fetchGoogleProfile();
 
   /// Step-2 of Google sign-in: takes the Google idToken + user-confirmed
   /// display name and username, and creates the PocketBase account via
@@ -94,13 +79,6 @@ abstract class AuthRepository {
   /// Best effort: sign the Google picker out so the account chooser shows
   /// on the next Google sign-in. Never throws.
   Future<void> forgetGoogleAccount();
-}
-
-/// Lightweight data carried from a Google account into the registration form.
-class GooglePrefill {
-  const GooglePrefill({required this.email, this.displayName});
-  final String email;
-  final String? displayName;
 }
 
 /// Result of a full Google OAuth sign-in.

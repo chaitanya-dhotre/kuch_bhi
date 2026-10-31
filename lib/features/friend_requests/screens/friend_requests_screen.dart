@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
@@ -19,8 +20,6 @@ import '../../home/screens/add_friend_screen.dart';
 import '../providers/friend_request_provider.dart';
 import '../widgets/group_invite_card.dart';
 import '../widgets/request_card.dart';
-
-const _offlineCopy = "You're offline — actions are available when you're back.";
 
 class FriendRequestsScreen extends ConsumerStatefulWidget {
   const FriendRequestsScreen({super.key});
@@ -101,7 +100,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
         EmptyState(
           mascot: const Capybara(mood: CapyMood.sleepy, size: Size(120, 106)),
           title: "Couldn't load requests.",
-          subtitle: 'Check your connection and try again.',
+          subtitle: kConnectionRetryCopy,
           action: AppButton(
             onPressed: () => unawaited(
               _retryFailed(retryRequests: true, retryInvites: true),
@@ -218,11 +217,11 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
       height: MediaQuery.sizeOf(context).height * .58,
       child: EmptyState(
         mascot: const Capybara(mood: CapyMood.neutral, size: Size(120, 106)),
-        title: 'No pending requests',
+        title: kNoPendingRequestsCopy,
         subtitle: 'Friend requests and group invites will show up here.',
         action: AppButton(
           onPressed: _openAddFriend,
-          child: const Text('Add a Friend'),
+          child: const Text(kAddFriendCtaLabel),
         ),
       ),
     );
@@ -314,7 +313,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
     } catch (_) {
       if (!mounted) return;
       _endAction(key);
-      showToast(context, "Couldn't update. Try again.", error: true);
+      showToast(context, kUpdateFailedCopy, error: true);
     }
   }
 
@@ -353,7 +352,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
     } catch (_) {
       if (!mounted) return;
       _endAction(key);
-      showToast(context, "Couldn't update. Try again.", error: true);
+      showToast(context, kUpdateFailedCopy, error: true);
     }
   }
 
@@ -402,7 +401,7 @@ class _OfflineStrip extends StatelessWidget {
           ? Semantics(
               key: const ValueKey('requests-offline-strip'),
               container: true,
-              label: _offlineCopy,
+              label: kOfflineActionsCopy,
               child: Container(
                 width: double.infinity,
                 color: t.accentSoft,
@@ -416,7 +415,7 @@ class _OfflineStrip extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _offlineCopy,
+                        kOfflineActionsCopy,
                         style: TextStyle(fontSize: 13, color: t.ink),
                       ),
                     ),

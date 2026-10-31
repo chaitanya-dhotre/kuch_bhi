@@ -96,21 +96,6 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Step-1 of Google sign-in: fetch Google account profile without
-  /// authenticating. Returns email + display name so the onboarding
-  /// screen can autofill (and the user can edit) before the server
-  /// creates the PocketBase account.
-  /// Returns null if the user cancels the Google picker.
-  /// Throws [AuthException] on failure.
-  Future<GooglePrefill?> fetchGoogleProfile() async {
-    try {
-      return await _repo.fetchGoogleProfile();
-    } catch (e) {
-      _fail(e, AuthAction.google);
-      return null;
-    }
-  }
-
   /// Step-2 of Google sign-in: takes the Google idToken + user-confirmed
   /// display name and username, and creates the PocketBase account via
   /// the hook. On success returns the authenticated [User].

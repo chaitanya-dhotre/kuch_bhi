@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_logo_tile.dart';
 import '../../../core/widgets/page_app_bar.dart';
@@ -44,7 +45,7 @@ class _AboutScreenState extends State<AboutScreen> {
               const Center(child: AppLogoTile()),
               const SizedBox(height: 16),
               Text(
-                'Kuch Bhi',
+                AppConstants.appName,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 24,
@@ -79,7 +80,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   trailing: Icon(Icons.chevron_right, color: t.inkFaint),
                   onTap: () => showLicensePage(
                     context: context,
-                    applicationName: 'Kuch Bhi',
+                    applicationName: AppConstants.appName,
                     applicationVersion: version,
                   ),
                 ),
