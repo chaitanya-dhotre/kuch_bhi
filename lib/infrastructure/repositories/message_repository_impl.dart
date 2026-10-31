@@ -4096,6 +4096,8 @@ class MessageRepositoryImpl implements MessageRepository {
           decryptState: _ingestDecryptState(
             decrypted: body,
             keyMissing: keys.isEmpty,
+            existing: e,
+            record: r,
           ),
         ),
       );
@@ -4143,10 +4145,14 @@ class MessageRepositoryImpl implements MessageRepository {
     // pending/key_missing and will be retried when key distribution catches up.
 
     // Conversation-list bump: newest incoming row only (sort -created →
-    // records.first). Fetch path is never "live" — no unread bump here.
+    // records.first). It badges too: FCM background rows rely on it.
     final newest = records.first;
     if (newest.getStringValue('sender_id') != myId) {
-      await _bumpConversationForIncoming(newest, _uuid.v4());
+      await _bumpConversationForIncoming(
+        newest,
+        _uuid.v4(),
+        wasStored: existingById.containsKey(newest.id),
+      );
     }
   }
 
@@ -4697,6 +4703,8 @@ class MessageRepositoryImpl implements MessageRepository {
       decryptState: _ingestDecryptState(
         decrypted: decrypted,
         keyMissing: candidates.isEmpty,
+        existing: existing,
+        record: r,
       ),
     );
     if (decrypted != null) bodyCache.put(single.localId.value, decrypted);
@@ -4707,7 +4715,11 @@ class MessageRepositoryImpl implements MessageRepository {
       source,
     );
     if (!isMine) {
-      await _bumpConversationForIncoming(r, existing?.localId ?? _uuid.v4());
+      await _bumpConversationForIncoming(
+        r,
+        existing?.localId ?? _uuid.v4(),
+        wasStored: existing != null,
+      );
     }
   }
 
@@ -4716,12 +4728,22 @@ class MessageRepositoryImpl implements MessageRepository {
   /// ⇒ `'key_missing'`; key present but the ciphertext missed ⇒
   /// `'pending'` (committed, not decryptable yet — the retry/terminal
   /// split is DecryptPass's, Task 8; `'failed'` is never written here).
+  /// A refetch that misses again keeps DecryptPass's earlier verdict for the
+  /// same ciphertext: `pending` would put the row back on a skeleton that
+  /// nothing re-resolves (backlog 13.3).
   String _ingestDecryptState({
     required String? decrypted,
     required bool keyMissing,
+    MessagesTableData? existing,
+    RecordModel? record,
   }) {
     if (decrypted != null) return 'ready';
     if (keyMissing) return 'key_missing';
+    final prior = existing?.decryptState;
+    if ((prior == 'key_missing' || prior == 'failed') &&
+        existing!.encryptedBody == record?.getStringValue('encrypted_body')) {
+      return prior!;
+    }
     return 'pending';
   }
 
@@ -4858,8 +4880,9 @@ class MessageRepositoryImpl implements MessageRepository {
   /// and is now DERIVED by the tile from this conversation's newest row.
   Future<void> _bumpConversationForIncoming(
     RecordModel r,
-    String incomingLocalId,
-  ) async {
+    String incomingLocalId, {
+    required bool wasStored,
+  }) async {
     final convId = r.getStringValue('conversation_id');
     final createdAt = DateTime.tryParse(r.created) ?? DateTime.now();
     if (r.getBoolValue('is_deleted_for_everyone')) return;
@@ -4868,7 +4891,14 @@ class MessageRepositoryImpl implements MessageRepository {
     try {
       final conv = await db.conversationsDao.getConversationById(convId);
       final currentLast = conv?.lastMessageAt;
-      if (currentLast != null && !createdAt.isAfter(currentLast)) return;
+      // Drift stores lastMessageAt in seconds and the record carries ms, so
+      // a refetched row in the same second looked newer and re-badged on
+      // every fetch (backlog 13.3). Same second: only a new row counts.
+      if (currentLast != null) {
+        final sec = createdAt.millisecondsSinceEpoch ~/ 1000;
+        final lastSec = currentLast.millisecondsSinceEpoch ~/ 1000;
+        if (sec < lastSec || (sec == lastSec && wasStored)) return;
+      }
       await db.conversationsDao.updateLastMessage(convId, createdAt);
       // Unread badge: fires only for rows newer than the last known message
       // (the guard above), so a backfill of older history never counts, and
@@ -5145,6 +5175,8 @@ class MessageRepositoryImpl implements MessageRepository {
         debugPrint('[Receipt] Skipping regression $currentStatus -> $computed');
         return;
       }
+      // Same value: the write would only re-emit the whole list (13.2).
+      if (computed == current?.status) return;
 
       debugPrint(
         '[Receipt] Updating local message status to: $computed '

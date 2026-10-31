@@ -283,10 +283,16 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
   "Things To Fix Lol" (8 messages) open, the log shows 17× `watchMessages EMIT` + 28×
   `[Receipt] Updating local message status to: sent (deliveredIds=1/3, readIds=1/3)` with no change in the
   values. Each write re-emits the whole list. Write only when the status actually changes.
+  **Fixed 2026-10-31 (device PASS):** an unchanged status is no longer written.
+  M52: 1 emit, 0 writes on open. Log: `docs/audits/bug-wave-3-work-log.md`.
 - `[BUG]` **13.3 Home: "3 Oct Test" gains one unread every time ANY chat is opened. Reproduced 2026-10-31.**
   On the M52 it went 4 → 5 → 6 across three chat opens with no new message, and its preview flips from
   "Can't decrypt" to a skeleton that never resolves. Likely: an undecryptable message in that group is counted
   again on each open (the unread count or the undecryptable re-scan). Investigate before fixing.
+  **Fixed 2026-10-31 (device PASS):** each resync re-ingests the undecryptable
+  newest row. The badge guard compared ms against drift's seconds, so the badge went up every time.
+  The re-ingest also wrote `pending` over `key_missing`, which left the preview on a skeleton.
+  Log: `docs/audits/bug-wave-3-work-log.md`.
 - `[NOTE]` 8× `[Enc] Skipping undecryptable group key version` at every start. Expected (historical keys from the
   2026-10-13 rotation are unrecoverable), but it is noise at startup. A full resync took 21s (`resync done —
   path=full total=20994ms`).
