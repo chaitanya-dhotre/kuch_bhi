@@ -54,7 +54,7 @@ class GroupInviteCard extends StatelessWidget {
                 Row(
                   children: [
                     ExcludeSemantics(
-                      child: _GroupAvatar(initials: _initials(groupName)),
+                      child: _GroupAvatar(initials: initialsOf(groupName)),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -178,9 +178,4 @@ String _groupName(String value) {
 String _displayName(String value) {
   final trimmed = value.trim();
   return trimmed.isEmpty ? 'Someone' : trimmed;
-}
-
-String _initials(String value) {
-  final trimmed = value.trim();
-  return trimmed.isEmpty ? '?' : trimmed.substring(0, 1).toUpperCase();
 }

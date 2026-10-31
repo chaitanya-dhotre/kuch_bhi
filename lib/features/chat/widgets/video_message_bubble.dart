@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shimmer/shimmer.dart';
-
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../core/widgets/skeleton.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
@@ -63,11 +62,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     );
 
     Widget content = thumbAsync.when(
-      loading: () => Shimmer.fromColors(
-        baseColor: context.t.surface2,
-        highlightColor: context.t.line,
-        child: ColoredBox(color: context.t.surface2),
-      ),
+      loading: () => const Skeleton.fill(radius: 0),
       error: (_, __) => unavailable(),
       data: (media) {
         final durationSec = media?.durationSeconds ?? 0;

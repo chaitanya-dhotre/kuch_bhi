@@ -15,6 +15,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/busy_spinner.dart';
 import '../../../domain/entities/message.dart';
 import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
@@ -180,9 +181,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
     final status = await Permission.microphone.request();
     if (!mounted) return;
     if (!status.isGranted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Microphone permission denied')),
-      );
+      showToast(context, 'Microphone permission denied', error: true);
       return;
     }
 
@@ -220,9 +219,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
     } catch (_) {
       _deleteFileQuietly(_tempPath);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not start recording')),
-        );
+        showToast(context, 'Could not start recording', error: true);
       }
     }
   }
@@ -252,12 +249,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
           _cancelled = false;
         });
         if (!wasCancelled && elapsed < 1) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Hold to record'),
-              duration: Duration(seconds: 1),
-            ),
-          );
+          showToast(context, 'Hold to record');
         }
         return;
       }
@@ -285,9 +277,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
           _dragOffsetX = 0;
           _cancelled = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save voice message')),
-        );
+        showToast(context, 'Could not save voice message', error: true);
       }
     } finally {
       _stopInProgress = false;
@@ -554,22 +544,14 @@ class _MessageInputState extends ConsumerState<MessageInput>
       _isUploadingDoc = false;
       _videoCompressProgress = 0;
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Upload cancelled')));
+    showToast(context, 'Upload cancelled');
   }
 
   BoxDecoration _floatingPanelDecoration(BuildContext context) => BoxDecoration(
     color: context.t.surface,
     border: Border.all(color: context.t.line),
     borderRadius: BorderRadius.circular(WarmPopTokens.radiusLg),
-    boxShadow: [
-      BoxShadow(
-        color: context.t.shadow,
-        blurRadius: 14,
-        offset: const Offset(0, 4),
-      ),
-    ],
+    boxShadow: WarmPopTokens.cardShadow(context.t.shadow),
   );
 
   Widget _floatingPanel(BuildContext context, Widget child) {
@@ -703,9 +685,13 @@ class _ComposerAction extends StatelessWidget {
     this.onLongPressStart,
     this.onLongPressMoveUpdate,
     this.onLongPressEnd,
+    this.tapHint,
   });
 
   final String tooltip;
+  /// Shown as a tooltip above the button on a quick tap (the mic records
+  /// only on a hold); a toast here would cover the composer.
+  final String? tapHint;
   final Color backgroundColor;
   final Color foregroundColor;
   final Widget icon;
@@ -718,15 +704,18 @@ class _ComposerAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final enabled = onTap != null || onLongPressStart != null;
     return Tooltip(
-      message: tooltip,
+      message: tapHint ?? tooltip,
       excludeFromSemantics: true,
-      triggerMode: onLongPressStart == null
+      triggerMode: tapHint != null
+          ? TooltipTriggerMode.tap
+          : onLongPressStart == null
           ? TooltipTriggerMode.longPress
           : TooltipTriggerMode.manual,
       child: Semantics(
         button: true,
         enabled: enabled,
         label: tooltip,
+        hint: tapHint,
         child: SizedBox(
           width: 48,
           height: 48,
@@ -861,13 +850,10 @@ class _NormalInputRow extends StatelessWidget {
                       foregroundColor: context.t.onAccent,
                       onTap: isLoading ? null : onSend,
                       icon: isLoading
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: context.t.onAccent,
-                              ),
+                          ? BusySpinner(
+                              size: 18,
+                              strokeWidth: 2,
+                              color: context.t.onAccent,
                             )
                           : const Icon(Icons.send_rounded, size: 20),
                     )
@@ -876,6 +862,7 @@ class _NormalInputRow extends StatelessWidget {
                       tooltip: 'Record voice message',
                       backgroundColor: context.t.accent,
                       foregroundColor: context.t.onAccent,
+                      tapHint: 'Hold to record',
                       onLongPressStart: (_) => onMicLongPressStart(),
                       onLongPressMoveUpdate: (d) =>
                           onMicLongPressMoveUpdate(d.offsetFromOrigin.dx),
@@ -1071,13 +1058,7 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
                         color: context.t.accent.withValues(alpha: 0.15),
                       ),
                       child: _isLoading
-                          ? Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: context.t.accent,
-                              ),
-                            )
+                          ? BusySpinner(size: 16, strokeWidth: 2)
                           : Icon(
                               _isPlaying ? Icons.pause : Icons.play_arrow,
                               color: context.t.accent,
@@ -1129,13 +1110,10 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
             foregroundColor: context.t.onAccent,
             onTap: widget.isSending ? null : widget.onSend,
             icon: widget.isSending
-                ? SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: context.t.onAccent,
-                    ),
+                ? BusySpinner(
+                    size: 18,
+                    strokeWidth: 2,
+                    color: context.t.onAccent,
                   )
                 : const Icon(Icons.send_rounded, size: 20),
           ),

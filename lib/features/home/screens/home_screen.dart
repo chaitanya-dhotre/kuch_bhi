@@ -9,6 +9,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_badge.dart';
 import '../../../core/widgets/app_sheet.dart';
@@ -190,7 +191,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           _ProfileButton(
             url: user?.avatarUrl,
-            initials: _initials(user?.displayName ?? 'K'),
+            initials: initialsOf(user?.displayName ?? 'K'),
             onPressed: () => context.push(AppRoutes.profile),
           ),
         ],
@@ -543,11 +544,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Chat is not ready yet. Try again in a moment.'),
-        ),
-      );
+      showToast(context, 'Chat is not ready yet. Try again in a moment.',
+          error: true);
     } finally {
       if (mounted) setState(() => _openingFriendId = null);
     }
@@ -1150,14 +1148,10 @@ class _ConversationTileContent extends ConsumerWidget {
           .setPinned(conv.id, pinned);
       ref.invalidate(conversationsProvider);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(pinned ? 'Pinned' : 'Unpinned')));
+      showToast(context, pinned ? 'Pinned' : 'Unpinned');
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Couldn’t update pin.')));
+      showToast(context, 'Couldn’t update pin.', error: true);
     }
   }
 
@@ -1166,14 +1160,10 @@ class _ConversationTileContent extends ConsumerWidget {
       await ref.read(messageRepositoryProvider).markConversationRead(conv.id);
       ref.invalidate(conversationsProvider);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Marked as read')));
+      showToast(context, 'Marked as read');
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Couldn’t mark chat as read.')),
-      );
+      showToast(context, 'Couldn’t mark chat as read.', error: true);
     }
   }
 
@@ -1254,12 +1244,6 @@ class _GroupConversationPreview extends ConsumerWidget {
       ],
     );
   }
-}
-
-String _initials(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) return '?';
-  return trimmed.substring(0, 1).toUpperCase();
 }
 
 Duration _homeMotionDuration(BuildContext context, Duration duration) =>

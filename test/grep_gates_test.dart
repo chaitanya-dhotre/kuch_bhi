@@ -258,7 +258,7 @@ void main() {
   // translucent chrome whites must be tokens. Full-opacity Colors.white on
   // black photo-scrim pills (tile play/duration overlays) is allowed;
   // media_viewer_screen is fully exempt (chewie over dark video content).
-  test('media docs screen + expiry badge carry no raw grey/alpha-white chrome',
+  test('media docs screen carries no raw grey/alpha-white chrome',
       () {
     final files = [
       'lib/features/media/screens/media_docs_screen.dart',
@@ -720,6 +720,90 @@ void main() {
             .hasMatch(auth),
         isTrue,
         reason: 'the FCM write after sign-in is bounded');
+  });
+
+  // ── Dead-code wave B (docs/audits/2026-10-30-dead-code.md §2) ─────────
+  // Five registry-merge gates. Each was run against the pre-wave tree
+  // (78d121e) first and failed, and is green on the routed tree.
+
+  test('R5: no ScaffoldMessenger…showSnackBar in lib outside app_toast.dart',
+      () {
+    const allowed = 'lib/core/widgets/app_toast.dart';
+    final hits = <String>[];
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (f.path == allowed) continue;
+      final src = f.readAsStringSync();
+      if (RegExp(r'ScaffoldMessenger').hasMatch(src) &&
+          RegExp(r'showSnackBar').hasMatch(src)) {
+        hits.add('${f.path}: ScaffoldMessenger…showSnackBar');
+      }
+    }
+    expect(hits, isEmpty,
+        reason: 'every snackbar goes through R5 showToast(): $hits');
+  });
+
+  test('R11: no Shimmer.fromColors in lib outside skeleton.dart', () {
+    const allowed = 'lib/core/widgets/skeleton.dart';
+    final hits = <String>[];
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (f.path == allowed) continue;
+      if (RegExp(r'Shimmer\.fromColors').hasMatch(f.readAsStringSync())) {
+        hits.add(f.path);
+      }
+    }
+    expect(hits, isEmpty, reason: 'media shimmer lives in R11: $hits');
+  });
+
+  test('R1/R1a: no CircleAvatar( in lib/features (avatars go through AppAvatar)',
+      () {
+    final hits = <String>[];
+    for (final f in Directory('lib/features')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (RegExp(r'CircleAvatar\s*\(').hasMatch(f.readAsStringSync())) {
+        hits.add(f.path);
+      }
+    }
+    expect(hits, isEmpty, reason: 'avatars are R1 AppAvatar: $hits');
+  });
+
+  test('R14: no AppBar( in lib/features except lib/features/home/', () {
+    // `pageAppBar(` must stay allowed — only a bare AppBar( is a re-build.
+    final raw = RegExp(r'(?<![A-Za-z])AppBar\s*\(');
+    final hits = <String>[];
+    for (final f in Directory('lib/features')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (f.path.startsWith('lib/features/home/')) continue; // Home's own bar
+      if (raw.hasMatch(f.readAsStringSync())) hits.add(f.path);
+    }
+    expect(hits, isEmpty, reason: 'pages use R14 pageAppBar(): $hits');
+  });
+
+  test('T2: no colorScheme. in lib/features outside the D4-skipped files', () {
+    // Decision D4: the key backup/restore flow keeps its own colours.
+    const d4Exceptions = <String>[
+      'lib/features/auth/screens/backup_pin_screen.dart',
+    ];
+    final hits = <String>[];
+    for (final f in Directory('lib/features')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (d4Exceptions.contains(f.path)) continue;
+      if (RegExp(r'colorScheme\.').hasMatch(f.readAsStringSync())) {
+        hits.add(f.path);
+      }
+    }
+    expect(hits, isEmpty, reason: 'components read context.t, not the scheme: $hits');
   });
 }
 

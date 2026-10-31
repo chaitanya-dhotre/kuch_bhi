@@ -19,6 +19,8 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../core/widgets/settings_tile.dart';
+import '../../../core/widgets/page_app_bar.dart';
+import '../../../core/widgets/photo_picker_badge.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/status_banner.dart';
 import '../../../domain/entities/conversation.dart';
@@ -43,13 +45,6 @@ const _stillWorking = "Still working — this can take a moment.";
 String _safeName(String? raw) {
   final value = (raw ?? '').trim();
   return value.isEmpty ? 'Unknown' : value;
-}
-
-/// First letter WITHOUT a range-taking call (grep gate) and without a
-/// RangeError on an empty name (C1/H2).
-String _initial(String value, {required String fallback}) {
-  final trimmed = value.trim();
-  return trimmed.isEmpty ? fallback : trimmed[0].toUpperCase();
 }
 
 Duration _motionDuration(BuildContext context, Duration duration) =>
@@ -162,7 +157,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
           children: [
             AppAvatar(
               url: target.avatarUrl,
-              initials: _initial(name, fallback: '?'),
+              initials: initialsOf(name),
               radius: 20,
             ),
             const SizedBox(width: 12),
@@ -355,24 +350,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
 
     return Scaffold(
       backgroundColor: t.bg,
-      appBar: AppBar(
-        backgroundColor: t.bg,
-        surfaceTintColor: t.bg,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Semantics(
-          header: true,
-          child: Text(
-            'Group Info',
-            style: TextStyle(
-              color: t.ink,
-              fontSize: 20,
-              height: 1.3,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
+      appBar: pageAppBar(context, 'Group Info'),
       body: Column(
         children: [
           _OfflineStrip(visible: !online),
@@ -516,7 +494,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       children: [
         AppAvatar(
           url: conv.iconUrl,
-          initials: _initial(name, fallback: 'G'),
+          initials: initialsOf(name, fallback: 'G'),
           radius: 48,
           accentSoft: true,
         ),
@@ -534,15 +512,8 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
           Positioned(
             right: 2,
             bottom: 2,
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: t.accent,
-                shape: BoxShape.circle,
-                border: Border.all(color: t.bg, width: 2),
-              ),
-              child: Icon(Icons.camera_alt, size: 16, color: t.onAccent),
+            child: PhotoPickerBadge(
+              onTap: photoLive ? _pickPhoto : null,
             ),
           ),
       ],
@@ -788,7 +759,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                     children: [
                       AppAvatar(
                         url: member.avatarUrl,
-                        initials: _initial(name, fallback: '?'),
+                        initials: initialsOf(name),
                         radius: 20,
                       ),
                       const SizedBox(width: 12),
@@ -937,7 +908,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
           children: [
             AppAvatar(
               url: invite.user.avatarUrl,
-              initials: _initial(name, fallback: '?'),
+              initials: initialsOf(name),
               radius: 20,
             ),
             const SizedBox(width: 12),
@@ -1380,7 +1351,7 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
                   const SizedBox(width: 12),
                   AppAvatar(
                     url: user.avatarUrl,
-                    initials: _initial(name, fallback: '?'),
+                    initials: initialsOf(name),
                     radius: 20,
                   ),
                   const SizedBox(width: 12),

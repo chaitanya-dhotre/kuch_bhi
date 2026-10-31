@@ -136,7 +136,7 @@ void showConversationMenu({
       context,
       avatar: AppAvatar(
         url: conversation.avatarUrl,
-        initials: _initialsFor(name),
+        initials: initialsOf(name),
         radius: 20,
         accentSoft: true,
       ),
@@ -262,11 +262,6 @@ Widget _conversationPreview(BuildContext context, Object preview) {
   );
 }
 
-String _initialsFor(String name) {
-  final trimmed = name.trim();
-  return trimmed.isEmpty ? '?' : trimmed.substring(0, 1).toUpperCase();
-}
-
 class _ContextSheet extends ConsumerWidget {
   const _ContextSheet({
     required this.message,
@@ -317,7 +312,7 @@ class _ContextSheet extends ConsumerWidget {
             child: _previewRow(
               context,
               avatar: AppAvatar(
-                initials: _initialsFor(name),
+                initials: initialsOf(name),
                 radius: 20,
                 accentSoft: true,
               ),

@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:open_file/open_file.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
@@ -14,6 +13,8 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
+import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/utils/media_utils.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/services/media_gallery_service.dart';
@@ -33,8 +34,9 @@ class MediaDocsScreen extends ConsumerWidget {
     return DefaultTabController(
       length: 4,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Media & Docs'),
+        appBar: pageAppBar(
+          context,
+          'Media & Docs',
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Photos'),
@@ -169,11 +171,8 @@ class _MediaGridTile extends ConsumerWidget {
   final DateTime created;
   final String?  durationLabel;
 
-  Widget _placeholder(BuildContext context) => Shimmer.fromColors(
-        baseColor:      context.t.line,
-        highlightColor: context.t.surface2,
-        child: Container(color: context.t.line),
-      );
+  Widget _placeholder(BuildContext context) =>
+      const Skeleton.fill(radius: 0);
 
   Widget _broken(BuildContext context) => Container(
         color: mediaType == 'video' ? context.t.ink : context.t.surface2,
@@ -443,8 +442,13 @@ class _VoiceTab extends ConsumerWidget {
             final dur      = _formatDuration(r.data['duration_seconds']);
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: context.t.accent.withValues(alpha: 0.12),
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: context.t.accent.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(Icons.mic, color: context.t.accent),
               ),
               title: Text(voiceMessageRowCopy(dur)),
@@ -729,8 +733,13 @@ class _DocsTab extends ConsumerWidget {
                 formatFileSize(r.data['file_size'], bytesUnitSpaced: false);
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: context.t.accent.withValues(alpha: 0.12),
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: context.t.accent.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(_docIcon(fileName), color: context.t.accent),
               ),
               title:    Text(fileName, maxLines: 1, overflow: TextOverflow.ellipsis),

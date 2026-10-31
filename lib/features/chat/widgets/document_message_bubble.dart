@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_file/open_file.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/busy_spinner.dart';
+import '../../../core/widgets/skeleton.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
@@ -179,9 +180,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
                                       fontWeight: FontWeight.w500,
                                       color: widget.isMine
                                           ? context.t.onAccent
-                                          : Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
+                                          : context.t.ink,
                                     ),
                                   ),
                                   if (size.isNotEmpty) ...[
@@ -198,10 +197,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
                                           ? context.t.onAccent.withValues(
                                               alpha: 0.70,
                                             )
-                                          : Theme.of(context)
-                                                .colorScheme
-                                                .onSurface
-                                                .withValues(alpha: 0.55),
+                                          : context.t.ink.withValues(alpha: 0.55),
                                     ),
                                   ),
                                 ],
@@ -209,14 +205,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
                             ),
                             const SizedBox(width: 8),
                             _isDownloading
-                                ? SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: context.t.accent,
-                                    ),
-                                  )
+                                ? BusySpinner(size: 20, strokeWidth: 2)
                                 : Icon(
                                     Icons.download_outlined,
                                     size: 20,
@@ -241,11 +230,11 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
     );
   }
 
-  Widget _shimmer() => Shimmer.fromColors(
-    baseColor: context.t.line,
-    highlightColor: context.t.surface2,
-    child: const SizedBox(height: 68, width: double.infinity),
-  );
+  Widget _shimmer() => const SizedBox(
+        height: 68,
+        width: double.infinity,
+        child: Skeleton.fill(radius: 0),
+      );
 
   Widget _expired() => ExpiredPlaceholder(
     glyph: Icons.timer_off_outlined,

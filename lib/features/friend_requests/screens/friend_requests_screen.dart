@@ -12,6 +12,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/status_banner.dart';
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../domain/entities/friend_request.dart';
 import '../../../domain/entities/group_invite.dart';
 import '../../../features/mascot/capybara.dart';
@@ -43,24 +44,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
 
     return Scaffold(
       backgroundColor: t.bg,
-      appBar: AppBar(
-        backgroundColor: t.bg,
-        surfaceTintColor: t.bg,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Semantics(
-          header: true,
-          child: Text(
-            'Requests',
-            style: TextStyle(
-              color: t.ink,
-              fontSize: 20,
-              height: 1.4,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
+      appBar: pageAppBar(context, 'Requests'),
       body: Column(
         children: [
           _OfflineStrip(visible: !online),

@@ -7,6 +7,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../core/widgets/busy_spinner.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
@@ -134,7 +135,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         ? context
               .t
               .onAccent // on the marigold sent bubble (never raw white)
-        : Theme.of(context).colorScheme.onSurface;
+        : context.t.ink;
 
     final progress = _total.inMilliseconds > 0
         ? (_position.inMilliseconds / _total.inMilliseconds).clamp(0.0, 1.0)
@@ -220,14 +221,12 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                                 : context.t.accent.withValues(alpha: 0.15),
                           ),
                           child: _isLoading
-                              ? Padding(
-                                  padding: const EdgeInsets.all(7),
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: widget.isMine
-                                        ? context.t.onAccent
-                                        : context.t.accent,
-                                  ),
+                              ? BusySpinner(
+                                  size: 16,
+                                  strokeWidth: 2,
+                                  color: widget.isMine
+                                      ? context.t.onAccent
+                                      : context.t.accent,
                                 )
                               : _hasError
                               ? Icon(

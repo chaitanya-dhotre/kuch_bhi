@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:shimmer/shimmer.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/busy_spinner.dart';
+import '../../../core/widgets/skeleton.dart';
 import '../../../core/utils/emoji_utils.dart';
 import '../../../data/local/database/app_database.dart' show OutboxTableData;
 import '../../../data/local/database/tables/outbox_table.dart';
@@ -350,33 +352,26 @@ class MessageBubble extends ConsumerWidget {
     );
 
     if (isGroup && !isMine) {
-      final trimmedName = senderName.trim();
-      final initial = trimmedName.isEmpty
-          ? '?'
-          : trimmedName.substring(0, 1).toUpperCase();
+      final initial = initialsOf(senderName);
       content = Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          SizedBox(
-            width: 28,
-            child: runStart
-                ? CircleAvatar(
-                    radius: 14,
-                    backgroundColor: context.t.surface2,
-                    child: ExcludeSemantics(
-                      child: Text(
-                        initial,
-                        style: TextStyle(
-                          color: context.t.inkSoft,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  )
-                : const SizedBox.shrink(),
+          // The bubble's own margin gives the disc→bubble gap; this pad
+          // keeps the disc off the screen edge and level with the bubble.
+          Padding(
+            padding: const EdgeInsets.only(
+              left: ChatBubbleGeometry.nearMargin,
+              bottom: ChatBubbleGeometry.verticalMargin,
+            ),
+            child: SizedBox(
+              width: 28,
+              child: runStart
+                  ? ExcludeSemantics(
+                      child: AppAvatar(radius: 14, initials: initial),
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ),
-          const SizedBox(width: 8),
           Flexible(child: content),
         ],
       );
@@ -435,10 +430,7 @@ class _OptimisticMediaPlaceholder extends StatelessWidget {
       ),
       child: AspectRatio(
         aspectRatio: mediaType == 'video' ? 16 / 9 : 4 / 3,
-        child: _OptimisticSkeletonBox(
-          baseColor: context.t.surface2,
-          highlightColor: context.t.line,
-        ),
+        child: Skeleton.fill(),
       ),
     );
 
@@ -479,28 +471,6 @@ class _OptimisticMediaPlaceholder extends StatelessWidget {
   }
 }
 
-class _OptimisticSkeletonBox extends StatelessWidget {
-  const _OptimisticSkeletonBox({
-    required this.baseColor,
-    required this.highlightColor,
-  });
-
-  final Color baseColor;
-  final Color highlightColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = ColoredBox(color: baseColor);
-    if (MediaQuery.disableAnimationsOf(context)) return surface;
-
-    return Shimmer.fromColors(
-      baseColor: baseColor,
-      highlightColor: highlightColor,
-      child: surface,
-    );
-  }
-}
-
 class _OptimisticVoiceContent extends StatelessWidget {
   const _OptimisticVoiceContent({required this.isMine, required this.failed});
 
@@ -519,18 +489,12 @@ class _OptimisticVoiceContent extends StatelessWidget {
     }
     return Row(
       children: [
-        SizedBox.square(
-          dimension: 30,
-          child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
-        ),
+        BusySpinner(size: 30, strokeWidth: 2, color: foreground),
         const SizedBox(width: 10),
         Expanded(
           child: SizedBox(
             height: 10,
-            child: _OptimisticSkeletonBox(
-              baseColor: foreground.withValues(alpha: 0.16),
-              highlightColor: foreground.withValues(alpha: 0.30),
-            ),
+            child: Skeleton.fill(),
           ),
         ),
       ],
@@ -581,10 +545,7 @@ class _OptimisticDocumentContent extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        SizedBox.square(
-          dimension: 18,
-          child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
-        ),
+        BusySpinner(size: 18, strokeWidth: 2, color: foreground),
       ],
     );
   }
@@ -880,9 +841,7 @@ class _SystemMessageBubble extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            color: context.t.surface2.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(10),
           ),
           // T9: system bodies ride the same placeholder law — cache-resident
@@ -897,9 +856,7 @@ class _SystemMessageBubble extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontStyle: FontStyle.italic,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.55),
+                color: context.t.ink.withValues(alpha: 0.55),
                 fontWeight: FontWeight.w500,
               ),
             ),

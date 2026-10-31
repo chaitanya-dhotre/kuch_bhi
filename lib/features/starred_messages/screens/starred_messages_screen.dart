@@ -8,6 +8,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../chat/providers/chat_provider.dart';
@@ -34,8 +35,9 @@ class StarredMessagesScreen extends ConsumerWidget {
     final starredAsync = ref.watch(_starredProvider(conversationId));
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Starred Messages'),
+      appBar: pageAppBar(
+        context,
+        'Starred Messages',
         actions: [
           IconButton(
             icon:     const Icon(Icons.refresh),
@@ -62,13 +64,11 @@ class StarredMessagesScreen extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.star_outline, size: 64,
-                        color: Theme.of(context).colorScheme.onSurface
-                            .withValues(alpha: 0.2)),
+                        color: context.t.ink.withValues(alpha: 0.2)),
                     const SizedBox(height: 12),
                     Text('No starred messages',
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface
-                              .withValues(alpha: 0.4),
+                          color: context.t.ink.withValues(alpha: 0.4),
                         )),
                   ],
                 ),
@@ -140,15 +140,9 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
       child: Container(
       padding:    const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color:        Theme.of(context).colorScheme.surface,
+        color:        context.t.surface,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color:      context.t.shadow,
-            blurRadius: 8,
-            offset:     const Offset(0, 2),
-          ),
-        ],
+        boxShadow: WarmPopTokens.cardShadow(context.t.shadow),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,10 +165,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
                     .format(widget.message.createdAt.toLocal()),
                 style: TextStyle(
                   fontSize: 11,
-                  color:    Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.5),
+                  color:    context.t.ink.withValues(alpha: 0.5),
                 ),
               ),
             ],
@@ -187,8 +178,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
               'Tap to jump to message',
               style: TextStyle(
                 fontSize: 11,
-                color:    Theme.of(context).colorScheme.onSurface
-                    .withValues(alpha: 0.35),
+                color:    context.t.ink.withValues(alpha: 0.35),
               ),
             ),
           ],
@@ -242,7 +232,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
 
   Widget _mediaRow(BuildContext context, IconData icon, String label) {
     final color =
-        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7);
+        context.t.ink.withValues(alpha: 0.7);
     return Row(
       children: [
         Icon(icon, size: 18, color: color),

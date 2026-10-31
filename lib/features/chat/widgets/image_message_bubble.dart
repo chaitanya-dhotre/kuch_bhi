@@ -2,11 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shimmer/shimmer.dart';
-
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../core/widgets/skeleton.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
@@ -231,21 +230,11 @@ class _ImageSkeleton extends StatelessWidget {
   const _ImageSkeleton();
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final surface = SizedBox(
-      width: ChatBubbleGeometry.mediaMaxWidth,
-      height: 158,
-      child: ColoredBox(color: t.surface2),
-    );
-    if (MediaQuery.disableAnimationsOf(context)) return surface;
-
-    return Shimmer.fromColors(
-      baseColor: t.surface2,
-      highlightColor: t.line,
-      child: surface,
-    );
-  }
+  Widget build(BuildContext context) => SizedBox(
+        width: ChatBubbleGeometry.mediaMaxWidth,
+        height: 158,
+        child: const Skeleton.fill(radius: 0),
+      );
 }
 
 class _ImageUnavailable extends StatelessWidget {

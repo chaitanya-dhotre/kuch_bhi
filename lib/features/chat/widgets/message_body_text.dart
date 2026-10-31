@@ -60,7 +60,7 @@ class MessageBodyText extends ConsumerStatefulWidget {
         fontSize: 12,
         fontStyle: FontStyle.italic,
         fontWeight: FontWeight.w500,
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+        color: context.t.ink.withValues(alpha: 0.55),
       ),
       'preview' => TextStyle(
         fontSize: 13,

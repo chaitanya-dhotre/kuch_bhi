@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_strings.dart';
+import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
@@ -206,12 +207,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   late final PresenceService _pres;
   String get _cid => widget.conversation.id;
 
+  /// The body provider is auto-disposed: a bare `ref.read(...future)` lets
+  /// it be dropped before an uncached body resolves, and that future never
+  /// completes, which stalled the whole search at 0/0. Hold it while
+  /// waiting, and cap each wait so one stuck body can't stall the rest.
+  Future<String?> _resolveSearchBody(String id) async {
+    final keepAlive = ref.listenManual(messageBodyProvider(id), (_, __) {});
+    try {
+      return await ref
+          .read(messageBodyProvider(id).future)
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+    } finally {
+      keepAlive.close();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _pres = ref.read(presenceServiceProvider);
     _search = ConversationSearchController(
-      resolveBody: (id) => ref.read(messageBodyProvider(id).future),
+      resolveBody: _resolveSearchBody,
     );
     _search.onResults = (matches) {
       if (!mounted) return;
@@ -360,24 +376,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _search.setQuery(q, candidates: candidates);
   }
 
-  /// Scrolls the reversed ListView to bring item at [flatIndex] into view.
-  /// Because the list is reversed, index 0 = bottom. The scroll offset for
-  /// item at [flatIndex] from the bottom is:
-  ///   offset = flatIndex * estimatedHeight
-  void _scrollToItemIndex(int flatIndex) {
-    if (!_scrollCtrl.hasClients) return;
-    final maxExt = _scrollCtrl.position.maxScrollExtent;
-    final total = _items.length;
-    // In a reversed list, item 0 is at the bottom (offset 0).
-    // Item at flatIndex is approximately:
-    final target = (flatIndex / total.clamp(1, total)) * maxExt;
-    _scrollCtrl.animateTo(
-      target.clamp(0.0, maxExt),
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeInOut,
-    );
-  }
-
   void _scrollToMatch(int index) {
     if (_matchItemIndices.isEmpty ||
         index < 0 ||
@@ -386,40 +384,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
     setState(() => _matchIndex = index);
     final flatIndex = _matchItemIndices[index];
-    final matchItem = _items[flatIndex];
-    if (matchItem is _MsgItem) _flashMessage(matchItem.msg.localId);
-    // Try the fast path first (widget already rendered)
     final item = _items[flatIndex];
-    if (item is _MsgItem) {
-      final ctx = item.key.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          alignment: 0.5,
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut,
-        );
-        return;
-      }
-    }
-    // Widget not yet rendered — scroll by estimated offset
-    _scrollToItemIndex(flatIndex);
-    // After scroll settles, try ensureVisible again
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final item2 = _items[flatIndex];
-      if (item2 is _MsgItem) {
-        final ctx2 = item2.key.currentContext;
-        if (ctx2 != null) {
-          Scrollable.ensureVisible(
-            ctx2,
-            alignment: 0.5,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-          );
-        }
-      }
-    });
+    unawaited(_scrollToFlatIndex(flatIndex).then((_) {
+      if (mounted && item is _MsgItem) _flashMessage(item.msg.localId);
+    }));
   }
 
   void _nextMatch() => _scrollToMatch(
@@ -454,39 +422,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return -1;
   }
 
-  void _scrollToFlatIndex(int flatIndex) {
-    final item = _items[flatIndex];
-    if (item is _MsgItem) {
-      final ctx = item.key.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
+  /// Centres the item at [flatIndex] in the reversed list (index 0 = bottom,
+  /// offset 0). An off-screen item isn't built, so this jumps near it, then
+  /// steps a screen at a time toward it until it is built, and only then
+  /// centres it — an estimate alone stops short when bubble heights vary.
+  Future<void> _scrollToFlatIndex(int flatIndex) async {
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 300);
+    for (var attempt = 0; attempt < 30; attempt++) {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      if (flatIndex >= _items.length) return;
+      final target = _items[flatIndex];
+      final ctx = target is _MsgItem ? target.key.currentContext : null;
+      if (ctx != null && ctx.mounted) {
+        await Scrollable.ensureVisible(
           ctx,
           alignment: 0.5,
-          duration: const Duration(milliseconds: 350),
+          duration: duration,
           curve: Curves.easeInOut,
         );
         return;
       }
-    }
-    _scrollToItemIndex(flatIndex);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      // The list can shrink between frames (disappearing-message expiry)
-      // — never index past the end (review minor).
-      if (flatIndex >= _items.length) return;
-      final item2 = _items[flatIndex];
-      if (item2 is _MsgItem) {
-        final ctx2 = item2.key.currentContext;
-        if (ctx2 != null) {
-          Scrollable.ensureVisible(
-            ctx2,
-            alignment: 0.5,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-          );
-        }
+      final pos = _scrollCtrl.position;
+      final built = [
+        for (var i = 0; i < _items.length; i++)
+          if (_items[i] case final _MsgItem m
+              when m.key.currentContext != null)
+            i,
+      ];
+      final double next;
+      if (attempt == 0 || built.isEmpty) {
+        next = flatIndex / _items.length.clamp(1, _items.length) *
+            pos.maxScrollExtent;
+      } else {
+        final older = flatIndex > built.last;
+        next = pos.pixels +
+            (older ? 1 : -1) * pos.viewportDimension * 0.8;
       }
-    });
+      _scrollCtrl.jumpTo(next.clamp(0.0, pos.maxScrollExtent));
+      await WidgetsBinding.instance.endOfFrame;
+    }
   }
 
   /// Unified jump for search/star/reply/pin. If the target is not in the
@@ -497,9 +473,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (flatIndex < 0 && msg.serverId != null) {
       final findingTimer = Timer(const Duration(seconds: 1), () {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Finding message…')));
+        showToast(context, 'Finding message…');
       });
       try {
         await ref
@@ -508,9 +482,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       } catch (e) {
         findingTimer.cancel();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Message not found in this chat')),
-          );
+          showToast(context, 'Message not found in this chat', error: true);
         }
         return;
       }
@@ -523,14 +495,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
     if (flatIndex < 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Message not found in this chat')),
-        );
+        showToast(context, 'Message not found in this chat', error: true);
       }
       return;
     }
-    _scrollToFlatIndex(flatIndex);
-    _flashMessage(msg.localId);
+    await _scrollToFlatIndex(flatIndex);
+    if (mounted) _flashMessage(msg.localId);
   }
 
   void _flashMessage(String localId) {
@@ -859,44 +829,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 child: Row(
                   children: [
                     if (!conv.isGroup)
-                      CircleAvatar(
+                      AppAvatar(
                         radius: 18,
-                        backgroundColor: context.t.accentSoft,
-                        backgroundImage: conv.avatarUrl != null
-                            ? CachedNetworkImageProvider(conv.avatarUrl!)
-                            : null,
-                        child: conv.avatarUrl == null
-                            ? Text(
-                                conv.displayName.substring(0, 1).toUpperCase(),
-                                style: TextStyle(
-                                  color: context.t.accent,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              )
-                            : null,
+                        accentSoft: true,
+                        url: conv.avatarUrl,
+                        initials: initialsOf(conv.displayName),
                       )
                     else
                       Stack(
                         children: [
-                          CircleAvatar(
+                          AppAvatar(
                             radius: 18,
-                            backgroundColor: context.t.accentSoft,
-                            backgroundImage: conv.iconUrl != null
-                                ? CachedNetworkImageProvider(conv.iconUrl!)
-                                : null,
-                            child: conv.iconUrl == null
-                                ? Text(
-                                    conv.displayName
-                                        .substring(0, 1)
-                                        .toUpperCase(),
-                                    style: TextStyle(
-                                      color: context.t.accent,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14,
-                                    ),
-                                  )
-                                : null,
+                            accentSoft: true,
+                            url: conv.iconUrl,
+                            initials: initialsOf(conv.displayName),
                           ),
                           Positioned(
                             bottom: 0,
@@ -1089,13 +1035,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         color: context.t.surface,
         border: Border.all(color: context.t.line),
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusXl),
-        boxShadow: [
-          BoxShadow(
-            color: context.t.shadow,
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: WarmPopTokens.cardShadow(context.t.shadow),
       ),
       child: Row(
         children: [
@@ -1131,18 +1071,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             ),
           ),
           IconButton(
-            tooltip: 'Previous match',
+            // Matches run newest-first (index 0 = bottom), so "next" is the
+            // older one above: up steps back in time, down forward.
+            tooltip: 'Older match',
             color: context.t.inkSoft,
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             icon: const Icon(Icons.keyboard_arrow_up),
-            onPressed: _matchItemIndices.isNotEmpty ? _prevMatch : null,
+            onPressed: _matchItemIndices.isNotEmpty ? _nextMatch : null,
           ),
           IconButton(
-            tooltip: 'Next match',
+            tooltip: 'Newer match',
             color: context.t.inkSoft,
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             icon: const Icon(Icons.keyboard_arrow_down),
-            onPressed: _matchItemIndices.isNotEmpty ? _nextMatch : null,
+            onPressed: _matchItemIndices.isNotEmpty ? _prevMatch : null,
           ),
           IconButton(
             tooltip: 'Close search',
@@ -1680,7 +1622,7 @@ class _HighlightWrapperState extends State<_HighlightWrapper>
   @override
   Widget build(BuildContext context) {
     final persistent = widget.active
-        ? context.t.accent.withValues(alpha: widget.current ? 0.08 : 0.04)
+        ? context.t.accent.withValues(alpha: widget.current ? 0.20 : 0.05)
         : context.t.bg.withValues(alpha: 0);
     return AnimatedBuilder(
       animation: _flashController,

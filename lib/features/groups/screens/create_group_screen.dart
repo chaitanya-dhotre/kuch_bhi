@@ -15,6 +15,8 @@ import '../../../core/widgets/app_chip.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../../core/widgets/page_app_bar.dart';
+import '../../../core/widgets/photo_picker_badge.dart';
 import '../../../features/home/screens/add_friend_screen.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../data/local/database/app_database.dart';
@@ -429,11 +431,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
   /// One app bar for both steps (A1/J5): the title is **New Group**.
   PreferredSizeWidget _appBar(ColorTokens t) {
-    return AppBar(
-      backgroundColor: t.bg,
-      surfaceTintColor: t.bg,
-      elevation: 0,
-      scrolledUnderElevation: 0,
+    return pageAppBar(
+      context,
+      'New Group',
       leading: _onStep2
           ? IconButton(
               constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
@@ -442,18 +442,6 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               icon: Icon(Icons.arrow_back, color: t.ink),
             )
           : null,
-      title: Semantics(
-        header: true,
-        child: Text(
-          'New Group',
-          style: TextStyle(
-            color: t.ink,
-            fontSize: 20,
-            height: 1.3,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
       actions: [
         if (!_onStep2)
           SizedBox(
@@ -595,8 +583,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                                 const SizedBox(width: 12),
                                 AppAvatar(
                                   url: f.friend.avatarUrl,
-                                  initials:
-                                      _initial(name, fallback: '?'),
+                                  initials: initialsOf(name),
                                   radius: 20,
                                 ),
                                 const SizedBox(width: 12),
@@ -679,13 +666,6 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     );
   }
 
-  /// First letter WITHOUT a range-taking call (grep gate) — never throws on
-  /// an empty name (H2).
-  String _initial(String value, {required String fallback}) {
-    final trimmed = value.trim();
-    return trimmed.isEmpty ? fallback : trimmed[0].toUpperCase();
-  }
-
   // ── Step 2: group info ─────────────────────────────────────────
 
   Widget _buildStep2(
@@ -697,14 +677,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     final friends = friendsAsync.valueOrNull ?? const <Friendship>[];
     final name = _nameController.text.trim();
     // Empty name → "G" (J5), never a RangeError.
-    final letter = _initial(name, fallback: 'G');
+    final letter = initialsOf(name, fallback: 'G');
 
     final photo = _iconFile == null
         ? AppAvatar(initials: letter, radius: 48, accentSoft: true)
-        : CircleAvatar(
+        : AppAvatar(
+            image: FileImage(_iconFile!),
+            initials: letter,
             radius: 48,
-            backgroundColor: t.accentSoft,
-            backgroundImage: FileImage(_iconFile!),
+            accentSoft: true,
           );
 
     return SingleChildScrollView(
@@ -728,19 +709,8 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                   Positioned(
                     right: 2,
                     bottom: 2,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: t.accent,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: t.bg, width: 2),
-                      ),
-                      child: Icon(
-                        Icons.camera_alt_outlined,
-                        color: t.onAccent,
-                        size: 16,
-                      ),
+                    child: PhotoPickerBadge(
+                      onTap: _creating ? null : _pickIcon,
                     ),
                   ),
                 ],
@@ -894,7 +864,7 @@ class _SelectedChips extends StatelessWidget {
   Widget _chip(BuildContext context, Friendship f) {
     final t = context.t;
     final name = _label(f);
-    final initials = _letter(name);
+    final initials = initialsOf(name);
     // K2: the 48dp outer target owns the tap; the 36h pill is decorative.
     return SizedBox(
       height: 48,
@@ -947,13 +917,6 @@ class _SelectedChips extends StatelessWidget {
     final handle = f.friend.username.trim();
     if (handle.isNotEmpty) return '@$handle';
     return 'Unknown';
-  }
-
-  /// First letter WITHOUT a range-taking call (grep gate) — never throws on
-  /// an empty name (H3).
-  String _letter(String value) {
-    final trimmed = value.trim();
-    return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
   }
 }
 

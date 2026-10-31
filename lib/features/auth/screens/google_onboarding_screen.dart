@@ -9,6 +9,7 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/photo_picker_badge.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../profile/screens/crop_photo_screen.dart';
 import '../providers/auth_provider.dart';
@@ -232,17 +233,7 @@ class _GoogleOnboardingScreenState
               Positioned(
                 bottom: 0,
                 right: 0,
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: t.accent,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: t.bg, width: 2),
-                  ),
-                  child: Icon(Icons.camera_alt_outlined,
-                      size: 16, color: t.onAccent),
-                ),
+                child: PhotoPickerBadge(onTap: _busy ? null : _pickAvatar),
               ),
             ],
           ),

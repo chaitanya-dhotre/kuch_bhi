@@ -10,10 +10,21 @@ import '../theme/tokens.dart';
 /// Under reduced motion (K3) the ring does not spin: it parks as a static
 /// surface2 ring, matching [Skeleton]'s shimmer park.
 class BusySpinner extends StatelessWidget {
-  const BusySpinner({super.key, this.size = 18, this.strokeWidth = 2});
+  const BusySpinner({
+    super.key,
+    this.size = 18,
+    this.strokeWidth = 2,
+    this.color,
+  });
 
   final double size;
   final double strokeWidth;
+
+  /// Ring tint. `null` (the default) = the theme's accent ring, which is
+  /// what every default site renders. Sites whose ring sits on an accent
+  /// disc keep their own tint through this slot — swapping them for an
+  /// untinted ring would paint accent on accent.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +41,7 @@ class BusySpinner extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: CircularProgressIndicator(strokeWidth: strokeWidth),
+      child: CircularProgressIndicator(strokeWidth: strokeWidth, color: color),
     );
   }
 }

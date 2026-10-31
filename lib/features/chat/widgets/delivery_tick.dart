@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/busy_spinner.dart';
 
 /// Canonical delivery-state indicator used by chat surfaces.
 class DeliveryTick extends StatelessWidget {
@@ -15,10 +16,7 @@ class DeliveryTick extends StatelessWidget {
     final normalizedStatus = status == 'pending' ? 'queued' : status;
 
     return switch (normalizedStatus) {
-      'sending' => SizedBox.square(
-        dimension: size,
-        child: CircularProgressIndicator(strokeWidth: 2, color: t.inkFaint),
-      ),
+      'sending' => BusySpinner(size: size, strokeWidth: 2, color: t.inkFaint),
       'sent' => Icon(Icons.check, size: size, color: t.inkSoft),
       'delivered' => Icon(
         Icons.done_all,
