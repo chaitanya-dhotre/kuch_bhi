@@ -65,3 +65,14 @@ final isOnlineProvider = StreamProvider<bool>((ref) async* {
   yield signal.isOnline;
   yield* signal.changes;
 });
+
+/// A plain (non-autoDispose) family keeps an empty result for good. Call this
+/// from its body when it resolves to nothing: the next offline → online flip
+/// runs it again.
+void invalidateOnReconnect(Ref ref) {
+  ref.listen<AsyncValue<bool>>(isOnlineProvider, (prev, next) {
+    if (prev?.valueOrNull == false && next.valueOrNull == true) {
+      ref.invalidateSelf();
+    }
+  });
+}

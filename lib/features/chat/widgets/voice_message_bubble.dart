@@ -6,6 +6,8 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
+import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
 
@@ -93,12 +95,17 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
     });
 
     try {
-      // Download + decrypt the voice note to a local file, then play it.
-      final media = await ref.read(
-        mediaFileProvider(
-          MediaRef(widget.conversationId, widget.serverId),
-        ).future,
+      final voice = mediaFileProvider(
+        MediaRef(widget.conversationId, widget.serverId),
       );
+      // A failed or empty load stays cached: drop it, or this tap replays it.
+      final cached = ref.read(voice);
+      if (!cached.isLoading &&
+          (cached.hasError || (cached.hasValue && cached.value == null))) {
+        ref.invalidate(voice);
+      }
+      // Download + decrypt the voice note to a local file, then play it.
+      final media = await ref.read(voice.future);
       if (media == null) throw Exception('No media found');
 
       _cachedPath = media.file.path;
@@ -142,11 +149,18 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         ? '${_fmtDur(_total - _position)} / ${_fmtDur(_total)}'
         : widget.durationText ?? '0:00';
 
-    final mediaAsync = ref.watch(
-      mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
-    );
+    // Purged on the server for sure: no download, no retry.
+    final gone = isPastRetention('voice', widget.createdAt);
+    final mediaAsync = gone
+        ? const AsyncData(null)
+        : ref.watch(
+            mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
+          );
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
+    // A failed load cannot be retried offline; reconnect re-enables the tap.
+    final retryOffline = _hasError && !online;
     final expiresAt = mediaAsync.valueOrNull?.expiresAt;
-    final expired = isExpired(expiresAt);
+    final expired = gone || isExpired(expiresAt);
     final badgeText = compactExpiryLabel(expiresAt);
 
     // ── Expired state ───────────────────────────────────────
@@ -159,9 +173,13 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         timestampOverlay: false,
         createdAt: widget.createdAt,
         status: widget.status,
-        child: const ExpiredPlaceholder(
+        child: ExpiredPlaceholder(
           glyph: Icons.timer_off_outlined,
           decorate: false,
+          inline: true,
+          ink: widget.isMine
+              ? context.t.onAccent.withValues(alpha: 0.70)
+              : null,
         ),
       );
     }
@@ -186,43 +204,50 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                   // Play / pause / loading
                   Semantics(
                     button: true,
-                    label: _isPlaying
+                    enabled: !retryOffline,
+                    label: _hasError
+                        ? "Voice message didn't load. "
+                              '${online ? 'Tap to retry' : kOfflineActionHint}'
+                        : _isPlaying
                         ? 'Pause voice message'
                         : 'Play voice message',
                     child: GestureDetector(
-                      onTap: _loadAndPlay,
-                      child: Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: widget.isMine
-                              ? context.t.onAccent.withValues(alpha: 0.16)
-                              : context.t.accent.withValues(alpha: 0.15),
-                        ),
-                        child: _isLoading
-                            ? Padding(
-                                padding: const EdgeInsets.all(7),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                      onTap: retryOffline ? null : _loadAndPlay,
+                      child: Opacity(
+                        opacity: retryOffline ? .38 : 1,
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: widget.isMine
+                                ? context.t.onAccent.withValues(alpha: 0.16)
+                                : context.t.accent.withValues(alpha: 0.15),
+                          ),
+                          child: _isLoading
+                              ? Padding(
+                                  padding: const EdgeInsets.all(7),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: widget.isMine
+                                        ? context.t.onAccent
+                                        : context.t.accent,
+                                  ),
+                                )
+                              : _hasError
+                              ? Icon(
+                                  Icons.error_outline,
+                                  color: context.t.error,
+                                  size: 22,
+                                )
+                              : Icon(
+                                  _isPlaying ? Icons.pause : Icons.play_arrow,
                                   color: widget.isMine
                                       ? context.t.onAccent
                                       : context.t.accent,
+                                  size: 20,
                                 ),
-                              )
-                            : _hasError
-                            ? Icon(
-                                Icons.error_outline,
-                                color: context.t.error,
-                                size: 22,
-                              )
-                            : Icon(
-                                _isPlaying ? Icons.pause : Icons.play_arrow,
-                                color: widget.isMine
-                                    ? context.t.onAccent
-                                    : context.t.accent,
-                                size: 20,
-                              ),
+                        ),
                       ),
                     ),
                   ),
@@ -247,7 +272,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          displayDuration,
+                          retryOffline ? kOfflineActionHint : displayDuration,
                           style: TextStyle(
                             fontSize: 11,
                             color: onBubble.withValues(alpha: 0.7),

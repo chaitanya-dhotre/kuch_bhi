@@ -186,4 +186,18 @@ void main() {
     sync.done.complete();
     await tester.pumpAndSettle();
   });
+
+  // Bug wave 2 §3.1: the history sync outlives the screen (a redirect or the
+  // back gesture can pop it); its progress ticks must not touch a disposed
+  // State.
+  testWidgets('progress after the screen is gone throws nothing',
+      (tester) async {
+    final (sync, _) = await _startRestore(tester);
+    await tester.pumpWidget(const SizedBox());
+    sync.progress!(_p);
+    sync.progress!(const HistorySyncProgress(phase: HistorySyncPhase.complete));
+    sync.done.complete();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
 }

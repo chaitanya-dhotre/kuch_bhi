@@ -25,6 +25,9 @@ import '../../services/media_upload_service.dart';
 String mediaBlobId(String serverId, {required bool thumb}) =>
     '$serverId${thumb ? '_t' : '_f'}';
 
+/// How long a media network call may stay silent before it counts as offline.
+const _stallBound = Duration(seconds: 8);
+
 /// MediaBlobStore — SOLE writer of blob rows + files (spec §4/§9).
 ///
 /// Single entry point: [requestBlob] — every consumer (bubbles, viewer,
@@ -207,9 +210,19 @@ class MediaBlobStore {
 
       // ── Record lookup — MOVED call. 404 here means the `message_media`
       // record has not landed yet (upload race #18): stay QUEUED so the
-      // mediaArrived retry can succeed — this is NOT dead_link. ──
+      // mediaArrived retry can succeed — this is NOT dead_link, unless the
+      // message is over a day old (below). ──
       final record = await _lookupRecord(serverId);
       if (record == null) {
+        // A day after sending, the record is not about to land: the server
+        // purged it (expired) or the upload never finished. Either way no
+        // retry can help, so this one is terminal.
+        final sent = (await messages.getMessageByServerId(serverId))?.createdAt;
+        if (sent != null &&
+            DateTime.now().difference(sent) > const Duration(days: 1)) {
+          await _fail(epochAtStart, blobId, 'dead_link');
+          return null;
+        }
         if (!_stillValid(epochAtStart, 'record-404 queue write')) {
           return null;
         }
@@ -245,11 +258,29 @@ class MediaBlobStore {
       if (!await localFile.exists()) {
         final url =
             '${_pb.baseUrl}/api/files/message_media/${record.id}/$storedName';
-        // Seam: moved `http.get` → the injectable store client (MockClient
-        // test seam — brief test 1).
-        final resp = await _httpClient.get(
-          Uri.parse(url),
-          headers: {'Authorization': _pb.authStore.token},
+        // Seam: the injectable store client (MockClient test seam — brief
+        // test 1).
+        // A stall bound, not a size bound (files reach 100 MB): 8s with no
+        // headers, or with no new bytes, throws into the catch → queued.
+        // The abort closes the socket too, so a late answer is not left open.
+        final abort = Completer<void>();
+        TimeoutException stalled() {
+          if (!abort.isCompleted) abort.complete();
+          return TimeoutException('media download stalled', _stallBound);
+        }
+
+        final streamed = await _httpClient
+            .send(http.AbortableRequest('GET', Uri.parse(url),
+                abortTrigger: abort.future)
+              ..headers['Authorization'] = _pb.authStore.token)
+            .timeout(_stallBound, onTimeout: () => throw stalled());
+        final resp = http.Response.bytes(
+          await http.ByteStream(streamed.stream.timeout(_stallBound,
+                  onTimeout: (sink) => sink
+                    ..addError(stalled())
+                    ..close()))
+              .toBytes(),
+          streamed.statusCode,
         );
         if (resp.statusCode != 200) {
           // MOVED diagnostic line.
@@ -363,7 +394,8 @@ class MediaBlobStore {
     try {
       return await _pb
           .collection('message_media')
-          .getFirstListItem('message_id="$serverId"');
+          .getFirstListItem('message_id="$serverId"')
+          .timeout(_stallBound);
     } on ClientException catch (e) {
       if (e.statusCode == 404) return null;
       rethrow;

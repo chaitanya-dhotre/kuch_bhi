@@ -333,15 +333,44 @@ class ExpiredPlaceholder extends StatelessWidget {
     super.key,
     required this.glyph,
     this.decorate = true,
+    this.inline = false,
+    this.ink,
   });
 
   final IconData glyph;
   final bool decorate;
 
+  /// A left-aligned row, for full-width voice and document bubbles.
+  final bool inline;
+
+  /// Ink for the bubble it sits on (the own amber bubble needs onAccent).
+  final Color? ink;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final dimmedInk = t.inkSoft.withValues(alpha: 0.5);
+    final dimmedInk = ink ?? t.inkSoft.withValues(alpha: 0.5);
+    if (inline) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: Row(
+          children: [
+            Icon(glyph, color: ink ?? t.inkSoft, size: 20),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Media expired',
+                style: TextStyle(
+                  color: ink ?? t.inkSoft,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final content = Column(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,

@@ -2627,7 +2627,8 @@ class MessageRepositoryImpl implements MessageRepository {
             filter: 'user_id="$myId"&&conversation_id="$conversationId"',
             sort: '-starred_at',
             perPage: 200,
-          );
+          )
+          .timeout(const Duration(seconds: 8));
 
       final out = <Message>[];
       for (final record in res.items) {

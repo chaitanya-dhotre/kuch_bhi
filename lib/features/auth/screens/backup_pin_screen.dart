@@ -369,6 +369,8 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
   /// The restore continuation: re-download + decrypt the full history now
   /// that the private key is restored (~1-3 min), then Home.
   Future<void> _restoreHistory() async {
+    // `ref` dies with the screen; the sync and its router re-check do not.
+    final container = ProviderScope.containerOf(context, listen: false);
     setState(() {
       _isLoading = true;
       _savingBackup = false;
@@ -380,6 +382,8 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
           .read(messageRepositoryProvider)
           .syncAllHistory(
             onProgress: (p) {
+              // The sync outlives the screen if a redirect or back pops it.
+              if (!mounted) return;
               switch (p.phase) {
                 case HistorySyncPhase.fetchingConversations:
                   if (_restorePhase != RestorePhase.fetchingConvs) {
@@ -415,7 +419,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
     } catch (e) {
       debugPrint('[Restore] history sync failed: $e');
     }
-    ref.invalidate(encryptionSyncProvider);
+    container.invalidate(encryptionSyncProvider);
     if (mounted) {
       context.go(AppRoutes.home);
     }

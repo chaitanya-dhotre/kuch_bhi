@@ -10,6 +10,7 @@ import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import 'expiry_badge.dart';
+import 'media_retry.dart';
 
 class ImageMessageBubble extends ConsumerStatefulWidget {
   const ImageMessageBubble({
@@ -59,13 +60,32 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
     );
   }
 
+  Widget _expired() => _BubbleWrapper(
+    isMine: widget.isMine,
+    runEnd: widget.runEnd,
+    createdAt: widget.createdAt,
+    status: widget.status,
+    child: SizedBox(
+      width: ChatBubbleGeometry.mediaMaxWidth,
+      height: 158,
+      child: ExpiredPlaceholder(
+        glyph: Icons.timer_off_outlined,
+        decorate: false,
+        ink: widget.isMine ? context.t.onAccent.withValues(alpha: 0.70) : null,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
-    final thumbAsync = ref.watch(
-      mediaFileProvider(
-        MediaRef(widget.conversationId, widget.serverId, thumb: true),
-      ),
+    // Purged on the server for sure: no download, no retry.
+    if (isPastRetention('image', widget.createdAt)) return _expired();
+    final thumbRef = MediaRef(
+      widget.conversationId,
+      widget.serverId,
+      thumb: true,
     );
+    final thumbAsync = ref.watch(mediaFileProvider(thumbRef));
 
     return thumbAsync.when(
       loading: () => _BubbleWrapper(
@@ -80,7 +100,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
         runEnd: widget.runEnd,
         createdAt: widget.createdAt,
         status: widget.status,
-        child: const _ImageUnavailable(),
+        child: _ImageUnavailable(retry: thumbRef),
       ),
       data: (media) {
         if (media == null) {
@@ -89,28 +109,13 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
             runEnd: widget.runEnd,
             createdAt: widget.createdAt,
             status: widget.status,
-            child: const _ImageUnavailable(),
+            child: _ImageUnavailable(retry: thumbRef),
           );
         }
 
         // ── Expiry check ───────────────────────────────────────
         final expiresAt = media.expiresAt;
-        if (isExpired(expiresAt)) {
-          return _BubbleWrapper(
-            isMine: widget.isMine,
-            runEnd: widget.runEnd,
-            createdAt: widget.createdAt,
-            status: widget.status,
-            child: const SizedBox(
-              width: ChatBubbleGeometry.mediaMaxWidth,
-              height: 158,
-              child: ExpiredPlaceholder(
-                glyph: Icons.timer_off_outlined,
-                decorate: false,
-              ),
-            ),
-          );
-        }
+        if (isExpired(expiresAt)) return _expired();
 
         if (media.width != null &&
             media.height != null &&
@@ -243,7 +248,10 @@ class _ImageSkeleton extends StatelessWidget {
 }
 
 class _ImageUnavailable extends StatelessWidget {
-  const _ImageUnavailable();
+  const _ImageUnavailable({this.retry});
+
+  /// Set when the load came back empty (a retry can help, not a bad file).
+  final MediaRef? retry;
 
   @override
   Widget build(BuildContext context) {
@@ -252,7 +260,13 @@ class _ImageUnavailable extends StatelessWidget {
       height: 158,
       color: context.t.surface2,
       alignment: Alignment.center,
-      child: Icon(Icons.broken_image_outlined, color: context.t.inkFaint),
+      child: retry == null
+          ? Icon(Icons.broken_image_outlined, color: context.t.inkFaint)
+          : MediaRetry(
+              media: retry!,
+              what: 'Photo',
+              icon: Icons.broken_image_outlined,
+            ),
     );
   }
 }

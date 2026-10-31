@@ -26,7 +26,7 @@ class MediaGalleryService {
                '&&media_type="${args.mediaType}"',
       sort:    '-created',
       perPage: 100,
-    );
+    ).timeout(const Duration(seconds: 8));
     return result.items;
   }
 }

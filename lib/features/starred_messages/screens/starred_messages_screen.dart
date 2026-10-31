@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/empty_state.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../chat/providers/chat_provider.dart';
@@ -42,7 +44,17 @@ class StarredMessagesScreen extends ConsumerWidget {
       ),
       body: starredAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error:   (e, _) => Center(child: Text('Error: $e')),
+        // R7: plain copy and a Retry, never the exception.
+        error:   (_, __) => EmptyState(
+          title: "Couldn't load starred messages.",
+          subtitle: 'Check your connection and try again.',
+          // The mascot does not fit at 200% text on a 360dp phone.
+          withMascot: false,
+          action: AppButton(
+            onPressed: () => ref.invalidate(_starredProvider(conversationId)),
+            child: const Text('Retry'),
+          ),
+        ),
         data:    (messages) => messages.isEmpty
             ? Center(
                 child: Column(

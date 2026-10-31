@@ -10,9 +10,12 @@ import 'package:shimmer/shimmer.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_sheet.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/services/media_gallery_service.dart';
+import '../../chat/message_offline_policy.dart';
 import '../../chat/providers/chat_provider.dart';
 import '../../media/screens/media_viewer_screen.dart';
 
@@ -108,6 +111,47 @@ Widget _emptyState(BuildContext context, String label, IconData icon) => Center(
         ],
       ),
     );
+
+/// A tab's page did not load: plain copy and a Retry (never the exception).
+class _LoadFailed extends ConsumerWidget {
+  const _LoadFailed(this.args);
+  final ({String conversationId, String mediaType}) args;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
+    final caption = TextStyle(color: context.t.inkSoft, fontSize: 13);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined, size: 56, color: context.t.inkFaint),
+            const SizedBox(height: 12),
+            Text(
+              "Couldn't load this chat's media.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.t.inkSoft, fontSize: 15),
+            ),
+            const SizedBox(height: 12),
+            Opacity(
+              opacity: online ? 1 : .38,
+              child: AppButton(
+                variant: AppButtonVariant.text,
+                onPressed: online
+                    ? () => ref.invalidate(mediaPageProvider(args))
+                    : null,
+                child: const Text('Retry'),
+              ),
+            ),
+            if (!online) Text(kOfflineActionHint, style: caption),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // ── Grid tile (photos + videos) ────────────────────────────────────────────────
 
@@ -238,7 +282,9 @@ class _PhotosTab extends ConsumerWidget {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error:   (e, _) => Center(child: Text('Error: $e')),
+      error: (_, __) => _LoadFailed(
+        (conversationId: conversationId, mediaType: 'image'),
+      ),
       data: (items) {
         if (items.isEmpty) {
           return _emptyState(context, 'No photos yet', Icons.photo_outlined);
@@ -303,7 +349,9 @@ class _VideosTab extends ConsumerWidget {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error:   (e, _) => Center(child: Text('Error: $e')),
+      error: (_, __) => _LoadFailed(
+        (conversationId: conversationId, mediaType: 'video'),
+      ),
       data: (items) {
         if (items.isEmpty) {
           return _emptyState(context, 'No videos yet', Icons.videocam_outlined);
@@ -371,7 +419,9 @@ class _VoiceTab extends ConsumerWidget {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error:   (e, _) => Center(child: Text('Error: $e')),
+      error: (_, __) => _LoadFailed(
+        (conversationId: conversationId, mediaType: 'voice'),
+      ),
       data: (items) {
         if (items.isEmpty) {
           return _emptyState(context, 'No voice messages yet', Icons.mic_none_outlined);
@@ -657,7 +707,9 @@ class _DocsTab extends ConsumerWidget {
 
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error:   (e, _) => Center(child: Text('Error: $e')),
+      error: (_, __) => _LoadFailed(
+        (conversationId: conversationId, mediaType: 'document'),
+      ),
       data: (items) {
         if (items.isEmpty) {
           return _emptyState(context, 'No documents yet', Icons.folder_open_outlined);
@@ -712,18 +764,22 @@ class _DocsTab extends ConsumerWidget {
     String serverId,
   ) async {
     try {
+      final doc = mediaFileProvider(MediaRef(conversationId, serverId));
+      // A failed or empty load stays cached: drop it, or this tap replays it.
+      final cached = ref.read(doc);
+      if (!cached.isLoading &&
+          (cached.hasError || (cached.hasValue && cached.value == null))) {
+        ref.invalidate(doc);
+      }
       // Download + decrypt the document to a local file, then open it.
-      final media = await ref.read(mediaFileProvider(
-          MediaRef(conversationId, serverId)).future);
+      final media = await ref.read(doc.future);
       if (media == null) throw Exception('No media found');
 
       await OpenFile.open(media.file.path);
     } catch (e) {
       debugPrint('[DocsTab] Open failed: $e');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open file: $e')),
-        );
+        showToast(context, "Couldn't open the file. Try again.", error: true);
       }
     }
   }

@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/local/database/app_database.dart';
+import '../../../data/local/database/tables/media_blob_table.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
 import '../../../domain/entities/user.dart';
 import '../../../infrastructure/media/media_blob_store.dart' show mediaBlobId;
+import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/media_upload_service.dart';
 
@@ -66,20 +68,38 @@ final mediaFileProvider = FutureProvider.family<LocalMediaFile?, MediaRef>((
   // Single store instance — built by the repo (key-resolution closure).
   final store = (repo as MessageRepositoryImpl).mediaBlobStore;
 
+  // Only a just-sent message can be waiting on its media record (#18): for
+  // an older one the 45s wait below can never end well, so skip it.
+  final sent = (await store.messages.getMessageByServerId(r.serverId))
+      ?.createdAt;
+  final fresh = sent == null ||
+      DateTime.now().difference(sent) < const Duration(minutes: 10);
+
   // Subscribe BEFORE the first fetch so a media row landing mid-fetch
   // can't slip between "fetch returned null" and "now wait for an event".
-  final mediaArrived = repo.mediaChanges.where((id) => id == r.serverId).first;
+  final mediaArrived = fresh
+      ? repo.mediaChanges.where((id) => id == r.serverId).first
+      : null;
 
-  final result = await store.requestBlob(r.blobId, 'mediaFileProvider');
-  if (result != null) return result;
+  var file = await store.requestBlob(r.blobId, 'mediaFileProvider');
+  if (file != null) return file;
 
-  try {
-    await mediaArrived.timeout(const Duration(seconds: 45));
-  } catch (_) {
-    // No media event in time (failed/cancelled upload) — fall through to
-    // one final attempt, then give up like the old behaviour.
+  // A failed blob is terminal (the store never retries it).
+  Future<bool> failed() async =>
+      (await store.dao.byId(r.blobId))?.state == BlobState.failed;
+
+  if (mediaArrived != null && !await failed()) {
+    try {
+      await mediaArrived.timeout(const Duration(seconds: 45));
+    } catch (_) {
+      // No media event in time (failed/cancelled upload) — fall through to
+      // one final attempt, then give up like the old behaviour.
+    }
+    file = await store.requestBlob(r.blobId, 'mediaFileProvider');
   }
-  return await store.requestBlob(r.blobId, 'mediaFileProvider');
+  // Only an offline / not-landed null waits for the network.
+  if (file == null && !await failed()) invalidateOnReconnect(ref);
+  return file;
 });
 
 // ── Messages (reactive Drift stream) ─────────────────────────────────────

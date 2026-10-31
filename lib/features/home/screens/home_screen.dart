@@ -67,6 +67,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _backupBannerVisible = false;
   bool _backupBannerDismissed = false;
   bool _upgradeBannerDismissed = false;
+  String? _openingFriendId;
   double? _searchOriginOffset;
 
   @override
@@ -428,6 +429,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           (friendship) => _FriendsTile(
             key: ValueKey('friend-${friendship.friend.id}'),
             entity: friendship,
+            opening: _openingFriendId == friendship.friend.id,
             onTap: () => _openChat(friendship.friend.id),
           ),
         ),
@@ -525,10 +527,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _openChat(String otherUserId) async {
+    if (_openingFriendId != null) return;
+    setState(() => _openingFriendId = otherUserId);
     try {
+      // Only the wait is bounded: a slow sync keeps running and lands in
+      // Drift, so the next tap finds the chat locally.
       final conversation = await ref
           .read(messageRepositoryProvider)
-          .getOrCreateDirectConversation(otherUserId);
+          .getOrCreateDirectConversation(otherUserId)
+          .timeout(const Duration(seconds: 8));
       if (mounted) {
         context.push(AppRoutes.chat, extra: conversation);
       }
@@ -539,6 +546,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           content: Text('Chat is not ready yet. Try again in a moment.'),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _openingFriendId = null);
     }
   }
 }
@@ -972,26 +981,41 @@ class _HomeFabState extends State<_HomeFab> {
 }
 
 class _FriendsTile extends StatelessWidget {
-  const _FriendsTile({super.key, required this.entity, required this.onTap});
+  const _FriendsTile({
+    super.key,
+    required this.entity,
+    required this.onTap,
+    this.opening = false,
+  });
 
   final Friendship entity;
   final VoidCallback onTap;
+
+  /// The chat is being fetched: the tile says so and ignores taps.
+  final bool opening;
 
   @override
   Widget build(BuildContext context) {
     final friend = entity.friend;
     final online = friend.isOnline;
+    final subtitle = opening
+        ? 'Opening chat…'
+        : online
+        ? 'Online'
+        : 'Tap to start chatting';
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
       child: ChatTile(
         key: ValueKey('chat-tile-friend-${friend.id}'),
         title: entity.displayName,
-        subtitle: online ? 'Online' : 'Tap to start chatting',
-        subtitleColor: online ? _accessibleOnlineTextColor(context) : null,
+        subtitle: subtitle,
+        subtitleColor: online && !opening
+            ? _accessibleOnlineTextColor(context)
+            : null,
         avatarUrl: friend.avatarUrl,
         isOnline: online,
-        semanticSubtitle: online ? 'Online' : 'Tap to start chatting',
-        onTap: onTap,
+        semanticSubtitle: subtitle,
+        onTap: opening ? null : onTap,
       ),
     );
   }

@@ -654,6 +654,44 @@ void main() {
     expect(screen.contains('!_historyExhausted &&\n        !_historyLoadFailed'),
         isTrue, reason: 'a failed page waits for Retry, not every scroll');
   });
+
+  test('bug wave 2: no raw exception reaches the screen; media reloads', () {
+    // A Text / SnackBar / toast / errorText that interpolates the caught
+    // error, within one statement (debugPrint lines are dropped first).
+    final raw = RegExp(
+        r'(Text\(|SnackBar\(|showToast\(|errorText:)[^;]{0,200}?'
+        r'(\$\{?(e|e2|ex|err|error|exception)\b|'
+        r'\b(e|e2|ex|err|error|exception)\.toString\(\))');
+    final hits = <String>[];
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      final src = f
+          .readAsLinesSync()
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      for (final m in raw.allMatches(src)) {
+        hits.add('${f.path}: ${m.group(0)!.split('\n').first}');
+      }
+    }
+    expect(hits, isEmpty, reason: 'show plain copy; keep \$e in debugPrint');
+
+    final provider =
+        File('lib/features/chat/providers/chat_provider.dart').readAsStringSync();
+    expect(
+        provider.contains(
+            'if (file == null && !await failed()) invalidateOnReconnect(ref);'),
+        isTrue,
+        reason: 'an empty (not failed) media load re-runs on reconnect');
+    final auth = File('lib/infrastructure/repositories/auth_repository_impl.dart')
+        .readAsStringSync();
+    expect(
+        RegExp(r"'fcm_token': fcmToken,\s*\}\)\.timeout\(kAuthNetworkTimeout\)")
+            .hasMatch(auth),
+        isTrue,
+        reason: 'the FCM write after sign-in is bounded');
+  });
 }
 
 const _bannedPurpleHexes = [

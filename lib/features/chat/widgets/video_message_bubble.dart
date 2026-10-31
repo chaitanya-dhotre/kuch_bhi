@@ -8,6 +8,7 @@ import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import 'expiry_badge.dart';
+import 'media_retry.dart';
 
 class VideoMessageBubble extends ConsumerStatefulWidget {
   const VideoMessageBubble({
@@ -46,9 +47,22 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final thumbAsync = ref.watch(
-      mediaFileProvider(
-        MediaRef(widget.conversationId, widget.serverId, thumb: true),
+    final thumbRef = MediaRef(
+      widget.conversationId,
+      widget.serverId,
+      thumb: true,
+    );
+    // Purged on the server for sure: no download, no retry.
+    final gone = isPastRetention('video', widget.createdAt);
+    final thumbAsync = gone
+        ? const AsyncData(null)
+        : ref.watch(mediaFileProvider(thumbRef));
+    Widget unavailable() => ColoredBox(
+      color: context.t.surface2,
+      child: MediaRetry(
+        media: thumbRef,
+        what: 'Video',
+        icon: Icons.videocam_off,
       ),
     );
 
@@ -58,36 +72,23 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
         highlightColor: context.t.line,
         child: ColoredBox(color: context.t.surface2),
       ),
-      error: (_, __) => Container(
-        color: context.t.surface2,
-        child: Center(
-          child: Icon(Icons.videocam_off, color: context.t.inkFaint, size: 48),
-        ),
-      ),
+      error: (_, __) => unavailable(),
       data: (media) {
         final durationSec = media?.durationSeconds ?? 0;
         final expiresAt = media?.expiresAt;
 
         // ── Expired state ──────────────────────────────────────
-        if (isExpired(expiresAt)) {
-          return const ExpiredPlaceholder(
+        if (gone || isExpired(expiresAt)) {
+          return ExpiredPlaceholder(
             glyph: Icons.timer_off_outlined,
             decorate: false,
+            ink: widget.isMine
+                ? context.t.onAccent.withValues(alpha: 0.70)
+                : null,
           );
         }
 
-        if (media == null) {
-          return Container(
-            color: context.t.surface2,
-            child: Center(
-              child: Icon(
-                Icons.videocam_off,
-                color: context.t.inkFaint,
-                size: 48,
-              ),
-            ),
-          );
-        }
+        if (media == null) return unavailable();
 
         if (media.width != null &&
             media.height != null &&

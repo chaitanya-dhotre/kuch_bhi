@@ -497,7 +497,7 @@ class AuthRepositoryImpl implements AuthRepository {
         if (fcmToken != lastToken) {
           await _pb.collection('users').update(user.id, body: {
             'fcm_token': fcmToken,
-          });
+          }).timeout(kAuthNetworkTimeout);
           await db.settingsDao.setSetting('last_fcm_token', fcmToken);
           debugPrint('[FCM] Token registered for user ${user.id}');
         }

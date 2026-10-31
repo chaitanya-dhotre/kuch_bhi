@@ -556,9 +556,9 @@ class AddFriendNotifier extends Notifier<AddFriendState> {
 
   Future<void> searchByCode(String code) async {
     if (code.trim().length != 6) {
+      // No clearError here: the flag beats a passed searchError.
       state = state.copyWith(
         clearUser: true,
-        clearError: true,
         searchError: 'Friend code must be exactly 6 characters.',
       );
       return;

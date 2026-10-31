@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../offline/connectivity_signal.dart';
+
 /// Link preview metadata parsed from a page's `<title>` /
 /// `<meta name="description">`.
 class LinkPreview {
@@ -41,6 +43,8 @@ class LinkPreviewService {
           ?.trim();
       if (title == null) return null;
       return LinkPreview(title: title, description: desc, url: url);
+    } on DioException {
+      rethrow; // transport: the provider retries it on reconnect
     } catch (_) {
       return null;
     }
@@ -50,7 +54,14 @@ class LinkPreviewService {
 /// Brief interface: `linkPreviewServiceProvider(url) → Future<LinkPreview?>`.
 final linkPreviewServiceProvider =
     FutureProvider.family<LinkPreview?, String>((ref, url) async {
-  return ref.watch(_linkPreviewServiceInstanceProvider).fetch(url);
+  final service = ref.watch(_linkPreviewServiceInstanceProvider);
+  try {
+    return await service.fetch(url);
+  } on DioException {
+    // Not a page without a title: that null is final and is not re-fetched.
+    invalidateOnReconnect(ref);
+    return null;
+  }
 });
 
 final _linkPreviewServiceInstanceProvider =

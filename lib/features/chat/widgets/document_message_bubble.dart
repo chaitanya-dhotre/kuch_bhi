@@ -4,9 +4,11 @@ import 'package:open_file/open_file.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/utils/media_utils.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
+import 'media_retry.dart';
 
 String _formatSize(dynamic raw) {
   final bytes = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
@@ -82,9 +84,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
     } catch (e) {
       debugPrint('[DocBubble] open error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not open file: $e')));
+        showToast(context, "Couldn't open the file. Try again.", error: true);
       }
     } finally {
       if (mounted) setState(() => _isDownloading = false);
@@ -93,9 +93,13 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final mediaAsync = ref.watch(
-      mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
-    );
+    // Purged on the server for sure: no download, no retry.
+    final gone = isPastRetention('document', widget.createdAt);
+    final mediaAsync = gone
+        ? const AsyncData(null)
+        : ref.watch(
+            mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
+          );
     return ChatBubbleFrame(
       isMine: widget.isMine,
       runEnd: widget.runEnd,
@@ -108,9 +112,12 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
       status: widget.status,
       child: mediaAsync.when(
         loading: () => _shimmer(),
-        error: (_, __) => _errorTile(),
+        error: (_, __) => _retryTile(),
         data: (media) {
-          if (media == null) return _errorTile();
+          if (gone) {
+            return _expired();
+          }
+          if (media == null) return _retryTile();
           final fileName = media.fileName ?? 'file';
           final size = _formatSize(
             media.file.existsSync() ? media.file.lengthSync() : 0,
@@ -119,10 +126,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
           final expiresAt = media.expiresAt;
 
           if (isExpired(expiresAt)) {
-            return const ExpiredPlaceholder(
-              glyph: Icons.timer_off_outlined,
-              decorate: false,
-            );
+            return _expired();
           }
 
           final expiryLabel = compactExpiryLabel(expiresAt);
@@ -248,23 +252,19 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
     child: const SizedBox(height: 68, width: double.infinity),
   );
 
-  Widget _errorTile() => Padding(
-    padding: const EdgeInsets.all(12),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.broken_image_outlined, color: context.t.inkFaint, size: 24),
-        const SizedBox(width: 8),
-        Text(
-          'File unavailable',
-          style: TextStyle(
-            color: widget.isMine
-                ? context.t.onAccent.withValues(alpha: 0.70)
-                : context.t.inkSoft,
-            fontSize: 13,
-          ),
-        ),
-      ],
-    ),
+  Widget _expired() => ExpiredPlaceholder(
+    glyph: Icons.timer_off_outlined,
+    decorate: false,
+    inline: true,
+    ink: widget.isMine ? context.t.onAccent.withValues(alpha: 0.70) : null,
+  );
+
+  Widget _retryTile() => MediaRetry(
+    media: MediaRef(widget.conversationId, widget.serverId),
+    what: 'Document',
+    icon: Icons.insert_drive_file_outlined,
+    ink: widget.isMine
+        ? context.t.onAccent.withValues(alpha: 0.70)
+        : context.t.inkSoft,
   );
 }
