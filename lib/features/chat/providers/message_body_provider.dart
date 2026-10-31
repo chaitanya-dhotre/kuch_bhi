@@ -151,8 +151,9 @@ final conversationLastMessageProvider =
             t.isDeletedForMe.equals(false))
         ..orderBy([
           (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
-          (t) => OrderingTerm(expression: t.serverId, mode: OrderingMode.desc),
-          (t) => OrderingTerm(expression: t.localId, mode: OrderingMode.desc),
+          (t) => OrderingTerm(expression: t.serverId, mode: OrderingMode.desc,
+              nulls: NullsOrder.first),
+          (t) => OrderingTerm(expression: t.rowId, mode: OrderingMode.desc),
         ])
         ..limit(1))
       .watchSingleOrNull();

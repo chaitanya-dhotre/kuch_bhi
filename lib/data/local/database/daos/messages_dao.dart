@@ -27,14 +27,17 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
                     expression: t.createdAt,
                     mode: OrderingMode.desc,
                   ),
-              // Stable tiebreaker so identical timestamps sort the SAME on
-              // every device (avoids per-device reordering).
+              // Same-second tiebreak (createdAt is stored in whole seconds):
+              // serverId, whose op ids sort in send order the same on every
+              // device; unsent rows (no serverId) are newest, and among
+              // themselves rowid = send order.
               (t) => OrderingTerm(
                     expression: t.serverId,
                     mode: OrderingMode.desc,
+                    nulls: NullsOrder.first,
                   ),
               (t) => OrderingTerm(
-                    expression: t.localId,
+                    expression: t.rowId,
                     mode: OrderingMode.desc,
                   ),
             ]))
@@ -104,9 +107,10 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         (t) => OrderingTerm(
               expression: t.serverId,
               mode: OrderingMode.desc,
+              nulls: NullsOrder.first,
             ),
         (t) => OrderingTerm(
-              expression: t.localId,
+              expression: t.rowId,
               mode: OrderingMode.desc,
             ),
       ])
@@ -327,8 +331,9 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
                 t.isDeletedForMe.equals(false))
             ..orderBy([
               (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
-              (t) => OrderingTerm(expression: t.serverId, mode: OrderingMode.desc),
-              (t) => OrderingTerm(expression: t.localId, mode: OrderingMode.desc),
+              (t) => OrderingTerm(expression: t.serverId, mode: OrderingMode.desc,
+                  nulls: NullsOrder.first),
+              (t) => OrderingTerm(expression: t.rowId, mode: OrderingMode.desc),
             ])
             ..limit(1))
           .getSingleOrNull();
@@ -340,6 +345,20 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<void> stampServerCreatedAt(String localId, DateTime createdAt) =>
       (update(messagesTable)..where((t) => t.localId.equals(localId)))
           .write(MessagesTableCompanion(createdAt: Value(createdAt)));
+
+  /// Burst sends: a text row still queued will be created on the server
+  /// AFTER an ack that already landed, so lift it to that ack's server time
+  /// instead of letting the acked row jump past it. serverId stays null, so
+  /// [maxServerCreatedAt] never sees it.
+  Future<void> liftQueuedTextSends(String conversationId, DateTime floor) =>
+      (update(messagesTable)
+            ..where((t) =>
+                t.conversationId.equals(conversationId) &
+                t.serverId.isNull() &
+                t.type.equals('text') &
+                t.status.equals('pending') &
+                t.createdAt.isSmallerThanValue(floor)))
+          .write(MessagesTableCompanion(createdAt: Value(floor)));
 
   /// F2b: newest server-backed message timestamp — the LOCAL watermark the
   /// resume delta query filters from. Device clock never participates

@@ -1520,6 +1520,7 @@ class MessageRepositoryImpl implements MessageRepository {
         ),
       );
       await db.outboxDao.setState(op.opId, OutboxState.sent, attempts: 0);
+      await db.messagesDao.liftQueuedTextSends(conversationId, serverCreated);
     });
     // T9 carry-in: the ciphertext write + status flip must re-resolve any
     // bubble still watching this id (row streams never invalidate
@@ -1599,10 +1600,16 @@ class MessageRepositoryImpl implements MessageRepository {
         final serverCreated = DateTime.tryParse(rec.created);
         final dupOp = await db.outboxDao.byId(opId);
         if (serverCreated != null && dupOp != null) {
-          await db.messagesDao.stampServerCreatedAt(
-            dupOp.ref,
-            serverCreated,
-          );
+          await db.transaction(() async {
+            await db.messagesDao.stampServerCreatedAt(
+              dupOp.ref,
+              serverCreated,
+            );
+            await db.messagesDao.liftQueuedTextSends(
+              conversationId,
+              serverCreated,
+            );
+          });
         }
         await handleDrainAck(
           opId,
