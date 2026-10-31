@@ -14,6 +14,7 @@ import 'package:video_compress/video_compress.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../domain/entities/message.dart';
 import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
 import 'attach_sheets.dart';
@@ -145,16 +146,19 @@ class _MessageInputState extends ConsumerState<MessageInput>
     super.dispose();
   }
 
+  AutoDisposeStateProvider<Message?> get _reply =>
+      replyProvider(widget.conversationId);
+
   // ── Text send ────────────────────────────────────────────────
 
   Future<void> _send() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
-    final reply = ref.read(replyProvider);
+    final reply = ref.read(_reply);
     // Called before the reply clears: the chat screen reads it inside onSend.
     final sending = Future.sync(() => widget.onSend(text));
     _ctrl.clear();
-    ref.read(replyProvider.notifier).state = null;
+    ref.read(_reply.notifier).state = null;
     try {
       await sending;
     } catch (_) {
@@ -162,7 +166,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
       // the text and the reply back rather than losing them.
       if (!mounted) return;
       if (_ctrl.text.isEmpty) _ctrl.text = text;
-      ref.read(replyProvider.notifier).state ??= reply;
+      ref.read(_reply.notifier).state ??= reply;
       showToast(context, "Couldn't send. Try again.", error: true);
     }
   }
@@ -593,7 +597,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   @override
   Widget build(BuildContext context) {
-    final reply = ref.watch(replyProvider);
+    final reply = ref.watch(_reply);
 
     final restriction =
         widget.restrictionMessage ??
@@ -635,7 +639,8 @@ class _MessageInputState extends ConsumerState<MessageInput>
                 reply,
                 widget.replySenderName ?? 'them',
                 compact: true,
-                onCancel: () => ref.read(replyProvider.notifier).state = null,
+                onCancel: () =>
+                    ref.read(_reply.notifier).state = null,
               ),
             ),
 

@@ -183,6 +183,36 @@ void main() {
     expect(hits.map((f) => f.path), isEmpty);
   });
 
+  // 13.1: `ref` throws in dispose, which skipped the rest of ChatScreen's
+  // cleanup (reply never cleared, presence never left, listeners kept).
+  test('no dispose() in lib touches ref, directly or through a getter', () {
+    final hits = <String>[];
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      final src = f.readAsStringSync();
+      final refGetters = RegExp(r'get (\w+)\s*=>\s*ref\.')
+          .allMatches(src)
+          .map((m) => m.group(1)!)
+          .toList();
+      for (final m in RegExp(r'void dispose\(\)\s*\{').allMatches(src)) {
+        var depth = 1, i = m.end;
+        while (depth > 0 && i < src.length) {
+          if (src[i] == '{') depth++;
+          if (src[i] == '}') depth--;
+          i++;
+        }
+        final body = src.substring(m.end, i);
+        if (body.contains('ref.') ||
+            refGetters.any((g) => RegExp('\\b$g\\b').hasMatch(body))) {
+          hits.add(f.path);
+        }
+      }
+    }
+    expect(hits, isEmpty);
+  });
+
   // Gate 8: banned legacy purple/violet hexes anywhere in lib.
   // Old palette: primary 5E6AD2, primaryVariant 4A55C0/4A4F9A, navy 2A2D4A,
   // near-black 1A1A2E, Material default violet 6750A4. Warm Pop = Marigold.

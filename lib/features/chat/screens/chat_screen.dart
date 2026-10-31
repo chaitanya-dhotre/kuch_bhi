@@ -201,12 +201,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   // re-ran reconcile → receipts flood. The open chat kept "running" forever.
   Timer? _markReadDebounce;
 
-  PresenceService get _pres => ref.read(presenceServiceProvider);
+  // Read once in initState: `ref` is unusable in dispose, which must leave.
+  late final PresenceService _pres;
   String get _cid => widget.conversation.id;
 
   @override
   void initState() {
     super.initState();
+    _pres = ref.read(presenceServiceProvider);
     _search = ConversationSearchController(
       resolveBody: (id) => ref.read(messageBodyProvider(id).future),
     );
@@ -254,7 +256,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _scrollCtrl.dispose();
     _searchCtrl.dispose();
     _pres.leaveChat(_cid);
-    ref.read(replyProvider.notifier).state = null;
     super.dispose();
   }
 
@@ -560,7 +561,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     final myId = ref.watch(currentUserIdProvider).asData?.value ?? '';
     final isSending = ref.watch(sendMessageProvider);
-    final activeReply = ref.watch(replyProvider);
+    final activeReply = ref.watch(replyProvider(_cid));
     final isOnline = ref.watch(isOnlineProvider).value ?? true;
     final messages = messagesAsync.asData?.value ?? [];
     final items = _buildItems(messages);
@@ -753,7 +754,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         : (conv.otherUser?.displayName ??
                                               'Unknown'),
                                     onReply: () =>
-                                        ref.read(replyProvider.notifier).state =
+                                        ref.read(replyProvider(_cid).notifier).state =
                                             msg,
                                     onReplyTap: msg.replyToId != null
                                         ? () {
@@ -809,7 +810,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           : conv.displayName),
                 onTyping: () => _pres.onTyping(_cid),
                 onSend: (text) {
-                  final reply = ref.read(replyProvider);
+                  final reply = ref.read(replyProvider(_cid));
                   // P7 (spec §3): the reply PREVIEW is no longer computed
                   // here and never reaches the repository — the quote
                   // derives from the parent row at render time and the

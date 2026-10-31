@@ -209,8 +209,12 @@ final sendMediaMessageProvider =
 
 // ── Reply context ─────────────────────────────────────────────────────────
 
-/// The message currently being replied to. Null = no reply in progress.
-final replyProvider = StateProvider<Message?>((ref) => null);
+/// The message being replied to in one chat. Null = no reply in progress.
+/// Per conversation and auto-disposed, so a reply never follows you into
+/// another chat and is dropped when its chat closes.
+final replyProvider = StateProvider.autoDispose.family<Message?, String>(
+  (ref, conversationId) => null,
+);
 
 // ── Search ────────────────────────────────────────────────────────────────
 

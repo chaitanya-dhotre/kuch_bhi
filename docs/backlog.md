@@ -261,3 +261,55 @@ viewer; 12.1 is independent and can go any time).
 - `[IDEA]` **12.10 Tags through lists.** Notes from 12.9 tag photos/videos so in-chat search can find them.
 - `[IDEA]` **12.11 App lock.** PIN, biometrics or password to open the app. Not built today (the Settings learning:
   app lock "looks built but is not").
+
+## 13. Device run + "Things To Fix Lol" list (2026-10-31) `[BACKLOG]`
+
+From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/31) plus a debug run on the M52
+(`flutter run`, Marionette, logcat) on 2026-10-31. Causes marked *confirmed* were read in code or seen in the log;
+*likely* ones are not yet checked.
+
+**From the device run (Claude):**
+- `[FIXED 2026-10-31, uncommitted]` **13.1 Closing a chat throws, so its cleanup half-runs. Confirmed, high.** `ChatScreenState.dispose`
+  (`chat_screen.dart:256`) calls `_pres.leaveChat`, and `_pres` is `ref.read(...)` (`:204`). Riverpod forbids
+  `ref` in `dispose`, so it throws `Cannot use "ref" after the widget was disposed`. Everything after it is
+  skipped: `replyProvider` is never cleared (this IS 13.6 below), presence never "leaves" the chat, and
+  `super.dispose()` never runs, so the screen's provider listeners stay alive. That last part caused the 2
+  `markNeedsBuild … _ElementLifecycle.defunct` unhandled exceptions in the log after opening the next chat.
+  Seen on every chat close. Fixed: presence read once in `initState`; `replyProvider` is now an auto-disposed
+  family per conversation, so no `dispose` write is needed and a reply can't cross chats; a grep gate fails any
+  `dispose()` in lib that touches `ref` (proved RED on the old screen). Checked on the M52: reply in Avium, back,
+  open another chat = no reply, and no ref/defunct errors in the log. 741/741.
+- `[BUG]` **13.2 An open group chat re-writes the same receipt status in a loop. Seen, medium.** With
+  "Things To Fix Lol" (8 messages) open, the log shows 17× `watchMessages EMIT` + 28×
+  `[Receipt] Updating local message status to: sent (deliveredIds=1/3, readIds=1/3)` with no change in the
+  values. Each write re-emits the whole list. Write only when the status actually changes.
+- `[BUG]` **13.3 Home: "3 Oct Test" gains one unread every time ANY chat is opened. Reproduced 2026-10-31.**
+  On the M52 it went 4 → 5 → 6 across three chat opens with no new message, and its preview flips from
+  "Can't decrypt" to a skeleton that never resolves. Likely: an undecryptable message in that group is counted
+  again on each open (the unread count or the undecryptable re-scan). Investigate before fixing.
+- `[NOTE]` 8× `[Enc] Skipping undecryptable group key version` at every start. Expected (historical keys from the
+  2026-10-13 rotation are unrecoverable), but it is noise at startup. A full resync took 21s (`resync done —
+  path=full total=20994ms`).
+
+**User's list:**
+- `[BUG]` **13.4 Video bubble length shows 0:00.** Likely: the bubble reads `durationSeconds` from the
+  thumbnail's `LocalMediaFile`, which does not carry it. Check where the duration is stamped.
+- `[BUG]` **13.5 Viewer: the video play/pause disc never hides while playing and covers the video.** Page 9's own
+  controls; auto-hide the disc (with the bar) a few seconds after play, and show it again on tap. Reduced
+  motion = no fade.
+- `[FIXED 2026-10-31, uncommitted]` **13.6 Swipe to reply, then open another chat: the reply stays attached, sends there, and the other
+  device can't decrypt the quote.** Root cause = 13.1 (`replyProvider` is global and never cleared). Also make
+  the send path drop a reply whose message belongs to another conversation. The stray "Avium / Pakka?"
+  quote-only bubble on the M52's Avium chat is probably one of these.
+- `[BUG]` **13.7 Sending a photo shows two bubbles; the first disappears only once the upload finishes.** The
+  uploading placeholder and the real message are both visible. One bubble that turns into the sent one.
+- `[BUG]` **13.8 Your own photos show the download disc.** Known limit from Page 9: the sender's full copy is not
+  kept in the media cache after upload. Fix: register the sent (compressed) file as a `ready` full blob on send.
+  Belongs with 12.4 media send.
+- `[BUG]` **13.9 Photo viewer zooms and pans into the black around the photo.** Likely: InteractiveViewer's child
+  is the full screen, not the photo. Size the child to the photo's aspect so the edges clamp to it.
+- `[BUG]` **13.10 A reply quote of an expired (disappeared) message shows the decrypting bar forever.** Show
+  "Message expired" in the quote instead.
+
+Suggested order: 13.1 + 13.6 (one fix, the crash affects every chat) → 13.2 → 13.4, 13.5, 13.9 (Page 9 follow-ups)
+→ 13.3 (now reproducible) → 13.10 → 13.7 + 13.8 with 12.4 media send.

@@ -382,7 +382,9 @@ class _ContextSheet extends ConsumerWidget {
       children: [
         // Actions
         _tile(Icons.reply_rounded, 'Reply', () {
-          parentRef.read(replyProvider.notifier).state = message;
+          parentRef
+              .read(replyProvider(message.conversationId).notifier)
+              .state = message;
           Navigator.of(context).pop();
         }, key: const Key('message-menu-reply')),
 
