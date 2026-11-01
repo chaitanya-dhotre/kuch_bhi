@@ -11,6 +11,7 @@ import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import 'expiry_badge.dart';
 import 'media_retry.dart';
+import 'media_upload_disc.dart';
 
 class ImageMessageBubble extends ConsumerStatefulWidget {
   const ImageMessageBubble({
@@ -23,6 +24,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
     this.status,
     this.createdAt,
     this.senderName = '',
+    this.localId,
   });
 
   final String conversationId;
@@ -33,6 +35,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
   final String? status;
   final DateTime? createdAt;
   final String senderName;
+  final String? localId;
 
   @override
   ConsumerState<ImageMessageBubble> createState() => _ImageMessageBubbleState();
@@ -168,9 +171,12 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                             : Image.file(
                                 full,
                                 fit: BoxFit.cover,
-                                cacheWidth: (ChatBubbleGeometry.mediaMaxWidth *
-                                        MediaQuery.devicePixelRatioOf(context))
-                                    .round(),
+                                cacheWidth:
+                                    (ChatBubbleGeometry.mediaMaxWidth *
+                                            MediaQuery.devicePixelRatioOf(
+                                              context,
+                                            ))
+                                        .round(),
                                 frameBuilder: (_, child, frame, sync) =>
                                     sync || frame != null ? child : thumbImage,
                                 errorBuilder: (_, __, ___) => thumbImage,
@@ -178,7 +184,17 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                       ),
                     ),
                   ),
-                  if (notDownloaded)
+                  if (widget.localId != null)
+                    Positioned.fill(
+                      child: Center(
+                        child: MediaUploadControl(
+                          localId: widget.localId!,
+                          status: widget.status,
+                          kind: 'Photo',
+                        ),
+                      ),
+                    )
+                  else if (notDownloaded)
                     const Positioned.fill(
                       child: MediaDisc(icon: Icons.download_rounded),
                     ),
@@ -231,10 +247,10 @@ class _ImageSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: ChatBubbleGeometry.mediaMaxWidth,
-        height: 158,
-        child: const Skeleton.fill(radius: 0),
-      );
+    width: ChatBubbleGeometry.mediaMaxWidth,
+    height: 158,
+    child: const Skeleton.fill(radius: 0),
+  );
 }
 
 class _ImageUnavailable extends StatelessWidget {

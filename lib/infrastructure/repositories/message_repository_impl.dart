@@ -1,10 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
+import 'package:path/path.dart' as p;
 import 'package:pocketbase/pocketbase.dart';
 import 'package:uuid/uuid.dart';
 
@@ -14,6 +20,7 @@ import '../../core/decrypt/body_cache.dart';
 import '../../core/decrypt/decrypt_pass.dart';
 import '../../core/decrypt/device_key_store.dart';
 import '../../core/network/pocketbase_client.dart';
+import '../../core/utils/format_utils.dart';
 import '../../core/utils/group_visibility.dart';
 import '../../core/utils/key_gap.dart';
 import '../../core/utils/op_id.dart';
@@ -36,6 +43,7 @@ import '../ingest/ingest_batch.dart';
 import '../ingest/ingest_boundary.dart';
 import '../../services/encryption_service.dart';
 import '../../services/media_upload_service.dart';
+import '../../services/upload_progress.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../services/fcm_service.dart';
 
@@ -122,6 +130,13 @@ class MessageRepositoryImpl implements MessageRepository {
     );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
+    // D4: a reconnect resumes media uploads (app start runs through
+    // retryPendingMessages).
+    Connectivity().onConnectivityChanged.listen((results) {
+      if (results.any((r) => r != ConnectivityResult.none)) {
+        unawaited(resumeMediaUploads());
+      }
+    });
 
     // A restored session starts "authenticated" so the first authRefresh
     // token rotation is treated as same-session churn, not a fresh login.
@@ -197,6 +212,7 @@ class MessageRepositoryImpl implements MessageRepository {
         _pollTimer?.cancel();
         _reconnectTimer?.cancel();
         _reconnectDebounce?.cancel();
+        _mediaResumeRetry?.cancel();
         _disappearingDurations.clear();
         _teardown();
       }
@@ -1663,65 +1679,170 @@ class MessageRepositoryImpl implements MessageRepository {
   }) async {
     final myId = await _myId();
     await _assertCanSend(conversationId);
-    final localId = _uuid.v4();
+    // B1: a PocketBase-style id from the first frame. It becomes the server
+    // record id, so a page fetch mid-upload finds this row instead of
+    // inserting a second one (13.7), and a re-run converges on one record.
+    final localId = generateOpId();
     final now = DateTime.now();
+    final q = quality ?? 'normal';
 
     debugPrint(
       '[Msg] Sending media message - type: $mediaType, file: ${mediaFile.path}',
     );
 
-    // Step 1: Optimistic insert WITHOUT mediaId (we don't have it yet)
-    await db.messagesDao.upsertMessage(
-      MessagesTableCompanion.insert(
-        localId: localId,
-        conversationId: conversationId,
-        senderId: myId,
-        type: mediaType,
-        encryptedBody: '',
-        iv: '',
-        status: Value('pending'),
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+    // B2/C2: the sent file IS the sender's cleartext copy — kept as a ready
+    // blob (13.8), with the metadata the bubble needs from frame one.
+    final size = mediaType == 'image' ? await _imageSize(mediaFile) : null;
+    String meta(File f) => mediaMetaJson(
+          LocalMediaFile(
+            file: f,
+            width: size?.$1 ?? videoWidth,
+            height: size?.$2 ?? videoHeight,
+            durationSeconds: durationSeconds,
+            expiresAt: MediaUploadService.retentionExpiry(mediaType, q),
+            mimeType: lookupMimeType(f.path),
+            fileName: p.basename(f.path),
+          ),
+          {'quality': q},
+        );
+    final moved = <File>[];
+    try {
+      await db.transaction(() async {
+        await db.messagesDao.upsertMessage(
+          MessagesTableCompanion.insert(
+            localId: localId,
+            conversationId: conversationId,
+            senderId: myId,
+            type: mediaType,
+            encryptedBody: '',
+            iv: '',
+            status: Value('pending'),
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        for (final (file, thumb) in [
+          (mediaFile, false),
+          if (thumbnailFile != null) (thumbnailFile, true),
+        ]) {
+          final f = await mediaBlobStore.registerLocal(
+            blobId: mediaBlobId(localId, thumb: thumb),
+            file: file,
+            meta: meta(file),
+            uploadPending: true,
+          );
+          if (f == null) throw StateError('session ended mid-send');
+          moved.add(f);
+        }
+      });
+    } catch (_) {
+      // Send-failure rule: no failed row — the composer's toast says so.
+      for (final f in moved) {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+      rethrow;
+    }
     // T9: duration stub is a body — session cache, never the dropped column.
     if (durationText != null) bodyCache.put(localId, durationText);
 
-    // Step 2: Upload in background
+    // A network failure while the link looks up retries once by itself
+    // (D5); a reconnect or app resume covers the rest.
     unawaited(
-      _uploadMediaMessage(
-        localId: localId,
-        conversationId: conversationId,
-        myId: myId,
-        mediaType: mediaType,
-        mediaFile: mediaFile,
-        thumbnailFile: thumbnailFile,
-        quality: quality,
-        durationSeconds: durationSeconds ?? 0,
-        durationText: durationText,
-        createdAt: now,
-        videoWidth: videoWidth,
-        videoHeight: videoHeight,
-      ),
+      _uploadMediaMessage(localId).then((ok) {
+        if (!ok) _retryMediaSoon();
+      }),
     );
   }
 
-  Future<void> _uploadMediaMessage({
-    required String localId,
-    required String conversationId,
-    required String myId,
-    required String mediaType,
-    required File mediaFile,
-    File? thumbnailFile,
-    String? quality,
-    required int durationSeconds,
-    String? durationText,
-    required DateTime createdAt,
-    int? videoWidth,
-    int? videoHeight,
-  }) async {
-    final uploadEpoch = _sessionEpoch;
+  /// Width/height from the encoded header (no pixel decode).
+  static Future<(int, int)?> _imageSize(File f) async {
     try {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(
+        await f.readAsBytes(),
+      );
+      final d = await ui.ImageDescriptor.encoded(buffer);
+      final size = (d.width, d.height);
+      d.dispose();
+      buffer.dispose();
+      return size;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic> _blobMeta(MediaBlobTableData? row) {
+    try {
+      return row?.meta == null
+          ? const {}
+          : jsonDecode(row!.meta!) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Offline, a stall, 5xx and 429 wait for the network; any other answer
+  /// is final (D5).
+  static bool _isTransientUpload(Object e) {
+    if (e is ClientException) {
+      final s = e.statusCode;
+      return s == 0 || s == 429 || s >= 500;
+    }
+    return e is TimeoutException ||
+        e is SocketException ||
+        e is http.ClientException;
+  }
+
+  /// One upload attempt — fresh send, resume and Try again all run this.
+  /// Everything comes from the row and its blob rows, so a re-run after a
+  /// kill is the same path. Returns false when it stopped on a network
+  /// failure (the row stays `pending`).
+  Future<bool> _uploadMediaMessage(String localId) async {
+    final ticket = uploadTracker.start(localId);
+    if (ticket == null) return true; // already running
+    final uploadEpoch = _sessionEpoch;
+    bool stillValid() => sessionStillValid(
+          epochAtStart: uploadEpoch,
+          currentEpoch: _sessionEpoch,
+          authValid: _pb.authStore.isValid,
+        );
+    try {
+      final msg = await db.messagesDao.getMessageByLocalId(localId);
+      final myId = await _myId();
+      if (msg == null || msg.isDeletedForEveryone || myId.isEmpty) {
+        return true;
+      }
+      final conversationId = msg.conversationId;
+      final mediaType = msg.type;
+      final fullRow = await mediaBlobStore.dao.byId(
+        mediaBlobId(localId, thumb: false),
+      );
+      // Done already (the latch clears with the upload); the status column
+      // can't tell: receipts move an acked row to delivered mid-upload.
+      if (fullRow != null && !fullRow.uploadPending) return true;
+      final thumbRow = await mediaBlobStore.dao.byId(
+        mediaBlobId(localId, thumb: true),
+      );
+      final mediaFile = fullRow?.localPath == null
+          ? null
+          : File(fullRow!.localPath!);
+      if (mediaFile == null || !await mediaFile.exists()) {
+        // Legacy row (its file was deleted after the old upload): nothing
+        // can ever be uploaded.
+        await db.messagesDao.updateMessageStatus(localId, 'failed');
+        return true;
+      }
+      final thumbnailFile = thumbRow?.localPath == null
+          ? null
+          : File(thumbRow!.localPath!);
+      final meta = _blobMeta(fullRow);
+      final quality = meta['quality'] as String?;
+      final durationSeconds = meta['durationSeconds'] as int? ?? 0;
+      final durationText =
+          bodyCache.get(localId) ??
+          (mediaType == 'voice' ? formatMmSs(durationSeconds) : null);
+
       // Step A: Get conversation key. Media bytes AND the body stub are
       // E2E-encrypted with this key.
       final List<int> key;
@@ -1732,46 +1853,90 @@ class MessageRepositoryImpl implements MessageRepository {
       } on MissingKeyException catch (e) {
         debugPrint('[Msg] Media key not ready, staying pending: $e');
         await db.messagesDao.updateMessageStatus(localId, 'pending');
-        return;
+        return false;
       } catch (e) {
+        final transient = _isTransientUpload(e);
         debugPrint('[Msg] Media encryption failed: $e');
-        await db.messagesDao.updateMessageStatus(localId, 'failed');
-        return;
+        await db.messagesDao.updateMessageStatus(
+          localId,
+          transient ? 'pending' : 'failed',
+        );
+        return !transient;
       }
 
       // Step B: Create message on PocketBase first (no media_id yet)
       // 'document' is not a valid server enum value — map it to 'file'.
       final serverType = mediaType == 'document' ? 'file' : mediaType;
-      final record = await _pb
-          .collection('messages')
-          .create(
-            body: {
-              'conversation_id': conversationId,
-              'sender_id': myId,
-              'type': serverType,
-              'encrypted_body': encrypted.ciphertext,
-              'iv': encrypted.iv,
-              'reply_to_id': '',
-              'reply_preview': '',
-              'is_deleted_for_everyone': false,
-              'media_id': '',
-            },
-          );
+      var rerun = msg.serverId != null;
+      RecordModel record;
+      try {
+        record = await _pb
+            .collection('messages')
+            .create(
+              body: {
+                'id': localId,
+                'conversation_id': conversationId,
+                'sender_id': myId,
+                'type': serverType,
+                'encrypted_body': encrypted.ciphertext,
+                'iv': encrypted.iv,
+                'reply_to_id': '',
+                'reply_preview': '',
+                'is_deleted_for_everyone': false,
+                'media_id': '',
+              },
+            );
+      } on ClientException catch (e) {
+        if (!isDuplicateIdError(e)) rethrow;
+        // A re-run after a lost ack: ours when sender and chat match.
+        rerun = true;
+        record = await _pb.collection('messages').getOne(localId);
+        if (record.getStringValue('sender_id') != myId ||
+            record.getStringValue('conversation_id') != conversationId) {
+          debugPrint('[Msg] media id $localId belongs to another record');
+          await db.messagesDao.updateMessageStatus(localId, 'failed');
+          return true;
+        }
+      }
+      if (ticket.cancelled) {
+        await _markCancelledOnServer(localId);
+        return true;
+      }
 
-      final messageServerId = record.id;
-      // C1 (review #72): the ack record is the server's own stamp — the
-      // Step D upsert attaches serverId, so its createdAt MUST be the
-      // server created, never the device-clock `createdAt` param. Device
-      // time + serverId would poison maxServerCreatedAt (the F2 light
-      // watermark, "device clock never participates") and make quick
-      // resumes miss rows whenever the device leads the PB VM.
-      final serverCreated =
-          DateTime.tryParse(record.created) ?? createdAt;
-      debugPrint('[Msg] Media message created on server: $messageServerId');
+      // B4: stamp at the create ack, so a page fetch during the upload
+      // finds this row by server id. C1 (review #72): the server's created,
+      // never device time — device time + serverId would poison the
+      // maxServerCreatedAt watermark.
+      final serverCreated = DateTime.tryParse(record.created) ?? msg.createdAt;
+      debugPrint('[Msg] Media message created on server: $localId');
+      if (!stillValid()) {
+        debugPrint('[Msg] media send landed after logout — write skipped');
+        return true;
+      }
+      await db.transaction(() async {
+        // Placeholder guard: clear any FCM-isolate row holding this id.
+        await db.messagesDao.deleteByServerIdExcept(localId, localId);
+        await db.messagesDao.stampMediaCreateAck(
+          localId,
+          serverCreated: serverCreated,
+          encryptedBody: encrypted.ciphertext,
+          iv: encrypted.iv,
+        );
+        await db.messagesDao.liftQueuedSends(conversationId, serverCreated);
+      });
+      if (durationText != null) bodyCache.put(localId, durationText);
+      onBodyStamped?.call(localId);
 
-      // Step C: Upload media WITH the message_id now available
-      late final String mediaId;
-      if (mediaType == 'image') {
+      // Step C: Upload media WITH the message_id now available. A re-run
+      // first looks for a media record an earlier attempt already made.
+      final existing = rerun ? await _mediaRecordFor(localId) : null;
+      final String mediaId;
+      final thumbMeta = _blobMeta(thumbRow);
+      final sentName = meta['fileName'] as String?;
+      final sentThumbName = thumbMeta['fileName'] as String?;
+      if (existing != null) {
+        mediaId = existing;
+      } else if (mediaType == 'image') {
         if (thumbnailFile == null) {
           throw Exception('Thumbnail required for image upload');
         }
@@ -1780,8 +1945,11 @@ class MessageRepositoryImpl implements MessageRepository {
           thumbnailFile,
           conversationId,
           quality ?? 'normal',
-          messageServerId,
+          localId,
           key,
+          ticket: ticket,
+          sentName: sentName,
+          sentThumbName: sentThumbName,
         );
       } else if (mediaType == 'video') {
         if (thumbnailFile == null) {
@@ -1793,57 +1961,54 @@ class MessageRepositoryImpl implements MessageRepository {
           conversationId,
           quality ?? 'normal',
           durationSeconds,
-          messageServerId,
+          localId,
           key,
-          videoWidth: videoWidth,
-          videoHeight: videoHeight,
+          videoWidth: meta['width'] as int?,
+          videoHeight: meta['height'] as int?,
+          ticket: ticket,
+          sentName: sentName,
+          sentThumbName: sentThumbName,
         );
       } else if (mediaType == 'document') {
         mediaId = await mediaUploadService.uploadDocument(
           mediaFile,
           conversationId,
-          messageServerId,
+          localId,
           key,
+          ticket: ticket,
+          sentName: sentName,
         );
       } else {
         mediaId = await mediaUploadService.uploadVoice(
           mediaFile,
           conversationId,
           durationSeconds,
-          messageServerId,
+          localId,
           key,
+          ticket: ticket,
+          sentName: sentName,
         );
       }
       debugPrint('[Msg] Media uploaded, mediaId: $mediaId');
 
-      // Step D: Update local record with serverId and mediaId
-      // (placeholder guard: clear any FCM-isolate row holding this id first)
-      if (!sessionStillValid(
-        epochAtStart: uploadEpoch,
-        currentEpoch: _sessionEpoch,
-        authValid: _pb.authStore.isValid,
-      )) {
-        debugPrint('[Msg] media send landed after logout — write skipped');
-        return;
+      // Step D: mediaId + sent; the blobs are ordinary cache entries again.
+      if (ticket.cancelled) {
+        await _markCancelledOnServer(localId);
+        return true;
       }
-      await db.messagesDao.deleteByServerIdExcept(messageServerId, localId);
-      await db.messagesDao.upsertMessage(
-        MessagesTableCompanion.insert(
-          localId: localId,
-          serverId: Value(messageServerId),
-          conversationId: conversationId,
-          senderId: myId,
-          type: mediaType,
-          encryptedBody: encrypted.ciphertext,
-          iv: encrypted.iv,
-          mediaId: Value(mediaId),
-          status: Value('sent'),
-          createdAt: serverCreated,
-          updatedAt: DateTime.now(),
-        ),
-      );
-      if (durationText != null) bodyCache.put(localId, durationText);
-      onBodyStamped?.call(localId);
+      if (!stillValid()) {
+        debugPrint('[Msg] media send landed after logout — write skipped');
+        return true;
+      }
+      final written = await db.transaction(() async {
+        final n = await db.messagesDao.markMediaSent(localId, mediaId);
+        await mediaBlobStore.dao.clearUploadPending(localId);
+        return n;
+      });
+      if (written == 0) {
+        await _markCancelledOnServer(localId); // cancelled mid-commit
+        return true;
+      }
 
       // P7 (spec §3): the media label ('📷 Photo' …) is computed by the
       // tile from `lastMsg.type` at render time — nothing preview-shaped
@@ -1853,21 +2018,115 @@ class MessageRepositoryImpl implements MessageRepository {
         DateTime.now(),
       );
 
-      await _createReceipts(messageServerId, conversationId, myId);
+      await _createReceipts(localId, conversationId, myId);
+      return true;
     } catch (e) {
-      debugPrint('[Msg] ERROR media upload: $e');
-      await db.messagesDao.updateMessageStatus(localId, 'failed');
-    } finally {
-      try {
-        await mediaFile.delete();
-      } catch (_) {}
-      if (thumbnailFile != null) {
-        try {
-          await thumbnailFile.delete();
-        } catch (_) {}
+      // The cancel path owns a cancelled row.
+      if (ticket.cancelled) return true;
+      final transient = _isTransientUpload(e);
+      debugPrint(
+        '[Msg] media upload ${transient ? 'waiting for network' : 'failed'}: $e',
+      );
+      if (stillValid()) {
+        await db.messagesDao.updateMessageStatus(
+          localId,
+          transient ? 'pending' : 'failed',
+        );
       }
-      debugPrint('[Msg] Temp media files deleted');
+      return !transient;
+    } finally {
+      uploadTracker.end(localId, ticket);
     }
+  }
+
+  /// The `message_media` record an earlier attempt made, or null (404).
+  Future<String?> _mediaRecordFor(String messageId) async {
+    try {
+      final rec = await _pb
+          .collection('message_media')
+          .getFirstListItem('message_id="$messageId"');
+      return rec.id;
+    } on ClientException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> cancelMediaUpload(String localId) async {
+    final msg = await db.messagesDao.getMessageByLocalId(localId);
+    final blob = await mediaBlobStore.dao.byId(
+      mediaBlobId(localId, thumb: false),
+    );
+    // Uploaded already (whatever receipts did to the status): nothing to stop.
+    if (msg == null || blob == null || !blob.uploadPending) return false;
+    uploadTracker.ticket(localId)?.cancel();
+    await db.messagesDao.markCancelledLocally(localId);
+    await mediaBlobStore.forgetLocal(localId);
+    unawaited(_markCancelledOnServer(localId));
+    return true;
+  }
+
+  /// D3: a cancelled send's server copy (if it got that far) is marked
+  /// deleted for everyone, so receivers never keep an empty bubble. Then
+  /// the hidden local row goes. Offline it stays for the next resume pass.
+  Future<void> _markCancelledOnServer(String localId) async {
+    try {
+      await _pb
+          .collection('messages')
+          .update(localId, body: {'is_deleted_for_everyone': true});
+    } catch (e) {
+      final never = e is ClientException && e.statusCode == 404;
+      if (!never && _isTransientUpload(e)) {
+        debugPrint('[Msg] cancel mark deferred: $e');
+        return;
+      }
+    }
+    await db.messagesDao.deleteByLocalId(localId);
+  }
+
+  Future<void>? _mediaResume;
+  Timer? _mediaResumeRetry;
+
+  /// D4: own media rows still `pending` re-run one at a time, oldest first,
+  /// on app start (via [retryPendingMessages]) and on every reconnect. A
+  /// pass that stops on a network failure tries once more 10s later: the
+  /// connectivity event often fires before the link carries traffic.
+  Future<void> resumeMediaUploads({bool retryLater = true}) =>
+      _mediaResume ??= _resumeMedia(retryLater).whenComplete(
+        () => _mediaResume = null,
+      );
+
+  Future<void> _resumeMedia(bool retryLater) async {
+    final myId = await _myId();
+    if (myId.isEmpty) return;
+    for (final m in await db.messagesDao.pendingOwnMedia(myId)) {
+      if (m.isDeletedForEveryone) await _markCancelledOnServer(m.localId);
+    }
+    // Uploads: every latched blob, not `status == pending` (a receipt may
+    // have moved the row on); op ids sort in send order. Failed = terminal.
+    final ids = (await mediaBlobStore.dao.uploadPendingMessageIds())..sort();
+    for (final id in ids) {
+      final m = await db.messagesDao.getMessageByLocalId(id);
+      if (m == null ||
+          m.senderId != myId ||
+          m.isDeletedForEveryone ||
+          m.status == 'failed') {
+        continue;
+      }
+      if (!await _uploadMediaMessage(id)) {
+        if (retryLater) _retryMediaSoon();
+        return;
+      }
+    }
+  }
+
+  void _retryMediaSoon() {
+    _mediaResumeRetry?.cancel();
+    _mediaResumeRetry = Timer(
+      const Duration(seconds: 10),
+      () => unawaited(resumeMediaUploads(retryLater: false)),
+    );
   }
 
   /// Group send-gate (#17): throws when the current user is not an ACTIVE
@@ -1902,7 +2161,10 @@ class MessageRepositoryImpl implements MessageRepository {
       return;
     }
 
+    // Media rows upload through their own path, never the text outbox.
+    unawaited(resumeMediaUploads());
     for (final msg in pending) {
+      if (msg.type != 'text') continue;
       if (bodyCache.get(msg.localId) == null && msg.mediaId == null) continue;
       // Repair ghost messages whose senderId was lost to an early auth race:
       // adopt the now-known id instead of destroying the user's message.
@@ -1936,6 +2198,13 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> retryMessage(String localId) async {
     final msg = await db.messagesDao.getMessageByLocalId(localId);
     if (msg == null) return;
+    // D5 Try again: media re-runs its own upload (an acked create may
+    // already have given it a server id).
+    if (msg.type != 'text') {
+      await db.messagesDao.updateMessageStatus(localId, 'pending');
+      unawaited(_uploadMediaMessage(localId));
+      return;
+    }
     // Already synced — nothing to retry.
     if (msg.serverId != null && msg.serverId!.isNotEmpty) return;
 
@@ -1944,13 +2213,6 @@ class MessageRepositoryImpl implements MessageRepository {
 
     // Reset to pending -> Drift stream auto-emits -> retry button disappears
     await db.messagesDao.updateMessageStatus(localId, 'pending');
-
-    // Media messages retry through their own path.
-    if (msg.type != 'text') {
-      // Media temp files may be gone after a restart; only text is safely
-      // re-uploadable from Drift. Leave media as-is for now.
-      if (bodyCache.get(msg.localId) == null) return;
-    }
 
     // Task 3: route through the outbox (SINGLE send path — the old direct
     // `_drainOutbox` call could race the worker's drain and double-create).

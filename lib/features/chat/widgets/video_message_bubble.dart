@@ -10,6 +10,7 @@ import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
 import 'expiry_badge.dart';
 import 'media_retry.dart';
+import 'media_upload_disc.dart';
 
 class VideoMessageBubble extends ConsumerStatefulWidget {
   const VideoMessageBubble({
@@ -22,6 +23,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
     this.status,
     this.createdAt,
     this.senderName = '',
+    this.localId,
   });
 
   final String conversationId;
@@ -32,6 +34,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
   final String? status;
   final DateTime? createdAt;
   final String senderName;
+  final String? localId;
 
   @override
   ConsumerState<VideoMessageBubble> createState() => _VideoMessageBubbleState();
@@ -137,11 +140,20 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                     ),
                   ),
                 ),
-                MediaDisc(
-                  icon: notDownloaded
-                      ? Icons.download_rounded
-                      : Icons.play_arrow,
-                ),
+                if (widget.localId != null)
+                  Center(
+                    child: MediaUploadControl(
+                      localId: widget.localId!,
+                      status: widget.status,
+                      kind: 'Video',
+                    ),
+                  )
+                else
+                  MediaDisc(
+                    icon: notDownloaded
+                        ? Icons.download_rounded
+                        : Icons.play_arrow,
+                  ),
                 // Expiry badge — top right
                 if (expiryLabel != null) ExpiryBadge(label: expiryLabel),
                 Positioned(

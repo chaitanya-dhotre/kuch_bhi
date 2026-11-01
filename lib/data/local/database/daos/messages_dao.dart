@@ -360,6 +360,81 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
                 t.createdAt.isSmallerThanValue(floor)))
           .write(MessagesTableCompanion(createdAt: Value(floor)));
 
+  /// [liftQueuedTextSends] for a media create ack: every queued row (text or
+  /// media) stays behind it.
+  Future<void> liftQueuedSends(String conversationId, DateTime floor) =>
+      (update(messagesTable)
+            ..where((t) =>
+                t.conversationId.equals(conversationId) &
+                t.serverId.isNull() &
+                t.status.equals('pending') &
+                t.createdAt.isSmallerThanValue(floor)))
+          .write(MessagesTableCompanion(createdAt: Value(floor)));
+
+  /// Media send, message create acked: the row takes its server id (= its
+  /// pre-assigned localId), the server's created and the body stub. Skips a
+  /// row cancelled meanwhile; returns the rows written (0 = cancelled/gone).
+  Future<int> stampMediaCreateAck(
+    String localId, {
+    required DateTime serverCreated,
+    required String encryptedBody,
+    required String iv,
+  }) =>
+      (update(messagesTable)
+            ..where((t) =>
+                t.localId.equals(localId) &
+                t.isDeletedForEveryone.equals(false)))
+          .write(MessagesTableCompanion(
+        serverId: Value(localId),
+        createdAt: Value(serverCreated),
+        encryptedBody: Value(encryptedBody),
+        iv: Value(iv),
+        updatedAt: Value(DateTime.now()),
+      ));
+
+  /// Media send, upload done. Same cancel guard as [stampMediaCreateAck].
+  /// A receipt may already have moved the row to delivered/read: only a
+  /// pending/failed status becomes sent, never a downgrade.
+  Future<int> markMediaSent(String localId, String mediaId) async {
+    final n = await (update(messagesTable)
+          ..where((t) =>
+              t.localId.equals(localId) &
+              t.isDeletedForEveryone.equals(false)))
+        .write(MessagesTableCompanion(
+      mediaId: Value(mediaId),
+      updatedAt: Value(DateTime.now()),
+    ));
+    await (update(messagesTable)
+          ..where((t) =>
+              t.localId.equals(localId) &
+              t.status.isIn(const ['pending', 'failed'])))
+        .write(const MessagesTableCompanion(status: Value('sent')));
+    return n;
+  }
+
+  /// Cancelled media send: hidden at once ([watchMessages] filters it); the
+  /// row stays until the server copy is marked too, so an offline cancel
+  /// survives a restart.
+  Future<void> markCancelledLocally(String localId) =>
+      (update(messagesTable)..where((t) => t.localId.equals(localId)))
+          .write(const MessagesTableCompanion(
+        isDeletedForEveryone: Value(true),
+      ));
+
+  /// Own media rows still to upload (or whose cancel still has to reach the
+  /// server), oldest first.
+  Future<List<MessagesTableData>> pendingOwnMedia(String myId) =>
+      (select(messagesTable)
+            ..where((t) =>
+                t.senderId.equals(myId) &
+                t.status.equals('pending') &
+                t.type.isIn(const ['image', 'video', 'voice', 'document']))
+            ..orderBy([
+              (t) => OrderingTerm(expression: t.createdAt),
+              (t) => OrderingTerm(expression: t.rowId),
+            ]))
+          .get();
+
   /// F2b: newest server-backed message timestamp — the LOCAL watermark the
   /// resume delta query filters from. Device clock never participates
   /// (same rule as sync_cursor.dart: server time only).

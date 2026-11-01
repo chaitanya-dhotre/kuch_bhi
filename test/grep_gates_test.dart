@@ -578,6 +578,50 @@ void main() {
     expect(hits, isEmpty);
   });
 
+  test('media send (K1): tokens, no raw widgets, no \$e, sender keeps the file',
+      () {
+    const newFiles = [
+      'lib/features/media/screens/media_edit_screen.dart',
+      'lib/features/chat/widgets/media_upload_disc.dart',
+      'lib/features/chat/providers/upload_progress_provider.dart',
+      'lib/services/upload_progress.dart',
+    ];
+    final banned = <String, RegExp>{
+      'Colors.': RegExp(r'\bColors\.'), // not _strokeColors.
+      'Color(0x': RegExp(r'Color\(0x'),
+      'LinearGradient': RegExp(r'LinearGradient'),
+      'SnackBar(': RegExp(r'SnackBar\('),
+      'CircularProgressIndicator': RegExp(r'CircularProgressIndicator'),
+      'LinearProgressIndicator': RegExp(r'LinearProgressIndicator'),
+      'showModalBottomSheet': RegExp(r'showModalBottomSheet'),
+    };
+    // The draw palette is the one exempt const list (spec K1).
+    final palette = RegExp(r'static const drawColors = <Color>\[[^\]]*\];');
+    for (final path in newFiles) {
+      final src = File(path).readAsStringSync().replaceAll(palette, '');
+      banned.forEach((name, re) {
+        expect(re.hasMatch(src), isFalse, reason: '$name in $path');
+      });
+      final shown = src
+          .split('\n')
+          .where((l) => !l.contains('debugPrint('))
+          .join('\n');
+      expect(RegExp(r'\$\{?e\b|\be\.toString\(\)').hasMatch(shown), isFalse,
+          reason: '\$e in $path');
+    }
+    // 13.8: the upload never deletes the file it sent.
+    final rep = File('lib/infrastructure/repositories/message_repository_impl.dart')
+        .readAsStringSync();
+    expect(rep.contains('mediaFile.delete()'), isFalse);
+    final ffmpeg = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .where((f) => f.readAsStringSync().toLowerCase().contains('ffmpeg'))
+        .map((f) => f.path);
+    expect(ffmpeg, isEmpty);
+  });
+
   test('security wave 1 §8.1: starred path sends and shows no server body',
       () {
     final repo = File(

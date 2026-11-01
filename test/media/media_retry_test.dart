@@ -223,16 +223,18 @@ void main() {
   testWidgets('a blob the store marked failed is final: no retry offered', (
     tester,
   ) async {
+    // Decision 9: an expired blob now says Media expired (was No longer
+    // available, which is kept for a dead link).
     await bubble(tester, cases['Photo']!, blob: MediaBlobStatus.expired);
-    expect(find.text('No longer available'), findsOneWidget);
+    expect(find.text('Media expired'), findsOneWidget);
     expect(find.text('Tap to retry'), findsNothing);
     final handle = tester.ensureSemantics();
     expect(
-      tester.getSemantics(find.text('No longer available')),
-      isSemantics(label: 'Photo. No longer available', isButton: false),
+      tester.getSemantics(find.text('Media expired')),
+      isSemantics(label: 'Photo. Media expired', isButton: false),
     );
     handle.dispose();
-    await tester.tap(find.text('No longer available'));
+    await tester.tap(find.text('Media expired'));
     await tester.pump();
     expect(fetches, 1);
   });

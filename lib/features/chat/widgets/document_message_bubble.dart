@@ -9,9 +9,11 @@ import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/utils/media_utils.dart';
+import '../../../services/media_upload_service.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
 import 'media_retry.dart';
+import 'media_upload_disc.dart';
 
 String _formatType(String fileName, String? mimeType) {
   final mime = mimeType?.trim();
@@ -46,6 +48,7 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
     this.runEnd = true,
     this.status,
     this.createdAt,
+    this.localId,
   });
 
   final String conversationId;
@@ -55,6 +58,7 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
   final bool runEnd;
   final String? status;
   final DateTime? createdAt;
+  final String? localId;
 
   @override
   ConsumerState<DocumentMessageBubble> createState() =>
@@ -64,17 +68,10 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
 class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
   bool _isDownloading = false;
 
-  Future<void> _open() async {
+  Future<void> _open(LocalMediaFile media) async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
     try {
-      // Media is E2E-encrypted: fetch + decrypt to a local file, then open it.
-      final media = await ref.read(
-        mediaFileProvider(
-          MediaRef(widget.conversationId, widget.serverId),
-        ).future,
-      );
-      if (media == null) throw Exception('File unavailable');
       await OpenFile.open(media.file.path);
     } catch (e) {
       debugPrint('[DocBubble] open error: $e');
@@ -137,7 +134,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
                     isMine: widget.isMine,
                     runEnd: widget.runEnd,
                   ),
-                  onTap: _open,
+                  onTap: () => _open(media),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
@@ -197,14 +194,24 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
                                           ? context.t.onAccent.withValues(
                                               alpha: 0.70,
                                             )
-                                          : context.t.ink.withValues(alpha: 0.55),
+                                          : context.t.ink.withValues(
+                                              alpha: 0.55,
+                                            ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
                             const SizedBox(width: 8),
-                            _isDownloading
+                            widget.localId != null
+                                ? MediaUploadControl(
+                                    localId: widget.localId!,
+                                    status: widget.status,
+                                    kind: 'Document',
+                                    size: 30,
+                                    onAccent: widget.isMine,
+                                  )
+                                : _isDownloading
                                 ? BusySpinner(size: 20, strokeWidth: 2)
                                 : Icon(
                                     Icons.download_outlined,
@@ -231,10 +238,10 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
   }
 
   Widget _shimmer() => const SizedBox(
-        height: 68,
-        width: double.infinity,
-        child: Skeleton.fill(radius: 0),
-      );
+    height: 68,
+    width: double.infinity,
+    child: Skeleton.fill(radius: 0),
+  );
 
   Widget _expired() => ExpiredPlaceholder(
     glyph: Icons.timer_off_outlined,

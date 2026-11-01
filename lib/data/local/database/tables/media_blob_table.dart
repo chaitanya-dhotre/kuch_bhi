@@ -61,6 +61,12 @@ class MediaBlobTable extends Table {
   BoolColumn get uploadPending =>
       boolean().withDefault(const Constant(false))();
 
+  /// Media metadata as JSON (`width`, `height`, `durationSeconds`,
+  /// `expiresAt`, `mimeType`, `fileName`; own sends add `quality`) — a cache
+  /// hit returns it so the bubble keeps its shape, expiry and name after a
+  /// restart. Null on rows written before v12.
+  TextColumn get meta => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {blobId};
 }

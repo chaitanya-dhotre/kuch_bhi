@@ -40,10 +40,15 @@ class MediaRetry extends ConsumerWidget {
     final status = ref.watch(mediaBlobStatusProvider(media)).valueOrNull;
     final ended =
         status == MediaBlobStatus.expired ||
+        status == MediaBlobStatus.deadLink ||
         status == MediaBlobStatus.cantDecrypt;
     final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
     final caption = ended
-        ? 'No longer available'
+        ? status == MediaBlobStatus.expired
+              ? kMediaExpired
+              : status == MediaBlobStatus.deadLink
+              ? kMediaNoLongerAvailable
+              : kMediaCantDecrypt
         : online
         ? 'Tap to retry'
         : kOfflineActionHint;
@@ -75,7 +80,14 @@ class MediaRetry extends ConsumerWidget {
                   children: [
                     Opacity(
                       opacity: online || ended ? 1 : .38,
-                      child: Icon(icon, color: color),
+                      child: Icon(
+                        status == MediaBlobStatus.cantDecrypt
+                            ? Icons.lock_outline
+                            : status == MediaBlobStatus.expired
+                            ? Icons.timer_off_outlined
+                            : icon,
+                        color: color,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(

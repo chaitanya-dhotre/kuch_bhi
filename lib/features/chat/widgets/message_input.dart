@@ -18,6 +18,8 @@ import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../domain/entities/message.dart';
 import '../../../services/media_upload_service.dart';
+import '../../media/screens/media_edit_screen.dart';
+import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import 'attach_sheets.dart';
 import 'reply_quote.dart';
@@ -361,12 +363,29 @@ class _MessageInputState extends ConsumerState<MessageInput>
           source: source == 'camera' ? ImageSource.camera : ImageSource.gallery,
         );
         if (picked == null) return;
-        final quality = mounted
+        final original = File(picked.path);
+        if (!_withinMediaLimit(original)) return;
+        final edited = mounted
+            ? await Navigator.of(context).push<MediaEditResult>(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      MediaEditScreen(file: original, type: 'image'),
+                ),
+              )
+            : null;
+        if (edited == null) return;
+        final file = edited.file ?? original;
+        final isGif =
+            await MediaUploadService.isAnimatedImage(file) ||
+            file.path.toLowerCase().endsWith('.gif');
+        final quality = isGif
+            ? 'normal'
+            : mounted
             ? await showMediaQualitySheet(context, isVideo: false)
             : null;
         if (quality == null) return;
         _focusNode.requestFocus();
-        await _sendImage(File(picked.path), quality);
+        await _sendImage(file, quality, formatHint: edited.formatHint);
         break;
 
       case 'video_camera':
@@ -378,12 +397,29 @@ class _MessageInputState extends ConsumerState<MessageInput>
           maxDuration: const Duration(minutes: 5),
         );
         if (picked == null) return;
+        final original = File(picked.path);
+        if (!_withinMediaLimit(original)) return;
+        final edited = mounted
+            ? await Navigator.of(context).push<MediaEditResult>(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      MediaEditScreen(file: original, type: 'video'),
+                ),
+              )
+            : null;
+        if (edited == null) return;
         final quality = mounted
             ? await showMediaQualitySheet(context, isVideo: true)
             : null;
         if (quality == null) return;
         _focusNode.requestFocus();
-        await _sendVideo(File(picked.path), quality);
+        await _sendVideo(
+          edited.file ?? original,
+          quality,
+          startTime: edited.trimStart,
+          endTime: edited.trimEnd,
+          sourceDuration: edited.sourceDuration,
+        );
         break;
 
       case 'document':
@@ -401,14 +437,23 @@ class _MessageInputState extends ConsumerState<MessageInput>
     }
   }
 
-  Future<void> _sendImage(File original, String quality) async {
+  Future<void> _sendImage(
+    File original,
+    String quality, {
+    String? formatHint,
+  }) async {
+    if (!_withinMediaLimit(original)) return;
     final generation = ++_uploadGeneration;
     setState(() => _isUploadingImage = true);
 
     try {
       final compressed = await ref
           .read(mediaUploadServiceProvider)
-          .compressImage(original, quality);
+          .compressImage(original, quality, formatHint: formatHint);
+      if (!_withinMediaLimit(compressed)) {
+        _deleteFileQuietly(compressed.path);
+        return;
+      }
       if (!_isUploadActive(generation)) {
         _deleteFileQuietly(compressed.path);
         return;
@@ -443,6 +488,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
   }
 
   Future<void> _sendDocument(File docFile) async {
+    if (!_withinMediaLimit(docFile)) return; // decision 13: before any work
     final generation = ++_uploadGeneration;
     setState(() => _isUploadingDoc = true);
     try {
@@ -464,7 +510,14 @@ class _MessageInputState extends ConsumerState<MessageInput>
     }
   }
 
-  Future<void> _sendVideo(File original, String quality) async {
+  Future<void> _sendVideo(
+    File original,
+    String quality, {
+    int? startTime,
+    int? endTime,
+    int? sourceDuration,
+  }) async {
+    if (!_withinMediaLimit(original)) return;
     final generation = ++_uploadGeneration;
     setState(() {
       _isUploadingVideo = true;
@@ -482,7 +535,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
       // Generate thumbnail from ORIGINAL before compression deletes it
       final thumbnail = await ref
           .read(mediaUploadServiceProvider)
-          .generateVideoThumbnail(original);
+          .generateVideoThumbnail(original, position: startTime ?? -1);
       if (!_isUploadActive(generation)) {
         _deleteFileQuietly(thumbnail.path);
         return;
@@ -490,7 +543,18 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
       final compressed = await ref
           .read(mediaUploadServiceProvider)
-          .compressVideo(original, quality);
+          .compressVideo(
+            original,
+            quality,
+            startTime: startTime,
+            endTime: endTime,
+            sourceDuration: sourceDuration,
+          );
+      if (!_withinMediaLimit(compressed)) {
+        _deleteFileQuietly(compressed.path);
+        _deleteFileQuietly(thumbnail.path);
+        return;
+      }
       if (!_isUploadActive(generation)) {
         _deleteFileQuietly(compressed.path);
         _deleteFileQuietly(thumbnail.path);
@@ -533,6 +597,12 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   bool _isUploadActive(int generation) =>
       mounted && generation == _uploadGeneration;
+
+  bool _withinMediaLimit(File file) {
+    if (!mediaTooBig(file)) return true;
+    showToast(context, kUploadTooBig, error: true);
+    return false;
+  }
 
   void _cancelUpload(String type) {
     _uploadGeneration++;
@@ -616,8 +686,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
                 reply,
                 widget.replySenderName ?? 'them',
                 compact: true,
-                onCancel: () =>
-                    ref.read(_reply.notifier).state = null,
+                onCancel: () => ref.read(_reply.notifier).state = null,
               ),
             ),
 
@@ -689,6 +758,7 @@ class _ComposerAction extends StatelessWidget {
   });
 
   final String tooltip;
+
   /// Shown as a tooltip above the button on a quick tap (the mic records
   /// only on a hold); a toast here would cover the composer.
   final String? tapHint;

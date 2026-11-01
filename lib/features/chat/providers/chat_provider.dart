@@ -99,6 +99,14 @@ final mediaFileProvider = FutureProvider.family<LocalMediaFile?, MediaRef>((
   }
   // Only an offline / not-landed null waits for the network.
   if (file == null && !await failed()) invalidateOnReconnect(ref);
+  // The sender's upload can finish long after the 45s wait (it resumes when
+  // the sender reconnects): reload as soon as its media lands.
+  if (file == null) {
+    final landed = repo.mediaChanges
+        .where((id) => id == r.serverId)
+        .listen((_) => ref.invalidateSelf());
+    ref.onDispose(landed.cancel);
+  }
   return file;
 });
 

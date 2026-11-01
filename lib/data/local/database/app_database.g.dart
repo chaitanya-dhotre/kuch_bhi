@@ -6946,6 +6946,15 @@ class $MediaBlobTableTable extends MediaBlobTable
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _metaMeta = const VerificationMeta('meta');
+  @override
+  late final GeneratedColumn<String> meta = GeneratedColumn<String>(
+    'meta',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     blobId,
@@ -6959,6 +6968,7 @@ class $MediaBlobTableTable extends MediaBlobTable
     state,
     errorClass,
     uploadPending,
+    meta,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -7047,6 +7057,12 @@ class $MediaBlobTableTable extends MediaBlobTable
         ),
       );
     }
+    if (data.containsKey('meta')) {
+      context.handle(
+        _metaMeta,
+        meta.isAcceptableOrUnknown(data['meta']!, _metaMeta),
+      );
+    }
     return context;
   }
 
@@ -7102,6 +7118,10 @@ class $MediaBlobTableTable extends MediaBlobTable
         DriftSqlType.bool,
         data['${effectivePrefix}upload_pending'],
       )!,
+      meta: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}meta'],
+      ),
     );
   }
 
@@ -7151,6 +7171,12 @@ class MediaBlobTableData extends DataClass
   /// pending upload is protected from eviction. Derived protection input
   /// — NOT a `protected` flag.
   final bool uploadPending;
+
+  /// Media metadata as JSON (`width`, `height`, `durationSeconds`,
+  /// `expiresAt`, `mimeType`, `fileName`; own sends add `quality`) — a cache
+  /// hit returns it so the bubble keeps its shape, expiry and name after a
+  /// restart. Null on rows written before v12.
+  final String? meta;
   const MediaBlobTableData({
     required this.blobId,
     required this.messageId,
@@ -7163,6 +7189,7 @@ class MediaBlobTableData extends DataClass
     required this.state,
     this.errorClass,
     required this.uploadPending,
+    this.meta,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -7192,6 +7219,9 @@ class MediaBlobTableData extends DataClass
       map['error_class'] = Variable<String>(errorClass);
     }
     map['upload_pending'] = Variable<bool>(uploadPending);
+    if (!nullToAbsent || meta != null) {
+      map['meta'] = Variable<String>(meta);
+    }
     return map;
   }
 
@@ -7218,6 +7248,7 @@ class MediaBlobTableData extends DataClass
           ? const Value.absent()
           : Value(errorClass),
       uploadPending: Value(uploadPending),
+      meta: meta == null && nullToAbsent ? const Value.absent() : Value(meta),
     );
   }
 
@@ -7240,6 +7271,7 @@ class MediaBlobTableData extends DataClass
       ),
       errorClass: serializer.fromJson<String?>(json['errorClass']),
       uploadPending: serializer.fromJson<bool>(json['uploadPending']),
+      meta: serializer.fromJson<String?>(json['meta']),
     );
   }
   @override
@@ -7259,6 +7291,7 @@ class MediaBlobTableData extends DataClass
       ),
       'errorClass': serializer.toJson<String?>(errorClass),
       'uploadPending': serializer.toJson<bool>(uploadPending),
+      'meta': serializer.toJson<String?>(meta),
     };
   }
 
@@ -7274,6 +7307,7 @@ class MediaBlobTableData extends DataClass
     BlobState? state,
     Value<String?> errorClass = const Value.absent(),
     bool? uploadPending,
+    Value<String?> meta = const Value.absent(),
   }) => MediaBlobTableData(
     blobId: blobId ?? this.blobId,
     messageId: messageId ?? this.messageId,
@@ -7286,6 +7320,7 @@ class MediaBlobTableData extends DataClass
     state: state ?? this.state,
     errorClass: errorClass.present ? errorClass.value : this.errorClass,
     uploadPending: uploadPending ?? this.uploadPending,
+    meta: meta.present ? meta.value : this.meta,
   );
   MediaBlobTableData copyWithCompanion(MediaBlobTableCompanion data) {
     return MediaBlobTableData(
@@ -7310,6 +7345,7 @@ class MediaBlobTableData extends DataClass
       uploadPending: data.uploadPending.present
           ? data.uploadPending.value
           : this.uploadPending,
+      meta: data.meta.present ? data.meta.value : this.meta,
     );
   }
 
@@ -7326,7 +7362,8 @@ class MediaBlobTableData extends DataClass
           ..write('lastAccess: $lastAccess, ')
           ..write('state: $state, ')
           ..write('errorClass: $errorClass, ')
-          ..write('uploadPending: $uploadPending')
+          ..write('uploadPending: $uploadPending, ')
+          ..write('meta: $meta')
           ..write(')'))
         .toString();
   }
@@ -7344,6 +7381,7 @@ class MediaBlobTableData extends DataClass
     state,
     errorClass,
     uploadPending,
+    meta,
   );
   @override
   bool operator ==(Object other) =>
@@ -7359,7 +7397,8 @@ class MediaBlobTableData extends DataClass
           other.lastAccess == this.lastAccess &&
           other.state == this.state &&
           other.errorClass == this.errorClass &&
-          other.uploadPending == this.uploadPending);
+          other.uploadPending == this.uploadPending &&
+          other.meta == this.meta);
 }
 
 class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
@@ -7374,6 +7413,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
   final Value<BlobState> state;
   final Value<String?> errorClass;
   final Value<bool> uploadPending;
+  final Value<String?> meta;
   final Value<int> rowid;
   const MediaBlobTableCompanion({
     this.blobId = const Value.absent(),
@@ -7387,6 +7427,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
     this.state = const Value.absent(),
     this.errorClass = const Value.absent(),
     this.uploadPending = const Value.absent(),
+    this.meta = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MediaBlobTableCompanion.insert({
@@ -7401,6 +7442,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
     this.state = const Value.absent(),
     this.errorClass = const Value.absent(),
     this.uploadPending = const Value.absent(),
+    this.meta = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : blobId = Value(blobId),
        messageId = Value(messageId),
@@ -7417,6 +7459,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
     Expression<String>? state,
     Expression<String>? errorClass,
     Expression<bool>? uploadPending,
+    Expression<String>? meta,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7431,6 +7474,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
       if (state != null) 'state': state,
       if (errorClass != null) 'error_class': errorClass,
       if (uploadPending != null) 'upload_pending': uploadPending,
+      if (meta != null) 'meta': meta,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7447,6 +7491,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
     Value<BlobState>? state,
     Value<String?>? errorClass,
     Value<bool>? uploadPending,
+    Value<String?>? meta,
     Value<int>? rowid,
   }) {
     return MediaBlobTableCompanion(
@@ -7461,6 +7506,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
       state: state ?? this.state,
       errorClass: errorClass ?? this.errorClass,
       uploadPending: uploadPending ?? this.uploadPending,
+      meta: meta ?? this.meta,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7503,6 +7549,9 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
     if (uploadPending.present) {
       map['upload_pending'] = Variable<bool>(uploadPending.value);
     }
+    if (meta.present) {
+      map['meta'] = Variable<String>(meta.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7523,6 +7572,7 @@ class MediaBlobTableCompanion extends UpdateCompanion<MediaBlobTableData> {
           ..write('state: $state, ')
           ..write('errorClass: $errorClass, ')
           ..write('uploadPending: $uploadPending, ')
+          ..write('meta: $meta, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -11047,6 +11097,7 @@ typedef $$MediaBlobTableTableCreateCompanionBuilder =
       Value<BlobState> state,
       Value<String?> errorClass,
       Value<bool> uploadPending,
+      Value<String?> meta,
       Value<int> rowid,
     });
 typedef $$MediaBlobTableTableUpdateCompanionBuilder =
@@ -11062,6 +11113,7 @@ typedef $$MediaBlobTableTableUpdateCompanionBuilder =
       Value<BlobState> state,
       Value<String?> errorClass,
       Value<bool> uploadPending,
+      Value<String?> meta,
       Value<int> rowid,
     });
 
@@ -11129,6 +11181,11 @@ class $$MediaBlobTableTableFilterComposer
     column: $table.uploadPending,
     builder: (column) => ColumnFilters(column),
   );
+
+  ColumnFilters<String> get meta => $composableBuilder(
+    column: $table.meta,
+    builder: (column) => ColumnFilters(column),
+  );
 }
 
 class $$MediaBlobTableTableOrderingComposer
@@ -11194,6 +11251,11 @@ class $$MediaBlobTableTableOrderingComposer
     column: $table.uploadPending,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get meta => $composableBuilder(
+    column: $table.meta,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MediaBlobTableTableAnnotationComposer
@@ -11247,6 +11309,9 @@ class $$MediaBlobTableTableAnnotationComposer
     column: $table.uploadPending,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get meta =>
+      $composableBuilder(column: $table.meta, builder: (column) => column);
 }
 
 class $$MediaBlobTableTableTableManager
@@ -11297,6 +11362,7 @@ class $$MediaBlobTableTableTableManager
                 Value<BlobState> state = const Value.absent(),
                 Value<String?> errorClass = const Value.absent(),
                 Value<bool> uploadPending = const Value.absent(),
+                Value<String?> meta = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MediaBlobTableCompanion(
                 blobId: blobId,
@@ -11310,6 +11376,7 @@ class $$MediaBlobTableTableTableManager
                 state: state,
                 errorClass: errorClass,
                 uploadPending: uploadPending,
+                meta: meta,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -11325,6 +11392,7 @@ class $$MediaBlobTableTableTableManager
                 Value<BlobState> state = const Value.absent(),
                 Value<String?> errorClass = const Value.absent(),
                 Value<bool> uploadPending = const Value.absent(),
+                Value<String?> meta = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MediaBlobTableCompanion.insert(
                 blobId: blobId,
@@ -11338,6 +11406,7 @@ class $$MediaBlobTableTableTableManager
                 state: state,
                 errorClass: errorClass,
                 uploadPending: uploadPending,
+                meta: meta,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

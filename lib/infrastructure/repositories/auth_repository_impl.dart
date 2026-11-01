@@ -19,6 +19,7 @@ import '../../data/local/database/tables/users_table.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
+import '../media/media_blob_store.dart' show wipeMediaCache;
 import '../../services/encryption_service.dart';
 
 /// PB `users.update` body for a profile save: exactly these fields, never
@@ -388,6 +389,7 @@ class AuthRepositoryImpl implements AuthRepository {
     for (final table in db.allTables) {
       await db.delete(table).go();
     }
+    await wipeMediaCache();
   }
 
   // ── Delete account ─────────────────────────────────────────────

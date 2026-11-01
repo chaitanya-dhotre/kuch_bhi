@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -27,6 +30,52 @@ String mediaBlobId(String serverId, {required bool thumb}) =>
 
 /// How long a media network call may stay silent before it counts as offline.
 const _stallBound = Duration(seconds: 8);
+
+/// The blob row's `meta` JSON for [m] (+ [extra], e.g. an own send's
+/// `quality`).
+String mediaMetaJson(LocalMediaFile m, [Map<String, Object?> extra = const {}]) =>
+    jsonEncode({
+      'width': m.width,
+      'height': m.height,
+      'durationSeconds': m.durationSeconds,
+      'expiresAt': m.expiresAt?.toUtc().toIso8601String(),
+      'mimeType': m.mimeType,
+      'fileName': m.fileName,
+      ...extra,
+    });
+
+/// [file] with the metadata stored on its blob row; a pre-v12 row (null
+/// [meta]) keeps the old file-name-only answer.
+LocalMediaFile _withMeta(File file, String? meta) {
+  final Map<String, dynamic> m;
+  try {
+    m = meta == null ? const {} : jsonDecode(meta) as Map<String, dynamic>;
+  } catch (_) {
+    return LocalMediaFile(file: file, fileName: p.basename(file.path));
+  }
+  if (m.isEmpty) return LocalMediaFile(file: file, fileName: p.basename(file.path));
+  final expires = m['expiresAt'] as String?;
+  return LocalMediaFile(
+    file: file,
+    width: m['width'] as int?,
+    height: m['height'] as int?,
+    durationSeconds: m['durationSeconds'] as int?,
+    expiresAt: expires == null ? null : DateTime.tryParse(expires)?.toLocal(),
+    mimeType: m['mimeType'] as String?,
+    fileName: m['fileName'] as String? ?? p.basename(file.path),
+  );
+}
+
+/// Logout: decrypted media must not outlive the session that opened it.
+Future<void> wipeMediaCache(
+    [Future<Directory> Function() cacheDir = getTemporaryDirectory]) async {
+  try {
+    final dir = Directory('${(await cacheDir()).path}/media_clear');
+    if (await dir.exists()) await dir.delete(recursive: true);
+  } catch (e) {
+    debugPrint('[Media] cache wipe failed: $e');
+  }
+}
 
 /// MediaBlobStore — SOLE writer of blob rows + files (spec §4/§9).
 ///
@@ -201,10 +250,7 @@ class MediaBlobStore {
             localPath: entity.path,
             lastAccess: DateTime.now(),
           );
-          return LocalMediaFile(
-            file: entity,
-            fileName: p.basename(entity.path),
-          );
+          return _withMeta(entity, row.meta);
         }
       }
 
@@ -370,6 +416,7 @@ class MediaBlobStore {
         localPath: localFile.path,
         lastAccess: DateTime.now(),
         remoteRef: '${record.id}/$storedName',
+        meta: mediaMetaJson(result),
       );
       // Deferred watermark trigger (spec §9): the eviction pass itself is
       // NEVER awaited by this write path.
@@ -383,6 +430,72 @@ class MediaBlobStore {
       await _safeQueued(epochAtStart, blobId);
       return null;
     }
+  }
+
+  // ── Own sends (media-send C2) ───────────────────────────────────────────
+
+  /// The sender's file IS the cleartext: move it to
+  /// `media_clear/<id>_<f|t>_<name>` and mark the blob `ready`, so the
+  /// bubble and viewer read it with no network. Returns the moved file, or
+  /// null when the session ended (nothing moved, no row). No network.
+  Future<File?> registerLocal({
+    required String blobId,
+    required File file,
+    required String meta,
+    bool uploadPending = false,
+  }) async {
+    final epochAtStart = _epoch();
+    if (!_stillValid(epochAtStart, 'registerLocal')) return null;
+    final (serverId, thumb) = _parseBlobId(blobId);
+    Directory parent;
+    try {
+      parent = await _cacheDir();
+    } on MissingPluginException {
+      parent = Directory.systemTemp; // unit-test harness without path_provider
+    }
+    final mediaCache = Directory('${parent.path}/media_clear');
+    await mediaCache.create(recursive: true);
+    final dest = File('${mediaCache.path}/${serverId}_${thumb ? 't' : 'f'}_'
+        '${p.basename(file.path)}');
+    File moved;
+    try {
+      moved = await file.rename(dest.path);
+    } on FileSystemException {
+      moved = await file.copy(dest.path); // another filesystem
+      await file.delete();
+    }
+    try {
+      if (!_stillValid(epochAtStart, 'registerLocal row')) {
+        throw StateError('session ended mid-register');
+      }
+      await dao.upsert(MediaBlobTableCompanion.insert(
+        blobId: blobId,
+        messageId: serverId,
+        localPath: Value(moved.path),
+        bytes: Value(await moved.length()),
+        lastAccess: DateTime.now(),
+        state: const Value(BlobState.ready),
+        uploadPending: Value(uploadPending),
+        meta: Value(meta),
+      ));
+    } catch (_) {
+      await moved.delete();
+      rethrow;
+    }
+    return moved;
+  }
+
+  /// A cancelled send: both variants' rows and files go.
+  Future<void> forgetLocal(String serverId) async {
+    for (final row in await dao.byMessageId(serverId)) {
+      final path = row.localPath;
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+    }
+    await dao.deleteByMessageId(serverId);
   }
 
   // ── Record lookup (thin wrapper over the moved SDK call) ───────────────

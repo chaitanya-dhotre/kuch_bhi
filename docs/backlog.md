@@ -234,6 +234,9 @@ viewer; 12.1 is independent and can go any time).
   video trim screen. No filters or edits. Merges Page 9 parked items 15a (GIF → JPEG) and 15b (thumbnails).
   Video trim needs a maintained native transcoder (the common FFmpeg Flutter wrapper was retired in 2025);
   check before choosing.
+- `[BACKLOG]` **12.4b `pro_image_editor` fallback** (user, 2026-10-31). If the media-send page's built-in crop (the avatar
+  cropper's pan/zoom under an Original/Square frame) doesn't feel good enough on the device, swap the editor's Crop +
+  Draw to `pro_image_editor` with its filters, text and stickers turned off (`media-send.md` decision 15, alternative B).
 - `[BACKLOG]` **12.5 Albums.** Several photos/videos sent together show as one bubble that scrolls sideways
   (reference: the user's mock; no like/dislike, reactions already exist), and open as an auto-arranged
   collage that fits each item by orientation, then fullscreen with swipe between items (Page 9 decision 6).
@@ -298,8 +301,11 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
   path=full total=20994ms`).
 
 **User's list:**
-- `[BUG]` **13.4 Video bubble length shows 0:00.** Likely: the bubble reads `durationSeconds` from the
-  thumbnail's `LocalMediaFile`, which does not carry it. Check where the duration is stamped.
+- `[BUG]` **13.4 Video bubble length shows 0:00.** Cause (2026-10-31, code read + live read R1): client-side. The
+  server stores `duration_seconds` (video 2/2 and voice 4/4 > 0). The bubble reads it from the thumbnail's
+  `LocalMediaFile` (`vb`, `media?.durationSeconds ?? 0`). The record path fills it; the blob store's fast path (a row
+  already `ready`, e.g. after a restart) returns no metadata, so it is null → 0:00. Fixed by the media-send spec's
+  stored blob metadata (`docs/design/pages/media-send.md` C3, decision 3).
 - `[BUG]` **13.5 Viewer: the video play/pause disc never hides while playing and covers the video.** Page 9's own
   controls; auto-hide the disc (with the bar) a few seconds after play, and show it again on tap. Reduced
   motion = no fade.

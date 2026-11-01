@@ -61,6 +61,11 @@ abstract class MessageRepository {
     int? videoHeight,
   });
 
+  /// Stops an own media send that has not finished: the bubble and its
+  /// files go, and a server copy is marked deleted for everyone. False when
+  /// the message was already sent (nothing to cancel).
+  Future<bool> cancelMediaUpload(String localId);
+
   /// Mark all messages in a conversation as read by current user.
   Future<void> markConversationRead(String conversationId);
 

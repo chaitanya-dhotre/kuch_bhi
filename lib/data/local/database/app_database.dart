@@ -71,7 +71,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -190,6 +190,18 @@ class AppDatabase extends _$AppDatabase {
             await dropPreviewColumn('messages_table', 'reply_preview');
             await dropPreviewColumn(
                 'conversations_table', 'last_message_preview');
+          }
+          if (from < 12) {
+            // Media metadata on the blob row (media-send C3). Same
+            // sqlite_master guard as v11: the minimal migration fixtures
+            // carry no media_blob_table.
+            final hasBlobs = await customSelect(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='media_blob_table'")
+                .getSingleOrNull();
+            if (hasBlobs != null) {
+              await m.addColumn(mediaBlobTable, mediaBlobTable.meta);
+            }
           }
         },
       );

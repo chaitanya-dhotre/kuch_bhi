@@ -9,6 +9,7 @@ import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/utils/emoji_utils.dart';
+import '../../../core/utils/op_id.dart';
 import '../../../data/local/database/app_database.dart' show OutboxTableData;
 import '../../../data/local/database/tables/outbox_table.dart';
 import '../../../domain/entities/message.dart';
@@ -16,6 +17,8 @@ import '../../../infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
 import '../providers/message_body_provider.dart';
 import '../providers/outbox_status_provider.dart';
+import '../providers/upload_progress_provider.dart';
+import '../message_offline_policy.dart';
 import 'message_body_text.dart';
 import 'link_preview_card.dart';
 import 'document_message_bubble.dart';
@@ -150,6 +153,18 @@ class MessageBubble extends ConsumerWidget {
         bodyCache.get(message.localId) ??
         ref.watch(messageBodyProvider(message.localId)).valueOrNull;
     final body = resolved ?? '';
+    // B3: an own media send's localId IS its server id, so the real media
+    // bubble draws from the first frame (no placeholder swap, same Hero
+    // tag). Older rows (uuid localId) keep the placeholder.
+    final mediaId =
+        message.serverId ??
+        (isMine && isOpId(message.localId) ? message.localId : null);
+    final ownUpload =
+        mediaId != null &&
+        isMine &&
+        isOpId(message.localId) &&
+        (ref.watch(uploadPendingProvider(message.localId)).valueOrNull ??
+            const {'pending', 'failed'}.contains(message.status));
     final emojiOnly = isEmojiOnly(body) && message.type == 'text';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final url = extractFirstUrl(body);
@@ -250,49 +265,65 @@ class MessageBubble extends ConsumerWidget {
             ),
 
           // ── Bubble ──────────────────────────────────────────
-          if (message.type == 'voice' && message.serverId != null)
+          if (message.type == 'voice' && mediaId != null)
             VoiceMessageBubble(
               conversationId: message.conversationId,
-              serverId: message.serverId!,
+              serverId: mediaId,
               isMine: isMine,
               runEnd: runEnd,
               durationText: resolved,
-              status: message.status,
+              // A receipt can reach an acked row mid-upload: keep the clock.
+              status: ownUpload && message.status != 'failed'
+                  ? 'pending'
+                  : message.status,
               createdAt: message.createdAt,
+              localId: ownUpload ? message.localId : null,
             )
-          else if (message.type == 'image' && message.serverId != null)
+          else if (message.type == 'image' && mediaId != null)
             ImageMessageBubble(
               conversationId: message.conversationId,
-              serverId: message.serverId!,
+              serverId: mediaId,
               isMine: isMine,
               isDark: isDark,
               runEnd: runEnd,
-              status: message.status,
+              // A receipt can reach an acked row mid-upload: keep the clock.
+              status: ownUpload && message.status != 'failed'
+                  ? 'pending'
+                  : message.status,
               createdAt: message.createdAt,
               senderName: senderName,
+              localId: ownUpload ? message.localId : null,
             )
-          else if (message.type == 'video' && message.serverId != null)
+          else if (message.type == 'video' && mediaId != null)
             VideoMessageBubble(
               conversationId: message.conversationId,
-              serverId: message.serverId!,
+              serverId: mediaId,
               isMine: isMine,
               isDark: isDark,
               runEnd: runEnd,
-              status: message.status,
+              // A receipt can reach an acked row mid-upload: keep the clock.
+              status: ownUpload && message.status != 'failed'
+                  ? 'pending'
+                  : message.status,
               createdAt: message.createdAt,
               senderName: senderName,
+              localId: ownUpload ? message.localId : null,
             )
-          else if (message.type == 'document' && message.serverId != null)
+          else if (message.type == 'document' && mediaId != null)
             DocumentMessageBubble(
               conversationId: message.conversationId,
-              serverId: message.serverId!,
+              serverId: mediaId,
               isMine: isMine,
               isDark: isDark,
               runEnd: runEnd,
-              status: message.status,
+              // A receipt can reach an acked row mid-upload: keep the clock.
+              status: ownUpload && message.status != 'failed'
+                  ? 'pending'
+                  : message.status,
               createdAt: message.createdAt,
+              localId: ownUpload ? message.localId : null,
             )
-          else if (message.serverId == null &&
+          else if (mediaId == null &&
               const {
                 'image',
                 'video',
@@ -424,6 +455,7 @@ class _OptimisticMediaPlaceholder extends StatelessWidget {
         ? context.t.accent.withValues(alpha: 0.18)
         : context.t.surface2;
     final mediaType = type == 'video' ? 'video' : 'image';
+    final failed = status == 'failed';
     final mediaSkeleton = ConstrainedBox(
       constraints: const BoxConstraints(
         maxWidth: ChatBubbleGeometry.mediaMaxWidth,
@@ -435,6 +467,30 @@ class _OptimisticMediaPlaceholder extends StatelessWidget {
     );
 
     if (type == 'image' || type == 'video') {
+      if (failed) {
+        return ChatBubbleFrame(
+          isMine: isMine,
+          runEnd: runEnd,
+          background: shellColor,
+          showShadow: false,
+          showTimestamp: true,
+          createdAt: createdAt,
+          status: status,
+          padding: EdgeInsets.zero,
+          child: SizedBox(
+            width: ChatBubbleGeometry.mediaMaxWidth,
+            height: 158,
+            child: Center(
+              child: Text(
+                kUploadNotSent,
+                // inkSoft: onAccent on the faint 18% shell is unreadable in
+                // dark mode (failed-upload learning).
+                style: TextStyle(color: context.t.inkSoft),
+              ),
+            ),
+          ),
+        );
+      }
       return ChatBubbleFrame(
         isMine: isMine,
         runEnd: runEnd,
@@ -450,7 +506,6 @@ class _OptimisticMediaPlaceholder extends StatelessWidget {
 
     // A failed upload never gets a server id, so it stays here: say so
     // instead of spinning forever.
-    final failed = status == 'failed';
     final content = switch (type) {
       'voice' => _OptimisticVoiceContent(isMine: isMine, failed: failed),
       _ => _OptimisticDocumentContent(isMine: isMine, failed: failed),
@@ -491,12 +546,7 @@ class _OptimisticVoiceContent extends StatelessWidget {
       children: [
         BusySpinner(size: 30, strokeWidth: 2, color: foreground),
         const SizedBox(width: 10),
-        Expanded(
-          child: SizedBox(
-            height: 10,
-            child: Skeleton.fill(),
-          ),
-        ),
+        Expanded(child: SizedBox(height: 10, child: Skeleton.fill())),
       ],
     );
   }

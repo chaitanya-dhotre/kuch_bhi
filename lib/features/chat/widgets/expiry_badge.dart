@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/tokens.dart';
 import 'delivery_tick.dart';
+import '../message_offline_policy.dart';
 
 String? compactExpiryLabel(DateTime? expiresAt) {
   if (expiresAt == null) return null;
@@ -307,9 +308,18 @@ class ExpiryBadge extends StatelessWidget {
 /// Centre disc on a media bubble: play, or download when the full file is
 /// not on the phone yet (the thumbnail alone must not look loaded).
 class MediaDisc extends StatelessWidget {
-  const MediaDisc({super.key, required this.icon});
+  const MediaDisc({
+    super.key,
+    required this.icon,
+    this.background,
+    this.foreground,
+    this.iconSize = 26,
+  });
 
   final IconData icon;
+  final Color? background;
+  final Color? foreground;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -318,10 +328,10 @@ class MediaDisc extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.5),
+          color: background ?? Colors.black.withValues(alpha: 0.5),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: Colors.white, size: 26),
+        child: Icon(icon, color: foreground ?? Colors.white, size: iconSize),
       ),
     );
   }
@@ -359,7 +369,7 @@ class ExpiredPlaceholder extends StatelessWidget {
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                'Media expired',
+                kMediaExpired,
                 style: TextStyle(
                   color: ink ?? t.inkSoft,
                   fontSize: 13,
@@ -378,10 +388,10 @@ class ExpiredPlaceholder extends StatelessWidget {
         Icon(glyph, color: dimmedInk, size: 20),
         const SizedBox(height: 5),
         Text(
-          'Media expired',
+          kMediaExpired,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: dimmedInk,
-            fontSize: 10.5,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
         ),

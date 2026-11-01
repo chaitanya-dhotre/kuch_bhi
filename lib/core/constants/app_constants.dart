@@ -14,6 +14,7 @@ class AppConstants {
 
   // --- Media Limits ---
   static const int maxVoiceMessageSeconds = 300; // 5 minutes
+  static const int maxFileSizeMb = 100;
 
   // --- Media Retention (days) ---
   static const int retentionVoiceDays = 60;

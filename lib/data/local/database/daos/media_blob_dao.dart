@@ -40,6 +40,7 @@ class MediaBlobDao extends DatabaseAccessor<AppDatabase>
     String? localPath,
     int? bytes,
     DateTime? lastAccess,
+    String? meta,
   }) =>
       (update(mediaBlobTable)..where((t) => t.blobId.equals(blobId))).write(
         MediaBlobTableCompanion(
@@ -56,8 +57,35 @@ class MediaBlobDao extends DatabaseAccessor<AppDatabase>
           lastAccess: lastAccess == null
               ? const Value.absent()
               : Value(lastAccess),
+          meta: meta == null ? const Value.absent() : Value(meta),
         ),
       );
+
+  /// Writes a whole row (insert or replace) — `registerLocal`'s ready row.
+  Future<void> upsert(MediaBlobTableCompanion row) =>
+      into(mediaBlobTable).insertOnConflictUpdate(row);
+
+  /// Both variants of one message (`_f`, `_t`).
+  Future<List<MediaBlobTableData>> byMessageId(String messageId) =>
+      (select(mediaBlobTable)..where((t) => t.messageId.equals(messageId)))
+          .get();
+
+  Future<void> deleteByMessageId(String messageId) =>
+      (delete(mediaBlobTable)..where((t) => t.messageId.equals(messageId)))
+          .go();
+
+  /// Messages whose sent file still has to upload (full variant latched).
+  Future<List<String>> uploadPendingMessageIds() async => [
+        for (final r in await (select(mediaBlobTable)
+              ..where((t) => t.uploadPending.equals(true) & t.blobId.like('%_f')))
+            .get())
+          r.messageId,
+      ];
+
+  /// The upload finished: the blobs are ordinary cache entries again.
+  Future<void> clearUploadPending(String messageId) =>
+      (update(mediaBlobTable)..where((t) => t.messageId.equals(messageId)))
+          .write(const MediaBlobTableCompanion(uploadPending: Value(false)));
 
   /// Resets ALL `downloading` rows to `queued` (spec §9 startup janitor —
   /// process died mid-pipeline, orphan `.part` file cleaned alongside).

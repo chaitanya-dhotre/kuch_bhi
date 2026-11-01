@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media send board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from media.html; nothing redefined). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC;--error:#E5484D}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+.amoled{--bg:#000000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}td.bad{background:#FBE3E3}td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.tag2{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px}
+.tag2.in{background:#E3F4EC;color:#0B5E42}.tag2.out{background:#F1ECE3;color:#6E655A}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+/* ── chat frame ── */
+.ph{width:300px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);padding:10px 0 12px;overflow:hidden}
+.ph .lbl{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--inkFaint);padding:6px 12px 2px}
+.b{position:relative;margin:4px 12px;width:210px;max-width:calc(100% - 24px);border-radius:18px 18px 18px 6px;overflow:hidden;background:var(--surface);border:1px solid var(--line)}
+.b.me{margin-left:auto;border-radius:18px 18px 6px 18px;border:2px solid var(--accent)}
+.b.wide{width:236px}.b.me.wide{background:var(--accent);color:var(--onAccent);border:0}
+.slot{position:relative;height:150px;display:flex;align-items:center;justify-content:center;background:var(--surface2)}
+.slot svg.pic{position:absolute;inset:0;width:100%;height:100%}
+.ts{position:absolute;right:6px;bottom:5px;font-size:10.5px;background:rgba(0,0,0,.45);color:#fff;border-radius:999px;padding:1px 7px}
+.wide .ts{position:static;display:block;text-align:right;background:none;color:inherit;opacity:.75;padding:0 10px 6px}
+.disc{position:relative;width:44px;height:44px;border-radius:999px;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;z-index:1}
+.disc svg{position:absolute;inset:0}
+.cap{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;color:var(--inkSoft);text-align:center;z-index:1}
+.cap .i{font-size:22px;line-height:24px}
+.dim{opacity:.38}
+.skel{position:absolute;inset:0;background:linear-gradient(90deg,var(--surface2),var(--line),var(--surface2))}
+@media(prefers-reduced-motion:reduce){.skel{background:var(--surface2)}}
+.vrow{display:flex;align-items:center;gap:10px;padding:10px 10px 4px}
+.vbtn{width:30px;height:30px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(42,37,32,.12);flex:0 0 auto;position:relative}
+.wave{flex:1;height:18px;background:repeating-linear-gradient(90deg,currentColor 0 2px,transparent 2px 5px);opacity:.45;border-radius:4px}
+.dur{font-size:12px;font-variant-numeric:tabular-nums}
+.drow{display:flex;gap:10px;align-items:center;padding:10px}
+.dic{width:36px;height:36px;border-radius:10px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;flex:0 0 auto;position:relative}
+.dmeta{min-width:0;font-size:13px}.dmeta b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tick{font-size:10px}
+/* editor */
+.ed{width:300px;max-width:100%;height:520px;position:relative;background:#000;color:#F3EDE3;border-radius:20px;overflow:hidden;border:1px solid #3A342B}
+.ed .top{position:absolute;top:0;left:0;right:0;height:56px;display:flex;align-items:center;padding:0 4px}
+.ed .ib{width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.ed .stage{position:absolute;top:56px;bottom:132px;left:16px;right:16px;display:flex;align-items:center;justify-content:center}
+.ed .tools{position:absolute;bottom:68px;left:0;right:0;display:flex;justify-content:center;gap:6px;flex-wrap:wrap;padding:0 8px}
+.ed .tl{min-height:48px;padding:0 12px;border-radius:14px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600}
+.ed .tl.on{background:rgba(239,160,11,.18);color:#EFA00B}
+.ed .send{position:absolute;bottom:12px;left:16px;right:16px;height:48px;border-radius:16px;background:#EFA00B;color:#21260F;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
+.frame{position:absolute;border:2px solid #fff;box-shadow:0 0 0 999px rgba(0,0,0,.55)}
+.sw{width:26px;height:26px;border-radius:999px;border:2px solid #fff}
+.rng{position:relative;width:100%;height:48px}
+.rng .tr{position:absolute;left:12px;right:12px;top:22px;height:4px;border-radius:9px;background:rgba(243,237,227,.2)}
+.rng .sel{position:absolute;top:22px;height:4px;background:#EFA00B}
+.rng .h{position:absolute;top:12px;width:24px;height:24px;border-radius:999px;background:#EFA00B}
+.jk,.jk *{font-family:"Plus Jakarta Sans",-apple-system,sans-serif}
+.big .cap{font-size:24px}.big .cap .i{font-size:30px}
+</style>
+</head>
+<body>
+<h1>Media send and bubble states, board</h1>
+<p class="sub">Backlog 12.2 + 12.4, with 13.7, 13.8 and the Page 9 parked items. Sections <b>S1–S16</b> (page-local). Each chat state is drawn in light, dark and AMOLED side by side. Audit at <code>901065e</code>, 2026-10-31. Checklist and decisions: <code>media-send.md</code>. Nothing here is built yet.</p>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="photo" viewBox="0 0 210 150" preserveAspectRatio="xMidYMid slice"><rect width="210" height="150" fill="#CFE3F0"/><circle cx="160" cy="38" r="18" fill="#F4D58A"/><path d="M0 110 L60 55 L100 95 L140 50 L210 112 L210 150 L0 150Z" fill="#7FA37A"/><rect x="40" y="118" width="26" height="20" fill="#B5835A"/></symbol>
+<symbol id="video" viewBox="0 0 210 150" preserveAspectRatio="xMidYMid slice"><rect width="210" height="150" fill="#3B4A3F"/><rect y="95" width="210" height="55" fill="#2C362E"/><circle cx="55" cy="45" r="15" fill="#C6894F"/><rect x="120" y="55" width="50" height="45" fill="#5C3B28"/></symbol>
+</defs></svg>
+
+<!-- S1 -->
+<div class="band"><header><span class="n">S1</span><h2>Every media bubble state: today vs this spec</h2></header>
+<div class="tblwrap"><table>
+<tr><th>State</th><th>Photo</th><th>Video</th><th>Voice</th><th>Document</th><th>Spec</th></tr>
+<tr><td>Loading</td><td class="ok">R11 skeleton</td><td class="ok">R11 skeleton</td><td class="ok">R3a in the disc on tap</td><td class="ok">shimmer</td><td>unchanged (E1)</td></tr>
+<tr><td>Uploading</td><td class="bad">skeleton placeholder (+ a 2nd bubble after a page fetch, 13.7)</td><td class="bad">same</td><td class="bad">placeholder row</td><td class="bad">placeholder row</td><td>the real bubble + upload disc with progress + ✕ (B, D2)</td></tr>
+<tr><td>Waiting for connection</td><td class="bad">no such state: offline = failed</td><td class="bad">same</td><td class="bad">"not sent"</td><td class="bad">"not sent"</td><td>disc with ✕, no arc, resumes by itself (D4)</td></tr>
+<tr><td>Failed upload</td><td class="bad">shimmers forever</td><td class="bad">shimmers forever</td><td>static "not sent", no retry</td><td>static "not sent", no retry</td><td><b>Not sent</b> + ↻ <b>Try again</b> (D5)</td></tr>
+<tr><td>Failed download</td><td class="ok">Tap to retry (wave 2)</td><td class="ok">Tap to retry</td><td>error icon + Tap to retry</td><td class="ok">Tap to retry</td><td>unchanged (E2)</td></tr>
+<tr><td>Offline (retry)</td><td class="ok">icon 38% + Available online</td><td class="ok">same</td><td class="ok">disc 38%</td><td class="ok">same</td><td>unchanged; the same rule for Try again</td></tr>
+<tr><td>Expired</td><td>Media expired, 10.5px</td><td>same</td><td>inline Media expired</td><td>inline</td><td>12px (E6)</td></tr>
+<tr><td>Dead link</td><td>No longer available</td><td>same</td><td class="bad">retry that can't work</td><td>No longer available</td><td>voice joins (E4)</td></tr>
+<tr><td>Can't decrypt</td><td class="bad">"No longer available"</td><td class="bad">same</td><td class="bad">retry that can't work</td><td class="bad">same</td><td><b>Can't decrypt</b>, lock glyph (E3)</td></tr>
+<tr><td>Not downloaded</td><td>Page 9 disc; <b>also on your own photos</b> (13.8)</td><td>same</td><td>n/a (auto-loads)</td><td>n/a</td><td>no disc on your own (C4)</td></tr>
+<tr><td>Video length</td><td>n/a</td><td class="bad">0:00 once the blob is ready (13.4: the fast path drops <code>duration_seconds</code>; the server has it, read R1)</td><td>n/a</td><td>n/a</td><td>stored metadata (C3)</td></tr>
+<tr><td>Deleted</td><td colspan="4">n/a: <code>watchMessages</code> filters deleted rows out of the chat</td><td>no state needed</td></tr>
+</table></div></div>
+
+<!-- S2–S4 drawn by script -->
+<div class="band"><header><span class="n">S2</span><h2>Photo bubble states</h2></header><div class="row" id="s2"></div>
+<div class="note"><b>Disc (C15):</b> 44px, 50% black under white ink on a photo, so it reads on any photo in any theme. Arc = accent progress; ✕ = cancel. Waiting = no arc. Failed = ↻. Offline Try again = the ↻ at 38% once, with <b>Available online</b> outside the dim.</div></div>
+<div class="band"><header><span class="n">S3</span><h2>Video bubble states</h2></header><div class="row" id="s3"></div></div>
+<div class="band"><header><span class="n">S4</span><h2>Voice note and document states</h2></header><div class="row" id="s4"></div>
+<div class="note">On your own amber bubble the disc sits in the play / file slot, ink <code>onAccent</code> on the full accent shell (the failed-upload learning: never accent ink on the faint shell).</div></div>
+
+<!-- S5 -->
+<div class="band"><header><span class="n">S5</span><h2>13.7: one bubble from send to sent</h2></header>
+<span class="tag">Today</span>
+<div class="flow"><span class="bx">insert row, no server id</span><span class="ar">→</span><span class="bx">Step B: server message created</span><span class="ar">→</span><span class="bx bad">page fetch: no local row by server id → 2nd row inserted</span><span class="ar">→</span><span class="bx">Step C upload (long)</span><span class="ar">→</span><span class="bx">Step D: stamp id, delete the 2nd row</span></div>
+<span class="tag">Spec (decision 1)</span>
+<div class="flow"><span class="bx ok">localId = generateOpId(); file + thumb registered as ready blobs; one transaction</span><span class="ar">→</span><span class="bx ok">media bubble draws the local photo at once</span><span class="ar">→</span><span class="bx ok">Step B create with id = localId; ack stamps serverId + server time</span><span class="ar">→</span><span class="bx ok">a page fetch finds the row by id: still one</span><span class="ar">→</span><span class="bx ok">Step D: mediaId, sent, latch off</span></div>
+<div class="note">Same id from the first frame to sent: the Hero tag, the blob ids and the bubble never change. A re-run (resume, Try again) converges on the same server record: duplicate id → ownership check → success.</div></div>
+
+<!-- S6 -->
+<div class="band"><header><span class="n">S6</span><h2>13.8: your own photo keeps its full file</h2></header><div class="row" id="s6"></div>
+<div class="note warn"><b>Risk (decision 2):</b> this unfreezes the send path and adds <code>registerLocal</code> + stored metadata to the blob store. E2E/key code stays byte-identical. Without stored metadata (decision 3) a cache hit returns no size or expiry: your photo would sit at 4:3 with no badge, and that already happens to every cached photo after a restart (smell 9).</div></div>
+
+<!-- S7 -->
+<div class="band"><header><span class="n">S7</span><h2>Send flow</h2></header>
+<div class="flow"><span class="bx">＋ Attach → Photo / Video</span><span class="ar">→</span><span class="bx">system picker</span><span class="ar">→</span><span class="bx ok">MediaEditScreen (C14)</span><span class="ar">→</span><span class="bx">Send → quality sheet (Page 8, unchanged; GIF skips it)</span><span class="ar">→</span><span class="bx">composer row: compressing, with cancel (unchanged)</span><span class="ar">→</span><span class="bx ok">bubble with upload disc</span><span class="ar">→</span><span class="bx ok">sent</span></div>
+<div class="note">Size check before any work (100 MB, decision 13). Documents skip the editor and the quality sheet, as today.</div></div>
+
+<!-- S8–S10 editor -->
+<div class="band"><header><span class="n">S8</span><h2>Editor: Crop (Original / Square, Rotate)</h2></header>
+<div class="row">
+<div class="ed"><div class="top"><span class="ib" aria-label="Close">✕</span><span style="flex:1"></span><span class="ib" aria-label="Rotate">⟳</span></div>
+<div class="stage"><svg viewBox="0 0 210 150" style="width:100%"><use href="#photo"/></svg><div class="frame" style="width:150px;height:150px"></div></div>
+<div class="tools"><span class="tl on">▢ Square</span><span class="tl">Original</span><span class="tl">✎ Draw</span></div>
+<div class="send">Send</div></div>
+<div class="wrap" style="max-width:420px"><span class="tag">Rules</span><ul style="margin:0;padding-left:18px;font-size:13px">
+<li>Pan and pinch the photo under a fixed frame: the avatar cropper's pattern (<code>crop_photo_screen.dart</code>), frame rectangular.</li>
+<li>Original = the photo's own ratio (only zoom/pan crop). Square = 1:1.</li>
+<li>Rotate turns 90° clockwise per tap.</li>
+<li>Export at source resolution, never upscaled, then the normal compressor (EXIF/GPS dropped).</li>
+<li>Close with edits → R20 <b>Discard changes?</b></li></ul></div></div></div>
+
+<div class="band"><header><span class="n">S9</span><h2>Editor: Draw</h2></header>
+<div class="row">
+<div class="ed"><div class="top"><span class="ib">✕</span><span style="flex:1"></span><span class="ib" aria-label="Undo">↶</span><span class="ib" aria-label="Clear">⌫</span></div>
+<div class="stage"><svg viewBox="0 0 210 150" style="width:100%"><use href="#photo"/><path d="M30 40 C70 10 110 70 150 30" stroke="#E5484D" stroke-width="4" fill="none" stroke-linecap="round"/></svg></div>
+<div class="tools"><span class="sw" style="background:#FFFFFF"></span><span class="sw" style="background:#000000"></span><span class="sw" style="background:#E5484D;outline:2px solid #EFA00B;outline-offset:2px"></span><span class="sw" style="background:#EFA00B"></span><span class="sw" style="background:#0E9F6E"></span><span class="sw" style="background:#4A6FA5"></span></div>
+<div class="send">Send</div></div>
+<div class="wrap" style="max-width:420px"><span class="tag">Rules</span><ul style="margin:0;padding-left:18px;font-size:13px">
+<li>Six fixed ink colours (burned into the photo, so not theme tokens; the one exempt <code>const</code> list in K1).</li><li>One pen width. Undo removes the last stroke; Clear removes all.</li><li>No text, stickers, filters.</li><li>The canvas is excluded from TalkBack; tools stay reachable.</li></ul></div></div></div>
+
+<div class="band"><header><span class="n">S10</span><h2>Editor: Trim (video)</h2></header>
+<div class="row">
+<div class="ed"><div class="top"><span class="ib">✕</span></div>
+<div class="stage" style="bottom:190px"><svg viewBox="0 0 210 150" style="width:100%"><use href="#video"/></svg></div>
+<div style="position:absolute;left:16px;right:16px;bottom:120px"><div class="rng"><div class="tr"></div><div class="sel" style="left:30%;right:40%"></div><div class="h" style="left:calc(30% - 12px)" aria-label="Trim start"></div><div class="h" style="right:calc(40% - 12px)" aria-label="Trim end"></div></div>
+<div style="display:flex;justify-content:space-between;font-size:13px;font-variant-numeric:tabular-nums"><span>0:05</span><span>10s</span><span>0:15</span></div></div>
+<div class="tools"><span class="tl on">✂ Trim</span></div><div class="send">Send</div></div>
+<div class="wrap" style="max-width:420px"><span class="tag">Rules</span><ul style="margin:0;padding-left:18px;font-size:13px">
+<li>Whole seconds (the engine's unit, decision 17). Length ≤ 5:00.</li><li>Handles announce <b>Trim start</b> / <b>Trim end</b> with m:ss.</li><li>Trim runs in the same pass as compression; the poster is the trim-start frame.</li><li>No filmstrip (decision 18).</li></ul></div></div></div>
+
+<!-- S11 -->
+<div class="band"><header><span class="n">S11</span><h2>Formats (decision 11)</h2></header><div class="tblwrap"><table>
+<tr><th>Picked</th><th>Today</th><th>Spec</th><th>Why</th></tr>
+<tr><td>JPEG, HEIC, other</td><td>JPEG re-encode</td><td class="ok">JPEG re-encode</td><td>strips GPS (photo learning)</td></tr>
+<tr><td>PNG</td><td class="bad">JPEG (transparency lost)</td><td class="ok">PNG re-encode</td><td>keeps transparency, drops EXIF</td></tr>
+<tr><td>WebP, static</td><td class="bad">JPEG</td><td class="ok">WebP re-encode</td><td>drops EXIF</td></tr>
+<tr><td>WebP, animated (VP8X + ANIM)</td><td class="bad">JPEG, one frame</td><td class="ok">as is</td><td>a re-encode would flatten it</td></tr>
+<tr><td>GIF</td><td class="bad">JPEG, one frame</td><td class="ok">as is; no tools, no quality sheet</td><td>GIF has no EXIF block</td></tr>
+</table></div><div class="note">Thumbnails: 640px / 70% JPEG, already done after Page 9. Extension and <code>mime_type</code> follow the bytes sent.</div></div>
+
+<!-- S12 -->
+<div class="band"><header><span class="n">S12</span><h2>Trim engine options (decision 17)</h2></header><div class="tblwrap"><table>
+<tr><th></th><th>Option</th><th>New deps</th><th>Precision</th><th>Maintenance</th><th>Notes</th></tr>
+<tr><td>A ★</td><td><code>video_compress</code> 3.1.4 (installed): <code>compressVideo(startTime:, duration:)</code></td><td class="ok">0</td><td>whole seconds</td><td>no release since Feb 2025 (fork's claim); already our compressor</td><td>Android passes <code>duration</code> as Transcoder's trim-from-end: wrap as <code>length − end</code>; device check 11</td></tr>
+<tr><td>B</td><td><code>flutter_native_video_trimmer</code> (Media3 / AVFoundation)</td><td>1</td><td>ms</td><td>small plugin</td><td>two passes (trim, then compress)</td></tr>
+<tr><td>C</td><td><code>video_compressor_plus</code> (fork of video_compress)</td><td>swap</td><td>per its API</td><td>maintained fork</td><td>touches every video send</td></tr>
+<tr><td>D</td><td>FFmpeg community fork (<code>ffmpeg_kit_flutter_minimal</code>)</td><td>1, large</td><td>ms</td><td class="bad">FFmpegKit retired 2025; community only</td><td>tens of MB of binaries, LGPL/GPL</td></tr>
+</table></div></div>
+
+<!-- S13 -->
+<div class="band"><header><span class="n">S13</span><h2>Large text and Plus Jakarta Sans (360dp, 200%)</h2></header><div class="row" id="s13"></div></div>
+
+<!-- S14 -->
+<div class="band"><header><span class="n">S14</span><h2>Page 9 parked items</h2></header><div class="tblwrap"><table>
+<tr><th>Item</th><th>Here?</th><th>Default</th></tr>
+<tr><td>Offline media resend that never retries</td><td><span class="tag2 in">IN</span></td><td>auto-resume on start and reconnect (D4, decision 4)</td></tr>
+<tr><td>Upload cancel</td><td><span class="tag2 in">IN</span></td><td>✕ on the bubble until sent (D3, decision 6)</td></tr>
+<tr><td>Chat J8 download progress</td><td><span class="tag2 out">OUT</span></td><td>deferred (decision 8)</td></tr>
+<tr><td>Upload progress</td><td><span class="tag2 in">IN</span></td><td>counting stream (D1, decision 5)</td></tr>
+<tr><td>200% overflows on Home rows / "Last seen"</td><td><span class="tag2 out">OUT</span></td><td>not media send; stays in backlog</td></tr>
+<tr><td>Download timeout</td><td><span class="tag2 out">OUT</span></td><td>done in bug wave 2 (8s stall bound)</td></tr>
+</table></div></div>
+
+<!-- S15 -->
+<div class="band"><header><span class="n">S15</span><h2>Hooks for the next pages (not built here)</h2></header>
+<ul style="margin:0;padding-left:18px;font-size:13px"><li><b>12.5 Albums:</b> <code>sendMediaMessage</code> stays one file per call with its own pre-assigned id; an album sends N calls plus a shared batch id (a schema field, specced there). Resume already handles N pending rows oldest first.</li>
+<li><b>12.1 Share-in:</b> <code>MediaEditScreen</code> takes a <code>File</code> + type, not a picker, so a received share opens it directly.</li></ul></div>
+
+<!-- S16 -->
+<div class="band"><header><span class="n">S16</span><h2>Diff summary</h2></header>
+<p style="margin:0;font-size:13px">14 rows in <code>media-send.md</code> → "Diff vs current implementation". The big four: one bubble (13.7), the sender keeps the file (13.8), offline resend with cancel and progress, and the editor with keep-original formats.</p></div>
+
+<script>
+const T=[['light',''],['dark','dark'],['AMOLED','amoled']];
+const arc=p=>`<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="3"/>${p==null?'':`<circle cx="22" cy="22" r="19" fill="none" stroke="#EFA00B" stroke-width="3" stroke-dasharray="${(119.4*p).toFixed(1)} 200" transform="rotate(-90 22 22)" stroke-linecap="round"/>`}</svg>`;
+const pic=(id,o='')=>`<svg class="pic" style="${o}"><use href="#${id}"/></svg>`;
+const slot=(inner,me=true,tick='✓')=>`<div class="b ${me?'me':''}"><div class="slot">${inner}</div><span class="ts">12:41 ${me?`<span class="tick">${tick}</span>`:''}</span></div>`;
+const cap=(i,t,dim)=>`<div class="cap"><span class="i ${dim?'dim':''}">${i}</span><span>${t}</span></div>`;
+function media(id){return [
+ ['Uploading 40%',slot(pic(id)+`<div class="disc">${arc(.4)}✕</div>`,true,'🕓')],
+ ['Waiting for connection',slot(pic(id)+`<div class="disc">${arc(null)}✕</div>`,true,'🕓')],
+ ['Failed upload',slot(pic(id)+`<div class="cap" style="color:#fff"><div class="disc">↻</div><span style="background:rgba(0,0,0,.5);border-radius:8px;padding:0 6px">Not sent · Try again</span></div>`,true,'!')],
+ ['Failed upload, offline',slot(pic(id)+`<div class="cap" style="color:#fff"><div class="disc dim">↻</div><span style="background:rgba(0,0,0,.5);border-radius:8px;padding:0 6px">Available online</span></div>`,true,'!')],
+ ['Sent (yours, no disc)',slot(pic(id)+(id=='video'?'<div class="disc">▶</div>':''),true,'✓✓')],
+ ['Loading',slot('<div class="skel"></div>',false)],
+ ['Not downloaded',slot(pic(id)+'<div class="disc">⤓</div>',false)],
+ ['Failed download',slot(cap(id=='video'?'🎬':'🖼','Tap to retry'),false)],
+ ['Offline',slot(cap(id=='video'?'🎬':'🖼','Available online',true),false)],
+ ['Expired',slot(cap('⏲','Media expired'),false)],
+ ['Dead link',slot(cap('⏲','No longer available'),false)],
+ ["Can't decrypt",slot(cap('🔒',"Can't decrypt"),false)]];}
+function voice(){const v=(me,btn,txt)=>`<div class="b wide ${me?'me':''}"><div class="vrow"><span class="vbtn">${btn}</span>${txt||'<span class="wave"></span><span class="dur">0:12</span>'}</div><span class="ts">12:41</span></div>`;
+ const d=(me,ic,name,sub)=>`<div class="b wide ${me?'me':''}"><div class="drow"><span class="dic">${ic}</span><span class="dmeta"><b>${name}</b>${sub}</span></div><span class="ts">12:41</span></div>`;
+ const mini=`<span class="disc" style="width:30px;height:30px;font-size:13px">${arc(.4)}✕</span>`;
+ return [['Voice uploading',v(true,mini)],['Voice waiting',v(true,`<span class="disc" style="width:30px;height:30px;font-size:13px">${arc(null)}✕</span>`)],['Voice failed upload',v(true,'↻','<span style="font-size:13px;font-weight:600">Not sent · Try again</span>')],["Voice can't decrypt",v(false,'🔒',"<span style='font-size:13px;font-weight:600'>Can't decrypt</span>")],['Voice expired',v(false,'⏲',"<span style='font-size:13px;font-weight:600'>Media expired</span>")],
+ ['Doc uploading',d(true,mini,'trip-plan.pdf','PDF · 2.1 MB')],['Doc failed upload',d(true,'↻','trip-plan.pdf','Not sent · Try again')],['Doc offline retry',d(false,'<span class="dim">📄</span>','Document','Available online')],["Doc can't decrypt",d(false,'🔒','Document',"Can't decrypt")]];}
+function draw(el,items){document.getElementById(el).innerHTML=T.map(([n,c])=>`<div class="wrap"><span class="tag">${n}</span><div class="ph ${c}">${items.map(([l,h])=>`<div class="lbl">${l}</div>${h}`).join('')}</div></div>`).join('');}
+draw('s2',media('photo'));draw('s3',media('video').filter(x=>!/offline\b|Dead/.test(x[0])));draw('s4',voice());
+draw('s6',[['Today: your sent photo',slot(pic('photo')+'<div class="disc">⤓</div>',true,'✓✓')],['Spec: ready blob, no disc',slot(pic('photo'),true,'✓✓')]]);
+document.getElementById('s13').innerHTML=T.map(([n,c])=>`<div class="wrap"><span class="tag">${n} · Jakarta 200%</span><div class="ph ${c} jk big" style="width:300px">${[slot(cap('🔒',"Can't decrypt"),false),slot(cap('🖼','Available online',true),false),slot(pic('photo')+`<div class="cap" style="color:#fff"><div class="disc">↻</div><span style="background:rgba(0,0,0,.5);border-radius:8px;padding:0 6px;font-size:20px">Not sent · Try again</span></div>`,true,'!')].join('')}</div></div>`).join('');
+</script>
+</body>
+</html>

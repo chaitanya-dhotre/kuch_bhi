@@ -19,23 +19,38 @@
 library;
 
 /// Every action exposed by the message long-press menu.
-enum MessageAction { star, pin, deleteForMe, deleteForEveryone, react, reply, copy }
+enum MessageAction {
+  star,
+  pin,
+  deleteForMe,
+  deleteForEveryone,
+  react,
+  reply,
+  copy,
+}
 
 /// Hint shown on disabled controls / snackbars when an action is blocked
 /// offline. Single string — the user-visible half of the contract.
 const String kOfflineActionHint = 'Available online';
+const String kUploadNotSent = 'Not sent';
+const String kUploadTryAgain = 'Try again';
+const String kUploadWaiting = 'Waiting for connection';
+const String kMediaExpired = 'Media expired';
+const String kMediaNoLongerAvailable = 'No longer available';
+const String kMediaCantDecrypt = "Can't decrypt";
+const String kUploadTooBig = 'Too big to send. The limit is 100 MB.';
+const String kGifSentAsIs = 'GIFs are sent as they are.';
 
 /// True when [action] cannot complete while offline (no durable local
 /// path that survives server-truth sync).
 bool messageActionRequiresOnline(MessageAction action) => switch (action) {
-      MessageAction.pin || MessageAction.deleteForEveryone => true,
-      MessageAction.react ||
-      MessageAction.star ||
-      MessageAction.deleteForMe ||
-      MessageAction.reply ||
-      MessageAction.copy =>
-        false,
-    };
+  MessageAction.pin || MessageAction.deleteForEveryone => true,
+  MessageAction.react ||
+  MessageAction.star ||
+  MessageAction.deleteForMe ||
+  MessageAction.reply ||
+  MessageAction.copy => false,
+};
 
 /// Whether the menu must let [action] proceed. Online → always enabled;
 /// offline → only durable-local actions.

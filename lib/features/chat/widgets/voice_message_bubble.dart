@@ -10,8 +10,10 @@ import '../../../core/utils/media_utils.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../message_offline_policy.dart';
+import '../../media/providers/media_viewer_providers.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
+import 'media_upload_disc.dart';
 
 class VoiceMessageBubble extends ConsumerStatefulWidget {
   const VoiceMessageBubble({
@@ -23,6 +25,7 @@ class VoiceMessageBubble extends ConsumerStatefulWidget {
     this.durationText,
     this.status,
     this.createdAt,
+    this.localId,
   });
 
   final String conversationId;
@@ -32,6 +35,7 @@ class VoiceMessageBubble extends ConsumerStatefulWidget {
   final String? durationText;
   final String? status;
   final DateTime? createdAt;
+  final String? localId;
 
   @override
   ConsumerState<VoiceMessageBubble> createState() => _VoiceMessageBubbleState();
@@ -107,7 +111,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         ref.invalidate(voice);
       }
       // Download + decrypt the voice note to a local file, then play it.
-      final media = await ref.read(voice.future);
+      final media = ref.read(voice).valueOrNull;
       if (media == null) throw Exception('No media found');
 
       _cachedPath = media.file.path;
@@ -152,15 +156,33 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         : ref.watch(
             mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
           );
+    final blobStatus = ref
+        .watch(
+          mediaBlobStatusProvider(
+            MediaRef(widget.conversationId, widget.serverId),
+          ),
+        )
+        .valueOrNull;
     final online = ref.watch(isOnlineProvider).valueOrNull ?? true;
     // A failed load cannot be retried offline; reconnect re-enables the tap.
     final retryOffline = _hasError && !online;
     final expiresAt = mediaAsync.valueOrNull?.expiresAt;
-    final expired = gone || isExpired(expiresAt);
+    final expired =
+        gone || isExpired(expiresAt) || blobStatus == MediaBlobStatus.expired;
     final badgeText = compactExpiryLabel(expiresAt);
 
     // ── Expired state ───────────────────────────────────────
-    if (expired) {
+    if (blobStatus == MediaBlobStatus.deadLink ||
+        blobStatus == MediaBlobStatus.cantDecrypt ||
+        expired) {
+      final caption = blobStatus == MediaBlobStatus.cantDecrypt
+          ? kMediaCantDecrypt
+          : blobStatus == MediaBlobStatus.deadLink
+          ? kMediaNoLongerAvailable
+          : kMediaExpired;
+      final endedInk = widget.isMine
+          ? context.t.onAccent.withValues(alpha: 0.70)
+          : context.t.inkSoft;
       return ChatBubbleFrame(
         isMine: widget.isMine,
         runEnd: widget.runEnd,
@@ -169,13 +191,32 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         timestampOverlay: false,
         createdAt: widget.createdAt,
         status: widget.status,
-        child: ExpiredPlaceholder(
-          glyph: Icons.timer_off_outlined,
-          decorate: false,
-          inline: true,
-          ink: widget.isMine
-              ? context.t.onAccent.withValues(alpha: 0.70)
-              : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: Row(
+            children: [
+              Icon(
+                blobStatus == MediaBlobStatus.cantDecrypt
+                    ? Icons.lock_outline
+                    : expired
+                    ? Icons.timer_off_outlined
+                    : Icons.info_outline,
+                color: endedInk,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  caption,
+                  style: TextStyle(
+                    color: endedInk,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -198,53 +239,62 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
               Row(
                 children: [
                   // Play / pause / loading
-                  Semantics(
-                    button: true,
-                    enabled: !retryOffline,
-                    label: _hasError
-                        ? "Voice message didn't load. "
-                              '${online ? 'Tap to retry' : kOfflineActionHint}'
-                        : _isPlaying
-                        ? 'Pause voice message'
-                        : 'Play voice message',
-                    child: GestureDetector(
-                      onTap: retryOffline ? null : _loadAndPlay,
-                      child: Opacity(
-                        opacity: retryOffline ? .38 : 1,
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: widget.isMine
-                                ? context.t.onAccent.withValues(alpha: 0.16)
-                                : context.t.accent.withValues(alpha: 0.15),
+                  if (widget.localId != null)
+                    MediaUploadControl(
+                      localId: widget.localId!,
+                      status: widget.status,
+                      kind: 'Voice message',
+                      size: 30,
+                      onAccent: widget.isMine,
+                    )
+                  else
+                    Semantics(
+                      button: true,
+                      enabled: !retryOffline,
+                      label: _hasError
+                          ? "Voice message didn't load. "
+                                '${online ? 'Tap to retry' : kOfflineActionHint}'
+                          : _isPlaying
+                          ? 'Pause voice message'
+                          : 'Play voice message',
+                      child: GestureDetector(
+                        onTap: retryOffline ? null : _loadAndPlay,
+                        child: Opacity(
+                          opacity: retryOffline ? .38 : 1,
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: widget.isMine
+                                  ? context.t.onAccent.withValues(alpha: 0.16)
+                                  : context.t.accent.withValues(alpha: 0.15),
+                            ),
+                            child: _isLoading
+                                ? BusySpinner(
+                                    size: 16,
+                                    strokeWidth: 2,
+                                    color: widget.isMine
+                                        ? context.t.onAccent
+                                        : context.t.accent,
+                                  )
+                                : _hasError
+                                ? Icon(
+                                    Icons.error_outline,
+                                    color: context.t.error,
+                                    size: 22,
+                                  )
+                                : Icon(
+                                    _isPlaying ? Icons.pause : Icons.play_arrow,
+                                    color: widget.isMine
+                                        ? context.t.onAccent
+                                        : context.t.accent,
+                                    size: 20,
+                                  ),
                           ),
-                          child: _isLoading
-                              ? BusySpinner(
-                                  size: 16,
-                                  strokeWidth: 2,
-                                  color: widget.isMine
-                                      ? context.t.onAccent
-                                      : context.t.accent,
-                                )
-                              : _hasError
-                              ? Icon(
-                                  Icons.error_outline,
-                                  color: context.t.error,
-                                  size: 22,
-                                )
-                              : Icon(
-                                  _isPlaying ? Icons.pause : Icons.play_arrow,
-                                  color: widget.isMine
-                                      ? context.t.onAccent
-                                      : context.t.accent,
-                                  size: 20,
-                                ),
                         ),
                       ),
                     ),
-                  ),
 
                   const SizedBox(width: 10),
 
