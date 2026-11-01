@@ -325,3 +325,17 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
 
 Suggested order: 13.1 + 13.6 (one fix, the crash affects every chat) → 13.2 → 13.4, 13.5, 13.9 (Page 9 follow-ups)
 → 13.3 (now reproducible) → 13.10 → 13.7 + 13.8 with 12.4 media send.
+
+## 14. Wave 4 (2026-11-01): media-send SHOULDs, multi-delete confirm, group icon EXIF
+
+Work log: `docs/audits/wave-4-work-log.md`. User device PASS 2026-11-01.
+
+- `[FIXED 2026-11-01]` **14.1 An offline cancel after the create ack came back** (media-send review SHOULD 4). The row now carries a `cancelled` status tombstone.
+- `[FIXED 2026-11-01]` **14.2 Deleting an unsent own photo or video left its blobs pinned** (SHOULD 6). The delete is now a cancel.
+- `[FIXED 2026-11-01]` **14.3 Voice retry failed on the first tap** (SHOULD 9).
+- `[FIXED 2026-11-01]` **14.4 Multi-select delete had no confirmation.**
+- `[FIXED 2026-11-01]` **14.5 Group icon uploaded with EXIF** (security §7.1).
+- `[DONE in d0e3c85]` Burst follow-ups (media create sends its id; the media ack lifts queued sends). Guard test added.
+- `[WONTFIX 2026-11-01, user]` **14.6 Decrypted media cache has no TTL** (security §4.3). The server already deletes media after its retention, so the phone's copy is the only one left: an age-based sweep would lose the user's media for good. Kept as is; logout still wipes the cache.
+- `[BACKLOG, only if it becomes a nuisance]` **14.7 Reverse burst race:** a photo queued before a text can land after it on reconnect (the server orders the text first). The user is fine with it for now (2026-11-01). Fix if needed = the text outbox waits for an earlier queued media *create* in the same chat (this changes the frozen text send path).
+- `[FIXED 2026-11-01]` **14.8 13.10 wording:** a quote whose original isn't on the phone now reads "Message not available" (it covers expired, deleted and not-loaded-yet; "Message expired" was wrong for the last two).

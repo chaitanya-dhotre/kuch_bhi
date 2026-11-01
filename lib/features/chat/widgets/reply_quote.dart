@@ -172,7 +172,7 @@ class ReplyQuote extends ConsumerWidget {
       previewLine = _line(explicit, previewColor);
     } else if (originalAsync?.hasValue == true && original == null) {
       // A completed lookup with no row means expiry, deletion, or no local copy.
-      previewLine = _line('Message expired', context.t.inkSoft);
+      previewLine = _line('Message not available', context.t.inkSoft);
     } else {
       switch (resolvedType) {
         case 'image':

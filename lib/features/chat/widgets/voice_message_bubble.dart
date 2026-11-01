@@ -111,7 +111,10 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
         ref.invalidate(voice);
       }
       // Download + decrypt the voice note to a local file, then play it.
-      final media = ref.read(voice).valueOrNull;
+      // Await the (re)load: right after the invalidate above it is still
+      // loading, and reading its value failed the first retry tap. Safe to
+      // await: the family is not autoDispose.
+      final media = await ref.read(voice.future);
       if (media == null) throw Exception('No media found');
 
       _cachedPath = media.file.path;

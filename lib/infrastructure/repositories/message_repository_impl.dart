@@ -22,6 +22,7 @@ import '../../core/decrypt/device_key_store.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/format_utils.dart';
 import '../../core/utils/group_visibility.dart';
+import '../../core/utils/jpeg_without_exif.dart';
 import '../../core/utils/key_gap.dart';
 import '../../core/utils/op_id.dart';
 import '../../core/utils/realtime_gate.dart';
@@ -2077,6 +2078,9 @@ class MessageRepositoryImpl implements MessageRepository {
           .update(localId, body: {'is_deleted_for_everyone': true});
     } catch (e) {
       final never = e is ClientException && e.statusCode == 404;
+      // Not created yet, but the create may still be in flight: keep the
+      // row, so the upload (or the next resume) marks it once it lands.
+      if (never && uploadTracker.ticket(localId) != null) return;
       if (!never && _isTransientUpload(e)) {
         debugPrint('[Msg] cancel mark deferred: $e');
         return;
@@ -2463,6 +2467,14 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> deleteMessage(String localId, {bool forEveryone = false}) async {
     final msg = await db.messagesDao.getMessageByLocalId(localId);
     if (msg == null) return;
+    // An own media send still holding its upload latch is cancelled (blobs
+    // freed, any server copy hidden) when deleted for everyone, or when it
+    // never reached anyone complete (not created yet, or failed for good).
+    // Deleted for me, a pending upload just finishes, clearing the latch.
+    if ((forEveryone || msg.serverId == null || msg.status == 'failed') &&
+        await cancelMediaUpload(localId)) {
+      return;
+    }
 
     if (forEveryone) {
       if (msg.serverId != null) {
@@ -3816,7 +3828,7 @@ class MessageRepositoryImpl implements MessageRepository {
       files = [
         http.MultipartFile.fromBytes(
           'icon',
-          await iconFile.readAsBytes(),
+          await jpegWithoutExif(iconFile),
           filename: 'icon.jpg',
           contentType: MediaType('image', 'jpeg'),
         ),

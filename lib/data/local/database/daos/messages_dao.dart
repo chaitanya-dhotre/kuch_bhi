@@ -83,6 +83,25 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return out;
   }
 
+  /// Of [ids], those a locally cancelled media send holds: as its server id,
+  /// or (create ack skipped by the cancel) as its local id, which is the
+  /// server record id. Chunked at 400: two IN lists share the bind cap.
+  Future<Set<String>> cancelledSendIds(List<String> ids) async {
+    final out = <String>{};
+    for (final c in chunkIds(ids, 400)) {
+      final rows = await (select(messagesTable)
+            ..where((t) =>
+                t.status.equals('cancelled') &
+                (t.serverId.isIn(c) | t.localId.isIn(c))))
+          .get();
+      for (final r in rows) {
+        out.add(r.localId);
+        if (r.serverId != null) out.add(r.serverId!);
+      }
+    }
+    return out;
+  }
+
   /// #74 tap-down predecrypt: the NEWEST body-rendering rows of a
   /// conversation — same visibility predicate and order as
   /// [watchMessages] so the warmed set matches exactly what the chat
@@ -247,8 +266,13 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return null;
   }
 
+  /// A cancelled media send keeps its tombstone ([markCancelledLocally]).
   Future<void> updateMessageStatus(String localId, String status) =>
-      (update(messagesTable)..where((t) => t.localId.equals(localId))).write(
+      (update(messagesTable)
+            ..where((t) =>
+                t.localId.equals(localId) &
+                t.status.equals('cancelled').not()))
+          .write(
         MessagesTableCompanion(
           status:    Value(status),
           updatedAt: Value(DateTime.now()),
@@ -414,11 +438,14 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
 
   /// Cancelled media send: hidden at once ([watchMessages] filters it); the
   /// row stays until the server copy is marked too, so an offline cancel
-  /// survives a restart.
+  /// survives a restart. Status `cancelled` is the tombstone: a fetch or a
+  /// live update of the server copy (not marked yet) keeps the row hidden,
+  /// and [updateMessageStatus] never overwrites it.
   Future<void> markCancelledLocally(String localId) =>
       (update(messagesTable)..where((t) => t.localId.equals(localId)))
           .write(const MessagesTableCompanion(
         isDeletedForEveryone: Value(true),
+        status: Value('cancelled'),
       ));
 
   /// Own media rows still to upload (or whose cancel still has to reach the
@@ -427,7 +454,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       (select(messagesTable)
             ..where((t) =>
                 t.senderId.equals(myId) &
-                t.status.equals('pending') &
+                t.status.isIn(const ['pending', 'cancelled']) &
                 t.type.isIn(const ['image', 'video', 'voice', 'document']))
             ..orderBy([
               (t) => OrderingTerm(expression: t.createdAt),

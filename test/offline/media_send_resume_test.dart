@@ -163,7 +163,8 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(await h.db.messagesDao.watchMessages('g1').first, isEmpty);
     expect(await h.db.mediaBlobDao.byMessageId(id), isEmpty);
-    expect(await _status(h, id), 'pending', reason: 'hidden row kept for the mark');
+    // Wave 4: the kept row's status is now the cancel tombstone.
+    expect(await _status(h, id), 'cancelled', reason: 'hidden row kept for the mark');
 
     server.offline = false;
     await repo.resumeMediaUploads();

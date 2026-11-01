@@ -18,6 +18,32 @@ import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
 import 'reaction_picker.dart';
 
+/// The chat's multi-select delete: one confirm naming the count, in the
+/// single "Delete for me" wording, then [delete] per message. False =
+/// cancelled, nothing deleted.
+Future<bool> confirmAndDeleteForMe(
+  BuildContext context,
+  List<String> localIds,
+  Future<void> Function(String localId) delete,
+) async {
+  final one = localIds.length == 1;
+  final ok = await showConfirmDialog(
+    context: context,
+    title: one ? 'Delete message?' : 'Delete ${localIds.length} messages?',
+    body: one
+        ? 'This message will be deleted for you only.'
+        : 'These messages will be deleted for you only.',
+    confirmLabel: 'Delete',
+    confirmIcon: Icons.delete_outline,
+    destructive: true,
+  );
+  if (!ok) return false;
+  for (final id in localIds) {
+    await delete(id);
+  }
+  return true;
+}
+
 /// A row displayed by [showConversationMenu].
 ///
 /// [callback] is the canonical callback name. [onTap] is accepted as a

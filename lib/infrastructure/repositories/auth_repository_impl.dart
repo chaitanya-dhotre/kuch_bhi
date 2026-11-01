@@ -4,7 +4,6 @@ import 'dart:math';
 import 'dart:async';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +12,7 @@ import 'package:pocketbase/pocketbase.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../../core/network/pocketbase_client.dart';
+import '../../core/utils/jpeg_without_exif.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../data/local/database/tables/users_table.dart';
@@ -505,7 +505,7 @@ class AuthRepositoryImpl implements AuthRepository {
           if (avatarFile != null)
             http.MultipartFile.fromBytes(
               'avatar',
-              await _avatarJpegWithoutExif(avatarFile),
+              await jpegWithoutExif(avatarFile),
               filename: 'avatar.jpg',
             ),
         ],
@@ -520,22 +520,6 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   // ── Helpers ────────────────────────────────────────────────────
-
-  /// Re-encodes a picked photo as JPEG with NO metadata: image_picker's resize
-  /// keeps EXIF, GPS included, and every friend can download the avatar.
-  /// Never falls back to the original bytes.
-  Future<Uint8List> _avatarJpegWithoutExif(File file) async {
-    final bytes = await FlutterImageCompress.compressWithFile(
-      file.absolute.path,
-      minWidth: 1024,
-      minHeight: 1024,
-      quality: 80,
-      format: CompressFormat.jpeg,
-      keepExif: false,
-    );
-    if (bytes == null) throw StateError('Avatar re-encode failed');
-    return bytes;
-  }
 
   Future<void> _cacheUserLocally(User user) async {
     await db.usersDao.upsertUser(UsersTableCompanion.insert(

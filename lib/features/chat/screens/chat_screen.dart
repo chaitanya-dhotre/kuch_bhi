@@ -947,11 +947,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   );
 
   Future<void> _deleteSelected() async {
-    final ids = _selectedMessageIds.toList();
-    for (final id in ids) {
-      await ref.read(messageRepositoryProvider).deleteMessage(id);
-    }
-    if (mounted) setState(_selectedMessageIds.clear);
+    final repo = ref.read(messageRepositoryProvider);
+    final deleted = await confirmAndDeleteForMe(
+      context,
+      _selectedMessageIds.toList(),
+      repo.deleteMessage,
+    );
+    if (deleted && mounted) setState(_selectedMessageIds.clear);
   }
 
   Future<void> _showChatMenu(BuildContext context, Conversation conv) async {

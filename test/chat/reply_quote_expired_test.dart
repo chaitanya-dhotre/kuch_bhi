@@ -6,7 +6,7 @@ import 'package:kuch_bhi/data/local/database/app_database.dart';
 import 'package:kuch_bhi/features/chat/widgets/reply_quote.dart';
 
 void main() {
-  testWidgets('missing parent quote says Message expired without a skeleton', (
+  testWidgets('missing parent quote says Message not available without a skeleton', (
     tester,
   ) async {
     final db = AppDatabase.test();
@@ -23,7 +23,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Message expired'), findsOneWidget);
+    expect(find.text('Message not available'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('body-placeholder-deleted-parent')),
       findsNothing,

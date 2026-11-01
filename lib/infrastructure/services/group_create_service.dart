@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 
 import '../../core/network/pocketbase_client.dart';
+import '../../core/utils/jpeg_without_exif.dart';
 
 /// PocketBase write/read steps of group creation.
 ///
@@ -30,7 +31,7 @@ class GroupCreateService {
         files: [
           http.MultipartFile.fromBytes(
             'icon',
-            await iconFile.readAsBytes(),
+            await jpegWithoutExif(iconFile),
             filename: 'icon.jpg',
           ),
         ],

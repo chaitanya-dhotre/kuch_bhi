@@ -151,11 +151,21 @@ class IngestBoundary {
               if (u.row.serverId.present && u.row.serverId.value != null)
                 u.row.serverId.value!,
           ];
+          // A media send cancelled locally (status `cancelled`, the server
+          // copy not marked yet) stays cancelled, even when the cancel landed
+          // after the caller read the rows its companions were built from.
+          final cancelled = await _db.messagesDao.cancelledSendIds(serverIds);
           await _db.messagesDao.deleteByServerIds(serverIds);
           await _db.batch((b) {
             for (final u in batch.upserts) {
-              b.insert(_db.messagesTable, u.row,
-                  onConflict: DoUpdate((_) => u.row,
+              final row = cancelled.contains(u.row.serverId.value)
+                  ? u.row.copyWith(
+                      isDeletedForEveryone: const Value(true),
+                      status: const Value('cancelled'),
+                    )
+                  : u.row;
+              b.insert(_db.messagesTable, row,
+                  onConflict: DoUpdate((_) => row,
                       target: [_db.messagesTable.localId]));
             }
           });
