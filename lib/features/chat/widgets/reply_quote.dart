@@ -142,8 +142,11 @@ class ReplyQuote extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // ── Resolve the original message from Drift (if we have its id) ─────
     MessagesTableData? original;
+    final originalAsync = replyToId == null
+        ? null
+        : ref.watch(_originalMessageProvider(replyToId!));
     if (replyToId != null) {
-      original = ref.watch(_originalMessageProvider(replyToId!)).asData?.value;
+      original = originalAsync!.asData?.value;
     }
     final String resolvedType = original?.type ?? _fallbackType;
 
@@ -167,6 +170,9 @@ class ReplyQuote extends ConsumerWidget {
     final Widget previewLine;
     if (explicit != null) {
       previewLine = _line(explicit, previewColor);
+    } else if (originalAsync?.hasValue == true && original == null) {
+      // A completed lookup with no row means expiry, deletion, or no local copy.
+      previewLine = _line('Message expired', context.t.inkSoft);
     } else {
       switch (resolvedType) {
         case 'image':

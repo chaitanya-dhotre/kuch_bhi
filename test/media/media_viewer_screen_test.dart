@@ -363,6 +363,53 @@ void main() {
     expect(find.byType(MediaViewerScreen), findsOneWidget);
   });
 
+  // 13.9: zoom never shows black past the photo, and at 1× the photo is
+  // centred (not pinned to the top).
+  testWidgets('zoom stays inside the photo; centred at 1x', (tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // A photo still decoding: the zoom layer stays up, no decode failure.
+    PaintingBinding.instance.imageCache.putIfAbsent(
+        FileImage(File('/nonexistent/full.jpg')),
+        () => OneFrameImageStreamCompleter(Completer<ImageInfo>().future));
+    addTearDown(PaintingBinding.instance.imageCache.clear);
+    await pumpViewer(tester, load: () async => LocalMediaFile(
+      file: File('/nonexistent/full.jpg'), width: 400, height: 200));
+    await settle(tester);
+    final zoom = find.byType(InteractiveViewer);
+    // The zoom content is the whole screen with the photo drawn centred in
+    // it (contain), so the 400×200 photo sits at y 50..250 on 400×300.
+    expect(tester.getRect(find.descendant(
+        of: zoom, matching: find.byType(Stack)).first),
+        const Rect.fromLTWH(0, 0, 400, 300));
+
+    // Double-tap in the black band below the photo.
+    const below = Offset(20, 290);
+    await tester.tapAt(below);
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.tapAt(below);
+    await settle(tester);
+
+    Matrix4 m() =>
+        tester.widget<InteractiveViewer>(zoom).transformationController!.value;
+    expect(m().getMaxScaleOnAxis(), greaterThan(1.5));
+
+    // Drag down hard: the photo's top edge must not come below the screen top.
+    await tester.dragFrom(const Offset(200, 150), const Offset(0, 400));
+    await settle(tester);
+    var s = m().getMaxScaleOnAxis();
+    expect(50 * s + m().getTranslation().y, lessThanOrEqualTo(0.5),
+        reason: 'black above the photo');
+
+    // Drag up hard: its bottom edge must not come above the screen bottom.
+    await tester.dragFrom(const Offset(200, 150), const Offset(0, -400));
+    await settle(tester);
+    s = m().getMaxScaleOnAxis();
+    expect(250 * s + m().getTranslation().y, greaterThanOrEqualTo(299.5),
+        reason: 'black below the photo');
+  });
+
   testWidgets('Hero on the thumbnail; none under reduced motion',
       (tester) async {
     await pumpViewer(tester, load: () => mediaFile());

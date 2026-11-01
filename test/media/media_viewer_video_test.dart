@@ -137,6 +137,26 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('playing video chrome hides after three seconds; a11y keeps it',
+      (tester) async {
+    await open(tester);
+    await tester.pump(const Duration(seconds: 3, milliseconds: 100));
+    final controlsOpacity = tester.widget<AnimatedOpacity>(find.ancestor(
+        of: find.byTooltip('Pause'), matching: find.byType(AnimatedOpacity)).first);
+    expect(controlsOpacity.opacity, 0);
+    await tester.pumpWidget(const SizedBox());
+
+    await pumpViewer(tester,
+        args: viewerArgs(mediaType: 'video'),
+        load: () => mediaFile(path: '/nonexistent/v.mp4'),
+        a11y: true);
+    await tester.pump(const Duration(seconds: 4));
+    final accessibleOpacity = tester.widget<AnimatedOpacity>(find.ancestor(
+        of: find.byTooltip('Pause'), matching: find.byType(AnimatedOpacity)).first);
+    expect(accessibleOpacity.opacity, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   // Review fix 1 (E6): the plugin's own observer plays again on resume.
   testWidgets('app to background pauses; back stays paused', (tester) async {
     await open(tester);

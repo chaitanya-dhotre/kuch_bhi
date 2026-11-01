@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -83,6 +85,10 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
   bool _decodeFailed = false;
 
   final _zoom = TransformationController();
+  // The photo's fitted rect inside the zoom layer (null = size unknown).
+  Rect? _photoRect;
+  Size _viewport = Size.zero;
+  bool _clamping = false;
   late final _zoomAnim =
       AnimationController(vsync: this, duration: WarmPopTokens.motionBase);
   Animation<Matrix4>? _zoomTween;
@@ -97,6 +103,7 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
 
   VideoPlayerController? _video;
   bool _videoFailed = false;
+  Timer? _chromeTimer;
 
   @override
   void initState() {
@@ -156,6 +163,7 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _chromeTimer?.cancel();
     _video?.dispose();
     _zoomAnim.dispose();
     _snapAnim.dispose();
@@ -183,12 +191,16 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
     controller.addListener(_onVideoTick);
     setState(() {});
     await controller.play();
+    _scheduleChromeHide();
   }
 
   void _onVideoTick() {
     if (!mounted) return;
     // E3: at the end the chrome comes back with Play again.
-    if (_video?.value.isCompleted ?? false) _setChrome(true);
+    if (_video?.value.isPlaying != true) {
+      _chromeTimer?.cancel();
+      _setChrome(true);
+    }
     setState(() {});
   }
 
@@ -207,8 +219,32 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
   }
 
   void _onZoom() {
+    _clampZoom();
     final zoomed = _zoom.value.getMaxScaleOnAxis() > 1.01;
     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+  }
+
+  /// 13.9: while the scaled photo is smaller than the screen on an axis it
+  /// stays centred on it; once bigger, its edges can't move inside the
+  /// screen's. So zoom and pan never show black past the photo.
+  void _clampZoom() {
+    final photo = _photoRect;
+    if (_clamping || photo == null) return;
+    final m = _zoom.value;
+    final s = m.getMaxScaleOnAxis();
+    final t = m.getTranslation();
+    double fit(double tr, double view, double start, double len) {
+      final scaled = len * s;
+      if (scaled <= view) return (view - scaled) / 2 - start * s;
+      return tr.clamp(view - (start + len) * s, -start * s);
+    }
+
+    final x = fit(t.x, _viewport.width, photo.left, photo.width);
+    final y = fit(t.y, _viewport.height, photo.top, photo.height);
+    if ((x - t.x).abs() < 0.01 && (y - t.y).abs() < 0.01) return;
+    _clamping = true;
+    _zoom.value = m.clone()..setTranslationRaw(x, y, t.z);
+    _clamping = false;
   }
 
   void _setChrome(bool shown) {
@@ -218,10 +254,28 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
     setState(() => _chrome = shown);
   }
 
+  void _scheduleChromeHide() {
+    _chromeTimer?.cancel();
+    final video = _video;
+    if (video == null ||
+        !video.value.isPlaying ||
+        MediaQuery.accessibleNavigationOf(context)) {
+      return;
+    }
+    _chromeTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _video?.value.isPlaying == true) _setChrome(false);
+    });
+  }
+
   void _onTap() {
     // B4: under TalkBack the chrome never hides.
     if (MediaQuery.accessibleNavigationOf(context)) return;
     _setChrome(!_chrome);
+    if (_chrome) {
+      _scheduleChromeHide();
+    } else {
+      _chromeTimer?.cancel();
+    }
   }
 
   void _onDoubleTap() {
@@ -361,6 +415,9 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
     final shown = _chrome || MediaQuery.accessibleNavigationOf(context);
     final video = _video;
     final playing = video != null && video.value.isInitialized;
+    if (video?.value.isPlaying != true || video?.value.isCompleted == true) {
+      _chromeTimer?.cancel();
+    }
     final busy = view == _View.loading ||
         (_isVideo && view == _View.loaded && !playing);
     final clear = t.bg.withValues(alpha: 0);
@@ -488,12 +545,29 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
       ],
     );
     if (!_isVideo) {
-      media = InteractiveViewer(
-        transformationController: _zoom,
-        minScale: 1,
-        maxScale: 4,
-        child: media,
-      );
+      final content = media;
+      final w = file?.width?.toDouble() ?? 0;
+      final h = file?.height?.toDouble() ?? 0;
+      media = LayoutBuilder(builder: (context, box) {
+        _viewport = box.biggest;
+        // The photo is drawn contain-centred in the full-screen layer.
+        if (w > 0 && h > 0) {
+          final fit = math.min(box.maxWidth / w, box.maxHeight / h);
+          _photoRect = Rect.fromCenter(
+            center: box.biggest.center(Offset.zero),
+            width: w * fit,
+            height: h * fit,
+          );
+        } else {
+          _photoRect = null;
+        }
+        return InteractiveViewer(
+          transformationController: _zoom,
+          minScale: 1,
+          maxScale: 4,
+          child: content,
+        );
+      });
     }
     return Semantics(
       container: true,
@@ -690,7 +764,16 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen>
               fixedSize: const Size.square(64),
             ),
             // play() restarts from 0 at the end.
-            onPressed: v.isPlaying ? video.pause : video.play,
+            onPressed: () {
+              if (v.isPlaying) {
+                _chromeTimer?.cancel();
+                _setChrome(true);
+                video.pause();
+              } else {
+                video.play();
+                _scheduleChromeHide();
+              }
+            },
             icon: Icon(icon),
           ),
         ),

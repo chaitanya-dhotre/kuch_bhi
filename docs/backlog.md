@@ -306,7 +306,7 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
   `LocalMediaFile` (`vb`, `media?.durationSeconds ?? 0`). The record path fills it; the blob store's fast path (a row
   already `ready`, e.g. after a restart) returns no metadata, so it is null → 0:00. Fixed by the media-send spec's
   stored blob metadata (`docs/design/pages/media-send.md` C3, decision 3).
-- `[BUG]` **13.5 Viewer: the video play/pause disc never hides while playing and covers the video.** Page 9's own
+- `[FIXED 2026-11-01]` **13.5 Viewer: the video play/pause disc never hides while playing and covers the video.** Page 9's own
   controls; auto-hide the disc (with the bar) a few seconds after play, and show it again on tap. Reduced
   motion = no fade.
 - `[FIXED 2026-10-31, uncommitted]` **13.6 Swipe to reply, then open another chat: the reply stays attached, sends there, and the other
@@ -318,9 +318,9 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
 - `[BUG]` **13.8 Your own photos show the download disc.** Known limit from Page 9: the sender's full copy is not
   kept in the media cache after upload. Fix: register the sent (compressed) file as a `ready` full blob on send.
   Belongs with 12.4 media send.
-- `[BUG]` **13.9 Photo viewer zooms and pans into the black around the photo.** Likely: InteractiveViewer's child
+- `[FIXED 2026-11-01]` **13.9 Photo viewer zooms and pans into the black around the photo.** Likely: InteractiveViewer's child
   is the full screen, not the photo. Size the child to the photo's aspect so the edges clamp to it.
-- `[BUG]` **13.10 A reply quote of an expired (disappeared) message shows the decrypting bar forever.** Show
+- `[FIXED 2026-11-01]` **13.10 A reply quote of an expired (disappeared) message shows the decrypting bar forever.** Show
   "Message expired" in the quote instead.
 
 Suggested order: 13.1 + 13.6 (one fix, the crash affects every chat) → 13.2 → 13.4, 13.5, 13.9 (Page 9 follow-ups)
