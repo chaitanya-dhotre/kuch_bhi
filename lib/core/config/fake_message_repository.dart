@@ -192,6 +192,14 @@ class FakeMessageRepository implements MessageRepository {
   @override
   Future<void> refreshReactions(String messageServerId) async {}
 
+  /// Callers pass only the rows that change, so a toggle each is a set.
+  @override
+  Future<void> setStarred(List<String> localIds, bool starred) async {
+    for (final id in localIds) {
+      await toggleStar(id);
+    }
+  }
+
   // Everything else: LOUD failure with the member name — extend when a
   // consuming screen actually needs it (never a silent wrong answer).
   @override

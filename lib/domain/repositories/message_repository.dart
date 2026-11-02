@@ -96,6 +96,10 @@ abstract class MessageRepository {
   /// Toggle star on a message.
   Future<void> toggleStar(String localId);
 
+  /// 12.8 D6: star or unstar many rows. Writes the phone and returns; the
+  /// server writes follow one at a time in the background (creates paced).
+  Future<void> setStarred(List<String> localIds, bool starred);
+
   /// Toggle pin on a message.
   Future<void> togglePin(String localId, String conversationId, bool pin);
 

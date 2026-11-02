@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-select board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from albums.html; nothing redefined). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC;--error:#E5484D}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+.amoled{--bg:#000000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}td.bad{background:#FBE3E3}td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+/* ── chat frame ── */
+.ph{position:relative;width:300px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);overflow:hidden}
+.sb{display:flex;align-items:center;height:56px;padding:0 4px;background:var(--bg);border-bottom:1px solid var(--line)}
+.sb .ib{flex:0 0 auto;width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:19px;color:var(--inkSoft)}
+.sb .ib.x{color:var(--ink)}
+.sb .ib.off{opacity:.38}
+.sb .cnt{flex:1;min-width:0;font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden}
+.list{padding:6px 0 8px}
+.r{display:flex;padding:2px 12px}.r.me{justify-content:flex-end}
+.r.sel{background:var(--accentSoft)}
+.bb{max-width:210px;padding:7px 11px;border-radius:18px 18px 18px 6px;background:var(--surface);border:1px solid var(--line);font-size:14px}
+.r.me .bb{border-radius:18px 18px 6px 18px;background:var(--accent);color:var(--onAccent);border-color:var(--accent)}
+.r.sel .bb{box-shadow:0 0 0 1px rgba(239,160,11,.55)}
+.bb small{display:block;font-size:10.5px;opacity:.7;text-align:right}
+.bb.ph2{padding:0;overflow:hidden;width:150px;height:96px;display:flex;align-items:flex-end;justify-content:flex-end}
+.bb.ph2 svg{position:absolute;width:150px;height:96px}
+.bb.al{padding:3px;display:flex;gap:3px;width:200px}
+.bb.al span{flex:0 0 auto;width:62px;height:80px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px}
+.r.me .bb.al span{background:rgba(255,255,255,.35)}
+.del{font-style:italic;color:var(--inkSoft)}
+.date,.sys{text-align:center;font-size:11.5px;color:var(--inkSoft);padding:6px 0}
+.date span,.sys span{background:var(--surface2);border-radius:999px;padding:2px 10px}
+.inp{margin:4px 8px 8px;height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;color:var(--inkFaint);font-size:13.5px}
+.finger{position:absolute;width:30px;height:30px;border-radius:999px;background:rgba(42,37,32,.25);border:2px solid rgba(42,37,32,.55)}
+.band64{position:absolute;left:0;right:0;height:46px;background:repeating-linear-gradient(135deg,rgba(229,72,77,.10) 0 6px,transparent 6px 12px);border-top:1px dashed #E5484D;font-size:10px;color:#B03A3E;text-align:right;padding:2px 6px}
+/* sheets / dialog / toast */
+.sheet{width:300px;max-width:100%;background:var(--surface);color:var(--ink);border-radius:20px 20px 0 0;border:1px solid var(--line);padding:8px 16px 14px}
+.sheet .hd{width:36px;height:4px;border-radius:9px;background:var(--line);margin:0 auto 10px}
+.sr{display:flex;gap:14px;align-items:center;min-height:52px}
+.sr .ic{width:24px;text-align:center;color:var(--error)}
+.sr b{flex:1;font-size:15px}.sr i{font-style:normal;font-size:13px;color:var(--inkSoft)}
+.sr.off .dimpart{opacity:.38;display:flex;gap:14px;align-items:center;flex:1}
+.dlg{width:300px;max-width:100%;background:var(--surface);color:var(--ink);border-radius:28px;border:1px solid var(--line);padding:20px}
+.dlg h3{margin:0 0 8px;font-size:20px}.dlg p{margin:0 0 16px;font-size:15px;line-height:22px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;font-weight:600;font-size:14px}
+.dlg .acts span{padding:10px 14px;border-radius:14px}.dlg .acts .go{border:1px solid var(--line)}.dlg .acts .go b{color:var(--error)}
+.toast{display:inline-block;background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:14px;max-width:300px}
+.jk,.jk *{font-family:"Plus Jakarta Sans",-apple-system,sans-serif}
+.big .cnt{font-size:15px}/* 200% would be 32px; FittedBox scales it down to the slot (G4) */.big .bb{font-size:28px;max-width:230px}
+</style>
+</head>
+<body>
+<h1>Multi-select, board</h1>
+<p class="sub">Backlog 12.8. Sections <b>S1–S9</b> (page-local). Chat states are drawn in light, dark and AMOLED side by side. Audit at <code>5580d1e</code>, 2026-11-02. Checklist and decisions: <code>multi-select.md</code>. Nothing here is built yet. Row tint, bar and copy are the defaults; numbered decisions can change them.</p>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="land" viewBox="0 0 210 150" preserveAspectRatio="xMidYMid slice"><rect width="210" height="150" fill="#CFE3F0"/><circle cx="160" cy="38" r="18" fill="#F4D58A"/><path d="M0 110 L60 55 L100 95 L140 50 L210 112 L210 150 L0 150Z" fill="#7FA37A"/></symbol>
+</defs></svg>
+
+<!-- S1 -->
+<div class="band"><header><span class="n">S1</span><h2>In and out (A1–A5; decisions 1, 2)</h2></header>
+<div class="flow"><span class="bx">Long-press a message</span><span class="ar">→</span><span class="bx">menu</span><span class="ar">→</span><span class="bx ok">Select</span><span class="ar">→</span><span class="bx">1 selected, keyboard down</span><span class="ar">→</span><span class="bx">tap / long-press + slide</span><span class="ar">→</span><span class="bx">Copy · Star · Delete</span><span class="ar">→</span><span class="bx">selection ends</span></div>
+<div class="flow"><span class="bx">✕ Exit selection</span><span class="ar">or</span><span class="bx">Android back</span><span class="ar">→</span><span class="bx">selection ends (the chat stays open)</span></div>
+<div class="tblwrap"><table>
+<tr><th></th><th>Today (<code>5580d1e</code>)</th><th>This spec</th></tr>
+<tr><td>Mode</td><td class="bad">on while the set is non-empty (<code>cs:188</code>); there is no way to deselect</td><td class="ok">its own flag; stays open at <b>0 selected</b> with every action dimmed (decision 1), like the collage</td></tr>
+<tr><td>Tap</td><td class="bad">opens the photo / plays / follows the link</td><td class="ok">toggles; whole row width</td></tr>
+<tr><td>Long-press</td><td>opens the menu again</td><td class="ok">toggles + starts a drag range</td></tr>
+<tr><td>Bar</td><td>✕ · count · delete (for me only)</td><td class="ok">✕ · count (live, scales) · Copy · Star · Delete (for me / for everyone)</td></tr>
+</table></div></div>
+
+<!-- S2 -->
+<div class="band"><header><span class="n">S2</span><h2>The chat while selecting (B1, B5, C1–C3; decision 6)</h2></header><div class="row" id="s2"></div>
+<div class="note">Selected = the whole row in <code>accentSoft</code> + the bubble's existing accent ring (<code>mb:449</code>). No discs, nothing shifts. Date separators and system rows ("Ravi added Meera") never take the tint and a range skips them. Own-bubble colours here are schematic; the real bubbles keep their current colours.</div></div>
+
+<!-- S3 -->
+<div class="band"><header><span class="n">S3</span><h2>Drag range and autoscroll (B2–B4; decisions 3–5)</h2></header>
+<div class="row"><div class="wrap"><span class="tag">Long-press row 2, slide up to row 5</span><div id="s3a"></div></div>
+<div style="flex:1 1 300px;min-width:0;font-size:13px">
+<div class="tblwrap"><table>
+<tr><th>Step</th><th>What happens</th></tr>
+<tr><td>Long-press a row (selection open)</td><td>it toggles; one selection click; the drag begins. The menu does not open.</td></tr>
+<tr><td>Start row was <b>off</b></td><td>it turns on; every row the range covers turns <b>on</b></td></tr>
+<tr><td>Start row was <b>on</b></td><td>it turns off; the range turns rows <b>off</b></td></tr>
+<tr><td>Slide back toward the start</td><td>rows leaving the range go back to what they were before this drag</td></tr>
+<tr><td>Finger in the top / bottom 64dp</td><td>the list scrolls that way, 0 → 1600 dp/s by depth; the range follows the row under the finger; older history loads as usual</td></tr>
+<tr><td>Lift</td><td>the drag ends; the selection stays</td></tr>
+<tr><td>Outside selection</td><td>long-press = the menu, unchanged (decision 5)</td></tr>
+</table></div>
+<p>Row lookup: each list row carries a <code>MetaData</code> with its item index; the drag hit-tests the list at the pointer and takes the nearest selectable index. No new package. TalkBack path: tap each message (G3).</p></div></div></div>
+
+<!-- S4 -->
+<div class="band"><header><span class="n">S4</span><h2>The selection bar, shared piece C18 (D1, E3, H1; decision 13)</h2></header><div class="row" id="s4"></div>
+<div class="note">Tooltips and semantics: <b>Exit selection</b>, <b>Copy selected messages</b>, <b>Star selected messages</b> / <b>Unstar selected messages</b>, <b>Delete selected messages</b>. The count is a live region and scales down on one line. A dimmed icon is 38% and not enabled.</div></div>
+
+<!-- S5 -->
+<div class="band"><header><span class="n">S5</span><h2>Delete (D4, D5, F1, F2; decisions 10, 11)</h2></header>
+<div class="flow"><span class="bx">Delete</span><span class="ar">→</span><span class="bx">every selected row yours <b>and</b> still a member?</span><span class="ar">yes →</span><span class="bx ok">sheet: for me / for everyone</span></div>
+<div class="flow"><span class="bx">Delete</span><span class="ar">→</span><span class="bx">one of theirs, or a group you left</span><span class="ar">→</span><span class="bx">straight to the for-me confirm</span></div>
+<div class="row" id="s5"></div>
+<div class="tblwrap"><table>
+<tr><th>Row, under Delete for everyone</th><th>Call</th></tr>
+<tr><td>Sent (has a server id)</td><td><code>deleteMessage(id, forEveryone: true)</code></td></tr>
+<tr><td>Own, not sent yet (no server id)</td><td><code>deleteMessage(id)</code>, for me; an unsent photo or video becomes a cancel (wave 4)</td></tr>
+<tr><td>Already <b>Message deleted</b></td><td><code>deleteMessage(id)</code>, clears the tombstone for me</td></tr>
+<tr><td>Gone since you selected it (expired, deleted elsewhere)</td><td>skipped (D7)</td></tr>
+</table></div></div>
+
+<!-- S6 -->
+<div class="band"><header><span class="n">S6</span><h2>Copy, Star, toasts, TalkBack (D2, D3, D6, G1–G2; decisions 7–9, 12)</h2></header>
+<div class="row"><div class="wrap"><span class="tag">Clipboard after Copy (2 texts + 1 photo)</span><pre style="margin:0;font-size:13px;background:#fff;border:1px solid #E4DDD1;border-radius:8px;padding:8px;white-space:pre-wrap">are we still on for sunday?
+
+yes! 10am at the gate</pre><div style="margin-top:8px" class="toast">Copied 2 of 3. Only text is copied.</div></div>
+<div class="wrap"><span class="tag">Toasts</span><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start">
+<span class="toast">Copied</span><span class="toast">Copied 3 messages</span><span class="toast">Starred 4 messages</span><span class="toast">Unstarred</span></div></div>
+<div style="flex:1 1 300px;min-width:0;font-size:13px">
+<div class="tblwrap"><table>
+<tr><th>TalkBack while selecting</th><th>Reads</th></tr>
+<tr><td>A selected text</td><td><b>You, are we still on for sunday?, 14:02, read, selected</b> · double-tap to <b>Deselect</b></td></tr>
+<tr><td>An unselected album</td><td>its album label (albums D7) + <b>, not selected</b> · double-tap to <b>Select</b></td></tr>
+<tr><td>Count change</td><td><b>3 selected</b> (live region)</td></tr>
+<tr><td>Inner buttons (play, retry, links)</td><td>hidden while selecting; they don't respond</td></tr>
+</table></div>
+<p><b>Star many</b> (D6, new <code>setStarred</code>): the phone first, all rows at once; then the server, one row at a time, at most 15 creates per 5 s (the live limit is 20 per 5 s for creates), a 429 waits 5 s and retries up to 3 times. Unstar is a list + delete, not a create, so it isn't paced. Needed because star sync only adds: a refused unstar comes back on the next sync.</p></div></div></div>
+
+<!-- S7 -->
+<div class="band"><header><span class="n">S7</span><h2>Albums in a selection (E1–E4; decision 13)</h2></header>
+<div class="tblwrap"><table>
+<tr><th></th><th>Chat selection</th><th>Collage selection (albums E4a–E4c, shipped)</th></tr>
+<tr><td>Unit</td><td>the whole album (all its rows); count counts rows, <b>5 selected</b></td><td>one item</td></tr>
+<tr><td>Tap / long-press</td><td>toggle the album; no collage, no sideways scroll</td><td>toggle the item; no viewer</td></tr>
+<tr><td>At 0</td><td colspan="2">stays open, actions dim (now the same in both)</td></tr>
+<tr><td>Bar</td><td>C18: Copy · Star · Delete</td><td>C18 with Copy and Star left out: Delete only</td></tr>
+<tr><td>Copy</td><td>skips the album (media)</td><td>n/a</td></tr>
+<tr><td>Star</td><td>every row; Starred shows one album card (albums F7)</td><td>n/a (star = whole album, albums decision 21)</td></tr>
+<tr><td>Delete</td><td colspan="2">same shared flow: all yours → for me / for everyone; else for me. Same copy.</td></tr>
+</table></div>
+<div class="note">A late item that joins the album after you select it is included when the action runs (D7). Picking single items of an album stays in the collage.</div></div>
+
+<!-- S8 -->
+<div class="band"><header><span class="n">S8</span><h2>Edge cases (F1–F9)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Case</th><th>Selectable</th><th>Copy</th><th>Star</th><th>Delete</th></tr>
+<tr><td>Your sent text</td><td>yes</td><td>yes</td><td>yes</td><td>for me / for everyone (if all yours)</td></tr>
+<tr><td>Their text (DM or group)</td><td>yes</td><td>yes</td><td>yes</td><td>for me only (the whole set)</td></tr>
+<tr><td>Your text still sending</td><td>yes</td><td>yes</td><td>phone only until sent</td><td>for me (D5)</td></tr>
+<tr><td>Your photo/video uploading or failed</td><td>yes</td><td>skipped</td><td>phone only until sent</td><td>cancel (wave 4)</td></tr>
+<tr><td><b>Message deleted</b> (for everyone)</td><td>yes</td><td>skipped</td><td>skipped</td><td>for me (clears it)</td></tr>
+<tr><td><b>Can't decrypt</b></td><td>yes</td><td>skipped</td><td>yes</td><td>yes</td></tr>
+<tr><td>System row (group event)</td><td class="bad">no</td><td colspan="3">never in a range</td></tr>
+<tr><td>Disappearing, expires while selected</td><td colspan="4">leaves the list and the set; the count drops; a drag whose start expires ends. Starring doesn't keep it (12.7).</td></tr>
+<tr><td>Group you left</td><td>yes</td><td>yes</td><td>yes</td><td>for me only (decision 10)</td></tr>
+<tr><td>Offline</td><td>yes</td><td>yes</td><td>yes (server later)</td><td>for everyone dimmed, <b>Available online</b></td></tr>
+<tr><td>New message arrives</td><td colspan="4">shows unselected; nothing moves</td></tr>
+<tr><td>Pinned</td><td colspan="4">no bulk pin (cap of 3, network-only)</td></tr>
+</table></div></div>
+
+<!-- S9 -->
+<div class="band"><header><span class="n">S9</span><h2>360dp × 200% text, Plus Jakarta Sans · diff summary</h2></header><div class="row" id="s9"></div>
+<p style="font-size:13px;margin:10px 0 0">12 rows in <code>multi-select.md</code> → "Diff vs current implementation". The big four: tap toggles and inner taps stop; long-press + slide picks a range with autoscroll; the bar gains Copy and Star and the collage's delete choice; one shared bar for the chat and the collage. Plus one repo method that paces bulk star writes.</p></div>
+
+<script>
+const T=[['Light',''],['Dark','dark'],['AMOLED','amoled']];
+const icons=({copy=true,star='☆',off=[] }={})=>(copy?`<span class="ib ${off.includes('copy')?'off':''}" title="Copy selected messages">⧉</span>`:'')+(star?`<span class="ib ${off.includes('star')?'off':''}" title="Star selected messages">${star}</span>`:'')+`<span class="ib ${off.includes('del')?'off':''}" title="Delete selected messages">🗑</span>`;
+const bar=(n,o)=>`<div class="sb"><span class="ib x" title="Exit selection">✕</span><span class="cnt">${n} selected</span>${icons(o)}</div>`;
+const r=(me,sel,body,cls='')=>`<div class="r ${me?'me':''} ${sel?'sel':''}"><div class="bb ${cls}">${body}</div></div>`;
+function chat(){return bar(5,{})+`<div class="list">
+<div class="date"><span>Today</span></div>
+${r(false,true,'are we still on for sunday?<small>14:01</small>')}
+${r(true,false,'yes! 10am at the gate<small>14:02 ✓✓</small>')}
+<div class="sys"><span>Ravi added Meera</span></div>
+${r(false,false,'<span class="del">🚫 Message deleted</span>')}
+${r(true,true,'<span>▦</span><span>▦</span><span>▶</span>','al')}
+${r(false,true,'bring snacks pls<small>14:09</small>')}
+</div><div class="inp">Message</div>`;}
+document.getElementById('s2').innerHTML=T.map(([l,c])=>`<div class="wrap"><span class="tag">${l} · 2 texts + a 3-item album = 5 selected</span><div class="ph ${c}">${chat()}</div></div>`).join('');
+document.getElementById('s3a').innerHTML=`<div class="ph" style="height:330px">${bar(5,{})}<div class="list">
+${r(false,true,'row 5 ← finger here<small>14:20</small>')}
+${r(true,true,'row 4<small>14:18 ✓✓</small>')}
+<div class="date"><span>skipped: date / system</span></div>
+${r(false,true,'row 3<small>14:15</small>')}
+${r(true,true,'row 2 ← long-press start<small>14:12 ✓✓</small>')}
+${r(false,false,'row 1<small>14:10</small>')}
+</div><div class="band64" style="top:56px">top 64dp: scrolls up</div><div class="finger" style="left:170px;top:74px"></div></div>`;
+const st=[
+ ['3 selected',bar(3,{})],
+ ['0 selected: still selecting, all dim',bar(0,{off:['copy','star','del']})],
+ ['Only photos selected: Copy dim',bar(2,{off:['copy']})],
+ ['All starred: Unstar (filled)',bar(4,{star:'★'})],
+ ['Collage (C18 without Copy / Star)',bar(2,{copy:false,star:''})],
+];
+document.getElementById('s4').innerHTML=st.map(([l,h])=>`<div class="wrap"><span class="tag">${l}</span><div class="ph">${h}</div></div>`).join('');
+const sheet=(online)=>`<div class="sheet"><div class="hd"></div><div class="sr"><span class="ic">🗑</span><b>Delete for me</b></div>`+(online?`<div class="sr"><span class="ic">⊗</span><b>Delete for everyone</b></div>`:`<div class="sr off"><span class="dimpart"><span class="ic">⊗</span><b>Delete for everyone</b></span><i>Available online</i></div>`)+`</div>`;
+const dlg=(t,b)=>`<div class="dlg"><h3>${t}</h3><p>${b}</p><div class="acts"><span>Cancel</span><span class="go"><b>🗑</b> Delete</span></div></div>`;
+document.getElementById('s5').innerHTML=[
+ ['All yours, online',sheet(true)],
+ ['All yours, offline',sheet(false)],
+ ['For me, several',dlg('Delete 3 messages?','These messages will be deleted for you only.')],
+ ['For everyone, several',dlg('Delete 3 messages?','These messages will be deleted for everyone in this chat.')],
+ ['One selected, for everyone',dlg('Delete message?','This message will be deleted for everyone in this chat.')],
+].map(([l,h])=>`<div class="wrap"><span class="tag">${l}</span>${h}</div>`).join('');
+document.getElementById('s9').innerHTML=[['System font, 200%',''],['Plus Jakarta Sans, 200%','jk']].map(([l,c])=>`<div class="wrap"><span class="tag">${l} · 360dp scaled to 300 · count scaled down to fit</span><div class="ph big ${c}">${bar(120,{})}<div class="list">${r(false,true,'see you there<small>14:01</small>')}${r(true,false,'ok<small>14:02</small>')}</div></div></div>`).join('');
+</script>
+</body>
+</html>

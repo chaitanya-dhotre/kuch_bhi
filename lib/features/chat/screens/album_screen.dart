@@ -20,7 +20,7 @@ import '../providers/upload_progress_provider.dart';
 import '../widgets/album_bubble.dart' show albumTileLabel;
 import '../widgets/image_message_bubble.dart';
 import '../widgets/media_retry.dart';
-import '../widgets/message_context_menu.dart';
+import '../widgets/selection_bar.dart';
 import '../widgets/video_message_bubble.dart';
 
 /// 12.5 E1–E4c: the collage. It watches the album's rows, so a late item
@@ -168,71 +168,18 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
     );
   }
 
-  Future<String?> _deleteChoice(bool online) {
-    return showAppSheet<String>(
-      context: context,
-      useRootNavigator: true,
-      builder: (sheetContext) => AppSheetChrome(
-        children: [
-          SheetActionRow(
-            icon: Icons.delete_outline,
-            label: 'Delete for me',
-            destructive: true,
-            onTap: () => Navigator.of(sheetContext).pop('me'),
-          ),
-          SheetActionRow(
-            icon: Icons.delete_forever_outlined,
-            label: 'Delete for everyone',
-            destructive: true,
-            enabled: online,
-            trailing: online ? null : kOfflineActionHint,
-            onTap: () => Navigator.of(sheetContext).pop('everyone'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _deleteSelected(
-    List<Message> rows,
-    bool allOwn,
-    bool online,
-  ) async {
-    final ids = [
+  Future<void> _deleteSelected(List<Message> rows, bool allOwn) async {
+    final picked = [
       for (final row in rows)
-        if (_selected.contains(row.localId)) row.localId,
+        if (_selected.contains(row.localId)) row,
     ];
-    if (ids.isEmpty) return;
-    final repo = ref.read(messageRepositoryProvider);
-    final choice = allOwn ? await _deleteChoice(online) : 'me';
-    if (choice == null || !mounted) return;
-
-    if (choice == 'me') {
-      final ok = await confirmAndDeleteForMe(
-        context,
-        ids,
-        repo.deleteMessage,
-      );
-      if (ok && mounted) _exitSelection();
-      return;
-    }
-
-    final one = ids.length == 1;
-    final ok = await showConfirmDialog(
-      context: context,
-      title: one ? 'Delete message?' : 'Delete ${ids.length} messages?',
-      body: one
-          ? 'This message will be deleted for everyone in this chat.'
-          : 'These messages will be deleted for everyone in this chat.',
-      confirmLabel: 'Delete',
-      confirmIcon: Icons.delete_outline,
-      destructive: true,
+    final ok = await deleteSelectedMessages(
+      context,
+      ref,
+      picked,
+      canDeleteForEveryone: allOwn,
     );
-    if (!ok) return;
-    for (final id in ids) {
-      await repo.deleteMessage(id, forEveryone: true);
-    }
-    if (mounted) _exitSelection();
+    if (ok && mounted) _exitSelection();
   }
 
   void _openViewer(List<Message> rows, List<String> mediaIds, int index) {
@@ -339,70 +286,26 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
       DateFormat('HH:mm').format(widget.timestamp.toLocal());
 
   PreferredSizeWidget _selectionBar(BuildContext context, bool allOwn) {
-    final t = context.t;
-    final empty = _selected.isEmpty;
     return PreferredSize(
       preferredSize: const Size.fromHeight(56),
       child: Material(
-        color: t.bg,
+        color: context.t.bg,
         child: SafeArea(
           bottom: false,
-          child: SizedBox(
-            height: 56,
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Exit selection',
-                  color: t.ink,
-                  constraints:
-                      const BoxConstraints(minWidth: 48, minHeight: 48),
-                  icon: const Icon(Icons.close),
-                  onPressed: _exitSelection,
-                ),
-                Expanded(
-                  child: Semantics(
-                    liveRegion: true,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '${_selected.length} selected',
-                        maxLines: 1,
-                        style: TextStyle(
-                          color: t.ink,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+          // E3: delete-only, so no Copy or Star slot.
+          child: SelectionBar(
+            count: _selected.length,
+            onExit: _exitSelection,
+            onDelete: () => _deleteSelected(
+              ref
+                      .read(
+                        albumRowsProvider(
+                          AlbumKey(widget.conversationId, widget.albumId),
                         ),
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Delete selected messages',
-                  color: t.inkSoft,
-                  constraints:
-                      const BoxConstraints(minWidth: 48, minHeight: 48),
-                  onPressed: empty ? null : () => _deleteSelected(
-                    ref
-                            .read(
-                              albumRowsProvider(
-                                AlbumKey(
-                                  widget.conversationId,
-                                  widget.albumId,
-                                ),
-                              ),
-                            )
-                            .valueOrNull ??
-                        const <Message>[],
-                    allOwn,
-                    ref.read(isOnlineProvider).valueOrNull ?? true,
-                  ),
-                  icon: Opacity(
-                    opacity: empty ? 0.38 : 1,
-                    child: const Icon(Icons.delete_outline),
-                  ),
-                ),
-              ],
+                      )
+                      .valueOrNull ??
+                  const <Message>[],
+              allOwn,
             ),
           ),
         ),

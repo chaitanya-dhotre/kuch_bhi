@@ -449,11 +449,11 @@ class _ContextSheet extends ConsumerWidget {
           allStarred ? 'Unstar' : 'Star',
           () async {
             if (isAlbum) {
-              for (final row in rows) {
-                if (allStarred || !row.isStarred) {
-                  await repo.toggleStar(row.localId);
-                }
-              }
+              // 12.8 decision 12: paced server writes, not 20 at once.
+              await repo.setStarred([
+                for (final row in rows)
+                  if (allStarred || !row.isStarred) row.localId,
+              ], !allStarred);
             } else {
               await repo.toggleStar(message.localId);
             }

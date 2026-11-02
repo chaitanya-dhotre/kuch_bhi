@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_strings.dart';
+import '../../../core/decrypt/body_cache.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../data/local/database/app_database.dart';
@@ -25,6 +28,7 @@ import '../widgets/message_bubble.dart';
 import '../widgets/message_context_menu.dart';
 import '../widgets/message_input.dart';
 import '../widgets/pinned_message_banner.dart';
+import '../widgets/selection_bar.dart';
 import '../../media/screens/media_docs_screen.dart';
 import '../../groups/screens/group_settings_screen.dart';
 import '../../starred_messages/screens/starred_messages_screen.dart';
@@ -57,6 +61,12 @@ class _MsgItem extends _ChatItem {
   final List<Message>? album;
 
   Iterable<Message> get rows => album ?? [msg];
+}
+
+/// 12.8 B3: tags a selectable row for the drag hit-test.
+class _RowTag {
+  const _RowTag(this.id);
+  final String id;
 }
 
 class _DateItem extends _ChatItem {
@@ -185,7 +195,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _showScrollToLatest = false;
   final Set<String> _selectedMessageIds = <String>{};
 
-  bool get _selectionMode => _selectedMessageIds.isNotEmpty;
+  /// 12.8 A2: its own flag, so selection stays open at 0 selected.
+  bool _selectionMode = false;
+
+  // B3/B4 drag range: the start row, its new state, the selection before
+  // the drag, the finger, and the autoscroll tick.
+  final _listKey = GlobalKey();
+  String? _dragAnchor;
+  bool _dragOn = true;
+  Set<String> _dragBase = const {};
+  Offset? _dragPointer;
+  Timer? _autoScroll;
 
   // Match navigation
   List<int> _matchItemIndices = []; // indices into _items (the flat list)
@@ -280,6 +300,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
     _search.dispose();
     _flashTimer?.cancel();
+    _autoScroll?.cancel();
     _markReadSub?.close();
     _markReadDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -528,6 +549,239 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
+  // ── Selection (12.8) ──────────────────────────────────────────────────
+
+  bool _isSelected(_MsgItem item) =>
+      item.rows.any((r) => _selectedMessageIds.contains(r.localId));
+
+  /// E1: an album selects as one unit.
+  void _mark(Set<String> into, _MsgItem item, bool on) {
+    final ids = item.rows.map((r) => r.localId);
+    on ? into.addAll(ids) : into.removeAll(ids);
+  }
+
+  void _enterSelection(_MsgItem item) {
+    setState(() {
+      _selectionMode = true;
+      _mark(_selectedMessageIds, item, true);
+    });
+    // A1: keyboard down, draft kept. After the frame, because the menu's
+    // pop hands focus back to the composer.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => FocusManager.instance.primaryFocus?.unfocus(),
+    );
+  }
+
+  void _toggle(_MsgItem item) =>
+      setState(() => _mark(_selectedMessageIds, item, !_isSelected(item)));
+
+  void _exitSelection() {
+    _endDrag();
+    setState(() {
+      _selectionMode = false;
+      _selectedMessageIds.clear();
+    });
+  }
+
+  /// B3: the selectable row under [global], found by hit-testing the list
+  /// for the [MetaData] each message row carries.
+  String? _rowAt(Offset global) {
+    final box = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    final result = BoxHitTestResult();
+    box.hitTest(result, position: box.globalToLocal(global));
+    for (final entry in result.path) {
+      final target = entry.target;
+      if (target is RenderMetaData && target.metaData is _RowTag) {
+        return (target.metaData as _RowTag).id;
+      }
+    }
+    return null;
+  }
+
+  int _indexOf(String id) => _items.indexWhere(
+    (it) => it is _MsgItem && it.msg.localId == id,
+  );
+
+  void _tapRow(TapUpDetails d) {
+    final id = _rowAt(d.globalPosition);
+    final i = id == null ? -1 : _indexOf(id);
+    if (i >= 0) _toggle(_items[i] as _MsgItem);
+  }
+
+  /// B2: a long-press while selecting toggles its row and starts a range
+  /// that takes the row's new state.
+  void _startDrag(LongPressStartDetails d) {
+    final id = _rowAt(d.globalPosition);
+    final i = id == null ? -1 : _indexOf(id);
+    if (i < 0) return;
+    HapticFeedback.selectionClick();
+    _autoScroll?.cancel();
+    _dragAnchor = id;
+    _dragBase = {..._selectedMessageIds};
+    _dragOn = !_isSelected(_items[i] as _MsgItem);
+    _dragPointer = d.globalPosition;
+    _applyRange(id!);
+    _autoScroll = Timer.periodic(
+      const Duration(milliseconds: 16),
+      (_) => _autoScrollTick(),
+    );
+  }
+
+  void _moveDrag(Offset global) {
+    if (_dragAnchor == null) return;
+    _dragPointer = global;
+    // A finger past the list's edge still follows the edge row (B4).
+    final box = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final local = box.globalToLocal(global);
+    final id = _rowAt(
+      box.localToGlobal(
+        Offset(local.dx, local.dy.clamp(1.0, box.size.height - 1)),
+      ),
+    );
+    // Over a date row: the range stays where it was.
+    if (id != null) _applyRange(id);
+  }
+
+  /// Rows between the start and [toId] take the drag's state; every other
+  /// row is what it was before the drag.
+  void _applyRange(String toId) {
+    final from = _indexOf(_dragAnchor!);
+    if (from < 0) return _endDrag(); // F6: the start row expired
+    final to = _indexOf(toId);
+    if (to < 0) return;
+    final next = {..._dragBase};
+    for (var i = math.min(from, to); i <= math.max(from, to); i++) {
+      final item = _items[i];
+      if (item is _MsgItem && item.msg.type != 'system') {
+        _mark(next, item, _dragOn);
+      }
+    }
+    setState(
+      () => _selectedMessageIds
+        ..clear()
+        ..addAll(next),
+    );
+  }
+
+  /// B4: a finger in the list's top or bottom 64dp scrolls that way, from
+  /// 0 at the band's inner edge to 1600 dp/s at the list's edge.
+  void _autoScrollTick() {
+    final box = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    final pointer = _dragPointer;
+    if (box == null || pointer == null || !_scrollCtrl.hasClients) return;
+    const band = 64.0;
+    const maxSpeed = 1600.0;
+    final y = box.globalToLocal(pointer).dy;
+    final h = box.size.height;
+    // Reversed list: older history (up the screen) is +pixels.
+    final speed = y < band
+        ? (band - y).clamp(0.0, band) / band * maxSpeed
+        : y > h - band
+        ? -(y - (h - band)).clamp(0.0, band) / band * maxSpeed
+        : 0.0;
+    if (speed == 0) return;
+    final pos = _scrollCtrl.position;
+    final next = (pos.pixels + speed * 0.016).clamp(
+      pos.minScrollExtent,
+      pos.maxScrollExtent,
+    );
+    if (next == pos.pixels) return;
+    _scrollCtrl.jumpTo(next);
+    _moveDrag(pointer);
+  }
+
+  void _endDrag() {
+    _autoScroll?.cancel();
+    _autoScroll = null;
+    _dragAnchor = null;
+    _dragPointer = null;
+  }
+
+  /// D7: the selection resolved against the current list, oldest first; an
+  /// album brings every row it has now.
+  List<Message> _selectedRows() {
+    final messages = ref.read(messagesProvider(_cid)).valueOrNull ?? [];
+    final albums = {
+      for (final m in messages)
+        if (m.albumId != null && _selectedMessageIds.contains(m.localId))
+          m.albumId,
+    };
+    return [
+      for (final m in messages.reversed)
+        if (_selectedMessageIds.contains(m.localId) ||
+            albums.contains(m.albumId))
+          m,
+    ];
+  }
+
+  /// D2: a text whose body is on the phone (not deleted, not undecryptable).
+  static bool _copyable(Message m) =>
+      m.type == 'text' &&
+      !m.isDeletedForEveryone &&
+      m.decryptState != 'key_missing' &&
+      m.decryptState != 'failed';
+
+  Future<void> _copySelected() async {
+    final rows = _selectedRows();
+    final texts = <String>[];
+    for (final m in rows.where(_copyable)) {
+      final body = bodyCache.get(m.localId) ?? await _resolveSearchBody(m.localId);
+      if (body != null && body.isNotEmpty) texts.add(body);
+    }
+    if (!mounted || texts.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: texts.join('\n\n')));
+    if (!mounted) return;
+    final n = texts.length;
+    showToast(
+      context,
+      n < rows.length
+          ? 'Copied $n of ${rows.length}. Only text is copied.'
+          : n == 1
+          ? 'Copied'
+          : 'Copied $n messages',
+    );
+    _exitSelection();
+  }
+
+  Future<void> _starSelected() async {
+    final starrable = [
+      for (final m in _selectedRows())
+        if (!m.isDeletedForEveryone) m,
+    ];
+    if (starrable.isEmpty) return _exitSelection();
+    final unstar = starrable.every((m) => m.isStarred);
+    final ids = [
+      for (final m in starrable)
+        if (unstar || !m.isStarred) m.localId,
+    ];
+    await ref.read(messageRepositoryProvider).setStarred(ids, !unstar);
+    if (!mounted) return;
+    final n = ids.length;
+    final verb = unstar ? 'Unstarred' : 'Starred';
+    showToast(context, n == 1 ? verb : '$verb $n messages');
+    _exitSelection();
+  }
+
+  Future<void> _deleteSelected({
+    required String myId,
+    required bool isLeft,
+  }) async {
+    final rows = _selectedRows();
+    if (rows.isEmpty) return _exitSelection();
+    final deleted = await deleteSelectedMessages(
+      context,
+      ref,
+      rows,
+      // D5: per row as it is when the delete is confirmed.
+      current: _selectedRows,
+      // D4 / decision 10: all yours and still a member.
+      canDeleteForEveryone: !isLeft && rows.every((m) => m.senderId == myId),
+    );
+    if (deleted && mounted) _exitSelection();
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────
 
   @override
@@ -582,10 +836,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (_selectionMode) {
-          setState(_selectedMessageIds.clear);
-          return;
-        }
+        if (_selectionMode) return _exitSelection();
         _pres.leaveChat(_cid).then((_) {
           if (context.mounted) Navigator.of(context).pop();
         });
@@ -601,13 +852,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
                 child: AnimatedSwitcher(
-                  duration: WarmPopTokens.motionFast,
+                  // A5: reduced motion → no fade.
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : WarmPopTokens.motionFast,
                   transitionBuilder: (child, animation) =>
                       FadeTransition(opacity: animation, child: child),
                   child: KeyedSubtree(
                     key: ValueKey((_selectionMode, _searchActive)),
                     child: _selectionMode
-                        ? _selectionBar()
+                        ? _selectionBar(myId: myId, isLeft: isLeft)
                         : _searchActive
                         ? _searchBar(context, messages)
                         : _mainBar(context, conv, presence, memberCount),
@@ -663,7 +917,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               !_searchPending &&
                               _matchItemIndices.isEmpty
                         ? _SearchEmptyState(query: _searchCtrl.text.trim())
-                        : ListView.builder(
+                        : _selectionGestures(ListView.builder(
+                            key: _listKey,
                             controller: _scrollCtrl,
                             reverse: true,
                             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -706,7 +961,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                   _items[_matchItemIndices[_matchIndex]] ==
                                       item;
 
-                              return KeyedSubtree(
+                              final row = KeyedSubtree(
                                 key: msgItem.key,
                                 child: _HighlightWrapper(
                                   active: isMatch,
@@ -761,17 +1016,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                               ),
                                       );
                                     },
-                                    selected: msgItem.rows.any(
-                                      (r) => _selectedMessageIds.contains(
-                                        r.localId,
-                                      ),
-                                    ),
+                                    selected: _isSelected(msgItem),
+                                    selecting: _selectionMode,
                                     // F1: an album selects as one unit.
-                                    onSelect: () => setState(
-                                      () => _selectedMessageIds.addAll(
-                                        msgItem.rows.map((r) => r.localId),
-                                      ),
-                                    ),
+                                    onSelect: _selectionMode
+                                        ? () => _toggle(msgItem)
+                                        : () => _enterSelection(msgItem),
                                     senderName: conv.isGroup
                                         ? (_senderNameCache[msg.senderId] ??
                                               'Unknown')
@@ -797,8 +1047,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                   ),
                                 ),
                               );
+                              // B5: system rows carry no tag, so taps and
+                              // ranges skip them.
+                              return msg.type == 'system'
+                                  ? row
+                                  : MetaData(
+                                      metaData: _RowTag(msg.localId),
+                                      behavior: HitTestBehavior.opaque,
+                                      child: row,
+                                    );
                             },
-                          ),
+                          )),
                   ),
                   if (!_searchActive && _showScrollToLatest)
                     Positioned(
@@ -967,47 +1226,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
-  Widget _selectionBar() => SizedBox(
-    height: 56,
-    child: Row(
-      children: [
-        IconButton(
-          tooltip: 'Exit selection',
-          color: context.t.ink,
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-          icon: const Icon(Icons.close),
-          onPressed: () => setState(_selectedMessageIds.clear),
-        ),
-        Expanded(
-          child: Text(
-            '${_selectedMessageIds.length} selected',
-            style: TextStyle(
-              color: context.t.ink,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        IconButton(
-          tooltip: 'Delete selected messages',
-          color: context.t.inkSoft,
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-          icon: const Icon(Icons.delete_outline),
-          onPressed: _deleteSelected,
-        ),
-      ],
-    ),
-  );
-
-  Future<void> _deleteSelected() async {
-    final repo = ref.read(messageRepositoryProvider);
-    final deleted = await confirmAndDeleteForMe(
-      context,
-      _selectedMessageIds.toList(),
-      repo.deleteMessage,
+  Widget _selectionBar({required String myId, required bool isLeft}) {
+    final rows = _selectedRows();
+    final starrable = [
+      for (final m in rows)
+        if (!m.isDeletedForEveryone) m,
+    ];
+    return SelectionBar(
+      count: rows.length,
+      onExit: _exitSelection,
+      onCopy: _copySelected,
+      canCopy: rows.any(_copyable),
+      starState: starrable.isNotEmpty && starrable.every((m) => m.isStarred),
+      onStar: _starSelected,
+      canStar: starrable.isNotEmpty,
+      onDelete: () => _deleteSelected(myId: myId, isLeft: isLeft),
     );
-    if (deleted && mounted) setState(_selectedMessageIds.clear);
   }
+
+  /// B1–B3: while selecting, a tap toggles the row under it (the whole row
+  /// width) and a long-press toggles and drags a range.
+  Widget _selectionGestures(Widget list) => GestureDetector(
+    excludeFromSemantics: true, // each row is its own button (G1)
+    onTapUp: _selectionMode ? _tapRow : null,
+    onLongPressStart: _selectionMode ? _startDrag : null,
+    onLongPressMoveUpdate: _selectionMode
+        ? (d) => _moveDrag(d.globalPosition)
+        : null,
+    onLongPressEnd: _selectionMode ? (_) => _endDrag() : null,
+    // A cancelled touch (app backgrounded) never sends an end.
+    onLongPressCancel: _selectionMode ? _endDrag : null,
+    child: list,
+  );
 
   Future<void> _showChatMenu(BuildContext context, Conversation conv) async {
     final row = await ref

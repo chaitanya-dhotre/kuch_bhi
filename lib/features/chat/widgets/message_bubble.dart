@@ -121,13 +121,22 @@ Widget _messageRowSemantics({
   required String label,
   required Widget child,
   required bool preserveChildNodes,
+  bool? selected,
+  VoidCallback? onTap,
 }) => Semantics(
   // Text-only rows collapse into one semantic leaf. Rows with media,
   // reactions, reply quotes, or retry controls keep explicit child nodes so
   // their labelled actions remain independently reachable.
   container: true,
   explicitChildNodes: preserveChildNodes,
-  label: label,
+  // 12.8 G1: while selecting, the row is one button that toggles.
+  label: selected == null
+      ? label
+      : '$label, ${selected ? 'selected' : 'not selected'}',
+  selected: selected,
+  button: selected == null ? null : true,
+  onTap: onTap,
+  onTapHint: selected == null ? null : (selected ? 'Deselect' : 'Select'),
   child: child,
 );
 
@@ -143,6 +152,7 @@ class MessageBubble extends ConsumerWidget {
     this.searchQuery,
     this.searchCurrent = false,
     this.selected = false,
+    this.selecting = false,
     this.onSelect,
     this.onReply,
     this.onReplyTap,
@@ -159,6 +169,12 @@ class MessageBubble extends ConsumerWidget {
   final String? searchQuery;
   final bool searchCurrent;
   final bool selected;
+
+  /// 12.8 B1: the chat is selecting, so every inner tap, the long-press menu
+  /// and [SwipeToReply] are off; the chat's row gestures toggle instead.
+  final bool selecting;
+
+  /// The menu's Select; while [selecting], the row's toggle.
   final VoidCallback? onSelect;
   final VoidCallback? onReply;
   final VoidCallback? onReplyTap;
@@ -446,16 +462,23 @@ class MessageBubble extends ConsumerWidget {
       );
     }
 
-    if (selected) {
-      content = Container(
-        decoration: BoxDecoration(
-          color: context.t.accent.withValues(alpha: 0.08),
-          border: Border.all(color: context.t.accent.withValues(alpha: 0.55)),
-          borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
-        ),
+    // C1: a selected row = full-row soft accent + the accent fill and ring.
+    // Both always in the tree, so a toggle keeps the bubble's state.
+    content = ColoredBox(
+      color: selected ? context.t.accentSoft : Colors.transparent,
+      child: DecoratedBox(
+        decoration: selected
+            ? BoxDecoration(
+                color: context.t.accent.withValues(alpha: 0.08),
+                border: Border.all(
+                  color: context.t.accent.withValues(alpha: 0.55),
+                ),
+                borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+              )
+            : const BoxDecoration(),
         child: content,
-      );
-    }
+      ),
+    );
 
     final hasInteractiveChildren =
         terminalOp != null ||
@@ -463,9 +486,16 @@ class MessageBubble extends ConsumerWidget {
         url != null ||
         cover.serverId != null ||
         album != null;
+    // Always in the tree, so toggling selection keeps the bubble's state.
+    content = IgnorePointer(
+      ignoring: selecting,
+      child: ExcludeSemantics(excluding: selecting, child: content),
+    );
     return _messageRowSemantics(
       label: rowSemanticsLabel,
-      preserveChildNodes: hasInteractiveChildren,
+      preserveChildNodes: hasInteractiveChildren && !selecting,
+      selected: selecting ? selected : null,
+      onTap: selecting ? onSelect : null,
       child: content,
     );
   }

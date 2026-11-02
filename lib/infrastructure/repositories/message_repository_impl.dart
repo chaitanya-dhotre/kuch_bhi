@@ -2647,6 +2647,100 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// D6 pacing clock; tests swap in a virtual one.
+  @visibleForTesting
+  DateTime Function() starClock = DateTime.now;
+  @visibleForTesting
+  Future<void> Function(Duration) starDelay = Future<void>.delayed;
+
+  /// Bulk star sends run one call after another, so a star then an unstar
+  /// of the same rows reach the server in that order.
+  Future<void> _starSends = Future<void>.value();
+  @visibleForTesting
+  Future<void> get starSendsDone => _starSends;
+
+  /// Start times of recent star creates (the server allows 20 per 5 s).
+  final List<DateTime> _starCreates = [];
+
+  @override
+  Future<void> setStarred(List<String> localIds, bool starred) async {
+    final changed = await db.transaction(() async {
+      final rows = await (db.select(db.messagesTable)
+            ..where(
+              (m) => m.localId.isIn(localIds) & m.isStarred.equals(!starred),
+            ))
+          .get();
+      if (rows.isNotEmpty) {
+        await (db.update(db.messagesTable)
+              ..where((m) => m.localId.isIn([for (final r in rows) r.localId])))
+            .write(
+              MessagesTableCompanion(
+                isStarred: Value(starred),
+                updatedAt: Value(DateTime.now()),
+              ),
+            );
+      }
+      return [
+        for (final r in rows)
+          if (r.serverId != null) r,
+      ];
+    });
+    if (changed.isEmpty) return;
+    // Errors stay inside the chain, so one failure never stops later sends.
+    _starSends = _starSends
+        .then((_) => _sendStars(changed, starred))
+        .catchError((Object e) => debugPrint('[Star] bulk sync failed: $e'));
+  }
+
+  Future<void> _sendStars(List<MessagesTableData> rows, bool starred) async {
+    final myId = await _myId();
+    final stars = _pb.collection('starred_messages');
+    for (final msg in rows) {
+      try {
+        if (!starred) {
+          final res = await stars.getList(
+            filter: 'user_id="$myId"&&message_id="${msg.serverId}"',
+            perPage: 1,
+          );
+          if (res.items.isNotEmpty) await stars.delete(res.items.first.id);
+          continue;
+        }
+        for (var retry = 0; ; retry++) {
+          await _paceStarCreate();
+          try {
+            await stars.create(
+              body: {
+                'user_id': myId,
+                'message_id': msg.serverId,
+                'conversation_id': msg.conversationId,
+                // §8.1: ids only, never a body.
+                'sender_id': msg.senderId,
+              },
+            );
+            break;
+          } on ClientException catch (e) {
+            if (e.statusCode != 429 || retry == 3) rethrow;
+            await starDelay(const Duration(seconds: 5));
+          }
+        }
+      } catch (e) {
+        debugPrint('[Star] PB sync failed (offline?): $e');
+      }
+    }
+  }
+
+  /// Waits until fewer than 15 creates started in the last 5 s.
+  Future<void> _paceStarCreate() async {
+    const window = Duration(seconds: 5);
+    while (true) {
+      final now = starClock();
+      _starCreates.removeWhere((t) => !now.isBefore(t.add(window)));
+      if (_starCreates.length < 15) break;
+      await starDelay(_starCreates.first.add(window).difference(now));
+    }
+    _starCreates.add(starClock());
+  }
+
   @override
   Future<void> togglePin(
     String localId,
