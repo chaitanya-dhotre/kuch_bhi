@@ -342,6 +342,24 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
             ]))
           .watch();
 
+  /// Albums (12.5 C4): an album's visible rows in pick order; feeds the
+  /// album labels (quote, pinned banner, home preview, collage).
+  SimpleSelectStatement<$MessagesTableTable, MessagesTableData> rowsInAlbum(
+    String conversationId,
+    String albumId,
+  ) =>
+      select(messagesTable)
+        ..where((t) =>
+            t.conversationId.equals(conversationId) &
+            t.albumId.equals(albumId) &
+            t.isDeletedForMe.equals(false) &
+            t.isDeletedForEveryone.equals(false))
+        ..orderBy([
+          (t) => OrderingTerm(expression: t.albumIndex),
+          (t) => OrderingTerm(expression: t.createdAt),
+          (t) => OrderingTerm(expression: t.localId),
+        ]);
+
   /// #71 Prewarm: the conversation-list preview's row — newest non-deleted
   /// message, exactly the shape/order `conversationLastMessageProvider`
   /// (message_body_provider.dart) watches, so the prewarmed row IS the row

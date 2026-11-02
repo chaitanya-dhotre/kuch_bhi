@@ -7,6 +7,8 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../domain/entities/conversation.dart';
+import '../chat_run_grouping.dart' show albumLabel;
+import '../providers/album_provider.dart';
 import '../providers/message_body_provider.dart';
 
 /// THE body renderer (spec §8 placeholder law — Task 9).
@@ -606,6 +608,24 @@ class ConversationPreviewText extends ConsumerWidget {
     if (lastMsg == null) {
       if (lastMsgAsync.isLoading) return const _PreviewLoadingPlaceholder();
       return _label(fallback, context);
+    }
+    // 12.5 F5: the newest row of an album previews what is inside it.
+    final albumId = lastMsg.albumId;
+    final albumRows = albumId == null
+        ? null
+        : ref
+              .watch(
+                albumRowsProvider(
+                  AlbumKey(lastMsg.conversationId, albumId),
+                ),
+              )
+              .valueOrNull;
+    final album = albumRows != null && albumRows.length >= 2
+        ? albumRows
+        : null;
+    if (album != null &&
+        (lastMsg.type == 'image' || lastMsg.type == 'video')) {
+      return _label(albumLabel(album), context);
     }
     if (lastMsg.type == 'text') {
       return MessageBodyText(

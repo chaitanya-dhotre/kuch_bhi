@@ -2251,6 +2251,24 @@ class $MessagesTableTable extends MessagesTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _albumIdMeta = const VerificationMeta('albumId');
+  @override
+  late final GeneratedColumn<String> albumId = GeneratedColumn<String>(
+    'album_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _albumIndexMeta = const VerificationMeta('albumIndex');
+  @override
+  late final GeneratedColumn<int> albumIndex = GeneratedColumn<int>(
+    'album_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -2292,6 +2310,8 @@ class $MessagesTableTable extends MessagesTable
     status,
     decryptState,
     keyId,
+    albumId,
+    albumIndex,
     createdAt,
     updatedAt,
   ];
@@ -2433,6 +2453,18 @@ class $MessagesTableTable extends MessagesTable
         keyId.isAcceptableOrUnknown(data['key_id']!, _keyIdMeta),
       );
     }
+    if (data.containsKey('album_id')) {
+      context.handle(
+        _albumIdMeta,
+        albumId.isAcceptableOrUnknown(data['album_id']!, _albumIdMeta),
+      );
+    }
+    if (data.containsKey('album_index')) {
+      context.handle(
+        _albumIndexMeta,
+        albumIndex.isAcceptableOrUnknown(data['album_index']!, _albumIndexMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -2526,6 +2558,14 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.string,
         data['${effectivePrefix}key_id'],
       ),
+      albumId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}album_id'],
+      ),
+      albumIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}album_index'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -2586,6 +2626,8 @@ class MessagesTableData extends DataClass
   /// needs after rotation (spec §5.1). Nullable — Task 8 wires population;
   /// Task 7 only preserves it across re-caches.
   final String? keyId;
+  final String? albumId;
+  final int? albumIndex;
   final DateTime createdAt;
   final DateTime updatedAt;
   const MessagesTableData({
@@ -2606,6 +2648,8 @@ class MessagesTableData extends DataClass
     required this.status,
     required this.decryptState,
     this.keyId,
+    this.albumId,
+    this.albumIndex,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -2638,6 +2682,12 @@ class MessagesTableData extends DataClass
     map['decrypt_state'] = Variable<String>(decryptState);
     if (!nullToAbsent || keyId != null) {
       map['key_id'] = Variable<String>(keyId);
+    }
+    if (!nullToAbsent || albumId != null) {
+      map['album_id'] = Variable<String>(albumId);
+    }
+    if (!nullToAbsent || albumIndex != null) {
+      map['album_index'] = Variable<int>(albumIndex);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -2673,6 +2723,12 @@ class MessagesTableData extends DataClass
       keyId: keyId == null && nullToAbsent
           ? const Value.absent()
           : Value(keyId),
+      albumId: albumId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(albumId),
+      albumIndex: albumIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(albumIndex),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -2703,6 +2759,8 @@ class MessagesTableData extends DataClass
       status: serializer.fromJson<String>(json['status']),
       decryptState: serializer.fromJson<String>(json['decryptState']),
       keyId: serializer.fromJson<String?>(json['keyId']),
+      albumId: serializer.fromJson<String?>(json['albumId']),
+      albumIndex: serializer.fromJson<int?>(json['albumIndex']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -2728,6 +2786,8 @@ class MessagesTableData extends DataClass
       'status': serializer.toJson<String>(status),
       'decryptState': serializer.toJson<String>(decryptState),
       'keyId': serializer.toJson<String?>(keyId),
+      'albumId': serializer.toJson<String?>(albumId),
+      'albumIndex': serializer.toJson<int?>(albumIndex),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -2751,6 +2811,8 @@ class MessagesTableData extends DataClass
     String? status,
     String? decryptState,
     Value<String?> keyId = const Value.absent(),
+    Value<String?> albumId = const Value.absent(),
+    Value<int?> albumIndex = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => MessagesTableData(
@@ -2771,6 +2833,8 @@ class MessagesTableData extends DataClass
     status: status ?? this.status,
     decryptState: decryptState ?? this.decryptState,
     keyId: keyId.present ? keyId.value : this.keyId,
+    albumId: albumId.present ? albumId.value : this.albumId,
+    albumIndex: albumIndex.present ? albumIndex.value : this.albumIndex,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -2803,6 +2867,8 @@ class MessagesTableData extends DataClass
           ? data.decryptState.value
           : this.decryptState,
       keyId: data.keyId.present ? data.keyId.value : this.keyId,
+      albumId: data.albumId.present ? data.albumId.value : this.albumId,
+      albumIndex: data.albumIndex.present ? data.albumIndex.value : this.albumIndex,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -2828,6 +2894,8 @@ class MessagesTableData extends DataClass
           ..write('status: $status, ')
           ..write('decryptState: $decryptState, ')
           ..write('keyId: $keyId, ')
+          ..write('albumId: $albumId, ')
+          ..write('albumIndex: $albumIndex, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -2835,7 +2903,7 @@ class MessagesTableData extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     localId,
     serverId,
     conversationId,
@@ -2853,9 +2921,11 @@ class MessagesTableData extends DataClass
     status,
     decryptState,
     keyId,
+    albumId,
+    albumIndex,
     createdAt,
     updatedAt,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2877,6 +2947,8 @@ class MessagesTableData extends DataClass
           other.status == this.status &&
           other.decryptState == this.decryptState &&
           other.keyId == this.keyId &&
+          other.albumId == this.albumId &&
+          other.albumIndex == this.albumIndex &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -2899,6 +2971,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
   final Value<String> status;
   final Value<String> decryptState;
   final Value<String?> keyId;
+  final Value<String?> albumId;
+  final Value<int?> albumIndex;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -2920,6 +2994,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.status = const Value.absent(),
     this.decryptState = const Value.absent(),
     this.keyId = const Value.absent(),
+    this.albumId = const Value.absent(),
+    this.albumIndex = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -2942,6 +3018,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.status = const Value.absent(),
     this.decryptState = const Value.absent(),
     this.keyId = const Value.absent(),
+    this.albumId = const Value.absent(),
+    this.albumIndex = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -2971,6 +3049,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Expression<String>? status,
     Expression<String>? decryptState,
     Expression<String>? keyId,
+    Expression<String>? albumId,
+    Expression<int>? albumIndex,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -2994,6 +3074,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       if (status != null) 'status': status,
       if (decryptState != null) 'decrypt_state': decryptState,
       if (keyId != null) 'key_id': keyId,
+      if (albumId != null) 'album_id': albumId,
+      if (albumIndex != null) 'album_index': albumIndex,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -3018,6 +3100,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Value<String>? status,
     Value<String>? decryptState,
     Value<String?>? keyId,
+    Value<String?>? albumId,
+    Value<int?>? albumIndex,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -3040,6 +3124,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       status: status ?? this.status,
       decryptState: decryptState ?? this.decryptState,
       keyId: keyId ?? this.keyId,
+      albumId: albumId ?? this.albumId,
+      albumIndex: albumIndex ?? this.albumIndex,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -3102,6 +3188,12 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     if (keyId.present) {
       map['key_id'] = Variable<String>(keyId.value);
     }
+    if (albumId.present) {
+      map['album_id'] = Variable<String>(albumId.value);
+    }
+    if (albumIndex.present) {
+      map['album_index'] = Variable<int>(albumIndex.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3134,6 +3226,8 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
           ..write('status: $status, ')
           ..write('decryptState: $decryptState, ')
           ..write('keyId: $keyId, ')
+          ..write('albumId: $albumId, ')
+          ..write('albumIndex: $albumIndex, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -8655,6 +8749,8 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       Value<String> status,
       Value<String> decryptState,
       Value<String?> keyId,
+      Value<String?> albumId,
+      Value<int?> albumIndex,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -8678,6 +8774,8 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<String> status,
       Value<String> decryptState,
       Value<String?> keyId,
+      Value<String?> albumId,
+      Value<int?> albumIndex,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -8774,6 +8872,16 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<String> get keyId => $composableBuilder(
     column: $table.keyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get albumId => $composableBuilder(
+    column: $table.albumId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get albumIndex => $composableBuilder(
+    column: $table.albumIndex,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8882,6 +8990,16 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get albumId => $composableBuilder(
+    column: $table.albumId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get albumIndex => $composableBuilder(
+    column: $table.albumIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -8963,6 +9081,12 @@ class $$MessagesTableTableAnnotationComposer
   GeneratedColumn<String> get keyId =>
       $composableBuilder(column: $table.keyId, builder: (column) => column);
 
+  GeneratedColumn<String> get albumId =>
+      $composableBuilder(column: $table.albumId, builder: (column) => column);
+
+  GeneratedColumn<int> get albumIndex =>
+      $composableBuilder(column: $table.albumIndex, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -9022,6 +9146,8 @@ class $$MessagesTableTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<String> decryptState = const Value.absent(),
                 Value<String?> keyId = const Value.absent(),
+                Value<String?> albumId = const Value.absent(),
+                Value<int?> albumIndex = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -9043,6 +9169,8 @@ class $$MessagesTableTableTableManager
                 status: status,
                 decryptState: decryptState,
                 keyId: keyId,
+                albumId: albumId,
+                albumIndex: albumIndex,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -9066,6 +9194,8 @@ class $$MessagesTableTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<String> decryptState = const Value.absent(),
                 Value<String?> keyId = const Value.absent(),
+                Value<String?> albumId = const Value.absent(),
+                Value<int?> albumIndex = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -9087,6 +9217,8 @@ class $$MessagesTableTableTableManager
                 status: status,
                 decryptState: decryptState,
                 keyId: keyId,
+                albumId: albumId,
+                albumIndex: albumIndex,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

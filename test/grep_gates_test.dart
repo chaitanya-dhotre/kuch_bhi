@@ -849,6 +849,42 @@ void main() {
     }
     expect(hits, isEmpty, reason: 'components read context.t, not the scheme: $hits');
   });
+
+  test('albums: tokens, app chrome, no \$e, one picker', () {
+    final files = [
+      'lib/features/chat/widgets/album_bubble.dart',
+      'lib/features/chat/screens/album_screen.dart',
+      'lib/features/media/album_layout.dart',
+      'lib/features/media/screens/media_viewer_page.dart',
+      'lib/features/media/screens/media_viewer_screen.dart',
+    ];
+    final hits = <String>[];
+    for (final path in files) {
+      final src = File(path).readAsStringSync();
+      for (final token in [
+        'Colors.', 'Color(0x', 'LinearGradient', 'SnackBar(',
+        'CircularProgressIndicator', 'LinearProgressIndicator',
+        'showModalBottomSheet', 'extra:',
+      ]) {
+        if (src.contains(token)) hits.add('$path: $token');
+      }
+      final outsideDebugPrint = src
+          .replaceAll(RegExp(r'debugPrint\([^;]*\);', dotAll: true), '');
+      if (outsideDebugPrint.contains(r'$e') ||
+          outsideDebugPrint.contains('e.toString()')) {
+        hits.add('$path: error detail outside debugPrint');
+      }
+    }
+    for (final f in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (f.readAsStringSync().contains('pickMultiImage')) {
+        hits.add('${f.path}: pickMultiImage (use pickMultipleMedia)');
+      }
+    }
+    expect(hits, isEmpty, reason: 'album gates failed: $hits');
+  });
 }
 
 const _bannedPurpleHexes = [

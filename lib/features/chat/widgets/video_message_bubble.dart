@@ -24,7 +24,14 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
     this.createdAt,
     this.senderName = '',
     this.localId,
+    this.onTileTap,
+    this.tileLabel,
   });
+
+  /// Set = an album tile (12.5 D3): no bubble shell or own expiry badge,
+  /// and a tap opens the album instead of the viewer.
+  final VoidCallback? onTileTap;
+  final String? tileLabel;
 
   final String conversationId;
   final String serverId;
@@ -102,10 +109,12 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
 
         return Semantics(
           button: true,
-          label: notDownloaded ? 'Open video, not downloaded' : 'Open video',
+          label:
+              widget.tileLabel ??
+              (notDownloaded ? 'Open video, not downloaded' : 'Open video'),
           child: GestureDetector(
             // Opens at once on the poster; the viewer loads the full file.
-            onTap: () => pushMediaViewer(
+            onTap: widget.onTileTap ?? () => pushMediaViewer(
               context,
               MediaViewerArgs(
                 conversationId: widget.conversationId,
@@ -154,8 +163,9 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                         ? Icons.download_rounded
                         : Icons.play_arrow,
                   ),
-                // Expiry badge — top right
-                if (expiryLabel != null) ExpiryBadge(label: expiryLabel),
+                // Expiry badge — top right (an album shows one for all)
+                if (expiryLabel != null && widget.onTileTap == null)
+                  ExpiryBadge(label: expiryLabel),
                 Positioned(
                   left: 0,
                   right: 0,
@@ -208,6 +218,7 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
       },
     );
 
+    if (widget.onTileTap != null) return content;
     return ChatBubbleFrame(
       isMine: widget.isMine,
       runEnd: widget.runEnd,

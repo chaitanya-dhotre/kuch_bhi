@@ -19,6 +19,7 @@ import '../providers/chat_provider.dart';
 import '../providers/message_body_provider.dart';
 import '../chat_run_grouping.dart';
 import '../message_offline_policy.dart';
+import 'album_screen.dart';
 import '../widgets/disappearing_dialog.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_context_menu.dart';
@@ -38,12 +39,24 @@ import '../../mascot/capybara.dart';
 sealed class _ChatItem {}
 
 class _MsgItem extends _ChatItem {
-  _MsgItem(this.msg, this.key, {required this.runStart, required this.runEnd});
+  _MsgItem(
+    this.msg,
+    this.key, {
+    required this.runStart,
+    required this.runEnd,
+    this.album,
+  });
 
+  /// For an album, its earliest row (place and time).
   final Message msg;
   final GlobalKey key;
   final bool runStart;
   final bool runEnd;
+
+  /// 12.5: the album's rows in order; null for a single message.
+  final List<Message>? album;
+
+  Iterable<Message> get rows => album ?? [msg];
 }
 
 class _DateItem extends _ChatItem {
@@ -304,7 +317,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (position.pixels >= position.maxScrollExtent - 200 &&
         !_historyExhausted &&
         !_historyLoadFailed) {
-      final loadedCount = _items.whereType<_MsgItem>().length;
+      final loadedCount = _items.whereType<_MsgItem>().fold<int>(
+        0,
+        (n, m) => n + m.rows.length,
+      );
       if (loadedCount < _offset) {
         if (mounted) setState(() => _historyExhausted = true);
         return;
@@ -331,8 +347,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   // ── Build flat item list with date separators ─────────────────────────
 
-  List<_ChatItem> _buildItems(List<Message> messages) {
+  List<_ChatItem> _buildItems(List<Message> all) {
     final items = <_ChatItem>[];
+    // 12.5 A2/A5: an album is one entry, placed and timed by its earliest
+    // row; run flags see it as one message.
+    final units = groupChatUnits(all);
+    final messages = [for (final u in units) u.anchor];
     final runFlags = computeChatRunFlags(messages);
     for (int i = 0; i < messages.length; i++) {
       final msg = messages[i];
@@ -343,6 +363,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           key,
           runStart: runFlags[i].runStart,
           runEnd: runFlags[i].runEnd,
+          album: units[i].isAlbum ? units[i].rows : null,
         ),
       );
 
@@ -409,15 +430,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   int _findFlatIndex(Message msg) {
     for (int i = 0; i < _items.length; i++) {
       final item = _items[i];
-      // Match on localId OR serverId — starred-screen messages are
-      // reconstructed from the server and their localId may actually be
-      // the server id.
-      if (item is _MsgItem &&
-          (item.msg.localId == msg.localId ||
-              (msg.serverId != null && item.msg.serverId == msg.serverId) ||
-              item.msg.serverId == msg.localId)) {
-        return i;
-      }
+      if (item is _MsgItem && unitHolds(item.rows, msg)) return i;
     }
     return -1;
   }
@@ -698,7 +711,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                 child: _HighlightWrapper(
                                   active: isMatch,
                                   current: isCurrent,
-                                  flash: msg.localId == _flashMessageId,
+                                  flash: msgItem.rows.any(
+                                    (r) => r.localId == _flashMessageId,
+                                  ),
                                   flashToken: _flashGeneration,
                                   child: MessageBubble(
                                     message: msg,
@@ -712,12 +727,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         ? _searchCtrl.text
                                         : null,
                                     searchCurrent: isCurrent,
-                                    selected: _selectedMessageIds.contains(
-                                      msg.localId,
+                                    album: msgItem.album,
+                                    onOpenAlbum: (tile) {
+                                      final album = msgItem.album;
+                                      if (album == null || album.isEmpty) {
+                                        return;
+                                      }
+                                      final page = AlbumScreen(
+                                            conversationId: _cid,
+                                            albumId: album.first.albumId!,
+                                            senderName: conv.isGroup
+                                                ? (_senderNameCache[
+                                                          msg.senderId] ??
+                                                      'Unknown')
+                                                : (conv.otherUser
+                                                          ?.displayName ??
+                                                      'Unknown'),
+                                            timestamp: msg.createdAt,
+                                            initialIndex: tile,
+                                          );
+                                      // G1: reduced motion → no route animation.
+                                      Navigator.of(context).push(
+                                        MediaQuery.disableAnimationsOf(context)
+                                            ? PageRouteBuilder<void>(
+                                                transitionDuration:
+                                                    Duration.zero,
+                                                reverseTransitionDuration:
+                                                    Duration.zero,
+                                                pageBuilder: (_, _, _) => page,
+                                              )
+                                            : MaterialPageRoute<void>(
+                                                builder: (_) => page,
+                                              ),
+                                      );
+                                    },
+                                    selected: msgItem.rows.any(
+                                      (r) => _selectedMessageIds.contains(
+                                        r.localId,
+                                      ),
                                     ),
+                                    // F1: an album selects as one unit.
                                     onSelect: () => setState(
-                                      () =>
-                                          _selectedMessageIds.add(msg.localId),
+                                      () => _selectedMessageIds.addAll(
+                                        msgItem.rows.map((r) => r.localId),
+                                      ),
                                     ),
                                     senderName: conv.isGroup
                                         ? (_senderNameCache[msg.senderId] ??

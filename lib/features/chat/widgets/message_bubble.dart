@@ -9,7 +9,6 @@ import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/utils/emoji_utils.dart';
-import '../../../core/utils/op_id.dart';
 import '../../../data/local/database/app_database.dart' show OutboxTableData;
 import '../../../data/local/database/tables/outbox_table.dart';
 import '../../../domain/entities/message.dart';
@@ -18,9 +17,11 @@ import '../../../infrastructure/repositories/message_repository_impl.dart'
 import '../providers/message_body_provider.dart';
 import '../providers/outbox_status_provider.dart';
 import '../providers/upload_progress_provider.dart';
+import '../chat_run_grouping.dart' show albumLabel;
 import '../message_offline_policy.dart';
 import 'message_body_text.dart';
 import 'link_preview_card.dart';
+import 'album_bubble.dart';
 import 'document_message_bubble.dart';
 import 'image_message_bubble.dart';
 import 'video_message_bubble.dart';
@@ -98,6 +99,24 @@ String _messageRowSemanticsLabel({
   return 'From $sender. $body. Time $time. Status $status.';
 }
 
+/// D7: "Album, 3 photos and 2 videos, from Asha, 12:41".
+String albumSemanticsLabel(
+  List<Message> rows, {
+  required bool isMine,
+  required String senderName,
+}) {
+  final sender = isMine
+      ? 'You'
+      : senderName.trim().isEmpty
+      ? 'Unknown sender'
+      : senderName.trim();
+  final earliest = rows
+      .map((m) => m.createdAt)
+      .reduce((a, b) => a.isBefore(b) ? a : b);
+  final time = DateFormat('HH:mm').format(earliest.toLocal());
+  return 'Album, ${albumLabel(rows)}, from $sender, $time';
+}
+
 Widget _messageRowSemantics({
   required String label,
   required Widget child,
@@ -127,6 +146,8 @@ class MessageBubble extends ConsumerWidget {
     this.onSelect,
     this.onReply,
     this.onReplyTap,
+    this.album,
+    this.onOpenAlbum,
   });
 
   final Message message;
@@ -142,6 +163,12 @@ class MessageBubble extends ConsumerWidget {
   final VoidCallback? onReply;
   final VoidCallback? onReplyTap;
 
+  /// 12.5: an album's rows (2+, in order); [message] is its earliest row.
+  final List<Message>? album;
+
+  /// Tap on album tile i (D5).
+  final ValueChanged<int>? onOpenAlbum;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // T9 (spec §5.1): THE body read goes through messageBodyProvider —
@@ -156,24 +183,23 @@ class MessageBubble extends ConsumerWidget {
     // B3: an own media send's localId IS its server id, so the real media
     // bubble draws from the first frame (no placeholder swap, same Hero
     // tag). Older rows (uuid localId) keep the placeholder.
-    final mediaId =
-        message.serverId ??
-        (isMine && isOpId(message.localId) ? message.localId : null);
-    final ownUpload =
-        mediaId != null &&
-        isMine &&
-        isOpId(message.localId) &&
-        (ref.watch(uploadPendingProvider(message.localId)).valueOrNull ??
-            const {'pending', 'failed'}.contains(message.status));
+    final media = mediaBubbleInputs(ref, message, isMine: isMine);
+    final mediaId = media.mediaId;
+    final ownUpload = media.uploadLocalId != null;
     final emojiOnly = isEmojiOnly(body) && message.type == 'text';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final url = extractFirstUrl(body);
-    final rowSemanticsLabel = _messageRowSemanticsLabel(
-      message: message,
-      isMine: isMine,
-      senderName: senderName,
-      resolvedBody: body,
-    );
+    final album = this.album;
+    // F1/D6: an album's reactions, reply and pin act on its cover.
+    final cover = album?.first ?? message;
+    final rowSemanticsLabel = album != null
+        ? albumSemanticsLabel(album, isMine: isMine, senderName: senderName)
+        : _messageRowSemanticsLabel(
+            message: message,
+            isMine: isMine,
+            senderName: senderName,
+            resolvedBody: body,
+          );
 
     // ── System / info bubbles — no reply, no long-press, no sender meta ─
     if (message.type == 'system') {
@@ -208,7 +234,8 @@ class MessageBubble extends ConsumerWidget {
       onLongPress: () => showMessageMenu(
         context: context,
         ref: ref,
-        message: message,
+        message: cover,
+        album: album,
         isMine: isMine,
         senderName: senderName,
         onSelect: onSelect,
@@ -265,7 +292,15 @@ class MessageBubble extends ConsumerWidget {
             ),
 
           // ── Bubble ──────────────────────────────────────────
-          if (message.type == 'voice' && mediaId != null)
+          if (album != null)
+            AlbumBubble(
+              rows: album,
+              isMine: isMine,
+              runEnd: runEnd,
+              senderName: senderName,
+              onOpen: onOpenAlbum,
+            )
+          else if (message.type == 'voice' && mediaId != null)
             VoiceMessageBubble(
               conversationId: message.conversationId,
               serverId: mediaId,
@@ -355,8 +390,8 @@ class MessageBubble extends ConsumerWidget {
             ),
 
           // ── Reactions ────────────────────────────────────────
-          if (message.serverId != null)
-            ReactionBar(messageServerId: message.serverId!, isMine: isMine),
+          if (cover.serverId != null)
+            ReactionBar(messageServerId: cover.serverId!, isMine: isMine),
 
           // ── Terminal-failure banner (spec: stuck message VISIBLE) ──
           // Keyed by message localId; Retry/Discard wire straight to the
@@ -376,11 +411,14 @@ class MessageBubble extends ConsumerWidget {
       ),
     );
 
-    Widget content = SwipeToReply(
-      isMine: isMine,
-      onReply: onReply ?? () {},
-      child: bubble,
-    );
+    // D4: the album's sideways scroll owns horizontal drags.
+    Widget content = album != null
+        ? bubble
+        : SwipeToReply(
+            isMine: isMine,
+            onReply: onReply ?? () {},
+            child: bubble,
+          );
 
     if (isGroup && !isMine) {
       final initial = initialsOf(senderName);
@@ -423,7 +461,8 @@ class MessageBubble extends ConsumerWidget {
         terminalOp != null ||
         message.replyToId != null ||
         url != null ||
-        message.serverId != null;
+        cover.serverId != null ||
+        album != null;
     return _messageRowSemantics(
       label: rowSemanticsLabel,
       preserveChildNodes: hasInteractiveChildren,

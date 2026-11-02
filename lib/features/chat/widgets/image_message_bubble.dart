@@ -25,7 +25,14 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
     this.createdAt,
     this.senderName = '',
     this.localId,
+    this.onTileTap,
+    this.tileLabel,
   });
+
+  /// Set = an album tile (12.5 D3): no bubble shell or own expiry badge,
+  /// and a tap opens the album instead of the viewer.
+  final VoidCallback? onTileTap;
+  final String? tileLabel;
 
   final String conversationId;
   final String serverId;
@@ -64,6 +71,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
   }
 
   Widget _expired() => _BubbleWrapper(
+    bare: widget.onTileTap != null,
     isMine: widget.isMine,
     runEnd: widget.runEnd,
     createdAt: widget.createdAt,
@@ -92,6 +100,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
 
     return thumbAsync.when(
       loading: () => _BubbleWrapper(
+        bare: widget.onTileTap != null,
         isMine: widget.isMine,
         runEnd: widget.runEnd,
         createdAt: widget.createdAt,
@@ -99,6 +108,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
         child: const _ImageSkeleton(),
       ),
       error: (_, __) => _BubbleWrapper(
+        bare: widget.onTileTap != null,
         isMine: widget.isMine,
         runEnd: widget.runEnd,
         createdAt: widget.createdAt,
@@ -108,6 +118,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
       data: (media) {
         if (media == null) {
           return _BubbleWrapper(
+            bare: widget.onTileTap != null,
             isMine: widget.isMine,
             runEnd: widget.runEnd,
             createdAt: widget.createdAt,
@@ -142,48 +153,61 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
           errorBuilder: (_, __, ___) => const _ImageUnavailable(),
         );
 
+        final hero = Hero(
+          tag: mediaHeroTag(widget.serverId),
+          // Downloaded: the full photo at bubble size, so it
+          // is never the small thumbnail blown up.
+          child: full == null
+              ? thumbImage
+              : Image.file(
+                  full,
+                  fit: BoxFit.cover,
+                  // A collage tile can be the full screen width.
+                  cacheWidth:
+                      ((widget.onTileTap != null
+                                  ? MediaQuery.sizeOf(context).width
+                                  : ChatBubbleGeometry.mediaMaxWidth) *
+                              MediaQuery.devicePixelRatioOf(context))
+                          .round(),
+                  frameBuilder: (_, child, frame, sync) =>
+                      sync || frame != null ? child : thumbImage,
+                  errorBuilder: (_, __, ___) => thumbImage,
+                ),
+        );
+
         // ── actual bubble ──────────────────────────────────────
         return Semantics(
           button: true,
-          label: notDownloaded ? 'Open image, not downloaded' : 'Open image',
+          label:
+              widget.tileLabel ??
+              (notDownloaded ? 'Open image, not downloaded' : 'Open image'),
           child: GestureDetector(
             // Opens at once on the thumbnail; the viewer loads the full file.
-            onTap: () => _openFullScreen(media.file),
+            onTap: widget.onTileTap ?? () => _openFullScreen(media.file),
             child: _BubbleWrapper(
+              bare: widget.onTileTap != null,
               isMine: widget.isMine,
               runEnd: widget.runEnd,
               createdAt: widget.createdAt,
               status: widget.status,
               child: Stack(
+                // A tile is sized by the album; the photo covers it.
+                fit: widget.onTileTap != null
+                    ? StackFit.expand
+                    : StackFit.loose,
                 children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: ChatBubbleGeometry.mediaMaxWidth,
-                    ),
-                    child: AspectRatio(
-                      aspectRatio: _aspectRatio,
-                      child: Hero(
-                        tag: mediaHeroTag(widget.serverId),
-                        // Downloaded: the full photo at bubble size, so it
-                        // is never the small thumbnail blown up.
-                        child: full == null
-                            ? thumbImage
-                            : Image.file(
-                                full,
-                                fit: BoxFit.cover,
-                                cacheWidth:
-                                    (ChatBubbleGeometry.mediaMaxWidth *
-                                            MediaQuery.devicePixelRatioOf(
-                                              context,
-                                            ))
-                                        .round(),
-                                frameBuilder: (_, child, frame, sync) =>
-                                    sync || frame != null ? child : thumbImage,
-                                errorBuilder: (_, __, ___) => thumbImage,
-                              ),
+                  if (widget.onTileTap != null)
+                    hero
+                  else
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: ChatBubbleGeometry.mediaMaxWidth,
+                      ),
+                      child: AspectRatio(
+                        aspectRatio: _aspectRatio,
+                        child: hero,
                       ),
                     ),
-                  ),
                   if (widget.localId != null)
                     Positioned.fill(
                       child: Center(
@@ -198,8 +222,9 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                     const Positioned.fill(
                       child: MediaDisc(icon: Icons.download_rounded),
                     ),
-                  // Expiry badge — top right
-                  if (expiryLabel != null) ExpiryBadge(label: expiryLabel),
+                  // Expiry badge — top right (an album shows one for all)
+                  if (expiryLabel != null && widget.onTileTap == null)
+                    ExpiryBadge(label: expiryLabel),
                 ],
               ),
             ),
@@ -219,6 +244,7 @@ class _BubbleWrapper extends StatelessWidget {
     this.runEnd = true,
     this.createdAt,
     this.status,
+    this.bare = false,
   });
 
   final bool isMine;
@@ -227,8 +253,12 @@ class _BubbleWrapper extends StatelessWidget {
   final DateTime? createdAt;
   final String? status;
 
+  /// An album tile: the album draws the shell.
+  final bool bare;
+
   @override
   Widget build(BuildContext context) {
+    if (bare) return child;
     return ChatBubbleFrame(
       isMine: isMine,
       runEnd: runEnd,

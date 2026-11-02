@@ -70,6 +70,8 @@ Future<void> pumpViewer(
   AppFont font = AppFont.system,
   bool still = false,
   bool a11y = false,
+  List<Override> extraOverrides = const [],
+  bool open = true,
 }) async {
   if (large) {
     tester.view.physicalSize = const Size(360, 640);
@@ -84,6 +86,7 @@ Future<void> pumpViewer(
       isOnlineProvider.overrideWith((ref) => online ?? Stream.value(true)),
       fontFamilyProvider.overrideWith((ref) => Stream.value(font)),
       mediaActionsProvider.overrideWithValue(actions ?? FakeMediaActions()),
+      ...extraOverrides,
     ],
     child: MaterialApp(
       theme: warmPopLight(),
@@ -108,6 +111,7 @@ Future<void> pumpViewer(
       ),
     ),
   ));
+  if (!open) return;
   await tester.tap(find.byKey(const Key('open')));
   await settle(tester);
 }

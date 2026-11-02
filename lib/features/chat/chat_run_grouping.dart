@@ -29,6 +29,65 @@ List<ChatRunFlags> computeChatRunFlags(List<Message> messages) {
   ];
 }
 
+/// One entry of the chat list: a single message, or an album (12.5).
+/// [anchor] is the album's earliest row, which sets its place and time.
+class ChatUnit {
+  const ChatUnit(this.anchor, this.rows);
+
+  final Message anchor;
+
+  /// In album order; one row = a normal bubble (A3).
+  final List<Message> rows;
+
+  bool get isAlbum => rows.length > 1;
+}
+
+/// Albums (12.5 A2–A4): rows with the same `albumId` and sender collapse
+/// into one unit at the earliest row's position, so a late row joins even
+/// with other messages in between. Input and output are newest-first.
+List<ChatUnit> groupChatUnits(List<Message> messages) {
+  final albums = <(String, String), List<Message>>{};
+  for (final m in messages) {
+    final a = m.albumId;
+    if (a != null) (albums[(m.senderId, a)] ??= []).add(m);
+  }
+  return [
+    for (final m in messages)
+      if (m.albumId == null)
+        ChatUnit(m, [m])
+      // The earliest row is the last one seen newest-first.
+      else if (identical(albums[(m.senderId, m.albumId!)]!.last, m))
+        ChatUnit(m, albums[(m.senderId, m.albumId!)]!..sort(_albumOrder)),
+  ];
+}
+
+/// A6: whether a list entry holds [target] — any row of an album counts.
+/// Matches on localId OR serverId: starred-screen messages are rebuilt from
+/// the server and their localId may actually be the server id.
+bool unitHolds(Iterable<Message> rows, Message target) => rows.any(
+  (r) =>
+      r.localId == target.localId ||
+      (target.serverId != null && r.serverId == target.serverId) ||
+      r.serverId == target.localId,
+);
+
+/// 12.5 F3: what an album holds, for quotes, banners, previews and cards.
+String albumLabel(Iterable<Message> rows) {
+  final photos = rows.where((m) => m.type == 'image').length;
+  final videos = rows.where((m) => m.type == 'video').length;
+  String n(int c, String one) => c == 1 ? '1 $one' : '$c ${one}s';
+  if (videos == 0) return n(photos, 'photo');
+  if (photos == 0) return n(videos, 'video');
+  return '${n(photos, 'photo')} and ${n(videos, 'video')}';
+}
+
+int _albumOrder(Message a, Message b) {
+  final i = (a.albumIndex ?? 0).compareTo(b.albumIndex ?? 0);
+  if (i != 0) return i;
+  final t = a.createdAt.compareTo(b.createdAt);
+  return t != 0 ? t : a.localId.compareTo(b.localId);
+}
+
 bool _canJoin(Message newer, Message older) {
   if (newer.type == 'system' || older.type == 'system') return false;
   if (newer.senderId != older.senderId) return false;

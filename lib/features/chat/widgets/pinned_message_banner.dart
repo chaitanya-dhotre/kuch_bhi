@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
+import '../providers/album_provider.dart';
+import '../chat_run_grouping.dart' show albumLabel;
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
@@ -52,6 +54,29 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
     final previewStyle = TextStyle(fontSize: 12, color: context.t.inkSoft);
     final terminal =
         msg.decryptState == 'key_missing' || msg.decryptState == 'failed';
+
+    // 12.5 F5: a pinned album row previews what is inside the album.
+    final albumId = msg.albumId;
+    final albumRows = albumId == null
+        ? null
+        : ref
+              .watch(
+                albumRowsProvider(
+                  AlbumKey(msg.conversationId, albumId),
+                ),
+              )
+              .valueOrNull;
+    final album = albumRows != null && albumRows.length >= 2
+        ? albumRows
+        : null;
+    if (album != null && (msg.type == 'image' || msg.type == 'video')) {
+      return Text(
+        albumLabel(album),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: previewStyle,
+      );
+    }
 
     // Text and terminal rows must use the shared body state machine. This
     // removes the misleading old "🔒 Encrypted" fallback from pinned UI.

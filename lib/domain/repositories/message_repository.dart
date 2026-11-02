@@ -7,6 +7,18 @@ import '../entities/group_invite.dart';
 import '../entities/message.dart';
 import '../entities/user.dart';
 
+/// One album item, already compressed (12.5). Takes files, not picker
+/// results, so share-in (12.1) can feed the same call.
+typedef AlbumSendItem = ({
+  String mediaType,
+  File mediaFile,
+  File? thumbnailFile,
+  int? durationSeconds,
+  String? durationText,
+  int? videoWidth,
+  int? videoHeight,
+});
+
 abstract class MessageRepository {
   /// #74 tap-down predecrypt: warm the body cache for the newest [limit]
   /// body-rendering rows of [conversationId] when its list row is
@@ -59,6 +71,15 @@ abstract class MessageRepository {
     String? durationText,
     int? videoWidth,
     int? videoHeight,
+  });
+
+  /// Albums (12.5 B7): [items] in pick order become one album (2–20 photos
+  /// and videos). Each is its own row and send; uploads then run one at a
+  /// time in index order through the resume pass.
+  Future<void> sendMediaAlbum({
+    required String conversationId,
+    required List<AlbumSendItem> items,
+    String? quality,
   });
 
   /// Stops an own media send that has not finished: the bubble and its

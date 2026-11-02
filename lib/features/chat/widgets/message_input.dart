@@ -17,6 +17,8 @@ import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../domain/entities/message.dart';
+import '../../../domain/repositories/message_repository.dart';
+import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/media_upload_service.dart';
 import '../../media/screens/media_edit_screen.dart';
 import '../message_offline_policy.dart';
@@ -83,6 +85,12 @@ class _MessageInputState extends ConsumerState<MessageInput>
   // ── Document upload ───────────────────────────────────────────
   bool _isUploadingDoc = false;
   int _uploadGeneration = 0;
+
+  // ── Album upload (12.5 B6) ────────────────────────────────────
+  bool _isPreparingAlbum = false;
+  int _prepareIndex = 0;
+  int _prepareTotal = 0;
+  final List<File> _albumTempFiles = [];
 
   final _focusNode = FocusNode();
 
@@ -358,34 +366,32 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
     switch (source) {
       case 'camera':
-      case 'gallery':
-        final picked = await picker.pickImage(
-          source: source == 'camera' ? ImageSource.camera : ImageSource.gallery,
-        );
+        final picked = await picker.pickImage(source: ImageSource.camera);
         if (picked == null) return;
-        final original = File(picked.path);
-        if (!_withinMediaLimit(original)) return;
-        final edited = mounted
-            ? await Navigator.of(context).push<MediaEditResult>(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      MediaEditScreen(file: original, type: 'image'),
-                ),
-              )
-            : null;
-        if (edited == null) return;
-        final file = edited.file ?? original;
-        final isGif =
-            await MediaUploadService.isAnimatedImage(file) ||
-            file.path.toLowerCase().endsWith('.gif');
-        final quality = isGif
-            ? 'normal'
-            : mounted
-            ? await showMediaQualitySheet(context, isVideo: false)
-            : null;
-        if (quality == null) return;
-        _focusNode.requestFocus();
-        await _sendImage(file, quality, formatHint: edited.formatHint);
+        await _sendSinglePicked(File(picked.path), 'image');
+        break;
+
+      case 'gallery':
+        // 12.5 B1/B3: photos and videos in one picker, at most 20.
+        final picked = await picker.pickMultipleMedia(
+          limit: AppConstants.maxAlbumItems,
+        );
+        if (picked.isEmpty) return;
+        final files = picked.length > AppConstants.maxAlbumItems
+            ? picked.take(AppConstants.maxAlbumItems).toList()
+            : picked;
+        if (picked.length > AppConstants.maxAlbumItems && mounted) {
+          showToast(
+            context,
+            'Only the first ${AppConstants.maxAlbumItems} were added.',
+          );
+        }
+        if (files.length == 1) {
+          final only = files.single;
+          await _sendSinglePicked(File(only.path), _mediaTypeOf(only));
+        } else {
+          await _sendAlbumPicked(files);
+        }
         break;
 
       case 'video_camera':
@@ -397,29 +403,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
           maxDuration: const Duration(minutes: 5),
         );
         if (picked == null) return;
-        final original = File(picked.path);
-        if (!_withinMediaLimit(original)) return;
-        final edited = mounted
-            ? await Navigator.of(context).push<MediaEditResult>(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      MediaEditScreen(file: original, type: 'video'),
-                ),
-              )
-            : null;
-        if (edited == null) return;
-        final quality = mounted
-            ? await showMediaQualitySheet(context, isVideo: true)
-            : null;
-        if (quality == null) return;
-        _focusNode.requestFocus();
-        await _sendVideo(
-          edited.file ?? original,
-          quality,
-          startTime: edited.trimStart,
-          endTime: edited.trimEnd,
-          sourceDuration: edited.sourceDuration,
-        );
+        await _sendSinglePicked(File(picked.path), 'video');
         break;
 
       case 'document':
@@ -434,6 +418,311 @@ class _MessageInputState extends ConsumerState<MessageInput>
         _focusNode.requestFocus();
         await _sendDocument(File(path));
         break;
+    }
+  }
+
+  /// B2: one picked item keeps today's single flow exactly.
+  Future<void> _sendSinglePicked(File original, String type) async {
+    if (!_withinMediaLimit(original)) return;
+    final edited = mounted
+        ? await Navigator.of(context).push<MediaEditResult>(
+            MaterialPageRoute(
+              builder: (_) => MediaEditScreen(file: original, type: type),
+            ),
+          )
+        : null;
+    if (edited == null) return;
+
+    if (type == 'video') {
+      final quality = mounted
+          ? await showMediaQualitySheet(context, isVideo: true)
+          : null;
+      if (quality == null) return;
+      _focusNode.requestFocus();
+      await _sendVideo(
+        edited.file ?? original,
+        quality,
+        startTime: edited.trimStart,
+        endTime: edited.trimEnd,
+        sourceDuration: edited.sourceDuration,
+      );
+      return;
+    }
+
+    final file = edited.file ?? original;
+    final isGif =
+        await MediaUploadService.isAnimatedImage(file) ||
+        file.path.toLowerCase().endsWith('.gif');
+    final quality = isGif
+        ? 'normal'
+        : mounted
+        ? await showMediaQualitySheet(context, isVideo: false)
+        : null;
+    if (quality == null) return;
+    _focusNode.requestFocus();
+    await _sendImage(file, quality, formatHint: edited.formatHint);
+  }
+
+  String _mediaTypeOf(XFile file) {
+    final mime = file.mimeType?.toLowerCase();
+    if (mime != null && mime.startsWith('video/')) return 'video';
+    final ext = file.path.toLowerCase().split('.').last;
+    const videoExts = {
+      'mp4',
+      'mov',
+      'm4v',
+      'avi',
+      'mkv',
+      'webm',
+      '3gp',
+      'mpeg',
+      'mpg',
+    };
+    return videoExts.contains(ext) ? 'video' : 'image';
+  }
+
+  /// B2–B6: two or more items go through the album editor, one quality
+  /// choice, item-by-item compression, then one album send.
+  Future<void> _sendAlbumPicked(List<XFile> picked) async {
+    final originals = [for (final f in picked) File(f.path)];
+    final types = [for (final f in picked) _mediaTypeOf(f)];
+    final edited = mounted
+        ? await Navigator.of(context).push<List<MediaEditResult>>(
+            MaterialPageRoute(
+              builder: (_) => MediaEditScreen.album(
+                items: [
+                  for (var i = 0; i < originals.length; i++)
+                    MediaEditItem(file: originals[i], type: types[i]),
+                ],
+              ),
+            ),
+          )
+        : null;
+    if (edited == null || edited.isEmpty || !mounted) return;
+
+    // A removed item is absent from the results; each result names its source.
+    final kept = <({File file, String type, MediaEditResult edit})>[];
+    final tooBig = <File>[];
+    for (final result in edited) {
+      final path = result.sourcePath;
+      final file = result.file ?? (path != null ? File(path) : null);
+      if (file == null) continue;
+      final type = result.type ?? 'image';
+      if (mediaTooBig(file)) {
+        tooBig.add(file);
+      } else {
+        kept.add((file: file, type: type, edit: result));
+      }
+    }
+
+    if (kept.isEmpty) {
+      showToast(context, kUploadTooBig, error: true);
+      return;
+    }
+    if (tooBig.isNotEmpty) {
+      showToast(
+        context,
+        tooBig.length == 1
+            ? '1 item is over 100 MB and was left out.'
+            : '${tooBig.length} items are over 100 MB and were left out.',
+        error: true,
+      );
+    }
+
+    final isGif = <bool>[];
+    for (final item in kept) {
+      isGif.add(
+        item.type == 'image' &&
+            (await MediaUploadService.isAnimatedImage(item.file) ||
+                item.file.path.toLowerCase().endsWith('.gif')),
+      );
+    }
+    final allGif = isGif.every((gif) => gif);
+
+    String? quality;
+    if (allGif) {
+      quality = 'normal';
+    } else {
+      final hasPhoto = kept.any((item) => item.type == 'image');
+      final hasVideo = kept.any((item) => item.type == 'video');
+      if (!mounted) return;
+      quality = await showMediaQualitySheet(
+        context,
+        isVideo: !hasPhoto,
+        mixed: hasPhoto && hasVideo,
+      );
+      if (quality == null) return;
+    }
+
+    if (!mounted) return;
+    _focusNode.requestFocus();
+    await _prepareAndSendAlbum(kept, quality);
+  }
+
+  Future<void> _prepareAndSendAlbum(
+    List<({File file, String type, MediaEditResult edit})> items,
+    String quality,
+  ) async {
+    final generation = ++_uploadGeneration;
+    _albumTempFiles.clear();
+    setState(() {
+      _isPreparingAlbum = true;
+      _prepareIndex = 0;
+      _prepareTotal = items.length;
+    });
+
+    final out = <AlbumSendItem>[];
+    try {
+      for (var i = 0; i < items.length; i++) {
+        if (!_isUploadActive(generation)) return;
+        setState(() => _prepareIndex = i);
+        final item = items[i];
+        final edit = item.edit;
+        final itemTemps = <File>[];
+
+        if (item.type == 'video') {
+          final thumbnail = await ref
+              .read(mediaUploadServiceProvider)
+              .generateVideoThumbnail(
+                item.file,
+                position: edit.trimStart ?? -1,
+              );
+          itemTemps.add(thumbnail);
+          _albumTempFiles.add(thumbnail);
+          if (!_isUploadActive(generation)) {
+            _discardAlbumTemps();
+            return;
+          }
+
+          final compressed = await ref
+              .read(mediaUploadServiceProvider)
+              .compressVideo(
+                item.file,
+                quality,
+                startTime: edit.trimStart,
+                endTime: edit.trimEnd,
+                sourceDuration: edit.sourceDuration,
+              );
+          itemTemps.add(compressed);
+          _albumTempFiles.add(compressed);
+          if (!_isUploadActive(generation)) {
+            _discardAlbumTemps();
+            return;
+          }
+          if (mediaTooBig(compressed)) {
+            _discardFiles(itemTemps);
+            continue;
+          }
+
+          final info = await VideoCompress.getMediaInfo(compressed.path);
+          if (!_isUploadActive(generation)) {
+            _discardAlbumTemps();
+            return;
+          }
+          out.add((
+            mediaType: 'video',
+            mediaFile: compressed,
+            thumbnailFile: thumbnail,
+            durationSeconds: (info.duration ?? 0) ~/ 1000,
+            durationText: null,
+            videoWidth: info.width,
+            videoHeight: info.height,
+          ));
+        } else {
+          final compressed = await ref
+              .read(mediaUploadServiceProvider)
+              .compressImage(
+                item.file,
+                quality,
+                formatHint: edit.formatHint,
+              );
+          itemTemps.add(compressed);
+          _albumTempFiles.add(compressed);
+          if (!_isUploadActive(generation)) {
+            _discardAlbumTemps();
+            return;
+          }
+          if (mediaTooBig(compressed)) {
+            _discardFiles(itemTemps);
+            continue;
+          }
+
+          final thumbnail = await ref
+              .read(mediaUploadServiceProvider)
+              .generateImageThumbnail(compressed);
+          itemTemps.add(thumbnail);
+          _albumTempFiles.add(thumbnail);
+          if (!_isUploadActive(generation)) {
+            _discardAlbumTemps();
+            return;
+          }
+          out.add((
+            mediaType: 'image',
+            mediaFile: compressed,
+            thumbnailFile: thumbnail,
+            durationSeconds: null,
+            durationText: null,
+            videoWidth: null,
+            videoHeight: null,
+          ));
+        }
+      }
+
+      if (!_isUploadActive(generation)) return;
+      final left = items.length - out.length;
+      if (out.isEmpty) {
+        if (mounted) showToast(context, kUploadTooBig, error: true);
+        return;
+      }
+      if (left > 0 && mounted) {
+        showToast(
+          context,
+          left == 1
+              ? '1 item is over 100 MB and was left out.'
+              : '$left items are over 100 MB and were left out.',
+          error: true,
+        );
+      }
+      // Past this point a cancel cannot stop the send: hide the row and stop
+      // tracking the files, which the repository now owns.
+      _albumTempFiles.clear();
+      setState(() => _isPreparingAlbum = false);
+      try {
+        await ref
+            .read(messageRepositoryProvider)
+            .sendMediaAlbum(
+              conversationId: widget.conversationId,
+              items: out,
+              quality: quality,
+            );
+      } catch (_) {
+        // Items not taken by the repository are still temp files.
+        _discardFiles([
+          for (final it in out) ...[it.mediaFile, ?it.thumbnailFile],
+        ]);
+        rethrow;
+      }
+    } catch (e) {
+      debugPrint('Album send failed: $e');
+      _discardAlbumTemps();
+      if (mounted && _isUploadActive(generation)) {
+        showToast(context, "Couldn't send. Try again.", error: true);
+      }
+    } finally {
+      if (mounted && _isUploadActive(generation) && _isPreparingAlbum) {
+        setState(() => _isPreparingAlbum = false);
+      }
+    }
+  }
+
+  void _discardAlbumTemps() {
+    _discardFiles(_albumTempFiles);
+    _albumTempFiles.clear();
+  }
+
+  void _discardFiles(List<File> files) {
+    for (final file in files) {
+      _deleteFileQuietly(file.path);
     }
   }
 
@@ -606,12 +895,15 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   void _cancelUpload(String type) {
     _uploadGeneration++;
-    if (type == 'video') VideoCompress.cancelCompression();
+    // An album can be mid-way through a video item too.
+    if (type == 'video' || type == 'album') VideoCompress.cancelCompression();
+    _discardAlbumTemps();
     if (!mounted) return;
     setState(() {
       _isUploadingImage = false;
       _isUploadingVideo = false;
       _isUploadingDoc = false;
+      _isPreparingAlbum = false;
       _videoCompressProgress = 0;
     });
     showToast(context, 'Upload cancelled');
@@ -710,6 +1002,12 @@ class _MessageInputState extends ConsumerState<MessageInput>
               isSending: _isSendingVoice,
               onDiscard: _discardPreview,
               onSend: _sendVoice,
+            )
+          else if (_isPreparingAlbum)
+            _AlbumPreparingRow(
+              index: _prepareIndex,
+              total: _prepareTotal,
+              onCancel: () => _cancelUpload('album'),
             )
           else if (_isUploadingImage)
             _ImageUploadRow(onCancel: () => _cancelUpload('image'))
@@ -1186,6 +1484,49 @@ class _VoicePreviewRowState extends State<_VoicePreviewRow> {
                     color: context.t.onAccent,
                   )
                 : const Icon(Icons.send_rounded, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Album preparing row ────────────────────────────────────────────────────
+
+/// B6: compression runs item by item; the existing floating row says which
+/// one and its cancel drops the whole album (nothing is sent).
+class _AlbumPreparingRow extends StatelessWidget {
+  const _AlbumPreparingRow({
+    required this.index,
+    required this.total,
+    required this.onCancel,
+  });
+
+  final int index;
+  final int total;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Icon(Icons.photo_library_outlined, color: context.t.inkFaint, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Preparing ${index + 1} of $total',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(width: 12),
+          BusySpinner(size: 16, strokeWidth: 2),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: onCancel,
+            tooltip: 'Cancel upload',
+            icon: Icon(Icons.close, color: context.t.inkSoft),
           ),
         ],
       ),

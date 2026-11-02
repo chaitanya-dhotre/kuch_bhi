@@ -254,15 +254,32 @@ class ChatBubbleTimestamp extends StatelessWidget {
     );
 
     if (!overlay) return ExcludeSemantics(child: row);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: ExcludeSemantics(child: row),
-    );
+    return MediaOverlayPill(child: ExcludeSemantics(child: row));
   }
+}
+
+/// The dark pill media overlays put their small white labels on (the time
+/// pill, an album's count pill).
+class MediaOverlayPill extends StatelessWidget {
+  const MediaOverlayPill({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: IconTheme.merge(
+      data: const IconThemeData(color: Colors.white),
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(color: Colors.white),
+        child: child,
+      ),
+    ),
+  );
 }
 
 /// Compact expiry affordance for media overlays.
@@ -270,16 +287,21 @@ class ChatBubbleTimestamp extends StatelessWidget {
 /// The widget is positioned so media stacks can add it directly as a child,
 /// matching the chat spec's top-right placement.
 class ExpiryBadge extends StatelessWidget {
-  const ExpiryBadge({super.key, required this.label});
+  const ExpiryBadge({super.key, required this.label, this.bottomLeft = false});
 
   final String label;
+
+  /// An album keeps top-right for its count pill (12.5 D2).
+  final bool bottomLeft;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Positioned(
-      top: 6,
-      right: 6,
+      top: bottomLeft ? null : 6,
+      right: bottomLeft ? null : 6,
+      left: bottomLeft ? 8 : null,
+      bottom: bottomLeft ? 8 : null,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: const BoxDecoration(

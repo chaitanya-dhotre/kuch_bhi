@@ -16,6 +16,8 @@ class Message {
     this.mediaId,
     this.decryptState = 'ready',
     this.ciphertextLength = 0,
+    this.albumId,
+    this.albumIndex,
   });
 
   final String  localId;
@@ -39,6 +41,11 @@ class Message {
 
   /// Existing ciphertext length used only for transient placeholder sizing.
   final int ciphertextLength;
+
+  /// Albums: item 0's record id, shared by every item sent together; null
+  /// = not in an album. [albumIndex] is the pick order.
+  final String? albumId;
+  final int? albumIndex;
 
   bool get isPending   => status == 'pending';
   bool get isSent      => status == 'sent';

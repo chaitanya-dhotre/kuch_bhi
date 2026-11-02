@@ -408,7 +408,7 @@ class MessageRepositoryImpl implements MessageRepository {
 
   /// SSE pin/delete sync companion (Task 6 review I1): the FULL row built
   /// from [existing] with the server's pin/delete flags. Every one of the
-  /// messages table's 19 columns must be carried EXPLICITLY — the
+  /// messages table's 21 columns must be carried EXPLICITLY — the
   /// boundary's delete-then-insert rebuilds the row from this companion,
   /// so an omitted column resets to its default (I1: a missing
   /// `expiresAt` wiped the expiry of a disappearing message on an SSE pin
@@ -440,6 +440,8 @@ class MessageRepositoryImpl implements MessageRepository {
     // key_missing row to the column default 'ready').
     decryptState: Value(existing.decryptState),
     keyId: Value(existing.keyId),
+    albumId: Value(existing.albumId),
+    albumIndex: Value(existing.albumIndex),
     createdAt: existing.createdAt,
     updatedAt: DateTime.now(),
   );
@@ -1677,13 +1679,17 @@ class MessageRepositoryImpl implements MessageRepository {
     String? durationText,
     int? videoWidth,
     int? videoHeight,
+    String? albumId,
+    int? albumIndex,
   }) async {
     final myId = await _myId();
     await _assertCanSend(conversationId);
     // B1: a PocketBase-style id from the first frame. It becomes the server
     // record id, so a page fetch mid-upload finds this row instead of
     // inserting a second one (13.7), and a re-run converges on one record.
-    final localId = generateOpId();
+    // An album's item 0 uses the album id as its own (12.5 A1).
+    final localId =
+        albumId != null && albumIndex == 0 ? albumId : generateOpId();
     final now = DateTime.now();
     final q = quality ?? 'normal';
 
@@ -1718,6 +1724,8 @@ class MessageRepositoryImpl implements MessageRepository {
             encryptedBody: '',
             iv: '',
             status: Value('pending'),
+            albumId: Value(albumId),
+            albumIndex: Value(albumId == null ? null : albumIndex),
             createdAt: now,
             updatedAt: now,
           ),
@@ -1747,6 +1755,9 @@ class MessageRepositoryImpl implements MessageRepository {
     }
     // T9: duration stub is a body — session cache, never the dropped column.
     if (durationText != null) bodyCache.put(localId, durationText);
+    // Album items upload through one serial pass (sendMediaAlbum), never
+    // N at once.
+    if (albumId != null) return;
 
     // A network failure while the link looks up retries once by itself
     // (D5); a reconnect or app resume covers the rest.
@@ -1755,6 +1766,39 @@ class MessageRepositoryImpl implements MessageRepository {
         if (!ok) _retryMediaSoon();
       }),
     );
+  }
+
+  @override
+  Future<void> sendMediaAlbum({
+    required String conversationId,
+    required List<AlbumSendItem> items,
+    String? quality,
+  }) async {
+    final albumId = generateOpId();
+    try {
+      for (final (i, it) in items.indexed) {
+        await sendMediaMessage(
+          conversationId: conversationId,
+          mediaType: it.mediaType,
+          mediaFile: it.mediaFile,
+          thumbnailFile: it.thumbnailFile,
+          quality: quality,
+          durationSeconds: it.durationSeconds,
+          durationText: it.durationText,
+          videoWidth: it.videoWidth,
+          videoHeight: it.videoHeight,
+          albumId: albumId,
+          albumIndex: i,
+        );
+      }
+    } finally {
+      // A pass already running read its ids before these rows existed:
+      // let it finish, then one more pass picks the album up in order.
+      unawaited(() async {
+        await _mediaResume;
+        await resumeMediaUploads();
+      }());
+    }
   }
 
   /// Width/height from the encoded header (no pixel decode).
@@ -1885,6 +1929,10 @@ class MessageRepositoryImpl implements MessageRepository {
                 'reply_preview': '',
                 'is_deleted_for_everyone': false,
                 'media_id': '',
+                if (msg.albumId != null) ...{
+                  'album_id': msg.albumId,
+                  'album_index': msg.albumIndex ?? 0,
+                },
               },
             );
       } on ClientException catch (e) {
@@ -5047,6 +5095,7 @@ class MessageRepositoryImpl implements MessageRepository {
     final convId = r.getStringValue('conversation_id');
     final createdAt = DateTime.tryParse(r.created) ?? DateTime.now();
     final isMine = r.getStringValue('sender_id') == myId;
+    final albumId = r.getStringValue('album_id');
 
     String status;
     if (isMine) {
@@ -5084,6 +5133,11 @@ class MessageRepositoryImpl implements MessageRepository {
       // the in-memory body cache is cleared.
       decryptState: Value(decryptState),
       keyId: Value(keyId ?? existing?.keyId),
+      // C3: old rows and non-album sends read `album_id = ''`, index 0.
+      albumId: Value(albumId.isEmpty ? null : albumId),
+      albumIndex: Value(
+        albumId.isEmpty ? null : r.getIntValue('album_index'),
+      ),
       expiresAt: Value(_computeExpirySync(convId, createdAt)),
       createdAt: createdAt,
       updatedAt: DateTime.now(),
@@ -6137,6 +6191,8 @@ class MessageRepositoryImpl implements MessageRepository {
     mediaId: r.mediaId,
     decryptState: r.decryptState,
     ciphertextLength: r.encryptedBody.length,
+    albumId: r.albumId,
+    albumIndex: r.albumIndex,
   );
 
   User _tableUserToEntity(dynamic u, {String? groupRole}) => User(

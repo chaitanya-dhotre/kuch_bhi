@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Albums board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from media-send.html; nothing redefined). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC;--error:#E5484D}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+.amoled{--bg:#000000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}td.bad{background:#FBE3E3}td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+/* ── chat frame ── */
+.ph{width:300px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);padding:10px 0 12px;overflow:hidden}
+.ph .lbl{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--inkFaint);padding:6px 12px 2px}
+.b{position:relative;margin:4px 12px;width:236px;max-width:calc(100% - 24px);border-radius:18px 18px 18px 6px;overflow:hidden;background:var(--surface);border:1px solid var(--line)}
+.b.me{margin-left:auto;border-radius:18px 18px 6px 18px;border:2px solid var(--accent)}
+.strip{display:flex;gap:4px;padding:4px;overflow:hidden}
+.tile{position:relative;flex:0 0 auto;height:126px;border-radius:12px;overflow:hidden;background:var(--surface2);display:flex;align-items:center;justify-content:center}
+.tile svg.pic{position:absolute;inset:0;width:100%;height:100%}
+.pill{position:absolute;font-size:10.5px;background:rgba(0,0,0,.45);color:#fff;border-radius:999px;padding:1px 7px;z-index:2;white-space:nowrap}
+.pill.ts{right:8px;bottom:8px}.pill.cnt{right:8px;top:8px}.pill.exp{left:8px;bottom:8px}
+.pill.len{left:6px;bottom:6px}
+.play{position:absolute;width:30px;height:30px;border-radius:999px;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;z-index:1}
+.disc{position:relative;width:44px;height:44px;border-radius:999px;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;z-index:1}
+.disc svg{position:absolute;inset:0}
+.cap{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--inkSoft);text-align:center;z-index:1;padding:0 6px}
+.cap .i{font-size:20px;line-height:22px}
+.dim{opacity:.38}
+.skel{position:absolute;inset:0;background:linear-gradient(90deg,var(--surface2),var(--line),var(--surface2))}
+@media(prefers-reduced-motion:reduce){.skel{background:var(--surface2)}}
+.react{display:inline-flex;gap:4px;margin:0 12px 0 auto;padding:2px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:12px}
+.reactrow{display:flex;justify-content:flex-start;padding:0 12px}.reactrow.me{justify-content:flex-end}
+.quote{margin:4px 12px;width:236px;max-width:calc(100% - 24px);margin-left:auto;border-radius:18px 18px 6px 18px;background:var(--accent);color:var(--onAccent);padding:6px;font-size:13px}
+.quote .q{display:flex;gap:8px;align-items:center;background:rgba(0,0,0,.08);border-left:3px solid var(--onAccent);border-radius:8px;padding:4px 6px}
+.quote .q svg{width:36px;height:36px;border-radius:6px;flex:0 0 auto}
+.quote .q b{display:block;font-size:12px}
+/* sheets */
+.sheet{width:300px;max-width:100%;background:var(--surface);color:var(--ink);border-radius:20px 20px 0 0;border:1px solid var(--line);padding:8px 16px 14px}
+.sheet .hd{width:36px;height:4px;border-radius:9px;background:var(--line);margin:0 auto 10px}
+.sheet h3{margin:0 0 6px;font-size:18px}
+.sr{display:flex;gap:14px;align-items:center;min-height:52px}
+.sr .ic{width:24px;text-align:center;color:var(--inkSoft)}
+.sr b{display:block;font-size:15px}.sr small{display:block;font-size:13px;color:var(--inkSoft)}
+.sr.new b::after{content:" new";font-size:10px;font-weight:700;color:#0B5E42;background:#E3F4EC;border-radius:999px;padding:0 6px;margin-left:6px}
+/* editor */
+.ed{width:300px;max-width:100%;height:540px;position:relative;background:#000;color:#F3EDE3;border-radius:20px;overflow:hidden;border:1px solid #3A342B}
+.ed .top{position:absolute;top:0;left:0;right:0;height:56px;display:flex;align-items:center;padding:0 4px}
+.ed .ib{width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.ed .stage{position:absolute;top:56px;bottom:200px;left:16px;right:16px;display:flex;align-items:center;justify-content:center}
+.ed .sl{position:absolute;bottom:132px;left:0;right:0;display:flex;gap:8px;padding:0 12px;overflow:hidden}
+.ed .th{position:relative;width:56px;height:56px;border-radius:10px;overflow:hidden;flex:0 0 auto;border:2px solid transparent}
+.ed .th.on{border-color:#EFA00B}
+.ed .th svg{width:100%;height:100%}
+.ed .th .x{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:999px;background:rgba(0,0,0,.6);font-size:11px;display:flex;align-items:center;justify-content:center}
+.ed .tools{position:absolute;bottom:68px;left:0;right:0;display:flex;justify-content:center;gap:6px;padding:0 8px}
+.ed .tl{min-height:48px;padding:0 12px;border-radius:14px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600}
+.ed .tl.on{background:rgba(239,160,11,.18);color:#EFA00B}
+.ed .send{position:absolute;bottom:12px;left:16px;right:16px;height:48px;border-radius:16px;background:#EFA00B;color:#21260F;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
+/* collage */
+.col{width:300px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);overflow:hidden}
+.col .bar{display:flex;align-items:center;gap:6px;height:56px;padding:0 6px;background:var(--surface);border-bottom:1px solid var(--line)}
+.col .bar .ib{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.col .bar .t{min-width:0}.col .bar .t b,.col .bar .t small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.col .bar .t small{font-size:12px;color:var(--inkSoft)}
+.col .cv{position:relative;margin:2px}
+.col .cv .tile{position:absolute;border-radius:4px;height:auto}
+.col .cv .tile.on{box-shadow:inset 0 0 0 3px var(--accent)}
+.ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:999px;z-index:2;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;background:rgba(0,0,0,.5);border:2px solid #fff;color:#fff}
+.on>.ck{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.col .bar .bin{margin-left:auto}
+/* viewer */
+.vw{width:300px;max-width:100%;height:520px;position:relative;background:#000;color:#F3EDE3;border-radius:20px;overflow:hidden;border:1px solid #3A342B}
+.vw .top{position:absolute;top:0;left:0;right:0;height:56px;display:flex;align-items:center;gap:4px;padding:0 4px;background:rgba(0,0,0,.55);z-index:2}
+.vw .ib{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.vw .t{flex:1;min-width:0}.vw .t b,.vw .t small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vw .t small{font-size:12px;color:#B9B0A3;font-variant-numeric:tabular-nums}
+.vw .pages{position:absolute;top:56px;bottom:0;left:0;display:flex;width:300%;transform:translateX(-33.333%)}
+.vw .pg{width:33.333%;display:flex;align-items:center;justify-content:center;padding:0 6px}
+.vw .pg svg{width:100%;height:220px}
+.dots{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:11px;color:#B9B0A3;z-index:2}
+.jk,.jk *{font-family:"Plus Jakarta Sans",-apple-system,sans-serif}
+.big{font-size:28px}.big .pill{font-size:21px}.big .cap{font-size:24px}
+</style>
+</head>
+<body>
+<h1>Albums, board</h1>
+<p class="sub">Backlog 12.5, taking Page 9 decision 6 (swipe between items) for albums. Sections <b>S1–S14</b> (page-local). Chat states are drawn in light, dark and AMOLED side by side. Audit at <code>b90bf4f</code>, 2026-11-01. Checklist and decisions: <code>albums.md</code>. Nothing here is built yet.</p>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="land" viewBox="0 0 210 150" preserveAspectRatio="xMidYMid slice"><rect width="210" height="150" fill="#CFE3F0"/><circle cx="160" cy="38" r="18" fill="#F4D58A"/><path d="M0 110 L60 55 L100 95 L140 50 L210 112 L210 150 L0 150Z" fill="#7FA37A"/></symbol>
+<symbol id="port" viewBox="0 0 120 160" preserveAspectRatio="xMidYMid slice"><rect width="120" height="160" fill="#F2D9C4"/><circle cx="60" cy="62" r="24" fill="#B9785A"/><rect x="26" y="96" width="68" height="64" rx="30" fill="#5E7A9A"/></symbol>
+<symbol id="sq" viewBox="0 0 150 150" preserveAspectRatio="xMidYMid slice"><rect width="150" height="150" fill="#E9E1F2"/><rect x="35" y="45" width="80" height="70" rx="10" fill="#C08BB8"/><circle cx="75" cy="80" r="18" fill="#F3EDE3"/></symbol>
+<symbol id="vid" viewBox="0 0 210 150" preserveAspectRatio="xMidYMid slice"><rect width="210" height="150" fill="#3B4A3F"/><rect y="95" width="210" height="55" fill="#2C362E"/><circle cx="55" cy="45" r="15" fill="#C6894F"/><rect x="120" y="55" width="50" height="40" fill="#556B5A"/></symbol>
+</defs></svg>
+
+<!-- S1 -->
+<div class="band"><header><span class="n">S1</span><h2>How items are known to belong together (decision 1)</h2></header>
+<div class="tblwrap"><table>
+<tr><th></th><th>A. Shared id on each message <b>(default)</b></th><th>B. Sender + time window</th><th>C. Id inside the encrypted body</th></tr>
+<tr><td>Data</td><td><code>album_id</code> = item 0's record id, <code>album_index</code> 0–19; server + drift v13</td><td>none</td><td>body JSON; server sees nothing new</td></tr>
+<tr><td>Offline send, resume, Try again later</td><td class="ok">same id on every re-run; late items join (A2)</td><td class="bad">an item resumed minutes later falls outside the window → the album splits</td><td class="ok">same</td></tr>
+<tr><td>False merges</td><td class="ok">none</td><td class="bad">two photos sent separately within a minute merge</td><td class="ok">none</td></tr>
+<tr><td>Order</td><td class="ok">exact pick order</td><td>upload-arrival order</td><td class="ok">exact</td></tr>
+<tr><td>List builder can group</td><td class="ok">yes, plain columns</td><td class="ok">yes</td><td class="bad">no: decrypted bodies are a session cache, never stored (<code>rep:1747</code>); grouping would need the frozen decrypt pass</td></tr>
+<tr><td>Older app versions</td><td class="ok">ignore the fields → N normal bubbles</td><td class="ok">N normal bubbles</td><td class="bad">may show the body text on media they don't expect it on</td></tr>
+<tr><td>Cost</td><td>live schema change W1 (your OK) + hand-written drift codegen (build_runner crashes, media-send learning)</td><td>none</td><td>frozen decrypt pass unfrozen</td></tr>
+</table></div>
+<div class="note">The server already sees one sender creating N media records in the same minute, so a plain <code>album_id</code> tells it next to nothing new. Live read <b>R1</b> (your OK first) checks that no hook rejects or rewrites create-body fields before W1 adds them.</div></div>
+
+<!-- S2 -->
+<div class="band"><header><span class="n">S2</span><h2>Send flow</h2></header>
+<div class="flow"><span class="bx">＋ Attach</span><span class="ar">→</span><span class="bx ok">Photos and videos (up to 20)</span><span class="ar">→</span><span class="bx">1 picked?</span><span class="ar">→</span><span class="bx">today's single flow</span></div>
+<div class="flow"><span class="bx">2–20 picked</span><span class="ar">→</span><span class="bx ok">editor with item strip (C14 album mode)</span><span class="ar">→</span><span class="bx">one quality sheet</span><span class="ar">→</span><span class="bx">floating row: Preparing 1 of 5…</span><span class="ar">→</span><span class="bx ok">N inserts (album_id, index) → one album bubble</span><span class="ar">→</span><span class="bx ok">one resume pass: uploads 1 → N, one at a time</span></div>
+<div class="note">Over 100 MB → that item is left out before compression (<b>1 item is over 100 MB and was left out.</b>). A network failure on item 2 holds 3…N (order kept on the other phone); a terminal failure on item 2 does not. Album sends don't start their own upload (today each send does, <code>rep:1753</code>), so they never run in parallel.</div></div>
+
+<!-- S3 -->
+<div class="band"><header><span class="n">S3</span><h2>Attach sheet and the mixed quality sheet (decisions 6, 8)</h2></header><div class="row" id="s3"></div></div>
+
+<!-- S4 -->
+<div class="band"><header><span class="n">S4</span><h2>Editor, album mode (decision 7)</h2></header>
+<div class="row">
+<div class="ed" aria-label="Album editor"><div class="top"><span class="ib" aria-label="Close">✕</span><span style="flex:1"></span><span class="ib" aria-label="Rotate">⟳</span></div>
+<div class="stage"><svg width="190" height="250"><use href="#port"/></svg></div>
+<div class="sl"><span class="th"><svg><use href="#land"/></svg></span><span class="th on"><svg><use href="#port"/></svg><span class="x" aria-label="Remove">✕</span></span><span class="th"><svg><use href="#vid"/></svg></span><span class="th"><svg><use href="#sq"/></svg></span><span class="th"><svg><use href="#land"/></svg></span></div>
+<div class="tools"><span class="tl on">⌗ Crop</span><span class="tl">✎ Draw</span></div>
+<div class="send">Send</div></div>
+<div style="max-width:420px;font-size:13px">
+<p style="margin-top:0">The strip sits above the existing tool row. The ringed thumbnail is the one being edited; each item keeps its own crop, drawing or trim in memory. Selecting a video swaps the tools to <b>Trim</b>; a GIF shows no tools and <b>GIFs are sent as they are.</b></p>
+<p><b>Remove</b> (✕, 48dp target) drops the selected item. Down to one item, the strip hides and this is the single editor again. Close with any edit → <b>Discard changes?</b> (existing R20).</p>
+<p>TalkBack: thumbnails are buttons <b>Item 2 of 5, selected</b>; Remove is its own button.</p></div>
+</div></div>
+
+<!-- S5 -->
+<div class="band"><header><span class="n">S5</span><h2>The album bubble (C16; decisions 12–15)</h2></header><div class="row" id="s5"></div>
+<div class="note"><b>Fixed overlays:</b> count pill top-right, time + ticks bottom-right, one expiry badge (earliest item) bottom-left; only the tiles scroll. Tiles are 180dp high on the phone (126px in this 300px mock), width by aspect, clamped so the next tile peeks by at least 40dp. No swipe-to-reply on albums (decision 13): <code>SwipeToReply</code> wraps every bubble today (<code>mb:379</code>) and would fight the sideways scroll.</div></div>
+
+<!-- S6 -->
+<div class="band"><header><span class="n">S6</span><h2>Per-tile states inside an album (media-send rules, reused)</h2></header><div class="row" id="s6"></div>
+<div class="note">Every state is the single bubble's rule called on a tile (sending disc C15, Not sent + Try again, Tap to retry, Available online at 38%, the three ended captions, Page 9's download disc). One bad item never blocks the others.</div></div>
+
+<!-- S7 -->
+<div class="band"><header><span class="n">S7</span><h2>The collage (C17; decision 16)</h2></header><div class="row" id="s7"></div>
+<div class="note">Theme background, not black: it is a screen you scroll. Tap a tile → fullscreen at that item. Long-press a tile → <b>Reply</b> / <b>Select</b> / <b>Delete for me</b> / <b>Delete for everyone</b> for that item. <b>Select</b> (decision 27) turns the bar into a selection bar; taps toggle items; the bin deletes them together (for everyone only when all are yours). A late item appears; one left → the screen pops back to the chat.</div></div>
+
+<!-- S8 -->
+<div class="band"><header><span class="n">S8</span><h2>Collage layout rules (decision 17)</h2></header>
+<div class="row"><div style="flex:1 1 300px;font-size:13px;min-width:0">
+<p style="margin-top:0"><code>albumLayout(aspects, width)</code>, pure and deterministic, walked in pick order:</p>
+<ol style="padding-left:18px;margin:0">
+<li><b>Landscape</b> (aspect ≥ 1.2): its own full-width row, height = width ÷ aspect, cropped to at most 2:1.</li>
+<li><b>Portrait or square</b>: paired with the next item if that one is also portrait or square; widths in proportion to their aspects, one shared height.</li>
+<li>A <b>lone portrait</b> (next is landscape, or none): full width, cropped to at most 4:5.</li>
+<li>Unknown size (legacy, no metadata): aspect 1.0.</li></ol>
+<p>Gap 2dp. Every tile <code>BoxFit.cover</code>. Videos keep ▶ and their length chip. Mixed photo and video is just more tiles: the rule only reads the aspect.</p></div>
+<div class="wrap"><span class="tag">Example: L, P, P, L, P, S</span><div id="s8"></div></div></div></div>
+
+<!-- S9 -->
+<div class="band"><header><span class="n">S9</span><h2>Fullscreen pager (Page 9 viewer split into page + shell; decisions 18–20)</h2></header>
+<div class="row">
+<div class="vw"><div class="top"><span class="ib">←</span><span class="t"><b>Asha</b><small>Today 12:41 · 2 of 5</small></span><span class="ib" aria-label="Save">⤓</span><span class="ib" aria-label="Share">⇪</span></div>
+<div class="pages"><div class="pg"><svg><use href="#land"/></svg></div><div class="pg"><svg><use href="#port"/></svg></div><div class="pg"><svg><use href="#vid"/></svg></div></div></div>
+<div style="max-width:440px;font-size:13px">
+<ul style="padding-left:18px;margin-top:0">
+<li><b>Paging only at fit.</b> While the page is zoomed (scale &gt; 1.01, the swipe-down test), the <code>PageView</code> stops scrolling, so a sideways drag pans inside the photo (the zoom-clamp learning). Back at fit it pages again. Device check 9: gesture arenas can't be proven by widget tests.</li>
+<li>Counter <b>2 of 5</b> in the top bar, tabular figures, announced on page change. Chrome auto-hide is shared; paging doesn't toggle it.</li>
+<li>Full file for the <b>current</b> page only; neighbours show their thumbnail + R3a.</li>
+<li>Video: one controller at a time; leaving a page pauses and disposes it; the lifecycle pause rule holds.</li>
+<li>Save / Share act on the item on screen (Page 9 copy).</li>
+<li>Hero per item (<code>media_{serverId}</code>); reduced motion: no Hero, <code>jumpToPage</code>.</li>
+<li>A single photo is a pager of one, no counter: today's viewer, existing tests unedited.</li>
+<li>Swiping stays inside the album; a whole chat's media is a separate task.</li></ul></div></div></div>
+
+<!-- S10 -->
+<div class="band"><header><span class="n">S10</span><h2>Actions: per album or per item (decisions 15, 21–24)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Action</th><th>Album bubble long-press</th><th>Collage tile long-press</th><th>Viewer</th><th>Old clients see</th></tr>
+<tr><td>React</td><td>stored on the <b>cover</b> (lowest-index visible item)</td><td>n/a</td><td>n/a</td><td>the reaction under the first photo</td></tr>
+<tr><td>Reply</td><td>quotes the cover; quote shows its thumbnail + <b>5 photos</b></td><td>quotes that item; <b>Photo</b> / <b>Video</b></td><td>n/a (Page 9 decision 14)</td><td>a photo quote</td></tr>
+<tr><td>Star</td><td><b>the whole album</b> (a star on every item); Starred shows <b>one card</b>, tap jumps to the album</td><td>n/a</td><td>n/a</td><td>n/a (local)</td></tr>
+<tr><td>Pin</td><td>the cover; banner says <b>5 photos</b>, jumps to the album</td><td>n/a</td><td>n/a</td><td>first photo pinned</td></tr>
+<tr><td>Select</td><td>the album is one unit (its N rows)</td><td><b>Select mode</b>: tap items, then delete them together (decision 27)</td><td>n/a</td><td></td></tr>
+<tr><td>Delete for me</td><td>every item; <b>Delete 5 messages?</b> (wave 4's confirm)</td><td>that item (<b>Delete message?</b>) or the selected ones (<b>Delete 3 messages?</b>)</td><td>n/a</td><td></td></tr>
+<tr><td>Delete for everyone</td><td>every own item, online only</td><td>that item or the selected ones, all own, online only</td><td>n/a</td><td>those bubbles leave</td></tr>
+<tr><td>Cancel sending</td><td>every unsent own item (sent ones stay)</td><td>n/a (the tile's ✕ cancels one)</td><td>n/a</td><td>nothing lasting</td></tr>
+<tr><td>Save / Share</td><td>n/a</td><td>n/a</td><td>the item on screen</td><td></td></tr>
+<tr><td>Copy</td><td colspan="4">n/a (media has nothing to copy)</td></tr>
+</table></div>
+<div class="note">Home preview and the pinned banner use the same label (<b>3 photos and 2 videos</b>). Unread counts and the phone's notification stay per item: the push arrives per message and the phone replaces one notification per chat (<code>fcm:617</code>).</div></div>
+
+<!-- S11 -->
+<div class="band"><header><span class="n">S11</span><h2>Schema, ingest, older clients</h2></header>
+<div class="row"><div style="flex:1 1 320px;font-size:13px;min-width:0">
+<div class="tblwrap"><table>
+<tr><th>Where</th><th>Change</th></tr>
+<tr><td>PocketBase <code>messages</code> (W1, your OK)</td><td><code>album_id</code> text, optional, <code>^[a-z0-9]{15}$</code> · <code>album_index</code> number, optional, integer 0–19 · both update-rule branches refuse them</td></tr>
+<tr><td>Drift <code>messages</code> v12 → v13</td><td><code>albumId</code> text?, <code>albumIndex</code> int?; two <code>addColumn</code>; generated code hand-written</td></tr>
+<tr><td>Create body (<code>rep:1873-1886</code>)</td><td>+ <code>album_id</code>, <code>album_index</code>; same values on every re-run</td></tr>
+<tr><td><code>_companionFromRecord</code> (<code>rep:5021</code>)</td><td>copies both (empty → null); nothing else in ingest changes</td></tr>
+<tr><td>DAO</td><td><code>rowsInAlbum(conversationId, albumId)</code> for labels</td></tr>
+</table></div>
+<p><b>R1 done 2026-11-01</b> (read-only): no album field; <b>unknown create-body fields are dropped silently</b> (there is no <code>media_id</code> field, yet every create sends one), so W1 must land before the album build ships. The update rule lists fields a member may not set; W1 adds <code>album_id</code> and <code>album_index</code> to both branches. The push hook reads only id / conversation / sender; no hook filters body fields.</p></div>
+<div id="s11"></div></div></div>
+
+<!-- S12 -->
+<div class="band"><header><span class="n">S12</span><h2>360dp, 200% text, Plus Jakarta Sans</h2></header><div class="row" id="s12"></div>
+<div class="note">Tiles are sized by width and height in dp, so only the pills and captions grow; they scale down inside their fixed slots (<code>FittedBox.scaleDown</code>, as <code>MediaRetry</code> does). The collage bar keeps title and subtitle to one line each, ellipsised.</div></div>
+
+<!-- S13 -->
+<div class="band"><header><span class="n">S13</span><h2>Hooks for 12.1 share-into-app (not built here)</h2></header>
+<ul style="margin:0;padding-left:18px;font-size:13px">
+<li>The album send takes a <b>list of files</b> (with their types), not picker results, so a share of several photos/videos lands in the same flow: editor album mode → one quality sheet → album.</li>
+<li><code>MediaEditScreen</code>'s album mode takes files, like its single mode (media-send S15).</li>
+<li>A shared set with documents: documents go as separate messages; only photos and videos form the album. More than 20 shared: the first 20 with <b>Only the first 20 were added.</b> (12.1 decides whether to split instead).</li></ul></div>
+
+<!-- S14 -->
+<div class="band"><header><span class="n">S14</span><h2>Diff summary</h2></header>
+<p style="margin:0;font-size:13px">14 rows in <code>albums.md</code> → "Diff vs current implementation". The big four: two fields on a message (server + drift v13), multi-pick with an editor strip and one quality choice, the album bubble with sideways tiles, and the collage → pager viewer.</p></div>
+
+<script>
+const T=[['Light',''],['Dark','dark'],['AMOLED','amoled']];
+const pic=(id)=>`<svg class="pic"><use href="#${id}"/></svg>`;
+const W={land:168,port:95,sq:126,vid:168};
+const arc=(p)=>p==null?'':`<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="3"/><circle cx="22" cy="22" r="19" fill="none" stroke="#EFA00B" stroke-width="3" stroke-dasharray="${(119.4*p).toFixed(1)} 200" transform="rotate(-90 22 22)" stroke-linecap="round"/></svg>`;
+function tile(id,inner='',w){return `<div class="tile" style="width:${w||W[id]||126}px">${id?pic(id):''}${id==='vid'?'<span class="play">▶</span><span class="pill len">0:14</span>':''}${inner}</div>`;}
+function album(me,tiles,{n=5,ticks='✓✓',exp=''}={}){return `<div class="b ${me?'me':''}"><div class="strip">${tiles.join('')}</div><span class="pill cnt">▣ ${n}</span>${exp?`<span class="pill exp">${exp}</span>`:''}<span class="pill ts">12:41 ${me?ticks:''}</span></div>`;}
+function bubbles(){return [
+ ['Received',album(false,[tile('land'),tile('port'),tile('vid')])+`<div class="reactrow"><span class="react">❤️ 2</span></div>`],
+ ['Own, sending (item 2 at 40%)',album(true,[tile('land'),tile('port','<span class="disc">'+arc(.4)+'✕</span>'),tile('vid','<span class="disc">'+arc(null)+'✕</span>')],{ticks:'🕓'})],
+ ['Own, sent, expiring soon',album(true,[tile('port'),tile('port'),tile('sq')],{n:3,exp:'⏲ 3 days'})],
+ ['Reply to an album',`<div class="quote"><div class="q"><svg><use href="#land"/></svg><span><b>Asha</b>3 photos and 2 videos</span></div><div style="padding:4px 2px 0">love the second one</div></div>`],
+];}
+function states(){return [
+ ['Waiting / Not sent',album(true,[tile('land','<span class="disc">'+arc(null)+'✕</span>'),tile('port','<span class="cap" style="color:#fff"><span class="disc" style="width:40px;height:40px">↻</span>Not sent · Try again</span>')],{n:2,ticks:'🕓'})],
+ ['Loading / failed download',album(false,[tile('','<span class="skel"></span>',126),tile('','<span class="cap"><span class="i">↻</span>Tap to retry</span>',126)],{n:4})],
+ ['Ended + not downloaded',album(false,[tile('','<span class="cap"><span class="i">⏲</span>Media expired</span>',110),tile('','<span class="cap"><span class="i">🔒</span>Can\'t decrypt</span>',110),tile('land','<span class="disc">⤓</span>')],{n:3})],
+ ['Offline retry',album(false,[tile('','<span class="cap"><span class="i dim">🖼</span>Available online</span>',126),tile('port')],{n:2})],
+];}
+function draw(el,items){document.getElementById(el).innerHTML=T.map(([n,c])=>`<div class="wrap"><span class="tag">${n}</span><div class="ph ${c}">${items.map(([l,h])=>`<div class="lbl">${l}</div>${h}`).join('')}</div></div>`).join('');}
+draw('s5',bubbles());draw('s6',states());
+// S3 sheets
+document.getElementById('s3').innerHTML=T.map(([n,c])=>`<div class="wrap"><span class="tag">${n}</span><div class="${c}" style="display:flex;flex-direction:column;gap:10px">
+<div class="sheet"><div class="hd"></div><h3>Attach</h3>
+<div class="sr"><span class="ic">📷</span><b>Take a photo</b></div>
+<div class="sr new"><span class="ic">🖼</span><b>Photos and videos</b></div>
+<div class="sr"><span class="ic">🎥</span><b>Record a video</b></div>
+<div class="sr"><span class="ic">📎</span><b>Document</b></div></div>
+<div class="sheet"><div class="hd"></div><h3>Quality</h3>
+<div class="sr"><span class="ic">⇲</span><span><b>Normal</b><small>Photos up to 1280px, videos 720p · kept 60 and 30 days</small></span></div>
+<div class="sr"><span class="ic">HD</span><span><b>High</b><small>Photos up to 2560px, videos 1080p · kept 30 and 15 days</small></span></div></div>
+</div></div>`).join('');
+// layout function, same rule as the spec (E2)
+function albumLayout(a,w,g=2){const r=[];let y=0,i=0;while(i<a.length){const x=a[i];
+ if(x>=1.2){const h=w/Math.min(x,2);r.push([0,y,w,h]);y+=h+g;i++;continue;}
+ const nx=a[i+1];if(nx!==undefined&&nx<1.2){const h=(w-g)/(x+nx);r.push([0,y,h*x,h]);r.push([h*x+g,y,h*nx,h]);y+=h+g;i+=2;continue;}
+ const h=w/Math.max(x,0.8);r.push([0,y,w,h]);y+=h+g;i++;}return {r,h:y-g};}
+const ex=[['land',1.5],['port',0.75],['port',0.75],['vid',1.78],['port',0.75],['sq',1]];
+function collage(w,items,sel){const L=albumLayout(items.map(x=>x[1]),w);return `<div class="cv" style="height:${L.h}px">${L.r.map(([x,y,ww,hh],k)=>`<div class="tile${sel&&sel.includes(k)?' on':''}" aria-label="${sel?(sel.includes(k)?'selected':'not selected'):''}" style="left:${x}px;top:${y}px;width:${ww}px;height:${hh}px">${pic(items[k][0])}${items[k][0]==='vid'?'<span class="play">▶</span><span class="pill len">0:14</span>':''}${sel?`<span class="ck">${sel.includes(k)?'✓':''}</span>`:''}</div>`).join('')}</div>`;}
+document.getElementById('s8').innerHTML=`<div class="col" style="width:260px">${collage(256,ex)}</div>`;
+const bar=(big)=>`<div class="bar"><span class="ib">←</span><span class="t"><b>Asha</b><small>3 photos and 2 videos · Today 12:41</small></span></div>`;
+const selbar=`<div class="bar"><span class="ib" aria-label="Exit selection">✕</span><span class="t"><b>2 selected</b></span><span class="ib bin" aria-label="Delete selected">🗑</span></div>`;
+document.getElementById('s7').innerHTML=T.map(([n,c])=>`<div class="wrap"><span class="tag">${n}</span><div class="col ${c}">${bar()}${collage(296,ex.slice(0,5))}</div></div><div class="wrap"><span class="tag">${n} · Select mode</span><div class="col ${c}">${selbar}${collage(296,ex.slice(0,5),[1,2])}</div></div>`).join('');
+// S11 older client
+document.getElementById('s11').innerHTML=`<div class="wrap"><span class="tag">Older app version, same album</span><div class="ph">${['land','port','vid'].map(id=>`<div class="b"><div class="tile" style="width:100%;height:110px;border-radius:0">${pic(id)}${id==='vid'?'<span class="play">▶</span>':''}</div><span class="pill ts">12:41</span></div>`).join('')}</div></div>`;
+// S12 large text
+document.getElementById('s12').innerHTML=`<div class="wrap"><span class="tag">Bubble · Jakarta 200%</span><div class="ph jk big" style="width:300px"><div class="b"><div class="strip">${tile('land','<span class="cap" style="font-size:20px"><span class="i">⏲</span>Media expired</span>')}${tile('port')}</div><span class="pill cnt">▣ 5</span><span class="pill ts">12:41</span></div></div></div>
+<div class="wrap"><span class="tag">Collage bar · Jakarta 200%</span><div class="col jk" style="font-size:28px"><div class="bar"><span class="ib">←</span><span class="t"><b>Asha Raghunathan</b><small style="font-size:24px">3 photos and 2 videos · Today 12:41</small></span></div>${collage(296,ex.slice(0,3))}</div></div>`;
+</script>
+</body>
+</html>

@@ -7,10 +7,13 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/page_app_bar.dart';
+import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/message.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
+import '../../chat/chat_run_grouping.dart' show albumLabel;
 import '../../chat/providers/chat_provider.dart';
 import '../../chat/providers/message_body_provider.dart';
 import '../../chat/widgets/message_body_text.dart';
@@ -19,6 +22,65 @@ final _starredProvider = FutureProvider.autoDispose
     .family<List<Message>, String>((ref, conversationId) {
   return ref.read(messageRepositoryProvider).getStarredMessages(conversationId);
 });
+
+/// 12.5 F7: an album's starred rows are one card.
+class _StarredEntry {
+  const _StarredEntry.album(this.rows) : single = null;
+  const _StarredEntry.single(this.single) : rows = const [];
+
+  /// In album order; empty for a single.
+  final List<Message> rows;
+  final Message? single;
+
+  bool get isAlbum => rows.length > 1;
+  Message get cover => rows.isNotEmpty ? rows.first : single!;
+}
+
+/// Groups starred rows by album. The server's starred record carries ids
+/// only, so a row without an album id is resolved against its local copy
+/// (the same row the repository already looked up for type and body).
+final _starredEntriesProvider =
+    FutureProvider.autoDispose.family<List<_StarredEntry>, String>(
+  (ref, conversationId) async {
+    final starred = await ref.watch(_starredProvider(conversationId).future);
+    final dao = ref.read(appDatabaseProvider).messagesDao;
+
+    final albumIdByLocal = <String, String>{};
+    final groups = <String, List<Message>>{};
+    for (final m in starred) {
+      var albumId = m.albumId;
+      if ((albumId == null || albumId.isEmpty) && m.serverId != null) {
+        try {
+          albumId = (await dao.getMessageByServerId(m.serverId!))?.albumId;
+        } catch (_) {}
+      }
+      if (albumId == null || albumId.isEmpty) continue;
+      albumIdByLocal[m.localId] = albumId;
+      groups.putIfAbsent(albumId, () => []).add(m);
+    }
+
+    final out = <_StarredEntry>[];
+    final emitted = <String>{};
+    for (final m in starred) {
+      final albumId = albumIdByLocal[m.localId];
+      if (albumId == null) {
+        out.add(_StarredEntry.single(m));
+        continue;
+      }
+      if (!emitted.add(albumId)) continue;
+      final rows = groups[albumId]!
+        ..sort((a, b) {
+          final i = (a.albumIndex ?? 0).compareTo(b.albumIndex ?? 0);
+          return i != 0 ? i : a.createdAt.compareTo(b.createdAt);
+        });
+      out.add(
+        rows.length > 1 ? _StarredEntry.album(rows) : _StarredEntry.single(rows.first),
+      );
+    }
+    return out;
+  },
+);
+
 
 class StarredMessagesScreen extends ConsumerWidget {
   const StarredMessagesScreen({
@@ -32,7 +94,11 @@ class StarredMessagesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final starredAsync = ref.watch(_starredProvider(conversationId));
+    final entriesAsync = ref.watch(_starredEntriesProvider(conversationId));
+    void refresh() {
+      ref.invalidate(_starredProvider(conversationId));
+      ref.invalidate(_starredEntriesProvider(conversationId));
+    }
 
     return Scaffold(
       appBar: pageAppBar(
@@ -41,11 +107,11 @@ class StarredMessagesScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon:     const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_starredProvider(conversationId)),
+            onPressed: refresh,
           ),
         ],
       ),
-      body: starredAsync.when(
+      body: entriesAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         // R7: plain copy and a Retry, never the exception.
         error:   (_, __) => EmptyState(
@@ -54,11 +120,11 @@ class StarredMessagesScreen extends ConsumerWidget {
           // The mascot does not fit at 200% text on a 360dp phone.
           withMascot: false,
           action: AppButton(
-            onPressed: () => ref.invalidate(_starredProvider(conversationId)),
+            onPressed: refresh,
             child: const Text('Retry'),
           ),
         ),
-        data:    (messages) => messages.isEmpty
+        data:    (entries) => entries.isEmpty
             ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -75,16 +141,16 @@ class StarredMessagesScreen extends ConsumerWidget {
               )
             : ListView.separated(
                 padding:    const EdgeInsets.all(16),
-                itemCount:  messages.length,
+                itemCount:  entries.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (_, i) => _StarredCard(
-                  message: messages[i],
+                  entry: entries[i],
                   onJump:  onJump != null
                       ? () {
                           Navigator.of(context).pop();
                           // Give the chat screen one frame to remount before scrolling
                           WidgetsBinding.instance.addPostFrameCallback((_) {
-                            onJump!(messages[i]);
+                            onJump!(entries[i].cover);
                           });
                         }
                       : null,
@@ -96,8 +162,8 @@ class StarredMessagesScreen extends ConsumerWidget {
 }
 
 class _StarredCard extends ConsumerStatefulWidget {
-  const _StarredCard({required this.message, this.onJump});
-  final Message message;
+  const _StarredCard({required this.entry, this.onJump});
+  final _StarredEntry entry;
   final VoidCallback? onJump;
 
   @override
@@ -108,18 +174,26 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
   File? _thumbFile;
   bool _loadingImage = true;
 
+  Message get _cover => widget.entry.cover;
+
   @override
   void initState() {
     super.initState();
-    if (widget.message.type == 'image' && widget.message.serverId != null) {
+    final cover = _cover;
+    final hasThumb =
+        cover.type == 'image' || (widget.entry.isAlbum && cover.type == 'video');
+    if (hasThumb && cover.serverId != null) {
       _loadImage();
+    } else {
+      _loadingImage = false;
     }
   }
 
   Future<void> _loadImage() async {
+    final cover = _cover;
     final media = await ref.read(messageRepositoryProvider).getDecryptedMedia(
-          widget.message.conversationId,
-          widget.message.serverId!,
+          cover.conversationId,
+          cover.serverId!,
           thumb: true,
         );
     if (mounted) {
@@ -133,7 +207,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
   @override
   Widget build(BuildContext context) {
     final myId   = ref.watch(currentUserIdProvider).asData?.value ?? '';
-    final isMine = widget.message.senderId == myId;
+    final isMine = _cover.senderId == myId;
 
     return GestureDetector(
       onTap: widget.onJump,
@@ -162,7 +236,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
               const Spacer(),
               Text(
                 DateFormat('MMM d, HH:mm')
-                    .format(widget.message.createdAt.toLocal()),
+                    .format(_cover.createdAt.toLocal()),
                 style: TextStyle(
                   fontSize: 11,
                   color:    context.t.ink.withValues(alpha: 0.5),
@@ -190,7 +264,8 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
 
   /// Media-aware card content — never blank, even for video/voice/document.
   Widget _buildContent(BuildContext context) {
-    final msg  = widget.message;
+    if (widget.entry.isAlbum) return _buildAlbumContent(context);
+    final msg  = _cover;
     // Voice duration / file name decrypt on device after a cold start.
     final body = ref.watch(messageBodyProvider(msg.localId)).valueOrNull ??
         msg.decryptedBody ??
@@ -230,6 +305,38 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
     }
   }
 
+  /// F7: one card for the album — the cover's thumbnail and **5 photos**.
+  Widget _buildAlbumContent(BuildContext context) {
+    final label = albumLabel(widget.entry.rows);
+    if (_loadingImage) {
+      return const SizedBox(
+        height: 120,
+        child: Center(child: BusySpinner()),
+      );
+    }
+    final thumb = _thumbFile;
+    if (thumb == null) {
+      return _mediaRow(context, Icons.photo_library_outlined, label);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(
+            thumb,
+            height: 200,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        _mediaRow(context, Icons.photo_library_outlined, label),
+      ],
+    );
+  }
+
   Widget _mediaRow(BuildContext context, IconData icon, String label) {
     final color =
         context.t.ink.withValues(alpha: 0.7);
@@ -263,8 +370,8 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         context,
         Icons.camera_alt_outlined,
         // Reuse any caption/body if present, otherwise just the label.
-        (widget.message.decryptedBody ?? '').isNotEmpty
-            ? widget.message.decryptedBody!
+        (_cover.decryptedBody ?? '').isNotEmpty
+            ? _cover.decryptedBody!
             : kMediaRowPhotoLabel,
       );
     }
@@ -280,8 +387,8 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         errorBuilder: (_, __, ___) => _mediaRow(
           context,
           Icons.camera_alt_outlined,
-          (widget.message.decryptedBody ?? '').isNotEmpty
-              ? widget.message.decryptedBody!
+          (_cover.decryptedBody ?? '').isNotEmpty
+              ? _cover.decryptedBody!
               : kMediaRowPhotoLabel,
         ),
       ),

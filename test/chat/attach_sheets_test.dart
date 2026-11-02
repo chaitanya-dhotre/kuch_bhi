@@ -25,9 +25,8 @@ Future<Future<String?> Function()> _open(
 void main() {
   const sources = {
     'Take a photo': 'camera',
-    'Photo library': 'gallery',
+    'Photos and videos': 'gallery',
     'Record a video': 'video_camera',
-    'Video library': 'video_gallery',
     'Document': 'document',
   };
   for (final MapEntry(key: label, value: value) in sources.entries) {
@@ -40,6 +39,18 @@ void main() {
       expect(find.text('Attach'), findsNothing);
     });
   }
+
+  testWidgets('decision 6: four rows, one picker for photos and videos',
+      (tester) async {
+    await _open(tester, showAttachSourceSheet);
+    expect(find.text('Photo library'), findsNothing,
+        reason: 'B1: merged into Photos and videos');
+    expect(find.text('Video library'), findsNothing);
+    expect(find.text('Photos and videos'), findsOneWidget);
+    expect(find.text('Take a photo'), findsOneWidget);
+    expect(find.text('Record a video'), findsOneWidget);
+    expect(find.text('Document'), findsOneWidget);
+  });
 
   for (final isVideo in [false, true]) {
     for (final (label, value) in [('Normal', 'normal'), ('High', 'high')]) {
@@ -87,6 +98,26 @@ void main() {
         findsOneWidget);
   });
 
+  testWidgets('B5: the mixed album sheet is titled Quality, its subtitles '
+      'come from the constants', (tester) async {
+    await _open(
+        tester, (c) => showMediaQualitySheet(c, isVideo: false, mixed: true));
+    expect(find.text('Quality'), findsOneWidget);
+    expect(find.text('Photo quality'), findsNothing);
+    expect(
+        find.text('Photos up to ${AppConstants.photoNormalMaxPx}px, videos '
+            '${AppConstants.videoNormalQuality} · kept '
+            '${AppConstants.retentionPhotoNormalDays} and '
+            '${AppConstants.retentionVideoNormalDays} days'),
+        findsOneWidget);
+    expect(
+        find.text('Photos up to ${AppConstants.photoHighMaxPx}px, videos '
+            '${AppConstants.videoHighQuality} · kept '
+            '${AppConstants.retentionPhotoHighDays} and '
+            '${AppConstants.retentionVideoHighDays} days'),
+        findsOneWidget);
+  });
+
   for (final font in largeTextFonts) {
     testWidgets('360×200% (${font ?? 'system'}): attach + quality fit',
         (tester) async {
@@ -100,6 +131,15 @@ void main() {
 
       await _open(tester, (c) => showMediaQualitySheet(c, isVideo: false),
           large: true, fontFamily: font);
+      expect(tester.takeException(), isNull);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      await _open(
+          tester,
+          (c) => showMediaQualitySheet(c, isVideo: false, mixed: true),
+          large: true,
+          fontFamily: font);
       expect(tester.takeException(), isNull);
     });
   }

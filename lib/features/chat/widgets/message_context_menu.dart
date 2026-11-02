@@ -14,6 +14,7 @@ import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import '../providers/message_body_provider.dart';
+import '../chat_run_grouping.dart' show albumLabel;
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
 import 'reaction_picker.dart';
@@ -92,6 +93,7 @@ void showMessageMenu({
   required Message message,
   required bool isMine,
   required String senderName,
+  List<Message>? album,
   VoidCallback? onSelect,
 }) {
   HapticFeedback.mediumImpact();
@@ -100,6 +102,7 @@ void showMessageMenu({
     useRootNavigator: true,
     builder: (_) => _ContextSheet(
       message: message,
+      album: album,
       isMine: isMine,
       senderName: senderName,
       onSelect: onSelect,
@@ -294,10 +297,15 @@ class _ContextSheet extends ConsumerWidget {
     required this.isMine,
     required this.senderName,
     required this.parentRef,
+    this.album,
     this.onSelect,
   });
 
   final Message message;
+
+  /// 12.5 F1: an album's rows in order; [message] is its cover. Null for a
+  /// single message.
+  final List<Message>? album;
   final bool isMine;
   final String senderName;
   final WidgetRef parentRef;
@@ -326,6 +334,20 @@ class _ContextSheet extends ConsumerWidget {
     final name = isMine ? 'You' : senderName;
     final previewStyle =
         TextStyle(fontSize: 13, height: 18 / 13, color: context.t.inkSoft);
+    // 12.5 F1: an album's actions split between its cover (react, reply,
+    // pin) and every row (star, delete, cancel the unsent ones).
+    final rows = album ?? const <Message>[];
+    final isAlbum = album != null && album!.length > 1;
+    final albumPreview = isAlbum ? albumLabel(rows) : null;
+    final allStarred = isAlbum && rows.every((m) => m.isStarred);
+    final canDeleteEveryone =
+        isAlbum ? isMine && rows.any((m) => m.serverId != null)
+            : isMine && message.serverId != null;
+    final unsent = isAlbum && isMine
+        ? rows
+              .where((m) => !const {'sent', 'delivered', 'read'}.contains(m.status))
+              .toList()
+        : const <Message>[];
 
     return AppSheetChrome(
       key: const Key('message-context-menu'),
@@ -357,7 +379,7 @@ class _ContextSheet extends ConsumerWidget {
                       ),
                     )
                   : Text(
-                      conversationPreviewLabel(message.type),
+                      albumPreview ?? conversationPreviewLabel(message.type),
                       key: const Key('message-menu-preview-body'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -415,7 +437,7 @@ class _ContextSheet extends ConsumerWidget {
             Navigator.of(context).pop();
           }, key: const Key('message-menu-select')),
 
-        if (body.isNotEmpty)
+        if (!isAlbum && body.isNotEmpty)
           _tile(Icons.copy_outlined, 'Copy', () {
             Clipboard.setData(ClipboardData(text: body));
             _afterAction(context);
@@ -423,10 +445,18 @@ class _ContextSheet extends ConsumerWidget {
           }, key: const Key('message-menu-copy')),
 
         _tile(
-          message.isStarred ? Icons.star : Icons.star_outline,
-          message.isStarred ? 'Unstar' : 'Star',
+          allStarred ? Icons.star : Icons.star_outline,
+          allStarred ? 'Unstar' : 'Star',
           () async {
-            await repo.toggleStar(message.localId);
+            if (isAlbum) {
+              for (final row in rows) {
+                if (allStarred || !row.isStarred) {
+                  await repo.toggleStar(row.localId);
+                }
+              }
+            } else {
+              await repo.toggleStar(message.localId);
+            }
             if (context.mounted) _afterAction(context);
           },
           key: const Key('message-menu-star'),
@@ -463,29 +493,57 @@ class _ContextSheet extends ConsumerWidget {
           Icons.delete_outline,
           'Delete for me',
           () async {
-            final confirmed = await _confirmDelete(
-              context,
-              'This message will be deleted for you only.',
-            );
-            if (!confirmed) return;
-            await repo.deleteMessage(message.localId);
+            if (isAlbum) {
+              final ok = await confirmAndDeleteForMe(
+                context,
+                [for (final row in rows) row.localId],
+                (id) => repo.deleteMessage(id),
+              );
+              if (!ok) return;
+            } else {
+              final confirmed = await _confirmDelete(
+                context,
+                'This message will be deleted for you only.',
+              );
+              if (!confirmed) return;
+              await repo.deleteMessage(message.localId);
+            }
             if (context.mounted) _afterAction(context);
           },
           destructive: true,
           key: const Key('message-menu-delete-me'),
         ),
 
-        if (isMine && message.serverId != null)
+        if (canDeleteEveryone)
           _tile(
             Icons.delete_forever_outlined,
             'Delete for everyone',
             () async {
-              final confirmed = await _confirmDelete(
-                context,
-                'This message will be deleted for everyone in this chat.',
-              );
-              if (!confirmed) return;
-              await repo.deleteMessage(message.localId, forEveryone: true);
+              if (isAlbum) {
+                final ok = await showConfirmDialog(
+                  context: context,
+                  title: 'Delete ${rows.length} messages?',
+                  body:
+                      'These messages will be deleted for everyone in this chat.',
+                  confirmLabel: 'Delete',
+                  confirmIcon: Icons.delete_outline,
+                  destructive: true,
+                );
+                if (!ok) return;
+                for (final row in rows) {
+                  await repo.deleteMessage(row.localId, forEveryone: true);
+                }
+              } else {
+                final confirmed = await _confirmDelete(
+                  context,
+                  'This message will be deleted for everyone in this chat.',
+                );
+                if (!confirmed) return;
+                await repo.deleteMessage(
+                  message.localId,
+                  forEveryone: true,
+                );
+              }
               if (context.mounted) _afterAction(context);
             },
             destructive: true,
@@ -496,6 +554,24 @@ class _ContextSheet extends ConsumerWidget {
               isOnline: isOnline,
             ),
             key: const Key('message-menu-delete-all'),
+          ),
+
+        // 12.5 B9/F1: while any own item is unsent, the rest can be
+        // cancelled in one go; already-sent items stay.
+        if (unsent.isNotEmpty)
+          _tile(
+            Icons.cancel_outlined,
+            'Cancel sending',
+            () async {
+              for (final row in unsent) {
+                await repo.cancelMediaUpload(row.localId);
+              }
+              if (context.mounted) {
+                Navigator.of(context).pop();
+                showToast(context, 'Upload cancelled');
+              }
+            },
+            key: const Key('message-menu-cancel-sending'),
           ),
       ],
     );

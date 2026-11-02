@@ -15,6 +15,13 @@ class AppConstants {
   // --- Media Limits ---
   static const int maxVoiceMessageSeconds = 300; // 5 minutes
   static const int maxFileSizeMb = 100;
+  static const int maxAlbumItems = 20;
+
+  // --- Media quality caps (shown in the one-per-album sheet) ---
+  static const int photoNormalMaxPx = 1280;
+  static const int photoHighMaxPx = 2560;
+  static const String videoNormalQuality = '720p';
+  static const String videoHighQuality = '1080p';
 
   // --- Media Retention (days) ---
   static const int retentionVoiceDays = 60;

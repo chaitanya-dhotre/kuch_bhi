@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
+import '../providers/album_provider.dart';
+import '../chat_run_grouping.dart' show albumLabel;
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
 
@@ -150,6 +152,27 @@ class ReplyQuote extends ConsumerWidget {
     }
     final String resolvedType = original?.type ?? _fallbackType;
 
+    // 12.5 F4: a reply to the album (its menu replies to the cover) quotes
+    // the album's label. Any other item, replied to from the collage, still
+    // says Photo / Video. shortcut: item 0 from the collage reads as the album.
+    final albumId = original?.albumId;
+    final isCover = original != null &&
+        (original.localId == albumId || original.serverId == albumId);
+    final albumRows = albumId == null || original == null || !isCover
+        ? null
+        : ref
+              .watch(
+                albumRowsProvider(
+                  AlbumKey(original.conversationId, albumId),
+                ),
+              )
+              .valueOrNull;
+    final album = albumRows != null && albumRows.length >= 2
+        ? albumRows
+        : null;
+    final albumPreview = album == null ? null : albumLabel(album);
+    final cover = album?.first;
+
     // All quotes use the same token surface language as the floating
     // composer, regardless of whether they sit in a sent bubble or the input.
     final bg = context.t.surface2;
@@ -168,7 +191,10 @@ class ReplyQuote extends ConsumerWidget {
         ? null
         : preview;
     final Widget previewLine;
-    if (explicit != null) {
+    if (albumPreview != null &&
+        (resolvedType == 'image' || resolvedType == 'video')) {
+      previewLine = _line(albumPreview, previewColor);
+    } else if (explicit != null) {
       previewLine = _line(explicit, previewColor);
     } else if (originalAsync?.hasValue == true && original == null) {
       // A completed lookup with no row means expiry, deletion, or no local copy.
@@ -221,9 +247,12 @@ class ReplyQuote extends ConsumerWidget {
 
     // Thumbnail on the right for photo/video replies (needs the original row
     // — its server id — and the conversation id for the decryption key).
+    // An album quotes its cover (F4).
+    final thumbServerId = cover?.serverId ?? original?.serverId;
+    final thumbIsVideo = (cover?.type ?? resolvedType) == 'video';
     final bool showThumb =
         (resolvedType == 'image' || resolvedType == 'video') &&
-        original?.serverId != null &&
+        thumbServerId != null &&
         conversationId != null;
 
     final textColumn = Column(
@@ -274,8 +303,8 @@ class ReplyQuote extends ConsumerWidget {
                     const SizedBox(width: 8),
                     _QuoteThumb(
                       conversationId: conversationId!,
-                      serverId: original!.serverId!,
-                      isVideo: resolvedType == 'video',
+                      serverId: thumbServerId,
+                      isVideo: thumbIsVideo,
                       iconColor: iconColor,
                     ),
                   ],

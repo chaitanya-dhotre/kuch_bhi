@@ -130,18 +130,62 @@ class MediaEditResult {
     this.trimEnd,
     this.sourceDuration,
     this.formatHint,
+    this.sourcePath,
+    this.type,
   });
   final File? file;
   final int? trimStart;
   final int? trimEnd;
   final int? sourceDuration;
   final String? formatHint;
+
+  /// Album mode: the item this result belongs to (an edited item's [file] is
+  /// the exported copy). Null in single mode.
+  final String? sourcePath;
+  final String? type;
+}
+
+/// One file in the editor's album mode.
+class MediaEditItem {
+  const MediaEditItem({required this.file, required this.type});
+  final File file;
+  final String type; // 'image' | 'video'
+}
+
+/// Per-item editor state. Each album item keeps its own crop, drawing,
+/// rotate and trim while another item is selected (12.5 B4).
+class _AlbumEntry {
+  _AlbumEntry(this.file, this.type);
+  final File file;
+  final String type;
+  ui.Image? image;
+  VideoPlayerController? video;
+  final TransformationController transform = TransformationController();
+  String tool = 'Crop';
+  bool square = false;
+  int colorIndex = 0;
+  final List<List<Offset>> strokes = [];
+  final List<Color> strokeColors = [];
+  bool edited = false, failed = false, ready = false, gif = false;
+  bool loading = false;
+  RangeValues range = const RangeValues(0, 0);
+  String formatHint = 'jpeg';
+  Size currentFrame = Size.zero;
+  bool get videoType => type == 'video';
 }
 
 class MediaEditScreen extends StatefulWidget {
-  const MediaEditScreen({super.key, required this.file, required this.type});
-  final File file;
-  final String type;
+  const MediaEditScreen({super.key, required this.file, required this.type})
+    : items = null;
+  const MediaEditScreen.album({super.key, required this.items})
+    : file = null,
+      type = null;
+
+  /// Single mode: one file and its type. Album mode: [items] in pick order.
+  final File? file;
+  final String? type;
+  final List<MediaEditItem>? items;
+
   @override
   State<MediaEditScreen> createState() => _MediaEditScreenState();
 }
@@ -163,19 +207,36 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
     'Green',
     'Blue',
   ];
-  ui.Image? _image;
-  VideoPlayerController? _video;
-  final TransformationController _transform = TransformationController();
-  String _tool = 'Crop';
-  bool _square = false;
-  int _colorIndex = 0;
-  final List<List<Offset>> _strokes = [];
-  final List<Color> _strokeColors = [];
-  bool _edited = false, _failed = false, _ready = false, _gif = false;
-  RangeValues _range = const RangeValues(0, 0);
-  String _formatHint = 'jpeg';
-  Size _currentFrame = Size.zero;
-  bool get _videoType => widget.type == 'video';
+  late final List<_AlbumEntry> _entries = widget.items == null
+      ? [_AlbumEntry(widget.file!, widget.type!)]
+      : [for (final item in widget.items!) _AlbumEntry(item.file, item.type)];
+  int _index = 0;
+  _AlbumEntry get _cur => _entries[_index];
+  bool get _album => _entries.length > 1;
+
+  ui.Image? get _image => _cur.image;
+  set _image(ui.Image? v) => _cur.image = v;
+  VideoPlayerController? get _video => _cur.video;
+  TransformationController get _transform => _cur.transform;
+  String get _tool => _cur.tool;
+  set _tool(String v) => _cur.tool = v;
+  bool get _square => _cur.square;
+  set _square(bool v) => _cur.square = v;
+  int get _colorIndex => _cur.colorIndex;
+  set _colorIndex(int v) => _cur.colorIndex = v;
+  List<List<Offset>> get _strokes => _cur.strokes;
+  List<Color> get _strokeColors => _cur.strokeColors;
+  bool get _edited => _cur.edited;
+  set _edited(bool v) => _cur.edited = v;
+  bool get _failed => _cur.failed;
+  bool get _ready => _cur.ready;
+  bool get _gif => _cur.gif;
+  RangeValues get _range => _cur.range;
+  set _range(RangeValues v) => _cur.range = v;
+  String get _formatHint => _cur.formatHint;
+  Size get _currentFrame => _cur.currentFrame;
+  set _currentFrame(Size v) => _cur.currentFrame = v;
+  bool get _videoType => _cur.videoType;
 
   @override
   void initState() {
@@ -184,40 +245,69 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
   }
 
   Future<void> _load() async {
+    final entry = _cur;
+    if (entry.loading || entry.ready) return;
+    entry.loading = true;
     try {
-      if (_videoType) {
-        _video = VideoPlayerController.file(widget.file);
-        await _video!.initialize();
-        _video!.addListener(_keepInRange);
-        final end = _video!.value.duration.inSeconds.clamp(0, 300).toDouble();
-        _range = RangeValues(0, end);
+      if (entry.videoType) {
+        final video = VideoPlayerController.file(entry.file);
+        entry.video = video;
+        await video.initialize();
+        video.addListener(() => _keepInRange(entry, video));
+        final end = video.value.duration.inSeconds.clamp(0, 300).toDouble();
+        entry.range = RangeValues(0, end);
       } else {
-        final bytes = await widget.file.readAsBytes();
-        _formatHint = MediaUploadService.imageFormatHint(bytes);
-        _gif =
-            widget.file.path.toLowerCase().endsWith('.gif') ||
-            await MediaUploadService.isAnimatedImage(widget.file);
+        final bytes = await entry.file.readAsBytes();
+        entry.formatHint = MediaUploadService.imageFormatHint(bytes);
+        entry.gif =
+            entry.file.path.toLowerCase().endsWith('.gif') ||
+            await MediaUploadService.isAnimatedImage(entry.file);
         final codec = await ui.instantiateImageCodec(bytes);
-        _image = (await codec.getNextFrame()).image;
+        entry.image = (await codec.getNextFrame()).image;
       }
-      _ready = true;
+      entry.ready = true;
     } catch (error) {
       debugPrint('[MediaEdit] source load failed: $error');
-      _failed = true;
-      if (mounted) {
+      entry.failed = true;
+      if (mounted && _cur == entry) {
         showToast(
           context,
-          _videoType ? "Couldn't open that video." : "Couldn't use that photo.",
+          entry.videoType
+              ? "Couldn't open that video."
+              : "Couldn't use that photo.",
           error: true,
         );
         Navigator.of(context).removeRoute(ModalRoute.of(context)!, null);
       }
+    } finally {
+      entry.loading = false;
     }
-    if (mounted) setState(() {});
+    if (mounted && _cur == entry) setState(() {});
+  }
+
+  void _select(int index) {
+    if (index == _index) return;
+    _video?.pause();
+    setState(() => _index = index);
+    if (!_cur.ready && !_cur.loading) _load();
+  }
+
+  void _remove(int index) {
+    if (_entries.length <= 1) return;
+    final removed = _entries.removeAt(index);
+    removed.video?.dispose();
+    removed.image?.dispose();
+    removed.transform.dispose();
+    setState(() {
+      if (index < _index) _index--;
+      if (_index >= _entries.length) _index = _entries.length - 1;
+    });
+    if (!_cur.ready && !_cur.loading) _load();
   }
 
   Future<void> _close() async {
-    if (_edited) {
+    final anyEdited = _entries.any((entry) => entry.edited);
+    if (anyEdited) {
       final discard = await showConfirmDialog(
         context: context,
         title: 'Discard changes?',
@@ -294,13 +384,14 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
 
   /// The preview plays only the trimmed range, and its position label
   /// follows playback.
-  void _keepInRange() {
-    final v = _video!.value;
-    if (v.isPlaying && v.position >= Duration(seconds: _range.end.round())) {
-      _video!.pause();
-      _video!.seekTo(Duration(seconds: _range.start.round()));
+  void _keepInRange(_AlbumEntry entry, VideoPlayerController video) {
+    final v = video.value;
+    if (v.isPlaying &&
+        v.position >= Duration(seconds: entry.range.end.round())) {
+      video.pause();
+      video.seekTo(Duration(seconds: entry.range.start.round()));
     }
-    if (mounted) setState(() {});
+    if (mounted && _cur == entry) setState(() {});
   }
 
   void _togglePlay() {
@@ -317,7 +408,48 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
     _video!.play();
   }
 
+  Future<File?> _exportEntry(_AlbumEntry entry) async {
+    if (entry.image == null) return null;
+    final bytes = await mediaCropPngBytes(
+      image: entry.image!,
+      frame: entry.currentFrame,
+      transform: entry.transform.value,
+      strokes: entry.strokes,
+      strokeColors: entry.strokeColors,
+    );
+    final file = File(
+      '${Directory.systemTemp.path}/media_edit_${DateTime.now().microsecondsSinceEpoch}.png',
+    );
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
   void _send(Size frame) async {
+    // Opened as an album → a list back, even after Remove left one item.
+    if (widget.items != null) {
+      final results = <MediaEditResult>[];
+      for (final entry in _entries) {
+        final file = entry.videoType || entry.gif || !entry.edited
+            ? null
+            : await _exportEntry(entry);
+        results.add(
+          MediaEditResult(
+            file: file,
+            trimStart: entry.videoType ? entry.range.start.round() : null,
+            trimEnd: entry.videoType ? entry.range.end.round() : null,
+            sourceDuration: entry.videoType
+                ? entry.video?.value.duration.inSeconds
+                : null,
+            formatHint: entry.videoType ? null : entry.formatHint,
+            sourcePath: entry.file.path,
+            type: entry.type,
+          ),
+        );
+      }
+      if (!mounted) return;
+      Navigator.of(context).removeRoute(ModalRoute.of(context)!, results);
+      return;
+    }
     final file = _videoType || _gif || !_edited ? null : await _export(frame);
     if (!mounted) return;
     Navigator.of(context).removeRoute(
@@ -334,10 +466,113 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
 
   @override
   void dispose() {
-    _video?.dispose();
-    _image?.dispose();
-    _transform.dispose();
+    for (final entry in _entries) {
+      entry.video?.dispose();
+      entry.image?.dispose();
+      entry.transform.dispose();
+    }
     super.dispose();
+  }
+
+  /// B4: the album's item strip. 56dp thumbnails above the tool row; the
+  /// selected one is ringed in accent, and its Remove button (48dp target)
+  /// drops it. Hidden while only one item is left.
+  Widget _albumStrip(BuildContext context) {
+    final t = context.t;
+    return SizedBox(
+      height: 64,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        itemCount: _entries.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final entry = _entries[i];
+          final selected = i == _index;
+          return Semantics(
+            button: true,
+            selected: selected,
+            label: 'Item ${i + 1} of ${_entries.length}'
+                '${selected ? ', selected' : ''}',
+            excludeSemantics: true,
+            child: GestureDetector(
+              onTap: () => _select(i),
+              child: SizedBox(
+                width: 56,
+                height: 56,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: selected
+                                ? t.accent
+                                : t.surface.withValues(alpha: 0),
+                            width: 2,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: entry.videoType
+                              ? ColoredBox(
+                                  color: t.surface2,
+                                  child: Icon(
+                                    Icons.videocam_outlined,
+                                    color: t.inkSoft,
+                                  ),
+                                )
+                              : Image.file(
+                                  entry.file,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      ColoredBox(color: t.surface2),
+                                ),
+                        ),
+                      ),
+                    ),
+                    if (selected)
+                      Positioned(
+                        top: -10,
+                        right: -10,
+                        child: Semantics(
+                          button: true,
+                          label: 'Remove',
+                          excludeSemantics: true,
+                          child: GestureDetector(
+                            onTap: () => _remove(i),
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Center(
+                                child: Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: t.bg.withValues(alpha: .6),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: t.ink,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -358,7 +593,8 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
                   icon: const Icon(Icons.close),
                 ),
               ),
-              Expanded(child: Center(child: Image.file(widget.file))),
+              Expanded(child: Center(child: Image.file(_cur.file))),
+              if (_album) _albumStrip(context),
               const Text(kGifSentAsIs),
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -552,6 +788,7 @@ class _MediaEditScreenState extends State<MediaEditScreen> {
                         ),
                 ),
               ),
+              if (_album) _albumStrip(context),
               if (_videoType) ...[
                 Text(
                   '${_time((_video?.value.position.inMilliseconds ?? 0) / 1000)}'

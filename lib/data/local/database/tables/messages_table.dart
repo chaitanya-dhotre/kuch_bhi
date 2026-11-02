@@ -66,6 +66,12 @@ class MessagesTable extends Table {
   /// Task 7 only preserves it across re-caches.
   TextColumn get keyId => text().nullable()();
 
+  /// Albums (schema v13): photos/videos sent together share the record id
+  /// of item 0 as [albumId]; [albumIndex] is the pick order. Null = not in
+  /// an album (the server's empty `album_id` maps to null).
+  TextColumn get albumId => text().nullable()();
+  IntColumn get albumIndex => integer().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

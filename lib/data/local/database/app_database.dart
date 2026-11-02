@@ -71,7 +71,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -201,6 +201,18 @@ class AppDatabase extends _$AppDatabase {
                 .getSingleOrNull();
             if (hasBlobs != null) {
               await m.addColumn(mediaBlobTable, mediaBlobTable.meta);
+            }
+          }
+          if (from < 13) {
+            // Albums: two nullable columns, existing rows read null. Same
+            // guard as v12 (the v11 fixture carries no messages_table).
+            final hasMessages = await customSelect(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='messages_table'")
+                .getSingleOrNull();
+            if (hasMessages != null) {
+              await m.addColumn(messagesTable, messagesTable.albumId);
+              await m.addColumn(messagesTable, messagesTable.albumIndex);
             }
           }
         },
