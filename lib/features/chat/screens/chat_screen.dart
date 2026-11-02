@@ -38,6 +38,18 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../mascot/capybara.dart';
 
+/// Who may send in [conv]: the composer and the share picker (12.1 D6) both
+/// ask here, so the rule lives in one place.
+bool canSendIn(
+  Conversation conv, {
+  required String? myRole,
+  required bool keyReady,
+}) => !conv.isGroup
+    ? true
+    : (myRole == 'left' || !keyReady
+          ? false
+          : (!conv.onlyAdminsCanMessage || myRole == 'admin'));
+
 // ── Sealed list item ──────────────────────────────────────────────────────
 
 sealed class _ChatItem {}
@@ -808,7 +820,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final membersAsync = ref.watch(groupMembersProvider(_cid));
     final members = membersAsync.asData?.value ?? [];
     final myMember = members.where((m) => m.id == myId).firstOrNull;
-    final isMeAdmin = myMember?.groupRole == 'admin';
     final isLeft = myMember?.groupRole == 'left';
     final memberCount = conv.isGroup
         ? members.where((m) => m.groupRole != 'left').length
@@ -820,11 +831,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ? true
         : (ref.watch(groupKeyReadyProvider(_cid)).asData?.value ?? false);
 
-    final canSend = !conv.isGroup
-        ? true
-        : (isLeft || !keyReady
-              ? false
-              : (!conv.onlyAdminsCanMessage || isMeAdmin));
+    final canSend = canSendIn(
+      conv,
+      myRole: myMember?.groupRole,
+      keyReady: keyReady,
+    );
 
     final restrictionMessage = isLeft
         ? "You can't send messages to this group because you're no longer a member."

@@ -10,6 +10,7 @@ import 'features/settings/providers/font_provider.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'infrastructure/repositories/message_repository_impl.dart';
 import 'services/presence_service.dart';
+import 'services/share_in_service.dart';
 
 /// B (2026-10-14): which lifecycle signal purges the decrypted-body cache.
 ///
@@ -54,6 +55,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
       // cold-start twin of the resumed handler below.
       ref.read(messageRepositoryProvider).resyncOnResume();
       ref.read(authProvider.notifier).refreshSessionThrottled();
+      ref.read(shareInServiceProvider).start(); // 12.1 B1
     });
   }
 

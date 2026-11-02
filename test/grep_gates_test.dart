@@ -885,6 +885,49 @@ void main() {
     }
     expect(hits, isEmpty, reason: 'album gates failed: $hits');
   });
+
+  test('share-in: no receive plugin, tokens, app chrome, nothing shared logged',
+      () {
+    final hits = <String>[];
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    for (final dep in [
+      'receive_sharing_intent', 'share_handler', 'flutter_sharing_intent',
+    ]) {
+      if (pubspec.contains(dep)) hits.add('pubspec.yaml: $dep');
+    }
+    for (final path in [
+      'lib/services/share_in_service.dart',
+      'lib/features/share/share_target_screen.dart',
+      'lib/features/share/share_payload.dart',
+    ]) {
+      final src = File(path).readAsStringSync();
+      for (final token in [
+        'Colors.', 'Color(0x', 'SnackBar(', 'CircularProgressIndicator',
+        'showModalBottomSheet',
+      ]) {
+        if (src.contains(token)) hits.add('$path: $token');
+      }
+      // The only route extra is the chat route's conversation.
+      final extras = RegExp(r'extra:\s*([^,)]+)').allMatches(src);
+      for (final m in extras) {
+        if (m.group(1)!.trim() != 'conv') hits.add('$path: extra: ${m[1]}');
+      }
+      final outsideDebugPrint = src
+          .replaceAll(RegExp(r'debugPrint\([^;]*\);', dotAll: true), '');
+      if (outsideDebugPrint.contains(r'$e') ||
+          outsideDebugPrint.contains('e.toString()')) {
+        hits.add('$path: error detail outside debugPrint');
+      }
+      for (final m in RegExp(r'debugPrint\([^;]*\);', dotAll: true)
+          .allMatches(src)) {
+        if (RegExp(r'path|name|uri|text', caseSensitive: false)
+            .hasMatch(m[0]!)) {
+          hits.add('$path: shared detail in ${m[0]}');
+        }
+      }
+    }
+    expect(hits, isEmpty, reason: 'share-in gates failed: $hits');
+  });
 }
 
 const _bannedPurpleHexes = [

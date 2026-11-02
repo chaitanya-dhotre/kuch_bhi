@@ -8,19 +8,23 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 import 'package:video_compress/video_compress.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/format_utils.dart';
+import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../domain/entities/message.dart';
 import '../../../domain/repositories/message_repository.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/media_upload_service.dart';
+import '../../../services/share_in_service.dart';
 import '../../media/screens/media_edit_screen.dart';
+import '../../share/share_payload.dart';
 import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import 'attach_sheets.dart';
@@ -124,6 +128,13 @@ class _MessageInputState extends ConsumerState<MessageInput>
       begin: 0.7,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+
+    // 12.1 E1: a share handed to this chat runs once, after the first frame
+    // or as soon as the picker hands it over.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _takeShare());
+    ref.listenManual(chatShareProvider(widget.conversationId), (_, next) {
+      if (next != null) Future.microtask(_takeShare);
+    });
   }
 
   @override
@@ -354,6 +365,134 @@ class _MessageInputState extends ConsumerState<MessageInput>
     final parts = text.split(':');
     if (parts.length != 2) return 0;
     return (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0);
+  }
+
+  // ── Share from another app (12.1 E1–E5) ──────────────────────
+
+  ReadyShare? _heldShare;
+
+  void _takeShare() {
+    if (!mounted) return;
+    final ctl = ref.read(chatShareProvider(widget.conversationId).notifier);
+    final share = ctl.state;
+    if (share == null) return;
+    ctl.state = null; // a rebuild never runs it twice
+    final older = _heldShare;
+    if (older != null) _deleteShareFolders(older);
+    _heldShare = share;
+    if (_maybeRunShare()) return;
+    // Held: a group's send rule settles after its first frames, and a send
+    // or editor already running in this chat finishes first.
+    var ticks = 0;
+    Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (!identical(_heldShare, share)) return timer.cancel();
+      if (!mounted) {
+        timer.cancel();
+        _deleteShareFolders(share); // the chat closed first
+        return;
+      }
+      if (_maybeRunShare()) return timer.cancel();
+      // Backstop for D6: still not allowed to send → drop it and its copies.
+      if (!widget.canSendMessages && ++ticks >= 30) {
+        // 15 s
+        timer.cancel();
+        _heldShare = null;
+        _deleteShareFolders(share);
+        showToast(
+          context,
+          "You can't send messages in this chat.",
+          error: true,
+        );
+      }
+    });
+  }
+
+  bool get _composerBusy =>
+      _voiceState != _VoiceState.idle ||
+      _isSendingVoice ||
+      _isPreparingAlbum ||
+      _isUploadingImage ||
+      _isUploadingVideo ||
+      _isUploadingDoc ||
+      ModalRoute.of(context)?.isCurrent == false; // an editor or sheet on top
+
+  /// Runs the held share when this composer may send and is idle: a new send
+  /// would otherwise cancel the one in flight (upload generation).
+  bool _maybeRunShare() {
+    final share = _heldShare;
+    if (share == null || !mounted) return false;
+    if (!widget.canSendMessages || _composerBusy) return false;
+    _heldShare = null;
+    _runShare(share);
+    return true;
+  }
+
+  /// C4: photos and videos first (one → single, more → album), then the
+  /// documents after one confirm, then the text into the composer.
+  Future<void> _runShare(ReadyShare share) async {
+    final media = [
+      for (final f in share.files)
+        if (f.kind != SharedKind.document) f,
+    ];
+    final docs = [
+      for (final f in share.files)
+        if (f.kind == SharedKind.document) f,
+    ];
+    try {
+      try {
+        if (media.length == 1) {
+          final only = media.single;
+          await _sendSinglePicked(
+            File(only.path),
+            only.kind == SharedKind.video ? 'video' : 'image',
+          );
+        } else if (media.length > 1) {
+          await _sendAlbumPicked([
+            for (final f in media) XFile(f.path, mimeType: f.mime),
+          ]);
+        }
+      } catch (e) {
+        debugPrint('[Share] media part failed: ${e.runtimeType}');
+      }
+
+      // E3 / decision 11: a shared document asks once; E4: even after a
+      // cancelled media part.
+      if (docs.isNotEmpty && mounted) {
+        final ok = await showConfirmDialog(
+          context: context,
+          title: 'Send to ${share.chatName}?',
+          body: docs.length == 1
+              ? p.basename(docs.single.path)
+              : '${docs.length} files',
+          confirmLabel: 'Send',
+        );
+        for (final d in docs) {
+          if (!ok || !mounted) break;
+          await _sendDocument(File(d.path));
+        }
+      }
+
+      final text = share.text;
+      if (text != null && mounted) {
+        final draft = _ctrl.text;
+        _ctrl.text = draft.trim().isEmpty ? text : '$draft\n$text';
+        _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
+        _focusNode.requestFocus();
+      }
+    } finally {
+      _deleteShareFolders(share); // E5: a moved document is already gone
+    }
+  }
+
+  void _deleteShareFolders(ReadyShare share) {
+    for (final f in share.files) {
+      final dir = p.dirname(f.path);
+      // Only ever cache/share_in/<n>/.
+      if (p.basename(p.dirname(dir)) != 'share_in') continue;
+      try {
+        Directory(dir).deleteSync(recursive: true);
+      } catch (_) {}
+    }
   }
 
   // ── Image sharing ────────────────────────────────────────────

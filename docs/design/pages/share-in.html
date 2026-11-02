@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share-in board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from albums.html; nothing redefined). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC;--error:#E5484D}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+.amoled{--bg:#000000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}td.bad{background:#FBE3E3}td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.flow .lb{font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;min-width:92px}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+/* ── phone frame + picker ── */
+.ph{position:relative;width:300px;max-width:100%;height:520px;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column}
+.bar{display:flex;align-items:center;gap:4px;min-height:60px;padding:4px 6px}
+.bar .ib{flex:0 0 auto;width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--ink)}
+.bar .t{min-width:0}.bar .t b,.bar .t small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .t b{font-size:20px;line-height:26px;font-weight:700}
+.bar .t small{font-size:13px;line-height:18px;color:var(--inkSoft)}
+.search{margin:4px 16px 8px;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 14px;color:var(--inkFaint);font-size:14px}
+.search.on{border:1.5px solid var(--accent);color:var(--ink)}
+.sh{font-size:11px;font-weight:600;color:var(--inkFaint);padding:8px 16px 4px;letter-spacing:.04em}
+.ct{display:flex;align-items:center;gap:12px;min-height:64px;padding:8px 16px}
+.av{flex:0 0 auto;width:40px;height:40px;border-radius:999px;background:var(--surface2);color:var(--inkSoft);display:flex;align-items:center;justify-content:center;font-weight:700}
+.ct .tx{min-width:0}.ct .tx b,.ct .tx small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct .tx b{font-size:15px}.ct .tx small{font-size:13px;color:var(--inkSoft)}
+.pin{margin-left:auto;color:var(--inkFaint);font-size:12px}
+.nores{padding:14px 16px;color:var(--inkSoft);font-size:14px}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:6px}
+.empty b{font-size:17px}.empty small{font-size:14px;color:var(--inkSoft)}
+.scrim{position:absolute;left:0;right:0;top:64px;bottom:0;background:color-mix(in srgb,var(--bg) 92%,transparent);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-size:15px}
+.ring{width:18px;height:18px;border-radius:999px;border:2px solid var(--surface2);border-top-color:var(--accent)}
+.toast{position:absolute;left:12px;right:12px;bottom:14px;background:var(--surface);color:var(--ink);border:1px solid var(--error);border-radius:14px;padding:10px 12px;font-size:13.5px;display:flex;gap:8px;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,.15)}
+.toast .i{color:var(--error)}
+/* dialog + composer */
+.dlg{width:280px;max-width:100%;background:var(--surface);color:var(--ink);border-radius:28px;padding:22px 22px 12px}
+.dlg h3{margin:0 0 10px;font-size:20px;line-height:26px}
+.dlg p{margin:0 0 16px;font-size:15px;line-height:22px;overflow-wrap:anywhere}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px}
+.dlg .btn{min-height:40px;padding:0 14px;border-radius:14px;display:flex;align-items:center;font-weight:600}
+.dlg .btn.sec{border:1px solid var(--line)}
+.cmp{margin-top:auto;display:flex;align-items:flex-end;gap:8px;padding:8px 10px 12px}
+.cmp .fld{flex:1;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:10px 14px;font-size:15px;line-height:21px;overflow-wrap:anywhere}
+.cmp .sd{flex:0 0 auto;width:44px;height:44px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:18px}
+.caret{display:inline-block;width:2px;height:18px;background:var(--accent);vertical-align:-3px}
+.kb{height:120px;background:var(--surface2);border-top:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--inkFaint);font-size:12px}
+/* android share sheet */
+.ss{width:300px;max-width:100%;background:#F3F1EE;border-radius:20px 20px 0 0;padding:12px 14px 16px;border:1px solid #E4DDD1}
+.ss .hd{font-size:13px;color:#5F5850;margin-bottom:12px}
+.ss .g{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 6px}
+.ss .a{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:#3A342E;text-align:center}
+.ss .a span{width:44px;height:44px;border-radius:999px;background:#D9D3CB;display:flex;align-items:center;justify-content:center}
+.ss .a.me span{background:#EFA00B;color:#2A2520}
+.ss .a.me{font-weight:700}
+.jk,.jk *{font-family:"Plus Jakarta Sans",-apple-system,sans-serif}
+</style>
+</head>
+<body>
+<h1>Share into the app, board</h1>
+<p class="sub">Backlog 12.1. Photos, videos, files and text shared from other apps or a file manager land in a chosen chat and go through the existing send paths (media-send, albums). Sections <b>S1–S10</b> (page-local). Picker states are drawn in light, dark and AMOLED side by side. Audit at <code>5580d1e</code>, 2026-11-02. Checklist and decisions: <code>share-in.md</code>. Nothing here is built yet.</p>
+
+<!-- S1 -->
+<div class="band"><header><span class="n">S1</span><h2>Entry flows (B1–B7)</h2></header>
+<div class="flow"><span class="lb">Cold start</span><span class="bx">Gallery → Share → kuch_bhi</span><span class="ar">→</span><span class="bx">app starts, <code>takeShare</code> once</span><span class="ar">→</span><span class="bx">splash</span><span class="ar">→</span><span class="bx">home + key OK</span><span class="ar">→</span><span class="bx ok">Send to</span></div>
+<div class="flow"><span class="lb">Warm start</span><span class="bx">app running (any screen, a draft open)</span><span class="ar">→</span><span class="bx">share arrives via <code>onNewIntent</code> (singleTask)</span><span class="ar">→</span><span class="bx ok">Send to on top</span><span class="ar">→</span><span class="bx">Back = the screen you were on, untouched</span></div>
+<div class="flow"><span class="lb">Signed out</span><span class="bx">share held in memory (nothing copied)</span><span class="ar">→</span><span class="bx">login + toast <b>Sign in to share.</b></span><span class="ar">→</span><span class="bx">sign in (restore if asked)</span><span class="ar">→</span><span class="bx ok">Send to</span></div>
+<div class="flow"><span class="lb">Key restore</span><span class="bx">needsRestore / needsSetup</span><span class="ar">→</span><span class="bx">restore or setup screen, no toast</span><span class="ar">→</span><span class="bx">home + key OK</span><span class="ar">→</span><span class="bx ok">Send to</span></div>
+<div class="flow"><span class="lb">Recents</span><span class="bx">app killed after a share, reopened from Recents</span><span class="ar">→</span><span class="bx bad">same intent re-delivered (LAUNCHED_FROM_HISTORY)</span><span class="ar">→</span><span class="bx ok">ignored: no picker</span></div>
+<div class="note">The share waits on the router reaching <code>/home</code> with <code>keyOk</code>; it does not poll with a 12 s give-up like the notification tap (<code>fcm:366-374</code>). A second share replaces a waiting one. App killed before a chat is picked → the share is gone (nothing was copied, decision 7).</div></div>
+
+<!-- S2 -->
+<div class="band"><header><span class="n">S2</span><h2>Android's share sheet (A1, A2)</h2></header>
+<div class="row">
+<div class="wrap"><span class="tag">Gallery → Share (system sheet)</span><div class="ss"><div class="hd">Sharing 3 images</div><div class="g">
+<div class="a"><span>✉</span>Gmail</div><div class="a me"><span>🔒</span>kuch_bhi</div><div class="a"><span>☁</span>Drive</div><div class="a"><span>⇪</span>Quick Share</div>
+<div class="a"><span>💬</span>Messages</div><div class="a"><span>📝</span>Keep</div><div class="a"><span>📷</span>Photos</div><div class="a"><span>⋯</span>More</div></div></div></div>
+<div style="flex:1 1 300px;min-width:0;font-size:13px">
+<p style="margin-top:0">Two new filters on <code>MainActivity</code>: <code>SEND</code> and <code>SEND_MULTIPLE</code>, <code>*/*</code>, category <code>DEFAULT</code>. The label is the activity label <b>kuch_bhi</b> (<code>mf:11</code>), unchanged. No Direct Share chat targets here (decision 19).</p>
+<p><code>launchMode</code> goes <code>singleTop</code> → <code>singleTask</code> (decision 2): with <code>singleTop</code> and <code>taskAffinity=""</code>, a share from Gallery can start a <b>second</b> kuch_bhi inside Gallery's task (two databases, two live connections).</p></div></div></div>
+
+<!-- S3 -->
+<div class="band"><header><span class="n">S3</span><h2>The "Send to" picker (C18; D1–D12)</h2></header><div class="row" id="s3"></div>
+<div class="note">R14 bar with ✕ (<b>Cancel sharing</b>), title <b>Send to</b>, the share summary under it. R8 search <b>Search chats</b>. R9 header <b>Chats</b>, R6 rows in home order (pinned first, then most recent), no time, no unread badge; a group's subtitle is its member count. One chat per share (decision 3).</div></div>
+
+<!-- S4 -->
+<div class="band"><header><span class="n">S4</span><h2>Picker states</h2></header><div class="row" id="s4"></div>
+<div class="note"><b>Opening 2 of 5</b> is the copy into app storage, which starts only after the tap (decision 7). ✕ or Back during it stops the copy and deletes what was copied. Items that fail to copy: <b>1 item couldn't be opened and was left out.</b> After the copy, the chat <b>replaces</b> the picker.</div></div>
+
+<!-- S5 -->
+<div class="band"><header><span class="n">S5</span><h2>In the chat: documents confirm, text goes to the composer (E1–E5, C5)</h2></header><div class="row" id="s5"></div>
+<div class="note">Photos and videos then run exactly the in-app flow: one item → editor → quality sheet; two or more → album editor → one quality sheet → album. Shared text is never sent by itself: it lands in the composer (after a draft, on a new line) and you tap Send.</div></div>
+
+<!-- S6 -->
+<div class="band"><header><span class="n">S6</span><h2>How a share is split (C1–C7; decisions 9, 12, 20)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Shared</th><th>Summary line</th><th>What happens in the chat</th></tr>
+<tr><td>1 photo (JPEG/PNG/HEIC/GIF/WebP)</td><td>1 photo</td><td>editor → photo quality sheet → photo bubble (GIF: no sheet, kept as is)</td></tr>
+<tr><td>1 video</td><td>1 video</td><td>editor (trim) → video quality sheet → video bubble</td></tr>
+<tr><td>3 photos + 2 videos</td><td>3 photos and 2 videos</td><td>album editor (5) → one <b>Quality</b> sheet → album</td></tr>
+<tr><td>25 photos</td><td>20 photos</td><td><b>Only the first 20 were added.</b> → album of 20</td></tr>
+<tr><td>2 PDFs</td><td>2 files</td><td><b>Send to Asha?</b> / <b>2 files</b> → two document bubbles in order</td></tr>
+<tr><td>4 photos + 1 PDF</td><td>5 items</td><td>album flow first, then the PDF's confirm (each part is its own choice)</td></tr>
+<tr><td>an MP3, a ZIP, an SVG, a contact card</td><td>1 file</td><td>document (decision 20)</td></tr>
+<tr><td>a Chrome page</td><td>Link</td><td>the URL into the composer; the page title (subject) is dropped (decision 14)</td></tr>
+<tr><td>some text</td><td>Text</td><td>into the composer</td></tr>
+<tr><td>a photo + text</td><td>1 photo</td><td>photo flow, and the text into the composer</td></tr>
+<tr><td>a 150 MB video</td><td>1 video</td><td>size known → never copied; <b>Too big to send. The limit is 100 MB.</b></td></tr>
+<tr><td>nothing readable</td><td>n/a</td><td><b>Couldn't open what was shared.</b>, no picker</td></tr>
+</table></div></div>
+
+<!-- S7 -->
+<div class="band"><header><span class="n">S7</span><h2>Receive plugin comparison (decision 1)</h2></header>
+<div class="tblwrap"><table>
+<tr><th></th><th>Own channel in MainActivity <b>(default)</b></th><th>receive_sharing_intent 1.9.0</th><th>share_handler 0.0.25</th></tr>
+<tr><td>New dependency</td><td class="ok">none (next to the clipboard channel, <code>ma:13-45</code>)</td><td>yes (807 likes, 161k downloads/30 days, published 2026-06-24)</td><td>yes (last release 2025-07)</td></tr>
+<tr><td>When files are copied</td><td class="ok">after a chat is tapped, off the main thread</td><td class="bad">on the main thread as the app starts (a big video freezes the launch)</td><td>not read here</td></tr>
+<tr><td>Files from main storage (file managers)</td><td class="ok">always copied through the content resolver</td><td class="bad">raw <code>/storage/emulated/0/…</code> path, not copied; unreadable on Android 13+ without broad storage access</td><td>not read here</td></tr>
+<tr><td>Size cap</td><td class="ok">size read first; copy stops at 100 MB</td><td class="bad">none</td><td>not read here</td></tr>
+<tr><td>Name clashes / cleanup</td><td class="ok">one folder per item, real name kept; deleted after each share, at start and logout</td><td class="bad">cache root under the original name (overwrites); copies and video thumbnails never deleted</td><td>not read here</td></tr>
+<tr><td>Logs</td><td class="ok">counts and MIME families only</td><td class="bad">logs every file name</td><td>not read here</td></tr>
+<tr><td>Our <code>kuchbhi://</code> link</td><td class="ok">untouched</td><td class="bad">its VIEW branch reports it as a shared URL</td><td></td></tr>
+<tr><td>Build</td><td class="ok">this app's AGP 8.11.1 / compileSdk 36</td><td class="bad">AGP 9.2.1 / compileSdk 37 in its own build file</td><td></td></tr>
+<tr><td>Cold / warm start</td><td>start: <code>takeShare</code>; warm: <code>onNewIntent</code> → <code>shareArrived</code></td><td><code>getInitialMedia</code> + a stream</td><td>same shape</td></tr>
+<tr><td>Code to own</td><td>~100 lines Kotlin + a Dart service</td><td class="ok">none on the native side</td><td class="ok">none</td></tr>
+</table></div>
+<div class="note">receive_sharing_intent's Android source was read from its 1.9.0 archive (<code>ReceiveSharingIntentPlugin.kt</code>, <code>FileDirectory.kt</code>). share_handler and flutter_sharing_intent were only checked on pub.dev (release dates); not recommended over a short channel either way.</div></div>
+
+<!-- S8 -->
+<div class="band"><header><span class="n">S8</span><h2>Where shared files live (F1–F6)</h2></header>
+<div class="flow"><span class="bx">share arrives: links + names + sizes only</span><span class="ar">→</span><span class="bx">chat tapped</span><span class="ar">→</span><span class="bx ok">copy to <code>cache/share_in/&lt;n&gt;/&lt;name&gt;</code> (private, ≤100 MB)</span><span class="ar">→</span><span class="bx">photo/video: re-encoded to a new temp (GPS stripped) · document: moved into the blob store by the send</span><span class="ar">→</span><span class="bx ok"><code>share_in/</code> deleted</span></div>
+<div class="note">Also deleted when the picker is closed, at every app start (before <code>takeShare</code>) and at logout next to <code>wipeMediaCache</code>. Never external storage, never the media store. A photo shared as a <b>file</b> keeps its metadata, as an in-app Document pick does today (F6). Shared text lives only in the composer's in-memory draft.</div></div>
+
+<!-- S9 -->
+<div class="band"><header><span class="n">S9</span><h2>Large text (G2)</h2></header><div class="row" id="s9"></div></div>
+
+<!-- S10 -->
+<div class="band"><header><span class="n">S10</span><h2>Diff summary</h2></header>
+<p style="margin:0;font-size:13px">11 rows in <code>share-in.md</code> → "Diff vs current implementation". The big four: two intent filters and <code>singleTask</code>, a share channel in <code>MainActivity</code> that copies only after a chat is picked, the <b>Send to</b> picker, and the composer running the existing single / album / document paths with shared text as a draft. No new dependency, no server change.</p></div>
+
+<script>
+const T=[['Light',''],['Dark','dark'],['AMOLED','amoled']];
+const chats=[['A','Asha','',true],['W','Weekend crew','5 members'],['R','Rohan',''],['F','Family','8 members'],['M','Meera',''],['K','Kabir','']];
+const row=([i,n,s,p])=>`<div class="ct" role="button"><span class="av">${i}</span><span class="tx"><b>${n}</b>${s?`<small>${s}</small>`:''}</span>${p?'<span class="pin" aria-label="Pinned">📌</span>':''}</div>`;
+const bar=(sum)=>`<div class="bar"><span class="ib" role="button" aria-label="Cancel sharing">✕</span><span class="t"><b>Send to</b><small>${sum}</small></span></div>`;
+const search=(q)=>`<div class="search${q?' on':''}">⌕ ${q?`<span style="color:var(--ink)">${q}</span>`:'Search chats'}</div>`;
+const picker=(c,sum,body,extra='')=>`<div class="ph ${c}">${bar(sum)}${body}${extra}</div>`;
+const list=(n=6)=>`${search('')}<div class="sh">Chats</div>${chats.slice(0,n).map(row).join('')}`;
+function draw(el,items){document.getElementById(el).innerHTML=items.join('');}
+draw('s3',T.map(([n,c])=>`<div class="wrap"><span class="tag">${n}</span>${picker(c,'3 photos and 2 videos',list())}</div>`));
+draw('s4',[
+ `<div class="wrap"><span class="tag">Search, no match</span>${picker('','1 file',`${search('zoya')}<div class="nores">No chats match ‘zoya’.</div>`)}</div>`,
+ `<div class="wrap"><span class="tag">No chats yet (dark)</span>${picker('dark','Link',`${search('')}<div class="empty"><b>No chats yet</b><small>Add a friend first, then share again.</small></div>`)}</div>`,
+ `<div class="wrap"><span class="tag">Opening after the tap (AMOLED)</span>${picker('amoled','3 photos and 2 videos',list(),`<div class="scrim" role="status" aria-live="polite"><span class="ring"></span>Opening 2 of 5</div>`)}</div>`,
+ `<div class="wrap"><span class="tag">Can't send in that chat</span>${picker('','6 items',list(),`<div class="toast"><span class="i">⚠</span>You can't send messages in this chat.</div>`)}</div>`,
+]);
+const chatbar=(name)=>`<div class="bar" style="background:var(--surface);border-bottom:1px solid var(--line)"><span class="ib">←</span><span class="av" style="width:36px;height:36px">${name[0]}</span><span class="t" style="margin-left:8px"><b style="font-size:17px">${name}</b></span></div>`;
+draw('s5',[
+ `<div class="wrap"><span class="tag">Documents: confirm once</span><div class="ph" style="align-items:center;justify-content:center;background:color-mix(in srgb,var(--ink) 40%,var(--bg))"><div class="dlg"><h3>Send to Asha?</h3><p>report.pdf</p><div class="acts"><span class="btn">Cancel</span><span class="btn sec">Send</span></div></div></div></div>`,
+ `<div class="wrap"><span class="tag">Several documents (dark)</span><div class="ph dark" style="align-items:center;justify-content:center;background:#0E0D0B"><div class="dlg"><h3>Send to Weekend crew?</h3><p>3 files</p><div class="acts"><span class="btn">Cancel</span><span class="btn sec">Send</span></div></div></div></div>`,
+ `<div class="wrap"><span class="tag">Shared link after a draft</span><div class="ph">${chatbar('Asha')}<div class="cmp"><div class="fld">look at this<br>https://example.com/trip-photos<span class="caret"></span></div><span class="sd" aria-label="Send">➤</span></div><div class="kb">keyboard open</div></div></div>`,
+]);
+draw('s9',[
+ `<div class="wrap"><span class="tag">Picker · Jakarta 200% · 360dp</span><div class="jk" style="font-size:28px">${picker('','3 photos and 2 videos',`<div class="search" style="height:auto;min-height:56px;font-size:26px">⌕ Search chats</div><div class="sh" style="font-size:20px">Chats</div><div class="ct" style="min-height:96px"><span class="av">A</span><span class="tx"><b style="font-size:28px">Asha Raghunathan</b></span></div><div class="ct" style="min-height:96px"><span class="av">W</span><span class="tx"><b style="font-size:28px">Weekend crew</b><small style="font-size:24px">5 members</small></span></div>`).replace('<b>Send to</b>','<b style="font-size:36px;line-height:44px">Send to</b>').replace('<small>3 photos','<small style="font-size:24px;line-height:32px">3 photos')}</div></div>`,
+ `<div class="wrap"><span class="tag">Opening · 200%</span><div class="jk">${picker('dark','2 files','',`<div class="scrim" style="font-size:28px"><span class="ring"></span>Opening…</div>`)}</div></div>`,
+]);
+</script>
+</body>
+</html>

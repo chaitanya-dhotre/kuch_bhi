@@ -66,14 +66,17 @@ LocalMediaFile _withMeta(File file, String? meta) {
   );
 }
 
-/// Logout: decrypted media must not outlive the session that opened it.
+/// Logout: decrypted media must not outlive the session that opened it,
+/// and neither do files shared in from other apps (12.1 F3).
 Future<void> wipeMediaCache(
     [Future<Directory> Function() cacheDir = getTemporaryDirectory]) async {
-  try {
-    final dir = Directory('${(await cacheDir()).path}/media_clear');
-    if (await dir.exists()) await dir.delete(recursive: true);
-  } catch (e) {
-    debugPrint('[Media] cache wipe failed: $e');
+  for (final name in ['media_clear', 'share_in']) {
+    try {
+      final dir = Directory('${(await cacheDir()).path}/$name');
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (e) {
+      debugPrint('[Media] cache wipe failed: $e');
+    }
   }
 }
 
