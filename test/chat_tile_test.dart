@@ -41,6 +41,21 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('ChatTile fits at 200% text scale on a 360px screen', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: host(const ChatTile(
+          title: 'An exceptionally long conversation name that must ellipsize',
+          subtitle: 'A very long message preview that must ellipsize instead of overflowing',
+        )),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(null);
+  });
+
   testWidgets(
     'ChatTile renders pin, presence, unread clamp, and merged label',
     (tester) async {

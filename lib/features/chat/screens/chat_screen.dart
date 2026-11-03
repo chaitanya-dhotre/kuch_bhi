@@ -1216,7 +1216,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               ),
                             )
                           else if (presence != null)
-                            _PresenceSubtitle(presence: presence),
+                            ChatPresenceSubtitle(presence: presence),
                         ],
                       ),
                     ),
@@ -1634,8 +1634,8 @@ class _SearchEmptyState extends StatelessWidget {
   }
 }
 
-class _PresenceSubtitle extends StatelessWidget {
-  const _PresenceSubtitle({required this.presence});
+class ChatPresenceSubtitle extends StatelessWidget {
+  const ChatPresenceSubtitle({super.key, required this.presence});
 
   final OtherUserPresence presence;
 
@@ -1677,6 +1677,8 @@ class _PresenceSubtitle extends StatelessWidget {
     return Text(
       presence.statusLabel,
       style: TextStyle(fontSize: 12, color: context.t.inkSoft),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }

@@ -242,8 +242,11 @@ viewer; 12.1 is independent and can go any time).
   collage that fits each item by orientation, then fullscreen with swipe between items (Page 9 decision 6).
   Needs a way to know what belongs together: a batch id on the messages, or grouping by sender + time.
 - `[BACKLOG]` Page 9 parked items, still separate: offline media resend that never retries · upload cancel ·
-  Chat J8 download progress (no progress source) · 200% overflows on Home rows and the chat app bar's
-  "Last seen" · no timeout on the media store's download (bound the `http.get` only, never around decrypt).
+  Chat J8 download progress (no progress source).
+- `[FIXED 2026-11-03]` Page 9 parked item: 200% text scale overflows on Home rows and the chat
+  app bar's "Last seen" subtitle.
+- `[FIXED earlier]` Page 9 parked item: no timeout on the media store download. Already bounded by the 8 s
+  `_stallBound` on the request and stream (decrypt unbounded); a guard test was added 2026-11-03.
 
 **Ideas (not media fullscreen)**
 - `[IDEA]` **12.6 Voice recorder redesign.** Live waveform, timer, cancel ✕ / record / send (user's reference

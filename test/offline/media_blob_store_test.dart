@@ -171,6 +171,26 @@ Future<bool> _awaitState(
 }
 
 void main() {
+  test('stalled media download times out back to queued for retry', () async {
+    final never = Completer<http.Response>();
+    final mock = MockClient((req) async {
+      if (req.url.path.contains('/api/collections/')) {
+        return _recordList(_mediaRecord(id: 'mrec_srv_timeout', messageId: 'srv_timeout'));
+      }
+      if (req.url.path.contains('/api/files/')) return never.future;
+      return http.Response('{}', 404);
+    });
+    final h = charHarness(clientFactory: () => mock);
+    addTearDown(h.close);
+    final parent = await _tempParent('timeout');
+    await _seedBlob(h.db, blobId: 'srv_timeout_f');
+    final store = _store(h, client: mock, cacheDir: () async => parent);
+
+    expect(await store.requestBlob('srv_timeout_f', 'test'), isNull);
+    expect((await h.db.mediaBlobDao.byId('srv_timeout_f'))!.state,
+        BlobState.queued);
+  });
+
   test(
       'offline → requestBlob leaves state queued; onConnectivity → drains to downloading→ready',
       () async {
