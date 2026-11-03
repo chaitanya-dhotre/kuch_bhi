@@ -46,6 +46,9 @@ class FakeMediaServer {
   /// Holds a message create before it is stored (a create still in flight).
   Completer<void>? createGate;
 
+  /// Answer for the next message create (e.g. 400), nothing stored.
+  int? createStatus;
+
   /// Fires when a media create reaches the server.
   final mediaArrived = StreamController<String>.broadcast();
 
@@ -95,6 +98,11 @@ class FakeMediaServer {
           final id = body['id'] as String;
           createOrder.add(id);
           if (createGate != null) await createGate!.future;
+          final refuse = createStatus;
+          if (refuse != null) {
+            createStatus = null;
+            return _json({'status': refuse, 'message': 'no'}, refuse);
+          }
           if (messages.containsKey(id)) {
             return _json({
               'status': 400,

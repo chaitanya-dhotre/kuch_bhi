@@ -109,13 +109,18 @@ class IngestBoundary {
         // `..where((t) => ...)` closure below.
         final OutboxTableData? op =
             ack == null ? null : await _db.outboxDao.byId(ack.opId);
-        if (ack != null) {
+        // F-b: a text deleted meanwhile keeps its tombstone and its op stays
+        // unsent, so its sender (or restart recovery) still marks the server.
+        final cancelled = op != null &&
+            (await _db.messagesDao.getMessageByLocalId(op.ref))?.status ==
+                'cancelled';
+        if (ack != null && !cancelled) {
           await _db.outboxDao.setState(ack.opId, OutboxState.sent);
         }
         // ── Phase 1b — Drain-ack message stamp — byte-identical WHERE/SET
         // to Task 2's interim body (localId=op.ref guarded by
         // sender+conversation).
-        if (ack != null && op != null) {
+        if (ack != null && op != null && !cancelled) {
           await (_db.update(_db.messagesTable)
                 ..where((t) =>
                     t.localId.equals(op.ref) &

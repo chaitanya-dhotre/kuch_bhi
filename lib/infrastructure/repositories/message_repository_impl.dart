@@ -1285,6 +1285,7 @@ class MessageRepositoryImpl implements MessageRepository {
       await db.outboxDao.deleteOp(op.opId);
       return OpSendOutcome.deferred;
     }
+    if (msg.status == 'cancelled') return _finishCancelledText(op); // F-b
     // C1 (final fix pass): the row's ciphertext is the SOURCE OF TRUTH for
     // the drain. Enqueue encrypted inside its transaction (spec §5.2), so a
     // cleared/never-warmed body cache (backgrounding, process kill) can
@@ -1490,9 +1491,12 @@ class MessageRepositoryImpl implements MessageRepository {
           senderId: myId,
           conversationId: conversationId,
         );
-        return ours
-            ? OpSendOutcome.sent
-            : OpSendOutcome.deferred; // collision verdict already written
+        if (!ours) return OpSendOutcome.deferred; // collision verdict written
+        // F-b: deleted during this retry; the ack left the tombstone alone.
+        final now = await db.messagesDao.getMessageByLocalId(localId);
+        return now?.status == 'cancelled'
+            ? _finishCancelledText(op)
+            : OpSendOutcome.sent;
       }
       rethrow; // real HTTP failure → worker classifies via nextAttempt
     }
@@ -1511,7 +1515,10 @@ class MessageRepositoryImpl implements MessageRepository {
       return OpSendOutcome.deferred;
     }
     // Dual-truth txn (spec §5.1): message stamp + outbox `sent` together.
-    await db.transaction(() async {
+    final cancelled = await db.transaction(() async {
+      // F-b: deleted while the create was in flight — never stamped.
+      final now = await db.messagesDao.getMessageByLocalId(localId);
+      if (now?.status == 'cancelled') return true;
       // Clear any FCM-isolate placeholder for this id so stamping ours
       // cannot violate the serverId unique index.
       await db.messagesDao.deleteByServerIdExcept(record.id, localId);
@@ -1540,7 +1547,9 @@ class MessageRepositoryImpl implements MessageRepository {
       );
       await db.outboxDao.setState(op.opId, OutboxState.sent, attempts: 0);
       await db.messagesDao.liftQueuedTextSends(conversationId, serverCreated);
+      return false;
     });
+    if (cancelled) return _finishCancelledText(op);
     // T9 carry-in: the ciphertext write + status flip must re-resolve any
     // bubble still watching this id (row streams never invalidate
     // messageBodyProvider) — wired in message_body_provider.dart.
@@ -2137,6 +2146,53 @@ class MessageRepositoryImpl implements MessageRepository {
     await db.messagesDao.deleteByLocalId(localId);
   }
 
+  /// F-b: deleting an own text the outbox has not acked cancels its send,
+  /// whichever delete was picked (an unsent text reached no one). The row
+  /// gets the media `cancelled` tombstone and its op does the rest when the
+  /// worker reaches it ([_finishCancelledText]); a failed op is just dropped,
+  /// the server refused it. The op read and the mark share one transaction
+  /// with the ack's stamp, so an ack lands either before (false) or after.
+  Future<bool> _cancelTextSend(MessagesTableData msg) async {
+    final op = await db.transaction(() async {
+      final op = (await db.outboxDao.forConversation(msg.conversationId))
+          .where((o) => o.kind == 'text_send' && o.ref == msg.localId)
+          .firstOrNull;
+      if (op == null || op.state == OutboxState.sent) return null;
+      if (op.state == OutboxState.failedTerminal) {
+        await db.messagesDao.deleteByLocalId(msg.localId);
+        await db.outboxDao.deleteOp(op.opId);
+      } else {
+        await db.messagesDao.markCancelledLocally(msg.localId);
+      }
+      return op;
+    });
+    if (op == null) return false;
+    outboxWorker.kick();
+    return true;
+  }
+
+  /// F-b: a cancelled text's create may have reached the server (a lost ack,
+  /// or deleted while in flight): mark that copy deleted for everyone, a 404
+  /// meaning it never got there, then drop the hidden row(s) and the op.
+  /// Offline the throw backs the op off, so the next drain retries the mark.
+  Future<OpSendOutcome> _finishCancelledText(OutboxTableData op) async {
+    try {
+      await _pb
+          .collection('messages')
+          .update(op.opId, body: {'is_deleted_for_everyone': true});
+    } catch (e) {
+      final never = e is ClientException && e.statusCode == 404;
+      final signedOut = e is ClientException && e.statusCode == 401;
+      if (!never && (signedOut || _isTransientUpload(e))) rethrow;
+    }
+    await db.transaction(() async {
+      await db.messagesDao.deleteByLocalId(op.ref);
+      await db.messagesDao.deleteByServerIdExcept(op.opId, op.ref); // an echo
+      await db.outboxDao.deleteOp(op.opId);
+    });
+    return OpSendOutcome.deferred;
+  }
+
   Future<void>? _mediaResume;
   Timer? _mediaResumeRetry;
 
@@ -2513,8 +2569,14 @@ class MessageRepositoryImpl implements MessageRepository {
 
   @override
   Future<void> deleteMessage(String localId, {bool forEveryone = false}) async {
-    final msg = await db.messagesDao.getMessageByLocalId(localId);
-    if (msg == null) return;
+    var row = await db.messagesDao.getMessageByLocalId(localId);
+    if (row == null) return;
+    if (row.type == 'text' && row.serverId == null) {
+      if (await _cancelTextSend(row)) return;
+      // Acked meanwhile: the normal delete, with the server id.
+      row = await db.messagesDao.getMessageByLocalId(localId) ?? row;
+    }
+    final msg = row;
     // An own media send still holding its upload latch is cancelled (blobs
     // freed, any server copy hidden) when deleted for everyone, or when it
     // never reached anyone complete (not created yet, or failed for good).

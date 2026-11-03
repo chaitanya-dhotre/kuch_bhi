@@ -83,12 +83,21 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return out;
   }
 
-  /// Of [ids], those a locally cancelled media send holds: as its server id,
-  /// or (create ack skipped by the cancel) as its local id, which is the
-  /// server record id. Chunked at 400: two IN lists share the bind cap.
+  /// Of [ids], those a locally cancelled send holds: as its server id, or
+  /// (create ack skipped by the cancel) as its local id, which is a media
+  /// send's server record id, or a text's outbox op id (F-b). Chunked at
+  /// 400: two IN lists share the bind cap.
   Future<Set<String>> cancelledSendIds(List<String> ids) async {
     final out = <String>{};
+    final outbox = attachedDatabase.outboxTable;
     for (final c in chunkIds(ids, 400)) {
+      final texts = await (select(outbox).join([
+        innerJoin(messagesTable, messagesTable.localId.equalsExp(outbox.ref)),
+      ])
+            ..where(outbox.opId.isIn(c) &
+                messagesTable.status.equals('cancelled')))
+          .get();
+      out.addAll(texts.map((r) => r.readTable(outbox).opId));
       final rows = await (select(messagesTable)
             ..where((t) =>
                 t.status.equals('cancelled') &

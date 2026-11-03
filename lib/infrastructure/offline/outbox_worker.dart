@@ -275,6 +275,16 @@ class OutboxWorker {
       final ops = await _outbox.forConversation(convId);
       for (final op in ops) {
         if (op.state == OutboxState.sent) continue;
+        // F-b: a deleted text the server refused (or a collision / encrypt
+        // verdict) never landed; its hidden row can't offer Discard.
+        if (op.state == OutboxState.failedTerminal &&
+            op.kind == 'text_send' &&
+            (await _messages.getMessageByLocalId(op.ref))?.status ==
+                'cancelled') {
+          await _messages.deleteByLocalId(op.ref);
+          await _outbox.deleteOp(op.opId);
+          continue;
+        }
         // Spec §6 ordering: a non-queued head (failedTerminal/sending) or a
         // not-yet-due head blocks every later op in this conversation.
         if (op.state != OutboxState.queued) break;
