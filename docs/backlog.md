@@ -222,14 +222,14 @@ tasks: Page 9 → 12.2 → 12.4 → 12.5 → 12.1 (12.2 reuses Page 9's blob-sta
 viewer; 12.1 is independent and can go any time).
 
 **Media tasks (from the Page 9 triage)**
-- `[BACKLOG]` **12.1 Share into the app.** Photos, videos and files from other apps or a file manager. No
+- `[DONE 719eb59]` **12.1 Share into the app.** Photos, videos and files from other apps or a file manager. No
   `SEND`/`SEND_MULTIPLE` intent filter exists in `AndroidManifest.xml` today. Needs a receive plugin, a
   "send to which chat" picker, then the existing send pipeline (quality sheet included).
-- `[BACKLOG]` **12.2 Media bubble states in the chat.** Deleted, can't decrypt, expired, failed download,
+- `[DONE d0e3c85]` **12.2 Media bubble states in the chat.** Deleted, can't decrypt, expired, failed download,
   loading, each with a clear look. Today photo/video bubbles have a skeleton, a broken-image icon and a 10.5px
   **Media expired**; no can't-decrypt or failed state; the expiry pill shows only in the last 7 days. Go
   after Page 9 (same files; reuses its read-only blob-status provider).
-- `[BACKLOG]` **12.4 Media send.** Keep the original format (GIF/PNG/WebP as is; JPEG/HEIC still re-encoded to
+- `[DONE d0e3c85]` **12.4 Media send.** Keep the original format (GIF/PNG/WebP as is; JPEG/HEIC still re-encoded to
   strip GPS, see the photo learning), sharper thumbnails (today 200px at 60%), and a simple crop / mark-up /
   video trim screen. No filters or edits. Merges Page 9 parked items 15a (GIF → JPEG) and 15b (thumbnails).
   Video trim needs a maintained native transcoder (the common FFmpeg Flutter wrapper was retired in 2025);
@@ -237,7 +237,7 @@ viewer; 12.1 is independent and can go any time).
 - `[BACKLOG]` **12.4b `pro_image_editor` fallback** (user, 2026-10-31). If the media-send page's built-in crop (the avatar
   cropper's pan/zoom under an Original/Square frame) doesn't feel good enough on the device, swap the editor's Crop +
   Draw to `pro_image_editor` with its filters, text and stickers turned off (`media-send.md` decision 15, alternative B).
-- `[BACKLOG]` **12.5 Albums.** Several photos/videos sent together show as one bubble that scrolls sideways
+- `[DONE 5580d1e]` **12.5 Albums.** Several photos/videos sent together show as one bubble that scrolls sideways
   (reference: the user's mock; no like/dislike, reactions already exist), and open as an auto-arranged
   collage that fits each item by orientation, then fullscreen with swipe between items (Page 9 decision 6).
   Needs a way to know what belongs together: a batch id on the messages, or grouping by sender + time.
@@ -255,7 +255,7 @@ viewer; 12.1 is independent and can go any time).
 - `[IDEA]` **12.7 Keep a message in a disappearing chat.** An option on one text, photo, video or document so it
   does not disappear when the timer runs out. Needs design: the purge runs on every member's device, so "kept"
   must reach the other side too, and media retention on the server is separate from the disappearing timer.
-- `[IDEA]` **12.8 Multi-select that works.** Today you long-press each message and pick Select; then the only
+- `[DONE a9d40e1]` **12.8 Multi-select that works.** Today you long-press each message and pick Select; then the only
   action is delete, and it deletes at once with no confirmation (confirmed: `chat_screen.dart:986-992`
   loops `deleteMessage` for me, no dialog; R20 `showConfirmDialog` exists). Wanted: once selecting, a tap adds
   a message; drag/range select for many; a confirm before delete; more actions (copy, star, forward if it
@@ -265,7 +265,7 @@ viewer; 12.1 is independent and can go any time).
   style (plain, dotted, numbered, checklist), keep it private or share it with the chat. Example: an itinerary
   of hidden spots with location links.
 - `[IDEA]` **12.10 Tags through lists.** Notes from 12.9 tag photos/videos so in-chat search can find them.
-- `[IDEA]` **12.11 App lock.** PIN, biometrics or password to open the app. Not built today (the Settings learning:
+- `[DONE c8ef7dd]` **12.11 App lock.** PIN, biometrics or password to open the app. Not built today (the Settings learning:
   app lock "looks built but is not").
 
 ## 13. Device run + "Things To Fix Lol" list (2026-10-31) `[BACKLOG]`
@@ -285,13 +285,13 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
   family per conversation, so no `dispose` write is needed and a reply can't cross chats; a grep gate fails any
   `dispose()` in lib that touches `ref` (proved RED on the old screen). Checked on the M52: reply in Avium, back,
   open another chat = no reply, and no ref/defunct errors in the log. 741/741.
-- `[BUG]` **13.2 An open group chat re-writes the same receipt status in a loop. Seen, medium.** With
+- `[FIXED 901065e]` **13.2 An open group chat re-writes the same receipt status in a loop. Seen, medium.** With
   "Things To Fix Lol" (8 messages) open, the log shows 17× `watchMessages EMIT` + 28×
   `[Receipt] Updating local message status to: sent (deliveredIds=1/3, readIds=1/3)` with no change in the
   values. Each write re-emits the whole list. Write only when the status actually changes.
   **Fixed 2026-10-31 (device PASS):** an unchanged status is no longer written.
   M52: 1 emit, 0 writes on open. Log: `docs/audits/bug-wave-3-work-log.md`.
-- `[BUG]` **13.3 Home: "3 Oct Test" gains one unread every time ANY chat is opened. Reproduced 2026-10-31.**
+- `[FIXED 901065e]` **13.3 Home: "3 Oct Test" gains one unread every time ANY chat is opened. Reproduced 2026-10-31.**
   On the M52 it went 4 → 5 → 6 across three chat opens with no new message, and its preview flips from
   "Can't decrypt" to a skeleton that never resolves. Likely: an undecryptable message in that group is counted
   again on each open (the unread count or the undecryptable re-scan). Investigate before fixing.
@@ -304,7 +304,7 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
   path=full total=20994ms`).
 
 **User's list:**
-- `[BUG]` **13.4 Video bubble length shows 0:00.** Cause (2026-10-31, code read + live read R1): client-side. The
+- `[FIXED d0e3c85]` **13.4 Video bubble length shows 0:00.** Cause (2026-10-31, code read + live read R1): client-side. The
   server stores `duration_seconds` (video 2/2 and voice 4/4 > 0). The bubble reads it from the thumbnail's
   `LocalMediaFile` (`vb`, `media?.durationSeconds ?? 0`). The record path fills it; the blob store's fast path (a row
   already `ready`, e.g. after a restart) returns no metadata, so it is null → 0:00. Fixed by the media-send spec's
@@ -316,9 +316,9 @@ From the user's own list in the "Things To Fix Lol" group (7 items, 2026-10-30/3
   device can't decrypt the quote.** Root cause = 13.1 (`replyProvider` is global and never cleared). Also make
   the send path drop a reply whose message belongs to another conversation. The stray "Avium / Pakka?"
   quote-only bubble on the M52's Avium chat is probably one of these.
-- `[BUG]` **13.7 Sending a photo shows two bubbles; the first disappears only once the upload finishes.** The
+- `[FIXED d0e3c85]` **13.7 Sending a photo shows two bubbles; the first disappears only once the upload finishes.** The
   uploading placeholder and the real message are both visible. One bubble that turns into the sent one.
-- `[BUG]` **13.8 Your own photos show the download disc.** Known limit from Page 9: the sender's full copy is not
+- `[FIXED d0e3c85]` **13.8 Your own photos show the download disc.** Known limit from Page 9: the sender's full copy is not
   kept in the media cache after upload. Fix: register the sent (compressed) file as a `ready` full blob on send.
   Belongs with 12.4 media send.
 - `[FIXED 2026-11-01]` **13.9 Photo viewer zooms and pans into the black around the photo.** Likely: InteractiveViewer's child
