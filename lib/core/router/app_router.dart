@@ -77,12 +77,50 @@ class RouterRefreshNotifier extends ChangeNotifier {
   }
 }
 
+/// Where the key-sync route sends a signed-in user. Remembers the user it
+/// last answered keyOk for, so a reload for that same user (an auth
+/// re-publish such as a profile save) leaves them where they are instead of
+/// bouncing through the splash. Any other reload still waits on the splash.
+class SyncRouteGate {
+  String? _keyOkFor;
+
+  String? redirect(
+      String loc, AuthState? auth, AsyncValue<EncryptionSyncStatus> sync) {
+    if (auth is! AuthAuthenticated) {
+      _keyOkFor = null;
+      return null;
+    }
+    if (sync.isLoading) {
+      if (_keyOkFor == auth.user.id) return null;
+      return loc == AppRoutes.splash ? null : AppRoutes.splash;
+    }
+
+    final syncStatus = sync.valueOrNull;
+    _keyOkFor = syncStatus == EncryptionSyncStatus.keyOk ? auth.user.id : null;
+    if (syncStatus == EncryptionSyncStatus.needsRestore) {
+      if (loc != AppRoutes.backupPinRestore) return AppRoutes.backupPinRestore;
+    } else if (syncStatus == EncryptionSyncStatus.needsSetup) {
+      if (loc != AppRoutes.backupPinSetup) return AppRoutes.backupPinSetup;
+    } else if (syncStatus == EncryptionSyncStatus.keyOk) {
+      if (loc == AppRoutes.splash ||
+          loc == AppRoutes.login ||
+          loc == AppRoutes.register ||
+          loc == AppRoutes.backupPinSetup ||
+          loc == AppRoutes.backupPinRestore) {
+        return AppRoutes.home;
+      }
+    }
+    return null;
+  }
+}
+
 final routerRefreshNotifierProvider = Provider<RouterRefreshNotifier>((ref) {
   return RouterRefreshNotifier(ref);
 });
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = ref.read(routerRefreshNotifierProvider);
+  final syncGate = SyncRouteGate();
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.splash,
@@ -103,37 +141,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return AppRoutes.login;
       }
 
-      if (auth is AuthAuthenticated) {
-        final syncStatusAsync = ref.read(encryptionSyncProvider);
-        if (syncStatusAsync.isLoading) {
-          // While encryption sync is loading, show splash screen
-          if (state.matchedLocation != AppRoutes.splash) {
-            return AppRoutes.splash;
-          }
-          return null;
-        }
-
-        final syncStatus = syncStatusAsync.valueOrNull;
-        if (syncStatus == EncryptionSyncStatus.needsRestore) {
-          if (state.matchedLocation != AppRoutes.backupPinRestore) {
-            return AppRoutes.backupPinRestore;
-          }
-        } else if (syncStatus == EncryptionSyncStatus.needsSetup) {
-          if (state.matchedLocation != AppRoutes.backupPinSetup) {
-            return AppRoutes.backupPinSetup;
-          }
-        } else if (syncStatus == EncryptionSyncStatus.keyOk) {
-          final loc = state.matchedLocation;
-          if (loc == AppRoutes.splash ||
-              loc == AppRoutes.login ||
-              loc == AppRoutes.register ||
-              loc == AppRoutes.backupPinSetup ||
-              loc == AppRoutes.backupPinRestore) {
-            return AppRoutes.home;
-          }
-        }
-      }
-      return null;
+      return syncGate.redirect(state.matchedLocation, auth, syncStatusAsync);
     },
     routes: [
       GoRoute(

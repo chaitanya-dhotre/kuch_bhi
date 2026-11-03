@@ -18,6 +18,12 @@ enum EncryptionSyncStatus {
 @visibleForTesting
 Duration backupCheckRetryDelay = const Duration(seconds: 2);
 
+/// How long the route waits on the server's backup answer when the device
+/// already holds a key: one read took 6–19 s on mobile data with failing TLS
+/// handshakes, all of it on the splash. Tests shorten it.
+@visibleForTesting
+Duration backupCheckBudget = const Duration(seconds: 3);
+
 final encryptionSyncProvider = FutureProvider<EncryptionSyncStatus>((ref) async {
   final authState = ref.watch(authProvider).valueOrNull;
   if (authState is! AuthAuthenticated) {
@@ -62,7 +68,19 @@ final encryptionSyncProvider = FutureProvider<EncryptionSyncStatus>((ref) async 
     return skippedAt == null || DateTime.now().difference(skippedAt).inDays >= 7;
   }
 
-  final hasBackup = await enc.tryHasPocketBaseBackup(user.id);
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
+  final check = enc.tryHasPocketBaseBackup(user.id);
+  final hasBackup = await check.timeout(backupCheckBudget, onTimeout: () {
+    // Too slow: treat as unknown (Home now). A late "no backup" with setup
+    // due is published as is (a re-read could be just as slow).
+    check.then((late) async {
+      if (late == false && await setupDue() && !disposed) {
+        ref.state = const AsyncData(EncryptionSyncStatus.needsSetup);
+      }
+    });
+    return null;
+  });
   if (hasBackup == null) {
     // Offline / server down: local key stands on its own (user report
     // 2026-10-11 — offline cold start must not ask a set-up user to set up).
