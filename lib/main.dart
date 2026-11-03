@@ -13,6 +13,8 @@ import 'core/network/pocketbase_client.dart';
 import 'data/local/database/app_database.dart';
 import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
+import 'features/app_lock/app_lock_controller.dart';
+import 'features/app_lock/app_lock_platform.dart';
 import 'infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
 import 'services/fcm_service.dart';
@@ -55,6 +57,8 @@ Future<void> main() async {
   // Initialize all critical services before runApp so providers
   // are immediately available without any loading state.
   final secureStorage = SecureStorageService();
+  final appLockEntry = await secureStorage.read(key: 'app_lock');
+  await AppLockPlatform().setHideInRecents(appLockEntry != null);
   final db            = AppDatabase();
   final pbClient      = await PocketBaseClient.create(secureStorage);
 
@@ -68,6 +72,12 @@ Future<void> main() async {
       overrides: [
         // Plain Provider overrides — no AsyncValue, no loading flash.
         secureStorageProvider.overrideWithValue(secureStorage),
+        appLockProvider.overrideWith(
+          () => AppLockController(
+            initialEntry: appLockEntry,
+            initiallyLocked: appLockEntry != null,
+          ),
+        ),
         appDatabaseProvider.overrideWithValue(db),
         pocketbaseClientProvider.overrideWithValue(pbClient),
         // USE_FAKES mock-build seam (spec §10): screens read the Map-backed

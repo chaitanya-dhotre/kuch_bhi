@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -601,19 +602,76 @@ class FcmService {
 
   // ── Show notification ──────────────────────────────────────────
 
+  static (String title, String body) notificationText({
+    required String type,
+    required Map data,
+    required bool hideNames,
+  }) {
+    if (hideNames) {
+      return switch (type) {
+        'new_message' => ('Kuch Bhi', 'New message'),
+        'friend_request' => ('Kuch Bhi', 'New friend request'),
+        'group_invite' => ('Kuch Bhi', 'New group invite'),
+        _ => ('Kuch Bhi', 'New message'),
+      };
+    }
+    switch (type) {
+      case 'new_message':
+        final senderName = (data['sender_name'] as String?)?.trim();
+        final preview = (data['preview'] as String?)?.trim();
+        return (
+          senderName != null && senderName.isNotEmpty ? senderName : 'New message',
+          preview != null && preview.isNotEmpty ? preview : 'Sent you a message',
+        );
+      case 'friend_request':
+        final fromName = (data['from_user_name'] as String?)?.trim();
+        return (
+          'Friend request',
+          fromName != null && fromName.isNotEmpty
+              ? '$fromName wants to connect'
+              : 'You have a new friend request',
+        );
+      case 'group_invite':
+        final inviterName = (data['inviter_name'] as String?)?.trim();
+        final convName = (data['conversation_name'] as String?)?.trim();
+        final groupName = convName != null && convName.isNotEmpty ? convName : 'a group';
+        return (
+          'Group invite',
+          inviterName != null && inviterName.isNotEmpty
+              ? '$inviterName invited you to $groupName'
+              : 'You were invited to $groupName',
+        );
+      default:
+        return ('New message', 'Sent you a message');
+    }
+  }
+
+  static Future<bool> _hideNames() async {
+    final storage = _storage ?? SecureStorageService();
+    String? raw;
+    try {
+      raw = await storage.read(key: 'app_lock');
+    } catch (_) {
+      return true;
+    }
+    if (raw == null) return false;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map || !decoded.containsKey('hideNames')) return true;
+      return decoded['hideNames'] == true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   static Future<void> _showMessageNotification(Map<String, dynamic> data) async {
     try {
       await _ensureNotifications();
-      final senderName = (data['sender_name'] as String?)?.trim();
-      final title = (senderName != null && senderName.isNotEmpty)
-          ? senderName
-          : 'New message';
-      // Body: media messages send a preview type; text is E2E so we can't
-      // show content — show a neutral line.
-      final preview = (data['preview'] as String?)?.trim();
-      final body = (preview != null && preview.isNotEmpty)
-          ? preview
-          : 'Sent you a message';
+      final (title, body) = notificationText(
+        type: 'new_message',
+        data: data,
+        hideNames: await _hideNames(),
+      );
       await _localNotifications.show(
         (data['conversation_id'] as String? ?? '').hashCode,
         title,
@@ -636,11 +694,11 @@ class FcmService {
       Map<String, dynamic> data) async {
     try {
       await _ensureNotifications();
-      final fromName = (data['from_user_name'] as String?)?.trim();
-      final title = 'Friend request';
-      final body = (fromName != null && fromName.isNotEmpty)
-          ? '$fromName wants to connect'
-          : 'You have a new friend request';
+      final (title, body) = notificationText(
+        type: 'friend_request',
+        data: data,
+        hideNames: await _hideNames(),
+      );
       await _localNotifications.show(
         (data['request_id'] as String? ?? 'req').hashCode,
         title,
@@ -666,14 +724,11 @@ class FcmService {
       Map<String, dynamic> data) async {
     try {
       await _ensureNotifications();
-      final inviterName = (data['inviter_name'] as String?)?.trim();
-      final convName    = (data['conversation_name'] as String?)?.trim();
-      final groupName   =
-          (convName != null && convName.isNotEmpty) ? convName : 'a group';
-      final title = 'Group invite';
-      final body  = (inviterName != null && inviterName.isNotEmpty)
-          ? '$inviterName invited you to $groupName'
-          : 'You were invited to $groupName';
+      final (title, body) = notificationText(
+        type: 'group_invite',
+        data: data,
+        hideNames: await _hideNames(),
+      );
       await _localNotifications.show(
         (data['invite_id'] as String? ?? 'inv').hashCode,
         title,

@@ -6,6 +6,8 @@ import 'core/decrypt/body_cache.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'features/auth/providers/auth_provider.dart';
+import 'features/app_lock/app_lock_controller.dart';
+import 'features/app_lock/lock_overlay.dart';
 import 'features/settings/providers/font_provider.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'infrastructure/repositories/message_repository_impl.dart';
@@ -40,6 +42,18 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
 
   /// Read once: `ref` is unusable inside dispose().
   late final PresenceService _presence;
+  bool _onlineQueued = false;
+
+  /// F5: online only after unlock, and once, however many resumes came
+  /// while locked.
+  void _goOnlineWhenUnlocked() {
+    if (_onlineQueued) return;
+    _onlineQueued = true;
+    ref.read(appLockProvider.notifier).whenUnlocked().then((_) {
+      _onlineQueued = false;
+      if (mounted) _presence.goOnline();
+    });
+  }
 
   @override
   void initState() {
@@ -47,7 +61,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
     _presence = ref.read(presenceServiceProvider);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(presenceServiceProvider).goOnline();
+      _goOnlineWhenUnlocked();
       // Cold start: the lifecycle `resumed` event does NOT fire when the
       // app is launched from killed — without this, messages received while
       // the app was closed are never fetched on open, so the home badge
@@ -72,12 +86,14 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final presence = ref.read(presenceServiceProvider);
+    final now = DateTime.now();
     switch (state) {
       case AppLifecycleState.resumed:
+        ref.read(appLockProvider.notifier).onResumed(now);
         // App foregrounded — re-establish online status.
         // The active ChatScreen (if any) will call enterChat() itself
         // via its own WidgetsBindingObserver.
-        presence.goOnline();
+        _goOnlineWhenUnlocked();
         // Android suspends the SSE socket while backgrounded and events in
         // that window are silently lost. Reconnect + backfill — a short
         // away (<60s) takes the light delta path, null/long the full one.
@@ -88,6 +104,8 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
         ref.read(messageRepositoryProvider).resyncOnResume(awayFor: awayFor);
         // Resume-only throttled token/session refresh (never on navigation).
         ref.read(authProvider.notifier).refreshSessionThrottled();
+      case AppLifecycleState.hidden:
+        ref.read(appLockProvider.notifier).onHidden(now);
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
         // App backgrounded or about to be killed.
@@ -105,13 +123,18 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
         }
       case AppLifecycleState.detached:
         presence.goOffline();
-      default:
-        break;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // A1: sign-out's clearSession deletes app_lock; forget the cached entry
+    // so the old PIN can't lock or be re-saved under the next account.
+    ref.listen(authProvider, (_, next) {
+      if (next.valueOrNull is AuthUnauthenticated) {
+        ref.read(appLockProvider.notifier).readConfig();
+      }
+    });
     final router = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider).valueOrNull ??
         AppThemeMode.system;
@@ -138,6 +161,7 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
       darkTheme:   darkTheme,
       themeMode:   flutterThemeMode,
       routerConfig: router,
+      builder: (context, child) => LockOverlay(child: child!),
     );
   }
 }

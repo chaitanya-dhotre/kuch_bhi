@@ -37,6 +37,7 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../mascot/capybara.dart';
+import '../../app_lock/app_lock_controller.dart';
 
 /// Who may send in [conv]: the composer and the share picker (12.1 D6) both
 /// ask here, so the rule lives in one place.
@@ -296,7 +297,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         // ~1.5s of quiet) actually marks read. This collapses an initial
         // 30-message backfill from ~30 server round-trips into 1.
         _markReadDebounce?.cancel();
-        _markReadDebounce = Timer(const Duration(milliseconds: 1500), () {
+        _markReadDebounce = Timer(const Duration(milliseconds: 1500), () async {
+          if (!mounted) return;
+          await ref.read(appLockProvider.notifier).whenUnlocked();
           if (mounted) {
             ref.read(messageRepositoryProvider).markConversationRead(_cid);
           }
@@ -335,6 +338,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _enter() async {
+    await ref.read(appLockProvider.notifier).whenUnlocked();
+    if (!mounted) return;
     await ref.read(messageRepositoryProvider).markConversationRead(_cid);
     await _pres.enterChat(_cid);
   }

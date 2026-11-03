@@ -15,7 +15,8 @@ import android.os.PersistableBundle
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
-import io.flutter.embedding.android.FlutterActivity
+import android.view.WindowManager
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -23,7 +24,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private var shareChannel: MethodChannel? = null
 
     // One thread: copies run in order and clearShared never races a copy.
@@ -65,6 +66,28 @@ class MainActivity : FlutterActivity() {
                         if (Build.VERSION.SDK_INT >= 28) cm.clearPrimaryClip()
                         else cm.setPrimaryClip(ClipData.newPlainText("", ""))
                         result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kuch_bhi/privacy")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "setHideInRecents" -> {
+                        val hide = call.arguments as? Boolean ?: false
+                        runOnUiThread {
+                            if (Build.VERSION.SDK_INT >= 33) {
+                                this@MainActivity.setRecentsScreenshotEnabled(!hide)
+                            } else if (hide) {
+                                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            } else {
+                                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            }
+                            result.success(null)
+                        }
+                    }
+                    "moveTaskToBack" -> runOnUiThread {
+                        result.success(moveTaskToBack(true))
                     }
                     else -> result.notImplemented()
                 }

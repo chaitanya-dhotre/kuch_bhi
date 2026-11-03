@@ -14,7 +14,6 @@ class AppSettingsTable extends Table {
 class AppSettingsKeys {
   AppSettingsKeys._();
   static const String theme = 'theme'; // 'light' | 'dark' | 'amoled'
-  static const String appLockEnabled = 'app_lock_enabled';
   static const String currentUserId = 'current_user_id';
   static const String authToken = 'auth_token';
   static const String notificationsEnabled = 'notifications_enabled';

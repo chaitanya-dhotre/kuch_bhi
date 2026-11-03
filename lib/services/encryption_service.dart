@@ -968,6 +968,57 @@ class EncryptionService {
         : RestoreResult.restored;
   }
 
+  /// App lock's Forgot PIN: opens the backup with [secret] exactly as
+  /// [restorePrivateKey] does, then stops. Writes nothing (no storage, no
+  /// server, no cache). Throws when the record can't be read.
+  // Duplicates restorePrivateKey's open on purpose so that path stays
+  // byte-identical (app lock spec J1, follow-up F-a).
+  Future<RestoreResult> checkBackupSecret(String secret) async {
+    final userId = await _storage.getCurrentUserId();
+    if (userId == null) {
+      throw Exception('[Enc] No current user ID stored locally.');
+    }
+
+    final userRecord = await _pb.collection('users').getOne(userId);
+    final blob = userRecord.getStringValue('private_key_encrypted');
+    final saltB64 = userRecord.getStringValue('private_key_salt');
+    if (blob.isEmpty || saltB64.isEmpty) return RestoreResult.noBackup;
+
+    final version = RegExp(r'^v(\d+):').firstMatch(blob)?.group(1);
+    if (version != null && version != '2') return RestoreResult.unsupported;
+
+    final List<int> clear;
+    try {
+      final salt = base64.decode(saltB64);
+      if (version == '2') {
+        final key = parseRecoveryKey(secret);
+        if (key == null) return RestoreResult.wrongSecret;
+        clear = await _openBackup(
+          base64.decode(blob.substring(3)),
+          await _v2Key(key, salt),
+          aad: _v2Aad(userId),
+        );
+      } else {
+        final keyBytes = await compute(_isoPbkdf2, {
+          'pin': secret.trim(),
+          'salt': salt,
+          'iterations': 100000,
+        });
+        clear = await _openBackup(
+          base64.decode(blob),
+          await _aesGcm.newSecretKeyFromBytes(keyBytes),
+        );
+      }
+    } on SecretBoxAuthenticationError {
+      return RestoreResult.wrongSecret;
+    }
+
+    clear.fillRange(0, clear.length, 0);
+    return version == null
+        ? RestoreResult.restoredLegacy
+        : RestoreResult.restored;
+  }
+
   /// nonce 12 ‖ ciphertext ‖ GCM tag 16 → plaintext; throws on a bad tag.
   Future<List<int>> _openBackup(List<int> bytes, SecretKey key,
       {List<int> aad = const []}) {

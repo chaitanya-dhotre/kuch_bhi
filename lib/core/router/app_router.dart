@@ -12,6 +12,7 @@ import '../../features/auth/screens/google_onboarding_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
+import '../../features/app_lock/app_lock_settings_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
 import '../../features/friend_requests/screens/friend_requests_screen.dart';
 import '../../features/home/screens/home_screen.dart';
@@ -35,6 +36,7 @@ class AppRoutes {
   static const String chat           = '/chat';
   static const String profile        = '/profile';
   static const String settings       = '/settings';
+  static const String appLock        = '/settings/app-lock';
   static const String friendRequests = '/friend-requests';
   static const String addFriend      = '/add-friend';
   static const String about          = '/about';
@@ -173,6 +175,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.settings,
         builder: (_, __) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.appLock,
+        builder: (_, __) => const AppLockSettingsScreen(),
       ),
       GoRoute(
         path: AppRoutes.about,

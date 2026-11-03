@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App lock board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from multi-select.html; nothing redefined). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC;--error:#E5484D}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+.amoled{--bg:#000000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+pre{margin:0;font-size:12.5px;background:#fff;border:1px solid #E4DDD1;border-radius:8px;padding:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}td.bad{background:#FBE3E3}td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+/* ── phone frame ── */
+.ph{position:relative;width:280px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);overflow:hidden;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+.ph .in{padding:20px 24px 16px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.logo{width:64px;height:64px;border-radius:22px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:14px}
+.ttl{font-size:22px;font-weight:700;line-height:28px;margin:0 0 6px}
+.bdy{font-size:14px;line-height:20px;color:var(--inkSoft);margin:0 0 6px}
+.dots{display:flex;gap:14px;margin:10px 0 6px}
+.dots i{width:14px;height:14px;border-radius:99px;border:2px solid var(--line)}
+.dots i.f{background:var(--ink);border-color:var(--ink)}
+.msg{min-height:36px;font-size:13px;line-height:18px;color:var(--ink);display:flex;align-items:flex-start;justify-content:center;gap:6px}
+.msg .e{color:var(--error)}
+.pad{display:grid;grid-template-columns:repeat(3,64px);gap:10px 18px;margin:4px 0 8px}
+.pad span{width:64px;height:64px;border-radius:99px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600}
+.pad span.blank{background:none}
+.pad span.ic{font-size:20px;color:var(--inkSoft);background:none}
+.pad.off span:not(.fp){opacity:.38}
+.tb{font-size:14px;font-weight:600;padding:10px 14px;border-radius:14px}
+.btn{width:100%;height:48px;border-radius:16px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-weight:600;margin-top:10px}
+.btn.off{background:var(--surface2);color:var(--inkFaint)}
+.bar{height:56px;display:flex;align-items:center;gap:6px;padding:0 8px;font-size:20px;font-weight:700}
+.bar .bk{width:40px;text-align:center;font-weight:400}
+.sec{font-size:11px;font-weight:600;color:var(--inkFaint);padding:12px 16px 6px;text-align:left}
+.grp{margin:0 12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.tile{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-top:1px solid var(--line);text-align:left}
+.tile:first-child{border-top:0}
+.tile .w{flex:0 0 36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--inkSoft)}
+.tile .t{flex:1;min-width:0;font-size:15px;font-weight:600}
+.tile .t small{display:block;font-weight:400;font-size:12.5px;color:var(--inkSoft);line-height:17px}
+.tile .v{color:var(--inkSoft);font-size:14px}
+.tile.dim .dm{opacity:.38;display:flex;gap:12px;align-items:center;flex:1}
+.sw{width:40px;height:24px;border-radius:99px;background:var(--surface2);border:2px solid var(--line);position:relative;flex:0 0 auto}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:99px;background:var(--inkFaint)}
+.sw.on{background:var(--accent);border-color:var(--accent)}.sw.on::after{left:18px;background:var(--onAccent)}
+.cd{width:22px;height:22px;border-radius:99px;border:2px solid var(--line);flex:0 0 auto}
+.cd.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent);font-size:13px;display:flex;align-items:center;justify-content:center}
+.cd.on::after{content:"✓"}
+.notebox{margin:8px 12px 0;padding:10px 12px;border-radius:12px;background:var(--accentSoft);border:1px solid rgba(239,160,11,.45);font-size:13px;line-height:18px;text-align:left}
+.field{width:100%;text-align:left;margin-top:10px}
+.field label{font-size:13px;color:var(--inkSoft)}
+.field .box{margin-top:4px;height:52px;border-radius:16px;border:1.5px solid var(--accent);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-family:ui-monospace,Menlo,monospace;font-size:14px}
+.field .err{margin-top:6px;font-size:13px;line-height:18px;display:flex;gap:6px}
+.field .err b{color:var(--error);font-weight:400}
+.card{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-size:13px;line-height:18px;text-align:left;display:flex;gap:8px}
+.card b{color:var(--error);font-weight:400}
+.toast{display:inline-block;background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:14px;max-width:280px}
+.lighttoast{background:#2A2520;color:#FAF7F1}
+.notif{width:300px;max-width:100%;background:#fff;border:1px solid #E4DDD1;border-radius:16px;padding:10px 12px;font-size:13px}
+.notif .a{font-size:11.5px;color:#6E655A}.notif b{display:block;font-size:14px}
+.recents{width:130px;height:210px;border-radius:14px;border:1px solid #D8CDBA;background:#FAF7F1;display:flex;flex-direction:column;overflow:hidden}
+.recents .h{font-size:11px;padding:6px 8px;background:#fff;border-bottom:1px solid #E4DDD1}
+.recents .b{flex:1;padding:6px;font-size:10px;color:#6E655A}
+.recents.blank .b{background:#FAF7F1}
+.jk,.jk *{font-family:"Plus Jakarta Sans",-apple-system,sans-serif}
+</style>
+</head>
+<body>
+<h1>App lock, board</h1>
+<p class="sub">Backlog 12.11. Sections <b>S1–S9</b> (page-local). Lock screens are drawn in light, dark and AMOLED. Audit at <code>719eb59</code>, 2026-11-02. Checklist, copy and decisions: <code>app-lock.md</code>. Nothing here is built yet; numbered decisions can change any default shown.</p>
+
+<!-- S1 -->
+<div class="band"><header><span class="n">S1</span><h2>Starting point and what is stored (facts 1–10, A1–A4)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Piece</th><th>Today (<code>719eb59</code>)</th><th>This spec</th></tr>
+<tr><td>Feature</td><td class="bad"><code>local_auth</code> in pubspec with 0 uses; <code>appLockEnabled</code> constant nothing reads</td><td class="ok">PIN + optional fingerprint/face; the dead constant deleted (decision 14)</td></tr>
+<tr><td>Activity</td><td class="bad"><code>FlutterActivity</code>; <code>LaunchTheme</code> = plain Android theme. local_auth needs a FragmentActivity and an AppCompat theme (crash on Android 8 and below)</td><td class="ok"><code>FlutterFragmentActivity</code>; AppCompat parent for <code>LaunchTheme</code> (light and night)</td></tr>
+<tr><td>Storage</td><td>none</td><td>one secure-storage entry <code>app_lock</code> (Keystore); sign-out's <code>clearSession</code> removes it and keeps the key pair</td></tr>
+<tr><td>Packages</td><td colspan="2"><b>No new package.</b> local_auth, cryptography (PBKDF2), flutter_secure_storage are already there; the Recents flag and "go to background" are two Kotlin calls on our own <code>kuch_bhi/privacy</code> channel, next to the clipboard channel.</td></tr>
+</table></div>
+<div class="row" style="margin-top:10px"><div class="wrap" style="flex:1 1 320px"><span class="tag">The <code>app_lock</code> entry (A1)</span>
+<pre>{"v":1, "salt":"…16 bytes b64…", "hash":"…32 bytes b64…", "iter":10000,
+ "bio":true, "after":60, "hideNames":true,
+ "fails":0, "waitUntil":null}</pre></div>
+<div style="flex:1 1 300px;min-width:0;font-size:13px"><p style="margin-top:0"><b>PIN hash</b>: PBKDF2-HMAC-SHA256, 10,000 rounds, 16-byte salt, in <code>compute</code> (≈0.35 s on the Redmi S2, scaled from the measured 3.55 s for 100k). A 6-digit PIN falls to any offline attack whatever the rounds; what protects it is the Keystore around the entry and the wrong-try waits (S5). The hash only keeps the PIN out of storage in the clear.</p>
+<p><b>Not</b> what app lock does: encrypt the database, change what is sent, or touch the E2E keys.</p></div></div></div>
+
+<!-- S2 -->
+<div class="band"><header><span class="n">S2</span><h2>The lock screen (E1–E7, C3)</h2></header>
+<div class="row" id="s2"></div>
+<div class="note">An overlay from <code>MaterialApp.router(builder:)</code>: the app underneath is <code>Offstage</code> (not painted, no taps, no TalkBack, state kept). Keys 64–72 dp circles on <code>surface2</code>; the bottom-left key is the fingerprint key only when it's on and available. Back = the phone's home screen, never a route pop.</div></div>
+
+<!-- S3 -->
+<div class="band"><header><span class="n">S3</span><h2>Turning it on (B1–B3, A3; decisions 2–4)</h2></header>
+<div class="flow"><span class="bx">Settings</span><span class="ar">→</span><span class="bx">Privacy · App lock · Off</span><span class="ar">→</span><span class="bx">Turn on app lock</span><span class="ar">→</span><span class="bx">Create a PIN</span><span class="ar">→</span><span class="bx">Enter it again</span><span class="ar">→</span><span class="bx">Fingerprint or face? (only if enrolled)</span><span class="ar">→</span><span class="bx ok">App lock is on.</span></div>
+<div class="row" id="s3"></div>
+<div class="note">Weak PINs refused: all six the same, or a straight run up or down (20 PINs). Mismatch on step 2 → back to step 1 with <b>Those PINs don't match. Try again.</b> Back on step 2 or 3 → step 1, nothing saved.</div></div>
+
+<!-- S4 -->
+<div class="band"><header><span class="n">S4</span><h2>The App lock page with the lock on (B4, B5, C1; decisions 5, 6, 9)</h2></header>
+<div class="row" id="s4"></div>
+<div class="note">Opening this page asks for the PIN (or fingerprint) once (decision 6). Fingerprint row: available → works; phone supports it but nothing enrolled → dimmed with <b>Add a fingerprint or face in your phone's settings first.</b>; not supported → no row.</div></div>
+
+<!-- S5 -->
+<div class="band"><header><span class="n">S5</span><h2>Wrong tries and fingerprint states (D1–D5, C2–C5; decision 7)</h2></header>
+<div class="row"><div style="flex:1 1 320px;min-width:0"><div class="tblwrap"><table>
+<tr><th>Wrong PIN #</th><th>Then</th><th>Message line</th></tr>
+<tr><td>1–2</td><td>try again</td><td><b>Wrong PIN.</b></td></tr>
+<tr><td>3</td><td>try again</td><td><b>Wrong PIN. 2 more tries before a short wait.</b></td></tr>
+<tr><td>4</td><td>try again</td><td><b>Wrong PIN. 1 more try before a short wait.</b></td></tr>
+<tr><td>5</td><td>wait 30 s</td><td rowspan="4"><b>Too many tries. Try again in 0:30.</b> (m:ss counting down; digits + Delete at 38%; fingerprint key and <b>Forgot PIN?</b> stay on; announced once)</td></tr>
+<tr><td>6</td><td>wait 1 min</td></tr>
+<tr><td>7</td><td>wait 5 min</td></tr>
+<tr><td>8+</td><td>wait 15 min each</td></tr>
+</table></div>
+<p style="font-size:13px">Kept in <code>app_lock</code> (killing the app doesn't reset it). A right PIN or fingerprint resets it. Wrong recovery-key resets count too (S6). <b>Nothing is ever wiped.</b> <code>shortcut:</code> wall clock; moving the clock forward skips a wait (D4).</p></div>
+<div style="flex:1 1 320px;min-width:0"><div class="tblwrap"><table>
+<tr><th>Fingerprint prompt result</th><th>Shown</th></tr>
+<tr><td>Success</td><td>unlocked</td></tr>
+<tr><td>Cancel (<b>Use PIN</b>)</td><td>nothing; the pad; no auto-prompt again this lock</td></tr>
+<tr><td><code>LockedOut</code></td><td><b>Too many tries with fingerprint or face. Use your PIN.</b></td></tr>
+<tr><td><code>PermanentlyLockedOut</code></td><td><b>Fingerprint or face is off until you unlock your phone. Use your PIN.</b></td></tr>
+<tr><td><code>NotAvailable</code> / <code>NotEnrolled</code></td><td>nothing; no fingerprint key</td></tr>
+</table></div>
+<p style="font-size:13px">System prompt: title <b>Unlock Kuch Bhi</b>, button <b>Use PIN</b>, <code>biometricOnly: true</code> (the phone's PIN never opens Kuch Bhi, decision 4). Lifecycle events while it is up are ignored, so a fingerprint unlock never re-locks itself (C5). A newly added phone fingerprint does open Kuch Bhi (decision 13).</p></div></div></div>
+
+<!-- S6 -->
+<div class="band"><header><span class="n">S6</span><h2>Forgot PIN, through the recovery key (G1–G6, J1; decision 8)</h2></header>
+<div class="flow"><span class="bx">Forgot PIN?</span><span class="ar">→</span><span class="bx">Reset your PIN: recovery key or old backup PIN</span><span class="ar">→</span><span class="bx"><code>checkBackupSecret</code> (read-only)</span><span class="ar">opens →</span><span class="bx">Create a PIN · Enter it again</span><span class="ar">→</span><span class="bx ok">New PIN set. (unlocked)</span></div>
+<div class="flow"><span class="bx">No recovery key on the account</span><span class="ar">→</span><span class="bx bad">can't reset here: clear Kuch Bhi's storage in Android settings, sign in, old messages lost</span></div>
+<div class="row" id="s6"></div>
+<div class="tblwrap"><table>
+<tr><th>What it touches</th><th>Restore (key backup, existing)</th><th>Forgot PIN (this page)</th></tr>
+<tr><td>Reads your <code>users</code> record (owner-only fields, H2 hook live)</td><td>yes</td><td>yes</td></tr>
+<tr><td>Opens the blob with the recovery key / v1 PIN</td><td>yes</td><td>yes (same rules, new method J1)</td></tr>
+<tr><td>Writes the device key, re-publishes the public key, wipes cached conversation keys</td><td>yes</td><td class="ok"><b>no</b>; the decrypted bytes are zeroed and dropped</td></tr>
+<tr><td>Sign out / delete key pair / Start fresh</td><td>Start fresh only behind its own dialog</td><td class="ok"><b>never</b></td></tr>
+</table></div>
+<div class="note warn">Why no <b>Sign out</b> on the lock screen (decision 8): sign-out keeps this phone's key pair, so signing back in opens every chat. For a Google account, anyone holding the phone with its Google account could do that and walk past the lock. The recovery key is the one secret a phone-holder doesn't have. Wrong reset attempts share the PIN's wait ladder, so the old 6-digit backup PIN can't be guessed here faster than the app PIN.</div></div>
+
+<!-- S7 -->
+<div class="band"><header><span class="n">S7</span><h2>Notifications and the app switcher (H1–H4; decisions 9, 10)</h2></header>
+<div class="row">
+<div class="wrap"><span class="tag">Today / lock off / Hide names off</span><div class="notif"><span class="a">Kuch Bhi · now</span><b>Asha</b>Sent you a message</div><div class="notif" style="margin-top:6px"><span class="a">Kuch Bhi · now</span><b>Friend request</b>Ravi</div></div>
+<div class="wrap"><span class="tag">App lock on + Hide names on (default)</span><div class="notif"><span class="a">Kuch Bhi · now</span><b>Kuch Bhi</b>New message</div><div class="notif" style="margin-top:6px"><span class="a">Kuch Bhi · now</span><b>Kuch Bhi</b>New friend request</div><div class="notif" style="margin-top:6px"><span class="a">Kuch Bhi · now</span><b>Kuch Bhi</b>New group invite</div></div>
+<div class="wrap"><span class="tag">Recents while the lock is on</span><div style="display:flex;gap:10px"><div class="recents"><div class="h">Kuch Bhi (today)</div><div class="b">Asha: are we still on for sunday?<br>You: yes! 10am…</div></div><div class="recents blank"><div class="h">Kuch Bhi (spec)</div><div class="b"></div></div></div></div>
+</div>
+<div class="tblwrap"><table>
+<tr><th>Android</th><th>Recents card</th><th>Your screenshots in Kuch Bhi</th><th>How</th></tr>
+<tr><td>13+ (API 33; both test phones)</td><td class="ok">blank</td><td class="ok">still work</td><td><code>setRecentsScreenshotEnabled(false)</code></td></tr>
+<tr><td>below 13</td><td class="ok">blank</td><td class="bad">blocked</td><td><code>FLAG_SECURE</code></td></tr>
+<tr><td>any, second layer</td><td colspan="3">on <code>hidden</code> the overlay already shows a plain cover (logo on <code>bg</code>), so even a late snapshot is the cover (H4)</td></tr>
+</table></div>
+<div class="note">Notifications never carried message text (E2E); what hiding removes is <i>who</i> and <i>what kind</i>. The background isolate reads <code>app_lock</code> with its own <code>SecureStorageService()</code>. It applies whenever the lock is on, not only while locked.</div></div>
+
+<!-- S8 -->
+<div class="band"><header><span class="n">S8</span><h2>When it locks (F1–F6; decisions 5, 11)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Event</th><th>Lock controller</th><th>Screen</th></tr>
+<tr><td>Cold start, lock on</td><td><code>main</code> reads <code>app_lock</code> before <code>runApp</code> → starts locked</td><td>lock screen is the first frame; never a flash of Home</td></tr>
+<tr><td><code>inactive</code> only (shade, split-screen peek, fingerprint prompt)</td><td>nothing</td><td>unchanged</td></tr>
+<tr><td><code>hidden</code> (Home, Recents, screen off, our own photo / file / camera picker)</td><td><code>awayAt ??= now</code>, <code>covered = true</code></td><td>cover (logo)</td></tr>
+<tr><td><code>resumed</code></td><td><code>covered = false</code>; <code>shouldLock(enabled, awayAt, after, now)</code> → <code>locked</code>; <code>awayAt = null</code></td><td>the app, or the lock screen</td></tr>
+<tr><td>Any event while <code>authInProgress</code></td><td>ignored</td><td>—</td></tr>
+<tr><td>While locked</td><td colspan="2">sync, SSE, FCM run as usual. <code>presence.goOnline()</code> and the chat's <code>_enter</code> (mark read + enter chat) wait for <code>whenUnlocked()</code>: nobody sees you online and no read receipt goes out before you unlock (decision 11).</td></tr>
+</table></div>
+<div class="flow"><span class="bx">Lock after</span><span class="bx">Immediately (0)</span><span class="bx ok">After 1 minute (60) default</span><span class="bx">After 5 minutes (300)</span><span class="bx">After 30 minutes (1800)</span></div>
+<div class="note">With <b>Immediately</b>, coming back from the app's own photo picker locks too; the picked photo waits in the composer under the lock. A share from another app or a notification tap opens underneath; you land on it after unlocking.</div></div>
+
+<!-- S9 -->
+<div class="band"><header><span class="n">S9</span><h2>Diff and decisions at a glance</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Area</th><th>Today</th><th>Spec</th></tr>
+<tr><td>1</td><td>App lock</td><td class="bad">nothing; local_auth unused</td><td class="ok">PIN + fingerprint/face</td></tr>
+<tr><td>2</td><td>Activity / theme</td><td><code>FlutterActivity</code>, plain theme</td><td><code>FlutterFragmentActivity</code>, AppCompat <code>LaunchTheme</code></td></tr>
+<tr><td>3</td><td>Settings</td><td>Appearance · Font · Notifications · About</td><td>+ Privacy → App lock</td></tr>
+<tr><td>4</td><td>Overlay</td><td>no <code>builder</code></td><td>lock overlay above every route; app offstage</td></tr>
+<tr><td>5</td><td>Lifecycle</td><td>online on resume</td><td>cover on <code>hidden</code>; lock decision on <code>resumed</code>; online after unlock</td></tr>
+<tr><td>6</td><td>Chat read</td><td>on open / resume</td><td>after unlock</td></tr>
+<tr><td>7</td><td>Notifications</td><td>sender name</td><td><b>Kuch Bhi</b> / <b>New message</b> while hiding names</td></tr>
+<tr><td>8</td><td>Recents</td><td>last screen</td><td>blank</td></tr>
+<tr><td>9</td><td>Backup check</td><td>restore only (writes keys)</td><td>read-only <code>checkBackupSecret</code></td></tr>
+</table></div>
+<div class="tblwrap"><table>
+<tr><th>Decision</th><th>Default</th><th>Alternative</th></tr>
+<tr><td>1 What opens it</td><td>Kuch Bhi's own PIN</td><td>the phone's screen lock (less to build; anyone with the phone PIN gets in)</td></tr>
+<tr><td>2 PIN shape</td><td>exactly 6 digits, auto-submit</td><td>4–8 digits + OK, or a password option</td></tr>
+<tr><td>3 Weak PINs</td><td>refused (20)</td><td>allowed</td></tr>
+<tr><td>4 Fingerprint fallback</td><td>app PIN only</td><td>phone PIN/pattern too</td></tr>
+<tr><td>5 Lock after</td><td>0 / 1 min / 5 min / 30 min, default 1 min</td><td>other sets</td></tr>
+<tr><td>6 Settings gate</td><td>PIN once to open the page</td><td>PIN only for Change / Turn off</td></tr>
+<tr><td>7 Wrong tries</td><td>4 free, then 30 s → 1 min → 5 min → 15 min; never wipe</td><td>no waits</td></tr>
+<tr><td>8 Forgot PIN</td><td>recovery key, read-only; no Sign out</td><td>+ Sign out, or account password</td></tr>
+<tr><td>9 Hide names</td><td>on with the lock</td><td>off</td></tr>
+<tr><td>10 Recents</td><td>33+: snapshot off; below: FLAG_SECURE</td><td>FLAG_SECURE everywhere, or nothing below 33</td></tr>
+<tr><td>11 While locked</td><td>offline, no read receipts</td><td>online as today</td></tr>
+<tr><td>12 Keypad</td><td>own keypad</td><td>system number keyboard</td></tr>
+<tr><td>13 New fingerprint</td><td>accepted (can't detect)</td><td>Keystore-bound key, own Kotlin</td></tr>
+<tr><td>14 Dead constant</td><td>delete</td><td>keep</td></tr>
+</table></div></div>
+
+<script>
+const K=(fp,off)=>`<div class="pad${off?' off':''}">${[1,2,3,4,5,6,7,8,9].map(d=>`<span>${d}</span>`).join('')}${fp?'<span class="ic fp" title="Unlock with fingerprint or face">◉</span>':'<span class="blank"></span>'}<span>0</span><span class="ic" title="Delete digit">⌫</span></div>`;
+const dots=n=>`<div class="dots" role="img" aria-label="PIN, ${n} of 6 digits entered">${[0,1,2,3,4,5].map(i=>`<i class="${i<n?'f':''}"></i>`).join('')}</div>`;
+const phone=(th,inner,tag)=>`<div class="wrap"><span class="tag">${tag}</span><div class="ph ${th}">${inner}</div></div>`;
+const lock=(n,msg,fp,off)=>`<div class="in"><div class="logo">🔒</div><p class="ttl">Enter your PIN</p>${dots(n)}<div class="msg">${msg||''}</div>${K(fp,off)}<span class="tb">Forgot PIN?</span></div>`;
+const em=t=>`<span class="e">⚠</span><span>${t}</span>`;
+document.getElementById('s2').innerHTML=
+ phone('',lock(2,'',true),'Light, 2 digits, fingerprint key')+
+ phone('dark',lock(0,em('Wrong PIN. 2 more tries before a short wait.'),true),'Dark, wrong PIN (3rd)')+
+ phone('amoled',lock(0,em('Too many tries. Try again in 0:24.'),true,true),'AMOLED, waiting')+
+ phone('',`<div class="in" style="min-height:420px;justify-content:center"><div class="logo">🔒</div></div>`,'Cover (hidden → resumed)');
+const bar=t=>`<div class="bar"><span class="bk">←</span>${t}</div>`;
+const sw=on=>`<span class="sw${on?' on':''}"></span>`;
+document.getElementById('s3').innerHTML=
+ phone('',`${bar('Settings')}<div class="sec">NOTIFICATIONS</div><div class="grp"><div class="tile"><span class="w">🔔</span><span class="t">Notifications<small>On</small></span><span class="v">›</span></div></div><div class="sec">PRIVACY</div><div class="grp"><div class="tile"><span class="w">🔒</span><span class="t">App lock</span><span class="v">Off ›</span></div></div><div style="height:12px"></div><div class="grp"><div class="tile"><span class="w">ⓘ</span><span class="t">About</span><span class="v">›</span></div></div><div style="height:14px"></div>`,'B1 Settings')+
+ phone('',`${bar('App lock')}<div class="in" style="padding-top:4px;align-items:stretch;text-align:left"><p class="bdy" style="color:var(--ink)">Ask for a PIN every time Kuch Bhi opens, so someone holding your unlocked phone can't read your chats.</p></div><div class="notebox">You don't have a recovery key yet. Without one, a forgotten PIN can only be fixed by clearing Kuch Bhi's storage, and your old messages would be lost.<div style="font-weight:600;margin-top:6px">Set up a recovery key</div></div><div class="in" style="padding-top:4px"><div class="btn">Turn on app lock</div></div>`,'B2 Lock off (note only with no backup)')+
+ phone('dark',`${bar('')}<div class="in" style="padding-top:0"><p class="ttl">Create a PIN</p><p class="bdy">6 digits. You'll enter it each time you open Kuch Bhi.</p>${dots(6)}<div class="msg">${em("Pick a PIN that's harder to guess.")}</div>${K(false)}</div>`,'B3 step 1, weak PIN')+
+ phone('',`${bar('')}<div class="in" style="padding-top:0"><p class="ttl">Enter it again</p><p class="bdy">Type the same 6 digits.</p>${dots(3)}<div class="msg"></div>${K(false)}</div>`,'B3 step 2')+
+ phone('amoled',`${bar('')}<div class="in" style="padding-top:20px"><div class="logo">◉</div><p class="ttl">Unlock with fingerprint or face?</p><p class="bdy">You can still use your PIN any time.</p><div class="btn">Use fingerprint or face</div><span class="tb" style="margin-top:6px">Not now</span></div>`,'B3 step 3 (only if enrolled)')+
+ `<div class="wrap"><span class="tag">Toasts</span><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"><span class="toast lighttoast">App lock is on.</span><span class="toast lighttoast">PIN changed.</span><span class="toast lighttoast">App lock is off.</span><span class="toast lighttoast">New PIN set.</span></div></div>`;
+document.getElementById('s4').innerHTML=
+ phone('',`${bar('App lock')}<div class="grp"><div class="tile"><span class="w">🔒</span><span class="t">App lock</span>${sw(1)}</div><div class="tile"><span class="w">#</span><span class="t">Change PIN</span><span class="v">›</span></div><div class="tile"><span class="w">◉</span><span class="t">Unlock with fingerprint or face</span>${sw(1)}</div></div><div class="sec">LOCK AFTER</div><div class="grp"><div class="tile"><span class="t">Immediately</span><span class="cd"></span></div><div class="tile"><span class="t">After 1 minute</span><span class="cd on"></span></div><div class="tile"><span class="t">After 5 minutes</span><span class="cd"></span></div><div class="tile"><span class="t">After 30 minutes</span><span class="cd"></span></div></div><p class="bdy" style="text-align:left;padding:6px 16px 0;font-size:12.5px">Time away from Kuch Bhi before it asks again.</p><div class="grp" style="margin-top:8px"><div class="tile"><span class="w">🔔</span><span class="t">Hide names in notifications<small>Notifications say "New message" instead of who it's from.</small></span>${sw(1)}</div></div><div style="height:14px"></div>`,'B5 Light, lock on')+
+ phone('dark',`${bar('App lock')}<div class="grp"><div class="tile"><span class="w">🔒</span><span class="t">App lock</span>${sw(1)}</div><div class="tile"><span class="w">#</span><span class="t">Change PIN</span><span class="v">›</span></div><div class="tile dim"><span class="dm"><span class="w">◉</span><span class="t">Unlock with fingerprint or face<small>Add a fingerprint or face in your phone's settings first.</small></span>${sw(0)}</span></div></div><div style="height:14px"></div>`,'C1 Dark, nothing enrolled')+
+ phone('amoled',`${bar('App lock')}<div class="in" style="padding-top:0"><p class="ttl">Enter your PIN</p>${dots(1)}<div class="msg"></div>${K(true)}<span class="tb">Forgot PIN?</span></div>`,'B4 AMOLED, the page gate')+
+ `<div class="wrap"><span class="tag">R20 Turn off</span><div class="ph" style="padding:20px;border-radius:28px;background:var(--surface)"><p class="ttl" style="font-size:20px">Turn off app lock?</p><p style="margin:0 0 16px;font-size:15px;line-height:22px">Kuch Bhi will open without a PIN.</p><div style="display:flex;justify-content:flex-end;gap:8px;font-weight:600"><span class="tb">Cancel</span><span class="tb" style="border:1px solid var(--line)">Turn off</span></div></div></div>`;
+const reset=(th,state)=>`<div class="in" style="align-items:stretch;text-align:left"><p class="ttl">Reset your PIN</p><p class="bdy">Enter your recovery key, or the 6-digit backup PIN if you set one before. Your chats and keys stay as they are.</p><div class="field"><label>Recovery key or PIN</label><div class="box"><span>7KQ2M-9XHMA-4TRBC-8D1WZ-P6YVQ</span><span>👁</span></div>${state==='wrong'?`<div class="err"><b>⚠</b><span>That doesn't match your backup. Check for typos and try again.</span></div>`:''}</div>${state==='none'?`<div class="card" role="status"><b>⚠</b><span>This account has no recovery key, so the PIN can't be reset. The only way back in is to clear Kuch Bhi's storage in your phone's settings and sign in again. Your old messages would be lost.</span></div>`:''}${state==='off'?`<div style="opacity:.38"><div class="btn">Reset PIN</div></div><div style="font-size:12.5px;color:var(--inkSoft);text-align:center;margin-top:6px">Available online</div>`:`<div class="btn">Reset PIN</div>`}<span class="tb" style="text-align:center">Back</span></div>`;
+document.getElementById('s6').innerHTML=
+ phone('',reset('','wrong'),'Light, wrong key')+
+ phone('dark',reset('dark','off'),'Dark, offline')+
+ phone('amoled',reset('amoled','none'),'AMOLED, no backup');
+</script>
+</body>
+</html>
