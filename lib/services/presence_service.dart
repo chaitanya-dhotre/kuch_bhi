@@ -50,6 +50,8 @@ class PresenceService {
   Timer? _typingTimer;
   Timer? _heartbeatTimer;
   bool   _isTyping = false;
+  String? _currentChat;
+  Future<void> _writes = Future.value();
 
   // ── Online heartbeat ──────────────────────────────────────────
 
@@ -73,6 +75,7 @@ class PresenceService {
   Future<void> goOffline() async {
     _heartbeatTimer?.cancel();
     _typingTimer?.cancel();
+    _currentChat = null;
     final uid = await _uid(); if (uid == null) return;
     await _patch(uid, {
       'is_online':    false,
@@ -85,11 +88,16 @@ class PresenceService {
   // ── Chat presence ─────────────────────────────────────────────
 
   Future<void> enterChat(String conversationId) async {
+    _currentChat = conversationId;
     final uid = await _uid(); if (uid == null) return;
     await _patch(uid, {'current_chat': conversationId});
   }
 
   Future<void> leaveChat(String conversationId) async {
+    // A late leave (a closing screen's dispose) must not clear the chat
+    // that was entered since.
+    if (_currentChat != null && _currentChat != conversationId) return;
+    _currentChat = null;
     _typingTimer?.cancel();
     _isTyping = false;
     final uid = await _uid(); if (uid == null) return;
@@ -197,13 +205,16 @@ class PresenceService {
     );
   }
 
-  Future<void> _patch(String uid, Map<String, dynamic> body) async {
-    try {
-      await _pb.collection('users').update(uid, body: body);
-    } catch (e) {
-      debugPrint('[Presence] patch error: $e');
-    }
-  }
+  /// Writes go out one at a time in call order, so a slow one can't land
+  /// after a newer one and undo it. Callers need not wait (back doesn't).
+  Future<void> _patch(String uid, Map<String, dynamic> body) =>
+      _writes = _writes.then((_) async {
+        try {
+          await _pb.collection('users').update(uid, body: body);
+        } catch (e) {
+          debugPrint('[Presence] patch error: $e');
+        }
+      });
 
   Future<String?> _uid() =>
       db.settingsDao.getSetting(AppSettingsKeys.currentUserId);

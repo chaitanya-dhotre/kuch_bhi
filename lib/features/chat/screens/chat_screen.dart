@@ -853,9 +853,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_selectionMode) return _exitSelection();
-        _pres.leaveChat(_cid).then((_) {
-          if (context.mounted) Navigator.of(context).pop();
-        });
+        // Close now; the presence write is queued (it took ~10 s to answer
+        // on bad mobile data, and back looked dead until it did).
+        _pres.leaveChat(_cid);
+        Navigator.of(context).pop();
       },
       child: Scaffold(
         backgroundColor: context.t.bg,
@@ -1143,9 +1144,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         children: [
           BackButton(
             color: context.t.ink,
-            onPressed: () => _pres.leaveChat(_cid).then((_) {
-              if (context.mounted) Navigator.of(context).pop();
-            }),
+            onPressed: () {
+              _pres.leaveChat(_cid);
+              Navigator.of(context).pop();
+            },
           ),
           Expanded(
             child: Semantics(
