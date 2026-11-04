@@ -249,9 +249,9 @@ viewer; 12.1 is independent and can go any time).
   `_stallBound` on the request and stream (decrypt unbounded); a guard test was added 2026-11-03.
 
 **Ideas (not media fullscreen)**
-- `[IDEA]` **12.6 Voice recorder redesign.** Live waveform, timer, cancel ✕ / record / send (user's reference
+- `[DONE]` **12.6 Voice recorder redesign.** Live waveform, timer, cancel ✕ / record / send (user's reference
   image: centred "Voice note" title, waveform, 01:14, three round controls). Accent only as fill, no purple
-  (C1/C2).
+  (C1/C2). Plus lock, pause and per-chat voice drafts: `docs/design/pages/voice-recorder.md`.
 - `[IDEA]` **12.7 Keep a message in a disappearing chat.** An option on one text, photo, video or document so it
   does not disappear when the timer runs out. Needs design: the purge runs on every member's device, so "kept"
   must reach the other side too, and media retention on the server is separate from the disappearing timer.

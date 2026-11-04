@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -21,6 +22,7 @@ import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../media/media_blob_store.dart' show wipeMediaCache;
 import '../../services/encryption_service.dart';
+import '../../features/chat/voice_draft_store.dart';
 
 /// PB `users.update` body for a profile save: exactly these fields, never
 /// `public_key` / `friend_code`. `avatar: null` clears the photo.
@@ -390,6 +392,7 @@ class AuthRepositoryImpl implements AuthRepository {
       await db.delete(table).go();
     }
     await wipeMediaCache();
+    await wipeVoiceDrafts(getApplicationDocumentsDirectory);
   }
 
   // ── Delete account ─────────────────────────────────────────────

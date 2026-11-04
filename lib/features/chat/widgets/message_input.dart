@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:haptic_feedback/haptic_feedback.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:record/record.dart';
 import 'package:video_compress/video_compress.dart';
@@ -27,12 +27,16 @@ import '../../media/screens/media_edit_screen.dart';
 import '../../share/share_payload.dart';
 import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
+import '../providers/voice_recorder_providers.dart';
+import '../voice_draft_store.dart';
 import 'attach_sheets.dart';
 import 'reply_quote.dart';
+import 'voice_recorder_panel.dart';
+import 'voice_waveform.dart';
 
 // ── Recording state ────────────────────────────────────────────────────────
 
-enum _VoiceState { idle, recording, preview }
+enum _VoiceState { idle, holding, locked, paused, preview }
 
 class MessageInput extends ConsumerStatefulWidget {
   const MessageInput({
@@ -66,14 +70,29 @@ class _MessageInputState extends ConsumerState<MessageInput>
   bool _hasText = false;
 
   // ── Recording ────────────────────────────────────────────────
-  final _recorder = AudioRecorder();
+  late final AudioRecorder _recorder;
+  late final MicPermission _micPermission;
+  late final Future<Directory> Function() _voiceDraftDir;
+  StreamSubscription<RecordState>? _recordStateSubscription;
+  late final AppLifecycleListener _lifecycle;
   _VoiceState _voiceState = _VoiceState.idle;
   Timer? _timer;
-  int _elapsedSec = 0;
+  Duration _elapsed = Duration.zero;
   String? _tempPath;
   bool _cancelled = false;
   double _dragOffsetX = 0;
+  double _dragOffsetY = 0;
+  int? _voicePointerId;
+  Offset? _holdOrigin;
+  int _dragAxis = 0;
   bool _stopInProgress = false;
+  bool _starting = false;
+  List<double> _levels = [];
+  int _durationSeconds = 0;
+  bool _isDraft = false;
+  // L3: a voice draft save outlives the composer; reopening its chat waits.
+  static final Map<String, Future<void>> _draftSaves = {};
+  Timer? _draftRetry;
 
   // ── Preview ──────────────────────────────────────────────────
   String? _previewDuration; // e.g. '0:42'
@@ -107,6 +126,16 @@ class _MessageInputState extends ConsumerState<MessageInput>
   @override
   void initState() {
     super.initState();
+    _recorder = ref.read(voiceRecorderFactoryProvider)();
+    _micPermission = ref.read(micPermissionProvider);
+    _voiceDraftDir = ref.read(voiceDraftDirProvider);
+    _recordStateSubscription = _recorder.onStateChanged().listen(
+      _onRecordState,
+      // The native recorder died: keep what it wrote rather than show a
+      // clock running over a dead mic.
+      onError: (Object _) => unawaited(_stopRecording()),
+    );
+    _lifecycle = AppLifecycleListener(onHide: _handleAppHide);
     _ctrl.text = _drafts[widget.conversationId] ?? '';
     _hasText = _ctrl.text.trim().isNotEmpty;
     _ctrl.addListener(() {
@@ -131,10 +160,28 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
     // 12.1 E1: a share handed to this chat runs once, after the first frame
     // or as soon as the picker hands it over.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _takeShare());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadVoiceDraft());
+      _takeShare();
+    });
     ref.listenManual(chatShareProvider(widget.conversationId), (_, next) {
       if (next != null) Future.microtask(_takeShare);
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.canSendMessages && widget.canSendMessages) {
+      // L4: a group starts unable to send until its key settles.
+      unawaited(_loadVoiceDraft());
+    }
+    if (oldWidget.canSendMessages &&
+        !widget.canSendMessages &&
+        _voiceState != _VoiceState.idle) {
+      // After this build: _keepVoiceAsDraft ends in a setState.
+      unawaited(Future.microtask(_keepVoiceAsDraft));
+    }
   }
 
   @override
@@ -164,8 +211,11 @@ class _MessageInputState extends ConsumerState<MessageInput>
     _ctrl.dispose();
     _focusNode.dispose();
     _timer?.cancel();
+    _draftRetry?.cancel();
+    _lifecycle.dispose();
+    _trackDraftSave(widget.conversationId, _saveDraftThenDisposeRecorder());
     _pulseCtrl.dispose();
-    _recorder.dispose();
+    _recordStateSubscription?.cancel();
     super.dispose();
   }
 
@@ -196,112 +246,279 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   // ── Recording helpers ────────────────────────────────────────
 
-  Future<void> _startRecording() async {
-    if (_voiceState != _VoiceState.idle || _isSendingVoice) return;
-
-    final status = await Permission.microphone.request();
-    if (!mounted) return;
-    if (!status.isGranted) {
-      showToast(context, 'Microphone permission denied', error: true);
+  Future<void> _startRecording({bool lockImmediately = false}) async {
+    // A draft still being saved for this chat would be replaced, unseen.
+    if (_voiceState != _VoiceState.idle ||
+        _isSendingVoice ||
+        _starting ||
+        _draftSaves.containsKey(widget.conversationId)) {
       return;
     }
-
+    _starting = true;
     try {
+      final status = await _micPermission.status();
+      if (!mounted) return;
+      if (status != PermissionStatus.granted) {
+        if (status == PermissionStatus.permanentlyDenied ||
+            status == PermissionStatus.restricted) {
+          final open = await showConfirmDialog(
+            context: context,
+            title: 'Microphone is off',
+            body:
+                'Turn on the microphone for Kuch Bhi in your phone\'s settings to record voice notes.',
+            confirmLabel: 'Open settings',
+            cancelLabel: 'Not now',
+          );
+          if (open) await _micPermission.openSettings();
+        } else {
+          final requested = await _micPermission.request();
+          if (mounted) {
+            showToast(
+              context,
+              requested == PermissionStatus.granted
+                  ? 'Microphone on. Hold to record.'
+                  : 'Kuch Bhi needs the microphone to record voice notes.',
+              error: requested != PermissionStatus.granted,
+            );
+          }
+        }
+        return;
+      }
+
       final tmpDir = await getTemporaryDirectory();
       final path =
           '${tmpDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
+      _tempPath = path;
       await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          numChannels: 1,
+          bitRate: 64000,
+        ),
         path: path,
       );
       if (!mounted) {
-        await _recorder.stop();
+        _deleteFileQuietly(path);
         return;
       }
-
+      if (!widget.canSendMessages) {
+        // I5 only sees a non-idle state: sending closed during start(), and
+        // no panel would show under the banner that this mic is on.
+        await _recorder.cancel();
+        _deleteFileQuietly(path);
+        _resetVoiceState();
+        return;
+      }
+      FocusManager.instance.primaryFocus?.unfocus();
       setState(() {
-        _voiceState = _VoiceState.recording;
-        _tempPath = path;
-        _elapsedSec = 0;
+        _voiceState = _VoiceState.holding;
+        _elapsed = Duration.zero;
+        _levels = [];
+        _durationSeconds = 0;
+        _isDraft = false;
         _cancelled = false;
         _dragOffsetX = 0;
+        _dragOffsetY = 0;
+        _dragAxis = 0;
         _stopInProgress = false;
       });
-
-      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() => _elapsedSec++);
-        // Auto-stop at 5 minutes (spec §6.5).
-        if (_elapsedSec >= AppConstants.maxVoiceMessageSeconds) {
-          _stopRecording();
-        }
-      });
+      _voiceHaptic();
+      _startWaveTimer();
+      if (lockImmediately) {
+        setState(() => _voiceState = _VoiceState.locked);
+        _voiceHaptic();
+      } else if (_voicePointerId == null) {
+        // The finger lifted while start() was still pending: stop at once
+        // (preview, or the under-1 s path).
+        unawaited(_stopRecording());
+      }
     } catch (_) {
       _deleteFileQuietly(_tempPath);
+      _resetVoiceState();
       if (mounted) {
-        showToast(context, 'Could not start recording', error: true);
+        showToast(
+          context,
+          "Couldn't start recording. The microphone may be in use.",
+          error: true,
+        );
       }
+    } finally {
+      _starting = false;
     }
   }
 
-  Future<void> _stopRecording({bool cancelled = false}) async {
-    if (_voiceState != _VoiceState.recording || _stopInProgress) return;
+  // Not Flutter's HapticFeedback: its light types are touch haptics that
+  // Samsungs like the M52 drop (flutter/flutter#73987). This calls the vibrator
+  // itself. A haptic must never fail a recording, so errors stop here.
+  void _voiceHaptic() => unawaited(
+    Haptics.vibrate(
+      HapticsType.light,
+      usage: HapticsUsage.touch,
+    ).catchError((Object _) {}),
+  );
 
-    _stopInProgress = true;
+  void _startWaveTimer() {
+    _timer?.cancel();
+    final base = _elapsed;
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+      if (!mounted ||
+          (_voiceState != _VoiceState.holding &&
+              _voiceState != _VoiceState.locked))
+        return;
+      final elapsed = base + Duration(milliseconds: timer.tick * 100);
+      if (elapsed.inSeconds >= AppConstants.maxVoiceMessageSeconds) {
+        _elapsed = const Duration(seconds: AppConstants.maxVoiceMessageSeconds);
+        _timer?.cancel();
+        await _stopRecording(showMaxToast: true);
+        return;
+      }
+      setState(() => _elapsed = elapsed);
+      try {
+        final amplitude = await _recorder.getAmplitude();
+        if (mounted &&
+            (_voiceState == _VoiceState.holding ||
+                _voiceState == _VoiceState.locked)) {
+          setState(() => _levels = [..._levels, waveLevel(amplitude.current)]);
+        }
+      } catch (_) {}
+    });
+  }
+
+  Future<void> _stopRecording({
+    bool cancelled = false,
+    bool showMaxToast = false,
+  }) async {
+    // Not mounted: a pointer-up can land after dispose, which has saved it.
+    if (!mounted ||
+        (_voiceState != _VoiceState.holding &&
+            _voiceState != _VoiceState.locked) ||
+        _stopInProgress)
+      return;
+    setState(() => _stopInProgress = true);
     _timer?.cancel();
     _timer = null;
-
-    final elapsed = _elapsedSec; // capture before reset
+    final elapsed = _elapsed;
     final wasCancelled = cancelled || _cancelled;
+    try {
+      if (wasCancelled || elapsed < const Duration(seconds: 1)) {
+        await _recorder.cancel();
+        _deleteFileQuietly(_tempPath);
+        _resetVoiceState();
+        if (!wasCancelled && mounted) showToast(context, 'Hold to record');
+        return;
+      }
+      final path = await _recorder.stop();
+      final filePath = path ?? _tempPath;
+      if (filePath == null) {
+        _resetVoiceState();
+        return;
+      }
+      await _showVoicePreview(filePath, elapsed, isDraft: false);
+      if (showMaxToast && mounted)
+        showToast(context, 'Voice notes can be up to 5 minutes.');
+    } catch (_) {
+      if (!mounted) return; // dispose keeps it as a draft
+      _deleteFileQuietly(_tempPath);
+      _resetVoiceState();
+      showToast(context, "Couldn't save the voice note.", error: true);
+    } finally {
+      if (mounted) setState(() => _stopInProgress = false);
+    }
+  }
 
+  Future<void> _showVoicePreview(
+    String filePath,
+    Duration elapsed, {
+    required bool isDraft,
+  }) async {
+    final duration = (elapsed.inMilliseconds / 1000).round();
+    _durationSeconds = duration < 1 ? 1 : duration;
+    if (!mounted) return;
+    setState(() {
+      _voiceState = _VoiceState.preview;
+      _previewDuration = formatMmSs(_durationSeconds);
+      _tempPath = filePath;
+      _isDraft = isDraft;
+      _dragOffsetX = 0;
+      _dragOffsetY = 0;
+      _cancelled = false;
+    });
+  }
+
+  Future<void> _pauseRecording() async {
+    if (_voiceState != _VoiceState.locked || _stopInProgress) return;
+    try {
+      await _recorder.pause();
+      // A stop or a focus-loss pause may have landed during the await.
+      if (!mounted || _voiceState != _VoiceState.locked || _stopInProgress) {
+        return;
+      }
+      _timer?.cancel();
+      _timer = null;
+      setState(() => _voiceState = _VoiceState.paused);
+    } catch (_) {
+      if (mounted)
+        showToast(context, "Couldn't pause the recording.", error: true);
+    }
+  }
+
+  Future<void> _resumeRecording() async {
+    if (_voiceState != _VoiceState.paused || _stopInProgress) return;
+    try {
+      await _recorder.resume();
+      if (!mounted || _voiceState != _VoiceState.paused || _stopInProgress) {
+        return;
+      }
+      setState(() => _voiceState = _VoiceState.locked);
+      _startWaveTimer();
+    } catch (_) {
+      if (mounted)
+        showToast(context, "Couldn't resume the recording.", error: true);
+    }
+  }
+
+  Future<void> _stopAndListen() async {
+    if (_voiceState != _VoiceState.paused || _stopInProgress) return;
+    setState(() => _stopInProgress = true);
     try {
       final path = await _recorder.stop();
       final filePath = path ?? _tempPath;
-
-      if (wasCancelled || elapsed < 1) {
-        _deleteFileQuietly(filePath);
-        if (!mounted) return;
-        setState(() {
-          _voiceState = _VoiceState.idle;
-          _elapsedSec = 0;
-          _tempPath = null;
-          _dragOffsetX = 0;
-          _cancelled = false;
-        });
-        if (!wasCancelled && elapsed < 1) {
-          showToast(context, 'Hold to record');
-        }
-        return;
-      }
-
-      if (!mounted) {
-        _deleteFileQuietly(filePath);
-        return;
-      }
-
-      final duration = formatMmSs(elapsed);
-      setState(() {
-        _voiceState = _VoiceState.preview;
-        _previewDuration = duration;
-        _tempPath = filePath;
-        _dragOffsetX = 0;
-        _cancelled = false;
-      });
+      if (filePath != null)
+        await _showVoicePreview(filePath, _elapsed, isDraft: false);
     } catch (_) {
+      if (!mounted) return; // dispose keeps it as a draft
       _deleteFileQuietly(_tempPath);
-      if (mounted) {
-        setState(() {
-          _voiceState = _VoiceState.idle;
-          _elapsedSec = 0;
-          _tempPath = null;
-          _dragOffsetX = 0;
-          _cancelled = false;
-        });
-        showToast(context, 'Could not save voice message', error: true);
-      }
+      _resetVoiceState();
+      showToast(context, "Couldn't save the voice note.", error: true);
     } finally {
-      _stopInProgress = false;
+      if (mounted) setState(() => _stopInProgress = false);
+    }
+  }
+
+  Future<void> _sendLockedVoice() async {
+    if ((_voiceState != _VoiceState.locked &&
+            _voiceState != _VoiceState.paused) ||
+        _stopInProgress)
+      return;
+    setState(() => _stopInProgress = true);
+    _timer?.cancel();
+    _timer = null;
+    try {
+      final path = await _recorder.stop();
+      if (!mounted) return;
+      if (path != null) _tempPath = path;
+      // F3: the clock has not run through _showVoicePreview on this path.
+      final seconds = (_elapsed.inMilliseconds / 1000).round();
+      _durationSeconds = seconds < 1 ? 1 : seconds;
+      _previewDuration = formatMmSs(_durationSeconds);
+      await _sendVoice();
+    } catch (_) {
+      if (!mounted) return;
+      _deleteFileQuietly(_tempPath);
+      _resetVoiceState();
+      showToast(context, "Couldn't save the voice note.", error: true);
+    } finally {
+      if (mounted) setState(() => _stopInProgress = false);
     }
   }
 
@@ -312,27 +529,48 @@ class _MessageInputState extends ConsumerState<MessageInput>
     } catch (_) {}
   }
 
-  void _discardPreview() {
-    if (_tempPath != null) {
-      try {
-        File(_tempPath!).deleteSync();
-      } catch (_) {}
+  Future<void> _discardPreview() async {
+    if (_isDraft) {
+      await deleteVoiceDraft(widget.conversationId, _voiceDraftDir);
+    } else {
+      _deleteFileQuietly(_tempPath);
     }
-    setState(() {
-      _voiceState = _VoiceState.idle;
-      _tempPath = null;
-      _previewDuration = null;
-    });
+    _resetVoiceState();
+  }
+
+  /// ✕ in any panel: while recording (locked or paused) the mic is still on,
+  /// so the file must be cancelled before the panel goes away.
+  Future<void> _discardVoice() async {
+    if (_stopInProgress) return;
+    if (_voiceState == _VoiceState.locked ||
+        _voiceState == _VoiceState.paused) {
+      _timer?.cancel();
+      _timer = null;
+      try {
+        await _recorder.cancel();
+      } catch (_) {}
+      // A resume already queued may have restarted it during the await.
+      _timer?.cancel();
+      _timer = null;
+      _deleteFileQuietly(_tempPath);
+      _resetVoiceState();
+      return;
+    }
+    await _discardPreview();
   }
 
   Future<void> _sendVoice() async {
     if (_tempPath == null || _isSendingVoice) return;
+    final file = File(_tempPath!);
+    if (!file.existsSync()) {
+      if (_isDraft)
+        await deleteVoiceDraft(widget.conversationId, _voiceDraftDir);
+      _resetVoiceState();
+      return;
+    }
     setState(() => _isSendingVoice = true);
 
     try {
-      final file = File(_tempPath!);
-      final durSecs = _durationTextToSeconds(_previewDuration ?? '0:00');
-
       // Repository handles message creation first, then media upload
       // File cleanup happens in _uploadMediaMessage after upload completes
       await ref
@@ -341,30 +579,237 @@ class _MessageInputState extends ConsumerState<MessageInput>
             conversationId: widget.conversationId,
             mediaType: 'voice',
             mediaFile: file,
-            durationSeconds: durSecs,
+            durationSeconds: _durationSeconds,
             durationText: _previewDuration,
           );
+      if (_isDraft)
+        await deleteVoiceDraft(widget.conversationId, _voiceDraftDir);
       if (mounted) {
-        setState(() {
-          _voiceState = _VoiceState.idle;
-          _tempPath = null;
-          _previewDuration = null;
-        });
+        _resetVoiceState();
       }
     } catch (_) {
-      // Rejected before the row landed: keep the preview so it can be resent.
       if (mounted) {
         showToast(context, "Couldn't send voice note. Try again.", error: true);
+        if (!file.existsSync()) {
+          if (_isDraft)
+            await deleteVoiceDraft(widget.conversationId, _voiceDraftDir);
+          _resetVoiceState();
+        } else if (_voiceState != _VoiceState.preview) {
+          await _showVoicePreview(file.path, _elapsed, isDraft: _isDraft);
+        }
       }
     } finally {
       if (mounted) setState(() => _isSendingVoice = false);
     }
   }
 
-  int _durationTextToSeconds(String text) {
-    final parts = text.split(':');
-    if (parts.length != 2) return 0;
-    return (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0);
+  void _resetVoiceState() {
+    if (!mounted) return;
+    setState(() {
+      _voiceState = _VoiceState.idle;
+      _elapsed = Duration.zero;
+      _tempPath = null;
+      _previewDuration = null;
+      _durationSeconds = 0;
+      _levels = [];
+      _isDraft = false;
+      _dragOffsetX = 0;
+      _dragOffsetY = 0;
+      _cancelled = false;
+      _dragAxis = 0;
+    });
+  }
+
+  Future<void> _onRecordState(RecordState state) async {
+    if (state != RecordState.pause) return;
+    if (_voiceState == _VoiceState.holding) {
+      await _stopRecording();
+    } else if (_voiceState == _VoiceState.locked) {
+      _timer?.cancel();
+      _timer = null;
+      if (mounted) setState(() => _voiceState = _VoiceState.paused);
+    }
+  }
+
+  Future<void> _handleAppHide() async {
+    if (_voiceState == _VoiceState.holding) {
+      await _stopRecording();
+    } else if (_voiceState == _VoiceState.locked) {
+      await _pauseRecording();
+    }
+  }
+
+  void _onMicPointerDown(PointerDownEvent event) {
+    // Only a press on the mic owns a hold, or a palm on the text field would
+    // take it over during the long-press wait.
+    if (_voiceState != _VoiceState.idle || _starting) return;
+    _voicePointerId = event.pointer;
+    _holdOrigin = event.position;
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (_voiceState != _VoiceState.holding || event.pointer != _voicePointerId)
+      return;
+    final origin = _holdOrigin;
+    if (origin == null) return;
+    final dx = event.position.dx - origin.dx;
+    final dy = event.position.dy - origin.dy;
+    if (_dragAxis == 0) {
+      if (dx.abs() > 16) {
+        _dragAxis = 1;
+      } else if (dy.abs() > 16) {
+        _dragAxis = 2;
+      }
+    }
+    if (_dragAxis == 1) {
+      final next = dx.clamp(-120.0, 0.0).toDouble();
+      final crossed = next <= -80 && !_cancelled;
+      if (crossed || (next > -80 && _cancelled)) _voiceHaptic();
+      if (mounted) {
+        setState(() {
+          _dragOffsetX = next;
+          _dragOffsetY = 0;
+          _cancelled = next <= -80;
+        });
+      }
+    } else if (_dragAxis == 2) {
+      final next = dy.clamp(-80.0, 0.0).toDouble();
+      if (next <= -80) {
+        _voiceHaptic();
+        if (mounted) {
+          setState(() {
+            _voiceState = _VoiceState.locked;
+            _dragOffsetX = 0;
+            _dragOffsetY = 0;
+          });
+        }
+      } else if (mounted) {
+        setState(() => _dragOffsetY = next);
+      }
+    }
+  }
+
+  void _onPointerUp(PointerEvent event) {
+    if (event.pointer != _voicePointerId) return;
+    _voicePointerId = null;
+    if (_voiceState == _VoiceState.holding) {
+      unawaited(_stopRecording(cancelled: _cancelled));
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _onPointerUp(event);
+  }
+
+  /// I5: sending closed mid-recording. It goes the way leaving the chat does,
+  /// and comes back as a Draft when sending opens (L4).
+  void _keepVoiceAsDraft() {
+    // A send or stop in flight already owns the file.
+    if (!mounted || _isSendingVoice || _stopInProgress) return;
+    _trackDraftSave(widget.conversationId, _saveRecordingAsDraft());
+    _resetVoiceState();
+  }
+
+  Future<void> _loadVoiceDraft() async {
+    if (!mounted) return;
+    await _draftSaves[widget.conversationId];
+    // L4: not able to send = leave it on disk; only ✕, a send or sign-out
+    // remove a draft. Sending opening runs this again.
+    if (!mounted ||
+        !widget.canSendMessages ||
+        _voiceState != _VoiceState.idle) {
+      return;
+    }
+    final draft = await loadVoiceDraft(widget.conversationId, _voiceDraftDir);
+    if (!mounted || draft == null || _voiceState != _VoiceState.idle) return;
+    if (_composerBusy) {
+      // A share's editor, dialog or upload got here first: the panel would
+      // cover its row and its Cancel, so the draft waits its turn.
+      _draftRetry?.cancel();
+      _draftRetry = Timer(
+        const Duration(milliseconds: 500),
+        () => unawaited(_loadVoiceDraft()),
+      );
+      return;
+    }
+    await _showVoicePreview(
+      draft.file.path,
+      Duration(seconds: draft.seconds),
+      isDraft: true,
+    );
+    if (mounted) setState(() => _levels = draft.levels);
+  }
+
+  void _trackDraftSave(String conversationId, Future<void> save) {
+    final earlier = _draftSaves[conversationId];
+    late final Future<void> tracked;
+    tracked = Future.wait<void>([
+      if (earlier != null) earlier,
+      save,
+    ]).whenComplete(() {
+      if (identical(_draftSaves[conversationId], tracked)) {
+        _draftSaves.remove(conversationId);
+      }
+    });
+    _draftSaves[conversationId] = tracked;
+  }
+
+  Future<void> _saveDraftThenDisposeRecorder() async {
+    await _saveRecordingAsDraft();
+    try {
+      await _recorder.dispose();
+    } catch (_) {}
+  }
+
+  /// Everything it needs is read before the first await: dispose and I5 move
+  /// the state on straight after calling this.
+  Future<void> _saveRecordingAsDraft() async {
+    final conversationId = widget.conversationId;
+    final state = _voiceState;
+    final path = _tempPath;
+    final elapsed = _elapsed;
+    final levels = List<double>.from(_levels);
+    final isDraft = _isDraft;
+    final durationSeconds = _durationSeconds;
+    _timer?.cancel();
+    _timer = null;
+    try {
+      if (state == _VoiceState.holding ||
+          state == _VoiceState.locked ||
+          state == _VoiceState.paused) {
+        if (state == _VoiceState.holding &&
+            elapsed < const Duration(seconds: 1)) {
+          await _recorder.cancel();
+        } else {
+          final stopped = await _recorder.stop();
+          final filePath = stopped ?? path;
+          if (filePath != null) {
+            final seconds = (elapsed.inMilliseconds / 1000).round();
+            if (seconds >= 1) {
+              await saveVoiceDraft(
+                conversationId,
+                File(filePath),
+                seconds,
+                levels,
+                _voiceDraftDir,
+              );
+            } else {
+              _deleteFileQuietly(filePath);
+            }
+          }
+        }
+      } else if (state == _VoiceState.preview && path != null && !isDraft) {
+        await saveVoiceDraft(
+          conversationId,
+          File(path),
+          durationSeconds,
+          levels,
+          _voiceDraftDir,
+        );
+      }
+    } catch (error) {
+      debugPrint('[Voice] draft save failed: ${error.runtimeType}');
+    }
   }
 
   // ── Share from another app (12.1 E1–E5) ──────────────────────
@@ -409,6 +854,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   bool get _composerBusy =>
       _voiceState != _VoiceState.idle ||
+      _starting ||
       _isSendingVoice ||
       _isPreparingAlbum ||
       _isUploadingImage ||
@@ -1064,7 +1510,12 @@ class _MessageInputState extends ConsumerState<MessageInput>
           width: double.infinity,
           child: DecoratedBox(
             decoration: _floatingPanelDecoration(context),
-            child: child,
+            child: Listener(
+              onPointerMove: _onPointerMove,
+              onPointerUp: _onPointerUp,
+              onPointerCancel: _onPointerCancel,
+              child: child,
+            ),
           ),
         ),
       ),
@@ -1121,26 +1572,47 @@ class _MessageInputState extends ConsumerState<MessageInput>
               ),
             ),
 
-          if (_voiceState == _VoiceState.recording)
-            _RecordingRow(
-              elapsed: _elapsedSec,
-              dragOffsetX: _dragOffsetX,
-              pulseAnim: _pulseAnim,
-              onDragUpdate: (dx) {
-                setState(() {
-                  _dragOffsetX = dx;
-                  _cancelled = dx < -80;
-                });
-              },
-              onStop: () => _stopRecording(cancelled: _cancelled),
+          if (_voiceState == _VoiceState.holding)
+            VoiceHoldStrip(
+              elapsed: _elapsed,
+              levels: _levels,
+              dragX: _dragOffsetX,
+              dragY: _dragOffsetY,
+              cancelled: _cancelled,
+              pulse: _pulseAnim,
             )
-          else if (_voiceState == _VoiceState.preview)
-            _VoicePreviewRow(
-              filePath: _tempPath!,
-              duration: _previewDuration ?? '0:00',
-              isSending: _isSendingVoice,
-              onDiscard: _discardPreview,
-              onSend: _sendVoice,
+          else if (_voiceState == _VoiceState.locked ||
+              _voiceState == _VoiceState.paused ||
+              _voiceState == _VoiceState.preview)
+            VoiceRecorderPanel(
+              mode: switch (_voiceState) {
+                _VoiceState.locked => VoiceRecorderPanelMode.locked,
+                _VoiceState.paused => VoiceRecorderPanelMode.paused,
+                _ => VoiceRecorderPanelMode.preview,
+              },
+              filePath: _tempPath ?? '',
+              seconds: _voiceState == _VoiceState.preview
+                  ? _durationSeconds
+                  : _elapsed.inSeconds,
+              levels: _levels,
+              isDraft: _isDraft,
+              isSending: _isSendingVoice || _stopInProgress,
+              onDelete: () => unawaited(_discardVoice()),
+              onCenter: () {
+                if (_voiceState == _VoiceState.locked) {
+                  unawaited(_pauseRecording());
+                } else if (_voiceState == _VoiceState.paused) {
+                  unawaited(_resumeRecording());
+                }
+              },
+              onSend: () {
+                if (_voiceState == _VoiceState.preview) {
+                  unawaited(_sendVoice());
+                } else {
+                  unawaited(_sendLockedVoice());
+                }
+              },
+              onStopAndListen: () => unawaited(_stopAndListen()),
             )
           else if (_isPreparingAlbum)
             _AlbumPreparingRow(
@@ -1165,14 +1637,10 @@ class _MessageInputState extends ConsumerState<MessageInput>
               isLoading: widget.isLoading,
               onAttach: _onAttachPressed,
               onSend: _send,
-              onMicLongPressStart: _startRecording,
-              onMicLongPressMoveUpdate: (dx) {
-                setState(() {
-                  _dragOffsetX = dx;
-                  _cancelled = dx < -80;
-                });
-              },
-              onMicLongPressEnd: () => _stopRecording(cancelled: _cancelled),
+              accessibleNavigation: MediaQuery.accessibleNavigationOf(context),
+              onMicPointerDown: _onMicPointerDown,
+              onMicTap: () => unawaited(_startRecording(lockImmediately: true)),
+              onMicLongPressStart: (_) => unawaited(_startRecording()),
             ),
         ],
       ),
@@ -1276,9 +1744,10 @@ class _NormalInputRow extends StatelessWidget {
     required this.isLoading,
     required this.onAttach,
     required this.onSend,
+    required this.accessibleNavigation,
+    required this.onMicPointerDown,
+    required this.onMicTap,
     required this.onMicLongPressStart,
-    required this.onMicLongPressMoveUpdate,
-    required this.onMicLongPressEnd,
   });
 
   final TextEditingController ctrl;
@@ -1287,9 +1756,10 @@ class _NormalInputRow extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onAttach;
   final VoidCallback onSend;
-  final VoidCallback onMicLongPressStart;
-  final void Function(double) onMicLongPressMoveUpdate;
-  final VoidCallback onMicLongPressEnd;
+  final bool accessibleNavigation;
+  final PointerDownEventListener onMicPointerDown;
+  final VoidCallback onMicTap;
+  final GestureLongPressStartCallback onMicLongPressStart;
 
   @override
   Widget build(BuildContext context) {
@@ -1364,265 +1834,34 @@ class _NormalInputRow extends StatelessWidget {
                             )
                           : const Icon(Icons.send_rounded, size: 20),
                     )
-                  : _ComposerAction(
-                      key: const ValueKey('mic-action'),
-                      tooltip: 'Record voice message',
-                      backgroundColor: context.t.accent,
-                      foregroundColor: context.t.onAccent,
-                      tapHint: 'Hold to record',
-                      onLongPressStart: (_) => onMicLongPressStart(),
-                      onLongPressMoveUpdate: (d) =>
-                          onMicLongPressMoveUpdate(d.offsetFromOrigin.dx),
-                      onLongPressEnd: (_) => onMicLongPressEnd(),
-                      icon: const Icon(Icons.mic, size: 22),
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Recording row ──────────────────────────────────────────────────────────
-
-class _RecordingRow extends StatelessWidget {
-  const _RecordingRow({
-    required this.elapsed,
-    required this.dragOffsetX,
-    required this.pulseAnim,
-    required this.onDragUpdate,
-    required this.onStop,
-  });
-
-  final int elapsed;
-  final double dragOffsetX;
-  final Animation<double> pulseAnim;
-  final void Function(double) onDragUpdate;
-  final VoidCallback onStop;
-
-  @override
-  Widget build(BuildContext context) {
-    final cancelled = dragOffsetX < -80;
-    return Listener(
-      onPointerUp: (_) => onStop(),
-      child: GestureDetector(
-        onHorizontalDragUpdate: (d) => onDragUpdate(dragOffsetX + d.delta.dx),
-        onHorizontalDragEnd: (_) => onStop(),
-        onHorizontalDragCancel: onStop,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              ScaleTransition(
-                scale: pulseAnim,
-                child: Icon(Icons.mic, color: context.t.error, size: 28),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                formatMmSs(elapsed),
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: context.t.error,
-                ),
-              ),
-              const Spacer(),
-              AnimatedOpacity(
-                opacity: cancelled ? 0.3 : 1.0,
-                duration: const Duration(milliseconds: 200),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.chevron_left,
-                      color: context.t.inkSoft,
-                      size: 18,
-                    ),
-                    Text(
-                      cancelled ? 'Release to cancel' : 'Slide to cancel',
-                      style: TextStyle(color: context.t.inkSoft, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Voice preview row ──────────────────────────────────────────────────────
-
-class _VoicePreviewRow extends StatefulWidget {
-  const _VoicePreviewRow({
-    required this.filePath,
-    required this.duration,
-    required this.isSending,
-    required this.onDiscard,
-    required this.onSend,
-  });
-
-  final String filePath;
-  final String duration;
-  final bool isSending;
-  final VoidCallback onDiscard;
-  final VoidCallback onSend;
-
-  @override
-  State<_VoicePreviewRow> createState() => _VoicePreviewRowState();
-}
-
-class _VoicePreviewRowState extends State<_VoicePreviewRow> {
-  final _player = AudioPlayer();
-  bool _isPlaying = false;
-  bool _isLoading = false;
-  Duration _position = Duration.zero;
-  Duration _total = Duration.zero;
-
-  @override
-  void initState() {
-    super.initState();
-    _player.positionStream.listen((pos) {
-      if (mounted) setState(() => _position = pos);
-    });
-    _player.durationStream.listen((dur) {
-      if (mounted && dur != null) setState(() => _total = dur);
-    });
-    _player.playerStateStream.listen((state) {
-      if (!mounted) return;
-      final playing =
-          state.playing && state.processingState != ProcessingState.completed;
-      setState(() => _isPlaying = playing);
-      if (state.processingState == ProcessingState.completed) {
-        _player.seek(Duration.zero);
-        _player.pause();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
-  Future<void> _togglePlay() async {
-    if (_isPlaying) {
-      await _player.pause();
-      return;
-    }
-    if (_total == Duration.zero) {
-      setState(() => _isLoading = true);
-      try {
-        await _player.setFilePath(widget.filePath);
-      } finally {
-        if (mounted) setState(() => _isLoading = false);
-      }
-    }
-    await _player.play();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = _total.inMilliseconds > 0
-        ? (_position.inMilliseconds / _total.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-    final displayDuration = _total > Duration.zero
-        ? formatMmSs((_total - _position).inSeconds)
-        : widget.duration;
-
-    return Padding(
-      padding: const EdgeInsets.all(8),
-      child: Row(
-        children: [
-          // Discard button
-          IconButton(
-            onPressed: widget.isSending ? null : widget.onDiscard,
-            icon: Icon(Icons.close, color: context.t.error),
-            tooltip: 'Discard',
-          ),
-
-          // Voice preview pill
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: context.t.surface2,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
-                children: [
-                  // Play / pause button
-                  GestureDetector(
-                    onTap: widget.isSending ? null : _togglePlay,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: context.t.accent.withValues(alpha: 0.15),
+                  : Listener(
+                      onPointerDown: onMicPointerDown,
+                      child: MergeSemantics(
+                        // J2: under TalkBack the hint is the double tap, and
+                        // there is no hold tooltip.
+                        child: Semantics(
+                          hint: accessibleNavigation
+                              ? 'Double tap to record'
+                              : null,
+                          child: _ComposerAction(
+                            key: const ValueKey('mic-action'),
+                            tooltip: 'Record voice message',
+                            backgroundColor: context.t.accent,
+                            foregroundColor: context.t.onAccent,
+                            tapHint: accessibleNavigation
+                                ? null
+                                : 'Hold to record',
+                            onTap: accessibleNavigation ? onMicTap : null,
+                            // TalkBack's long click has no finger to release.
+                            onLongPressStart: accessibleNavigation
+                                ? null
+                                : onMicLongPressStart,
+                            icon: const Icon(Icons.mic, size: 22),
+                          ),
+                        ),
                       ),
-                      child: _isLoading
-                          ? BusySpinner(size: 16, strokeWidth: 2)
-                          : Icon(
-                              _isPlaying ? Icons.pause : Icons.play_arrow,
-                              color: context.t.accent,
-                              size: 18,
-                            ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // Progress bar
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            backgroundColor: context.t.line,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              context.t.accent,
-                            ),
-                            minHeight: 3,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          displayDuration,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: context.t.inkSoft,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
             ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Send button
-          _ComposerAction(
-            tooltip: 'Send voice message',
-            backgroundColor: context.t.accent,
-            foregroundColor: context.t.onAccent,
-            onTap: widget.isSending ? null : widget.onSend,
-            icon: widget.isSending
-                ? BusySpinner(
-                    size: 18,
-                    strokeWidth: 2,
-                    color: context.t.onAccent,
-                  )
-                : const Icon(Icons.send_rounded, size: 20),
           ),
         ],
       ),

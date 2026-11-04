@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice recorder board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (copied from app-lock.html; nothing redefined). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--accentSoft:#FFF3DC;--error:#E5484D;--shadow:rgba(52,42,28,.10)}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14;--shadow:rgba(0,0,0,.35)}
+.amoled{--bg:#000000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--accentSoft:#3A2E14;--shadow:rgba(255,255,255,.06)}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}td.bad{background:#FBE3E3}td.ok{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.flow .bx{border:1px solid #E4DDD1;border-radius:10px;padding:7px 10px;background:#F7F2EA;font-size:12.5px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+/* ── phone frame: the bottom of a chat ── */
+.ph{position:relative;width:300px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);overflow:hidden;padding:56px 8px 10px}
+.ph.tall{padding-top:170px}
+.ph .them{position:absolute;top:12px;left:12px;background:var(--surface);border:1px solid var(--line);border-radius:18px 18px 18px 6px;padding:7px 11px;font-size:13px;color:var(--ink)}
+.panel{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:0 2px 8px var(--shadow)}
+/* hold strip */
+.strip{display:flex;align-items:center;gap:8px;height:64px;padding:0 8px 0 14px}
+.dot{width:8px;height:8px;border-radius:99px;background:var(--error);flex:0 0 auto}
+.tm{font-size:16px;line-height:22px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+.slide{font-size:13px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.slide.off{opacity:.45}
+.mic{width:48px;height:48px;border-radius:99px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-size:20px;flex:0 0 auto}
+.mic.big{transform:scale(1.15)}
+.pill{position:absolute;right:12px;bottom:72px;width:40px;height:88px;border-radius:99px;background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 8px var(--shadow);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--inkSoft);font-size:15px}
+.pill.up{bottom:120px}
+/* waveform */
+.wf{display:flex;align-items:center;gap:2px;overflow:hidden;flex:1;min-width:0}
+.wf i{flex:0 0 3px;border-radius:1.5px;background:var(--ink)}
+.wf i.f{background:var(--inkFaint)}
+/* recording / preview panel */
+.vp{padding:12px 16px 16px;text-align:center}
+.vp .ttl{font-size:16px;line-height:22px;font-weight:600}
+.vp .st{height:18px;font-size:13px;line-height:18px;color:var(--inkSoft);display:flex;align-items:center;justify-content:center;gap:6px}
+.vp .wf{height:48px;margin:12px 0}
+.vp .big{font-size:28px;line-height:34px;font-weight:700;font-variant-numeric:tabular-nums}
+.ctl{display:flex;justify-content:center;align-items:center;gap:32px;margin-top:16px}
+.ctl span{border-radius:99px;display:flex;align-items:center;justify-content:center}
+.ctl .x{width:56px;height:56px;background:var(--surface2);color:var(--ink);font-size:20px}
+.ctl .c{width:72px;height:72px;background:var(--accent);color:var(--onAccent);font-size:26px}
+.ctl .s{width:56px;height:56px;background:var(--accent);color:var(--onAccent);font-size:20px}
+.tb{display:inline-block;margin-top:10px;font-size:14px;font-weight:600;padding:10px 14px;border-radius:14px;color:var(--ink)}
+.cap{font-size:11px;color:#8A7A5F;margin-top:6px;max-width:300px}
+/* dialog + toast */
+.dlg{width:300px;max-width:100%;background:var(--surface);color:var(--ink);border-radius:24px;padding:20px;border:1px solid var(--line)}
+.dlg b{display:block;font-size:20px;line-height:26px;margin-bottom:8px}
+.dlg p{margin:0 0 14px;font-size:15px;line-height:22px}
+.dlg .a{display:flex;justify-content:flex-end;gap:8px;font-weight:600;font-size:14px}
+.dlg .a span{padding:10px 14px;border-radius:14px}
+.dlg .a .sec{border:1px solid var(--line)}
+.toast{display:inline-block;background:#2A2520;color:#FAF7F1;border-radius:12px;padding:10px 14px;font-size:14px;max-width:300px}
+.toast.err{border-left:3px solid #E5484D}
+.sysd{width:280px;max-width:100%;background:#fff;border:1px solid #E4DDD1;border-radius:20px;padding:16px;font-size:13px;color:#2A2520}
+</style>
+</head>
+<body>
+<h1>Voice recorder, board</h1>
+<p class="sub">Backlog 12.6. Sections <b>S1–S8</b> (page-local). Audit at <code>244f568</code>, 2026-11-03. Checklist, copy and decisions: <code>voice-recorder.md</code>. Nothing here is built yet; the numbered decisions can change any default shown. Accent is a fill only (the record and send discs, the held mic); no purple, no gradients (C1/C2).</p>
+
+<!-- S1 -->
+<div class="band"><header><span class="n">S1</span><h2>Starting point (facts 1–14)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Piece</th><th>Today (<code>244f568</code>)</th><th>This spec</th></tr>
+<tr><td>Gesture</td><td>hold → release = preview; slide left = cancel</td><td class="ok">+ slide up to lock; pause / resume; send straight from the panel</td></tr>
+<tr><td>Look</td><td class="bad">timer and mic in error red (fails 4.5:1 on light); preview = 3 px progress bar; accent as icon colour</td><td class="ok"><b>Voice note</b> panel: waveform, big ink timer, three round controls; red only on an 8 dp dot</td></tr>
+<tr><td>Waveform</td><td>none</td><td class="ok"><code>getAmplitude()</code> every 100 ms (the plugin's own stream does the same call)</td></tr>
+<tr><td>Interruptions</td><td class="bad">nothing listens: a call or Home press records silence; leaving the chat leaks the file</td><td class="ok">calls pause (the plugin already does it), Home pauses, leaving deletes</td></tr>
+<tr><td>Permission</td><td class="bad">the asking press can start recording with no finger down</td><td class="ok">check first; the asking press never records; settings dialog when blocked</td></tr>
+<tr><td>Packages</td><td colspan="2">record 6.2.0 (pause, resume, amplitude, focus pause), just_audio, permission_handler are all there. <b>One new package:</b> <code>haptic_feedback</code>, pinned to 0.6.5 (Samsung drops Flutter's light haptics; 0.7+ needs AGP 9).</td></tr>
+</table></div></div>
+
+<!-- S2 -->
+<div class="band"><header><span class="n">S2</span><h2>The flow (A2; decisions 1–3)</h2></header>
+<div class="flow"><span class="bx">Hold mic</span><span class="ar">→</span><span class="bx">holding</span><span class="ar">→ release →</span><span class="bx ok">preview</span><span class="ar">→</span><span class="bx ok">send</span></div>
+<div class="flow"><span class="bx">holding</span><span class="ar">→ slide left 80 dp → release →</span><span class="bx bad">cancelled</span></div>
+<div class="flow"><span class="bx">holding</span><span class="ar">→ slide up 80 dp →</span><span class="bx">locked</span><span class="ar">⇄ pause / resume ⇄</span><span class="bx">paused</span><span class="ar">→ Stop and listen →</span><span class="bx ok">preview</span></div>
+<div class="flow"><span class="bx">locked / paused</span><span class="ar">→ send →</span><span class="bx ok">sent (no preview)</span><span class="ar">·</span><span class="bx">✕</span><span class="ar">→</span><span class="bx bad">deleted</span></div>
+<div class="note">An AAC file can't be played before it is stopped, so listening ends the recording; the button is named for that (<b>Stop and listen</b>). Under 1 s nothing is kept and the existing <b>Hold to record</b> toast shows.</div></div>
+
+<!-- S3 -->
+<div class="band"><header><span class="n">S3</span><h2>The hold strip (B1–B4)</h2></header>
+<div class="row">
+<div class="wrap"><span class="tag">Holding, light</span>
+<div class="ph tall"><span class="them">hey, call later?</span><div class="pill">🔓<br>⌃</div><div class="panel"><div class="strip"><span class="dot"></span><span class="tm">0:07</span><span class="wf live" data-n="22" data-h="28"></span><span class="slide">‹ Slide to cancel</span><span class="mic big">🎙</span></div></div></div>
+<div class="cap">The lock pill floats over the chat; the panel keeps its 64 dp height.</div></div>
+<div class="wrap"><span class="tag">Sliding up, dark</span>
+<div class="ph dark tall"><span class="them">hey, call later?</span><div class="pill up">🔒<br>⌃</div><div class="panel"><div class="strip"><span class="dot"></span><span class="tm">0:09</span><span class="wf live" data-n="22" data-h="28"></span><span class="slide">‹ Slide to cancel</span><span class="mic big">🎙</span></div></div></div>
+<div class="cap">At 80 dp the icon closes and the panel opens; the finger may lift.</div></div>
+<div class="wrap"><span class="tag">Past the cancel line, AMOLED</span>
+<div class="ph amoled"><span class="them">hey, call later?</span><div class="panel"><div class="strip"><span class="dot"></span><span class="tm">0:04</span><span class="wf live" data-n="14" data-h="28"></span><span class="slide">‹ Release to cancel</span><span class="mic big">🎙</span></div></div></div>
+<div class="cap">One axis wins: after 16 dp left, an upward move is ignored for the rest of the hold.</div></div>
+</div>
+<div class="note">Timer in ink, tabular figures. Red is only the 8 dp status dot. Under reduced motion the dot doesn't pulse, the mic doesn't grow and the pill's chevron doesn't nudge.</div></div>
+
+<!-- S4 -->
+<div class="band"><header><span class="n">S4</span><h2>The recording panel: locked and paused (C1–C5; the user's reference)</h2></header>
+<div class="row">
+<div class="wrap"><span class="tag">Locked, light</span>
+<div class="ph"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st"><span class="dot"></span>Recording</div><div class="wf live" data-n="52" data-h="48"></div><div class="big">1:14</div><div class="ctl"><span class="x">✕</span><span class="c">❚❚</span><span class="s">➤</span></div></div></div>
+<div class="cap">✕ Delete voice note · ❚❚ Pause recording · ➤ Send voice note</div></div>
+<div class="wrap"><span class="tag">Paused, dark</span>
+<div class="ph dark"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st">Paused</div><div class="wf live" data-n="52" data-h="48"></div><div class="big">1:14</div><div class="ctl"><span class="x">✕</span><span class="c">🎙</span><span class="s">➤</span></div><span class="tb">Stop and listen</span></div></div>
+<div class="cap">Centre = Resume recording. Clock and waveform frozen.</div></div>
+<div class="wrap"><span class="tag">Last 10 s, AMOLED</span>
+<div class="ph amoled"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st"><span class="dot"></span>10 seconds left</div><div class="wf live" data-n="52" data-h="48"></div><div class="big">4:52</div><div class="ctl"><span class="x">✕</span><span class="c">❚❚</span><span class="s">➤</span></div></div></div>
+<div class="cap">At 5:00 it stops into the preview: <b>Voice notes can be up to 5 minutes.</b></div></div>
+</div>
+<div class="note">Not a sheet or a route: the panel replaces the composer inside its floating card, the chat stays above it. Enters with a 250 ms fade (none under reduced motion). Controls: 56 / 72 / 56 dp with 32 dp gaps = 248 dp, fits 360 dp at any text size.</div></div>
+
+<!-- S5 -->
+<div class="band"><header><span class="n">S5</span><h2>The preview (D1–D3, G1–G4)</h2></header>
+<div class="row">
+<div class="wrap"><span class="tag">Before playing, light</span>
+<div class="ph"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st"></div><div class="wf whole" data-n="52" data-h="48" data-p="0"></div><div class="big">1:14</div><div class="ctl"><span class="x">✕</span><span class="c">▶</span><span class="s">➤</span></div></div></div>
+<div class="cap">The whole recording, peaks kept (max per bucket).</div></div>
+<div class="wrap"><span class="tag">Playing, dark</span>
+<div class="ph dark"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st"></div><div class="wf whole" data-n="52" data-h="48" data-p="0.35"></div><div class="big">0:26</div><div class="ctl"><span class="x">✕</span><span class="c">❚❚</span><span class="s">➤</span></div></div></div>
+<div class="cap">Played bars ink, the rest faint. Tap or drag the waveform to seek.</div></div>
+<div class="wrap"><span class="tag">Sending, light</span>
+<div class="ph"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st"></div><div class="wf whole" data-n="52" data-h="48" data-p="0"></div><div class="big">1:14</div><div class="ctl"><span class="x" style="opacity:.38">✕</span><span class="c" style="opacity:.38">▶</span><span class="s">◌</span></div></div></div>
+<div class="cap">Busy ring on the send disc. Offline: the row is written first and uploads on reconnect (nothing new to build).</div></div>
+<div class="wrap"><span class="tag">A voice draft, back in the chat, dark</span>
+<div class="ph dark"><span class="them">hey, call later?</span><div class="panel vp"><div class="ttl">Voice note</div><div class="st">Draft</div><div class="wf whole" data-n="52" data-h="48" data-p="0"></div><div class="big">0:15</div><div class="ctl"><span class="x">✕</span><span class="c">▶</span><span class="s">➤</span></div></div></div>
+<div class="cap">Left unsent, kept per chat until sent or deleted; survives closing the app; signing out deletes it. A draft is finished: play, send or delete, not record more.</div></div>
+</div>
+<div class="row" style="margin-top:10px"><span class="toast err">Couldn't send voice note. Try again.</span><span class="toast err">Couldn't play the recording.</span></div></div>
+
+<!-- S6 -->
+<div class="band"><header><span class="n">S6</span><h2>The waveform (E1–E4, C20; decision 6)</h2></header>
+<div class="row"><div style="flex:1 1 320px;min-width:0;font-size:13px">
+<p style="margin-top:0"><b>Source.</b> One 100 ms tick while recording: elapsed = base + tick × 100 ms, and one <code>getAmplitude()</code> → <code>waveLevel(dBFS)</code> appended. Paused = no tick. 5 minutes = 3,000 numbers, kept in memory only.</p>
+<p><b>Level.</b> <code>((dBFS + 50) / 50)</code> clamped to 0.06–1: silence and the −160 floor draw a 3 dp stub, a shout fills the height.</p>
+<p><b>Bars.</b> 3 dp wide, 2 dp apart, radius 1.5, centred. Live: newest at the right. Preview: <code>bucketLevels</code> takes the max of each bucket so peaks survive.</p>
+<p><b>Stays on this phone</b> (decision 7): the other side's bubble is unchanged.</p></div>
+<div class="wrap" style="flex:1 1 300px"><span class="tag">dBFS → level</span>
+<table><tr><th>dBFS</th><td>−160</td><td>−50</td><td>−25</td><td>−10</td><td>0</td></tr><tr><th>level</th><td>0.06</td><td>0.06</td><td>0.5</td><td>0.8</td><td>1.0</td></tr></table></div></div></div>
+
+<!-- S7 -->
+<div class="band"><header><span class="n">S7</span><h2>Mic permission (H1–H3)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Status at the long press</th><th>What happens</th></tr>
+<tr><td>granted</td><td class="ok">records</td></tr>
+<tr><td>not asked / denied</td><td>system dialog; this press never records. Granted → <b>Microphone on. Hold to record.</b> Denied → <b>Kuch Bhi needs the microphone to record voice notes.</b></td></tr>
+<tr><td>permanently denied / restricted</td><td>the dialog below → <b>Open settings</b> = Kuch Bhi's app info</td></tr>
+<tr><td>mic busy (a call, another app)</td><td class="bad"><b>Couldn't start recording. The microphone may be in use.</b></td></tr>
+</table></div>
+<div class="row" style="margin-top:12px">
+<div class="dlg"><b>Microphone is off</b><p>Turn on the microphone for Kuch Bhi in your phone's settings to record voice notes.</p><div class="a"><span>Not now</span><span class="sec">Open settings</span></div></div>
+<div class="dlg dark"><b>Microphone is off</b><p>Turn on the microphone for Kuch Bhi in your phone's settings to record voice notes.</p><div class="a"><span>Not now</span><span class="sec">Open settings</span></div></div>
+</div></div>
+
+<!-- S8 -->
+<div class="band"><header><span class="n">S8</span><h2>Interruptions, accessibility, diff (I1–I6, J1–J6)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Event</th><th>holding</th><th>locked</th><th>preview</th></tr>
+<tr><td>Call / alarm / another recorder (audio focus lost; the plugin pauses)</td><td>→ preview</td><td>→ paused</td><td>—</td></tr>
+<tr><td>Home, app switcher, screen off (<code>hidden</code>)</td><td>→ preview</td><td>→ paused</td><td>playback pauses</td></tr>
+<tr><td>Notification shade only (<code>inactive</code>)</td><td colspan="3">nothing changes</td></tr>
+<tr><td>App lock covers (on <code>hidden</code>)</td><td colspan="3">already paused by the row above; after unlock the panel is where it was. No app lock change.</td></tr>
+<tr><td>Back / another chat opens</td><td colspan="3" class="ok">stopped and kept as this chat's <b>voice draft</b> (L; decision 8, your choice). Under 1 s of holding: nothing kept.</td></tr>
+<tr><td>Removed from the group mid-recording</td><td colspan="3">cancelled and deleted; a saved draft for the chat deleted too</td></tr>
+</table></div>
+<div class="note"><b>TalkBack</b>: a double tap on the mic opens the recording panel (hint <b>Double tap to record</b>); every control has a name; the status line is a live region. <b>Quick tap</b> without TalkBack keeps today's <b>Hold to record</b> tooltip (its test is untouched). <b>200% text</b>: the panel grows, the timer scales down to fit, the controls keep their size.</div>
+<div class="tblwrap" style="margin-top:10px"><table>
+<tr><th>#</th><th>Today</th><th>Spec</th></tr>
+<tr><td>1</td><td><code>_RecordingRow</code>, <code>_VoicePreviewRow</code> in <code>message_input.dart</code></td><td>deleted; <code>VoiceHoldStrip</code> + <code>VoiceRecorderPanel</code> + <code>VoiceWaveform</code> (registry C20)</td></tr>
+<tr><td>2</td><td>AAC stereo 128 kbps (~1 MB a minute)</td><td>AAC mono 64 kbps (~0.5 MB a minute; decision 5)</td></tr>
+<tr><td>3</td><td>1 s counter</td><td>100 ms tick, pause-aware</td></tr>
+<tr><td>4</td><td>gesture on a row that gets swapped out</td><td>one <code>Listener</code> on the panel that stays mounted</td></tr>
+</table></div></div>
+
+<script>
+// Fake levels for the mockups only (a voice-like envelope).
+function lv(i){const v=0.25+0.55*Math.abs(Math.sin(i*0.55))*Math.abs(Math.cos(i*0.13))+0.2*((i*37)%7)/7;return Math.max(.06,Math.min(1,v));}
+document.querySelectorAll('.wf').forEach(el=>{const n=+el.dataset.n,h=+el.dataset.h,p=el.dataset.p;el.style.height=h+'px';for(let i=0;i<n;i++){const b=document.createElement('i');b.style.height=Math.max(3,Math.round(lv(i)*h))+'px';if(p!==undefined&&i/n>=+p&&+p>0)b.className='f';if(p!==undefined&&+p===0)b.className='';el.appendChild(b);}});
+</script>
+</body>
+</html>
