@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/app_haptic.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_dialog.dart';
@@ -23,7 +24,7 @@ String spacedCode(String code) => code.split('').join(' ');
 /// Copies [code] with a haptic and the shared toast (C2).
 void copyFriendCode(BuildContext context, String code) {
   Clipboard.setData(ClipboardData(text: code));
-  HapticFeedback.selectionClick();
+  appHaptic(HapticsType.selection);
   showToast(context, 'Friend code copied');
 }
 

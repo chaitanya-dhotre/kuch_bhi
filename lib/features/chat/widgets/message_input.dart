@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:haptic_feedback/haptic_feedback.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,6 +13,7 @@ import 'package:video_compress/video_compress.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/app_haptic.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_toast.dart';
@@ -322,11 +322,11 @@ class _MessageInputState extends ConsumerState<MessageInput>
         _dragAxis = 0;
         _stopInProgress = false;
       });
-      _voiceHaptic();
+      appHaptic(HapticsType.light);
       _startWaveTimer();
       if (lockImmediately) {
         setState(() => _voiceState = _VoiceState.locked);
-        _voiceHaptic();
+        appHaptic(HapticsType.light);
       } else if (_voicePointerId == null) {
         // The finger lifted while start() was still pending: stop at once
         // (preview, or the under-1 s path).
@@ -346,16 +346,6 @@ class _MessageInputState extends ConsumerState<MessageInput>
       _starting = false;
     }
   }
-
-  // Not Flutter's HapticFeedback: its light types are touch haptics that
-  // Samsungs like the M52 drop (flutter/flutter#73987). This calls the vibrator
-  // itself. A haptic must never fail a recording, so errors stop here.
-  void _voiceHaptic() => unawaited(
-    Haptics.vibrate(
-      HapticsType.light,
-      usage: HapticsUsage.touch,
-    ).catchError((Object _) {}),
-  );
 
   void _startWaveTimer() {
     _timer?.cancel();
@@ -664,7 +654,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
     if (_dragAxis == 1) {
       final next = dx.clamp(-120.0, 0.0).toDouble();
       final crossed = next <= -80 && !_cancelled;
-      if (crossed || (next > -80 && _cancelled)) _voiceHaptic();
+      if (crossed || (next > -80 && _cancelled)) appHaptic(HapticsType.light);
       if (mounted) {
         setState(() {
           _dragOffsetX = next;
@@ -675,7 +665,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
     } else if (_dragAxis == 2) {
       final next = dy.clamp(-80.0, 0.0).toDouble();
       if (next <= -80) {
-        _voiceHaptic();
+        appHaptic(HapticsType.light);
         if (mounted) {
           setState(() {
             _voiceState = _VoiceState.locked;

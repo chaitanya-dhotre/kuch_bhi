@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/app_haptic.dart';
 
 class SwipeToReply extends StatefulWidget {
   const SwipeToReply({
@@ -52,7 +52,7 @@ class _SwipeToReplyState extends State<SwipeToReply>
       _offset = next;
       if (_offset >= _threshold && !_triggered) {
         _triggered = true;
-        HapticFeedback.mediumImpact();
+        appHaptic(HapticsType.medium);
         widget.onReply();
       }
     });

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/decrypt/body_cache.dart';
+import '../../../core/utils/app_haptic.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_sheet.dart';
@@ -96,7 +97,7 @@ void showMessageMenu({
   List<Message>? album,
   VoidCallback? onSelect,
 }) {
-  HapticFeedback.mediumImpact();
+  appHaptic(HapticsType.medium);
   showAppSheet<void>(
     context: context,
     useRootNavigator: true,
@@ -130,7 +131,7 @@ void showActionSheet({
   Key? previewKey,
   bool haptic = true,
 }) {
-  if (haptic) HapticFeedback.mediumImpact();
+  if (haptic) appHaptic(HapticsType.medium);
   showAppSheet<void>(
     context: context,
     useRootNavigator: true,

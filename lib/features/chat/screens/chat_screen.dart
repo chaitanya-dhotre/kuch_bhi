@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
+import '../../../core/utils/app_haptic.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../data/local/database/app_database.dart';
@@ -632,7 +633,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final id = _rowAt(d.globalPosition);
     final i = id == null ? -1 : _indexOf(id);
     if (i < 0) return;
-    HapticFeedback.selectionClick();
+    appHaptic(HapticsType.selection);
     _autoScroll?.cancel();
     _dragAnchor = id;
     _dragBase = {..._selectedMessageIds};
