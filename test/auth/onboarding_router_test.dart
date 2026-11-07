@@ -62,7 +62,6 @@ void main() {
       (tester) async {
     final n = FakeAuthNotifier();
     final c = await _pump(tester, n);
-    resetOnboardingPrefill(); // process death
     c.read(appRouterProvider).go(AppRoutes.googleOnboarding);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
