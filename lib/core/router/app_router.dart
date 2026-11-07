@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -53,16 +55,54 @@ class AppRoutes {
   static const String googleOnboarding  = '/google-onboarding';
 }
 
-/// The last Google onboarding prefill the router was given (see the route).
-GoogleAuthResult? _onboardingPrefill;
-
-/// Test seam: what a process death does to [_onboardingPrefill].
-@visibleForTesting
-void resetOnboardingPrefill() => _onboardingPrefill = null;
-
 /// Root navigator key — public so non-widget code (FcmService notification
 /// tap routing) can navigate via `rootNavigatorKey.currentContext`.
 final rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// A refresh rebuilds a pushed stack from go_router's encoded copy, and without
+/// a codec every `extra` comes back null. This one encodes a token and decodes
+/// the same object, so a page keeps its data and its state. The stack holds the
+/// object strongly while the page is open; the weak link lets it go afterwards.
+/// shortcut: class instances only (Expando throws on a String or num extra),
+/// wrap one in a class if a route ever needs that.
+class _LiveExtraCodec extends Codec<Object?, Object?> {
+  final _tokens = Expando<int>();
+  final _live = <int, WeakReference<Object>>{};
+  int _nextToken = 0;
+
+  Object? _encode(Object? extra) {
+    if (extra == null) return null;
+    final known = _tokens[extra];
+    if (known != null) return known;
+    _live.removeWhere((_, object) => object.target == null);
+    _live[_nextToken] = WeakReference(extra);
+    return _tokens[extra] = _nextToken++;
+  }
+
+  @override
+  late final encoder = _Converted(_encode);
+
+  @override
+  late final decoder = _Converted((token) => _live[token]?.target);
+}
+
+class _Converted extends Converter<Object?, Object?> {
+  const _Converted(this._convert);
+  final Object? Function(Object?) _convert;
+
+  @override
+  Object? convert(Object? input) => _convert(input);
+}
+
+/// A page that lost its `extra` can't draw, so it leaves instead of going grey.
+/// Not a route redirect: go_router ignores one to the stack's base location,
+/// which for a page pushed over Home is Home itself.
+Widget _backToHome(BuildContext context) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (context.mounted) context.go(AppRoutes.home);
+  });
+  return const Scaffold();
+}
 
 class RouterRefreshNotifier extends ChangeNotifier {
   RouterRefreshNotifier(Ref ref) {
@@ -125,6 +165,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     refreshListenable: refreshNotifier,
+    extraCodec: _LiveExtraCodec(),
     redirect: (context, state) {
       final auth = ref.read(authProvider).valueOrNull;
       final syncStatusAsync = ref.read(encryptionSyncProvider);
@@ -195,8 +236,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.chat,
         builder: (context, state) {
-          final conv = state.extra as Conversation;
-          return ChatScreen(conversation: conv);
+          final conv = state.extra;
+          return conv is Conversation
+              ? ChatScreen(conversation: conv)
+              : _backToHome(context);
         },
       ),
       GoRoute(
@@ -220,8 +263,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.groupSettings,
         builder: (context, state) {
-          final conv = state.extra as Conversation;
-          return GroupSettingsScreen(conversation: conv);
+          final conv = state.extra;
+          return conv is Conversation
+              ? GroupSettingsScreen(conversation: conv)
+              : _backToHome(context);
         },
       ),
       GoRoute(
@@ -250,14 +295,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.googleOnboarding,
         builder: (context, state) {
-          // A refresh rebuild (e.g. an AuthError from the hook) can arrive
-          // without `extra`: keep the last prefill. H2: none at all (process
-          // death) falls back to Login.
-          if (state.extra is GoogleAuthResult) {
-            _onboardingPrefill = state.extra as GoogleAuthResult;
-          }
-          final prefill = _onboardingPrefill;
-          if (prefill == null) return const LoginScreen();
+          // H2: no prefill (process death) falls back to Login.
+          final prefill = state.extra;
+          if (prefill is! GoogleAuthResult) return const LoginScreen();
           return GoogleOnboardingScreen(
             email: prefill.email ?? '',
             displayName: prefill.displayName ?? '',
