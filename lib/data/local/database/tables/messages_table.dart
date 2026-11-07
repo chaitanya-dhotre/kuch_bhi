@@ -72,6 +72,11 @@ class MessagesTable extends Table {
   TextColumn get albumId => text().nullable()();
   IntColumn get albumIndex => integer().nullable()();
 
+  /// Disappearing timer (schema v14): the length in seconds the server fixed
+  /// when this message arrived. Null = it never disappears. [expiresAt] stays
+  /// null until the clock starts, which is when the message is read.
+  IntColumn get disappearAfter => integer().nullable()();
+
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 

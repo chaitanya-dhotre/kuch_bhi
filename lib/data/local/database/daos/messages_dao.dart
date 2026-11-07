@@ -316,14 +316,48 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
             ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
           .get();
 
-  /// Deletes locally-expired disappearing messages. Safe: only removes
-  /// messages whose expiry timestamp has passed — never unsent drafts.
-  Future<void> deleteExpiredMessages() =>
-      (delete(messagesTable)
+  /// Rows whose disappearing clock has run out at [now], which must be
+  /// server time: see `ServerClock`.
+  Future<List<MessagesTableData>> getExpiredMessages(DateTime now) =>
+      (select(messagesTable)
             ..where((t) =>
-                t.expiresAt.isNotNull() &
-                t.expiresAt.isSmallerThanValue(DateTime.now())))
-          .go();
+                t.expiresAt.isNotNull() & t.expiresAt.isSmallerThanValue(now)))
+          .get();
+
+  /// Starts the disappearing clock on what others sent me in this chat that
+  /// I can actually read. Rows with no timer, or a clock already running, are
+  /// left alone. Typed update: it notifies only when a row changed, and a
+  /// notify here would re-emit the chat and re-run mark-read forever.
+  Future<int> startClockOnIncoming(
+    String conversationId,
+    String myId,
+    DateTime readAt,
+  ) =>
+      (update(messagesTable)
+            ..where((t) =>
+                t.disappearAfter.isNotNull() &
+                t.expiresAt.isNull() &
+                t.decryptState.equals('ready') &
+                t.conversationId.equals(conversationId) &
+                t.senderId.equals(myId).not()))
+          .write(_clockFrom(readAt));
+
+  /// Starts the disappearing clock on one row, same rules.
+  Future<int> startClockOnRow(String localId, DateTime readAt) =>
+      (update(messagesTable)
+            ..where((t) =>
+                t.disappearAfter.isNotNull() &
+                t.expiresAt.isNull() &
+                t.localId.equals(localId)))
+          .write(_clockFrom(readAt));
+
+  // expires_at is stored in epoch seconds, like disappear_after.
+  Insertable<MessagesTableData> _clockFrom(DateTime at) =>
+      MessagesTableCompanion.custom(
+        expiresAt: CustomExpression<DateTime>(
+          '${at.millisecondsSinceEpoch ~/ 1000} + disappear_after',
+        ),
+      );
 
   Future<List<MessagesTableData>> getStarredMessages(String conversationId) =>
       (select(messagesTable)
@@ -430,6 +464,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     required DateTime serverCreated,
     required String encryptedBody,
     required String iv,
+    int? disappearAfter,
   }) =>
       (update(messagesTable)
             ..where((t) =>
@@ -440,6 +475,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         createdAt: Value(serverCreated),
         encryptedBody: Value(encryptedBody),
         iv: Value(iv),
+        disappearAfter: Value(disappearAfter),
         updatedAt: Value(DateTime.now()),
       ));
 

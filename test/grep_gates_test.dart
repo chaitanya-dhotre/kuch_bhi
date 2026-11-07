@@ -718,8 +718,9 @@ void main() {
         File('lib/features/chat/screens/chat_screen.dart').readAsStringSync();
     expect(screen.contains('HistoryLoadFailedRow('), isTrue);
     expect(
-        RegExp(r'try \{\s*await ref\.read\(messageRepositoryProvider\)'
-                r'\.loadMoreMessages\(_cid, _offset\);\s*_offset \+= 40;'
+        RegExp(r'try \{\s*final more = await ref\s*\.read\(messageRepositoryProvider\)'
+                r'\s*\.loadMoreMessages\(_cid, _offset\);\s*_offset \+= 40;'
+                r'\s*if \(!more\) _historyExhausted = true;'
                 r'\s*\} catch \(_\) \{[^}]*_historyLoadFailed = true;')
             .hasMatch(screen),
         isTrue,

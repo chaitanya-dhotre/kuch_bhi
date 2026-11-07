@@ -109,7 +109,7 @@ void main() {
     expect(rows.single.state, BlobState.ready);
     expect(rows.single.meta, isNull);
     final v = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(v.data.values.first, 13);
+    expect(v.data.values.first, 14);
     await db.close();
   });
 

@@ -162,8 +162,10 @@ class _Repo implements MessageRepository {
   Future<void> removeReaction(String reactionId) async => reactionCalls++;
 
   @override
-  Future<void> loadMoreMessages(String conversationId, int offset) async =>
-      loadMoreCalls++;
+  Future<bool> loadMoreMessages(String conversationId, int offset) async {
+    loadMoreCalls++;
+    return true;
+  }
 
   @override
   Future<void> fetchAndCacheSingleMessage(

@@ -180,6 +180,7 @@ class MediaBlobStore {
   /// `message_media` record has not landed yet — upload race #18, or the
   /// session ended mid-request).
   Future<LocalMediaFile?> requestBlob(String blobId, String reason) async {
+    if (_forgotten.contains(_parseBlobId(blobId).$1)) return null;
     final epochAtStart = _epoch();
     var row = await dao.byId(blobId);
     if (row == null) {
@@ -390,6 +391,11 @@ class MediaBlobStore {
         if (!_stillValid(epochAtStart, 'cleartext write')) return null;
         await localFile.writeAsBytes(clear, flush: true);
         await _deleteQuietly(epochAtStart, part);
+        // Forgotten while this download ran: no row points at this file now.
+        if (_forgotten.contains(serverId)) {
+          await localFile.delete();
+          return null;
+        }
       }
 
       // ── Metadata return — MOVED. ──
@@ -488,8 +494,14 @@ class MediaBlobStore {
     return moved;
   }
 
-  /// A cancelled send: both variants' rows and files go.
+  /// Message ids forgotten this session: a download still running for one
+  /// must not leave a decrypted file behind, or bring its row back.
+  final Set<String> _forgotten = {};
+
+  /// A cancelled send or an expired message: both variants' rows and files
+  /// go, including a file no row points at (a crash before `ready`).
   Future<void> forgetLocal(String serverId) async {
+    _forgotten.add(serverId);
     for (final row in await dao.byMessageId(serverId)) {
       final path = row.localPath;
       if (path != null) {
@@ -497,6 +509,17 @@ class MediaBlobStore {
           await File(path).delete();
         } catch (_) {}
       }
+    }
+    try {
+      final dir = Directory('${(await _cacheDir()).path}/media_clear');
+      await for (final entity in dir.list()) {
+        final name = entity.path.split(Platform.pathSeparator).last;
+        if (name.startsWith('${serverId}_') && entity is File) {
+          await entity.delete();
+        }
+      }
+    } catch (e) {
+      debugPrint('[Media] forget sweep failed for $serverId: $e');
     }
     await dao.deleteByMessageId(serverId);
   }

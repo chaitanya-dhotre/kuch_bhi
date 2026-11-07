@@ -71,7 +71,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -213,6 +213,24 @@ class AppDatabase extends _$AppDatabase {
             if (hasMessages != null) {
               await m.addColumn(messagesTable, messagesTable.albumId);
               await m.addColumn(messagesTable, messagesTable.albumIndex);
+            }
+          }
+          if (from < 14) {
+            // Disappearing fix: every expiry stored so far was a guess from
+            // the chat's current timer, stamped on old history too. Clear
+            // them once so an update never deletes a message. Same guard as
+            // v12 (the v11 fixture carries no messages_table). An older build
+            // can reset the version and leave the column: then this already
+            // ran, and repeating it would fail every open (or lose clocks).
+            final ddl = await customSelect(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type='table' AND name='messages_table'")
+                .getSingleOrNull();
+            if (ddl != null &&
+                !ddl.read<String>('sql').contains('"disappear_after"')) {
+              await m.addColumn(messagesTable, messagesTable.disappearAfter);
+              await customStatement(
+                  'UPDATE messages_table SET expires_at = NULL');
             }
           }
         },

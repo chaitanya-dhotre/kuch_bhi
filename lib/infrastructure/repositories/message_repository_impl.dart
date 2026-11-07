@@ -214,7 +214,6 @@ class MessageRepositoryImpl implements MessageRepository {
         _reconnectTimer?.cancel();
         _reconnectDebounce?.cancel();
         _mediaResumeRetry?.cancel();
-        _disappearingDurations.clear();
         _teardown();
       }
     });
@@ -442,85 +441,91 @@ class MessageRepositoryImpl implements MessageRepository {
     keyId: Value(existing.keyId),
     albumId: Value(existing.albumId),
     albumIndex: Value(existing.albumIndex),
+    disappearAfter: Value(existing.disappearAfter),
     createdAt: existing.createdAt,
     updatedAt: DateTime.now(),
   );
 
   Future<void> _subMessages() async {
     // Messages subscription — handles incoming messages from all conversations
-    await _pb.collection('messages').subscribe('*', (event) async {
-      if (event.record == null) return;
-      final r = event.record!;
-      final myId = await _myId();
-      // Never process incoming events before the session id is known — that
-      // caused own-message echoes and empty recipient_id receipts.
-      if (myId.isEmpty) return;
+    await _pb.collection('messages').subscribe('*', onMessageEvent);
+  }
 
-      // Sync pin + delete-for-everyone state for ANY message (including our
-      // own), so these reflect live across devices without reopening.
-      // Task 6: the former fast-path write is now an IngestBoundary commit
-      // (the SSE fast path is gone — spec §4: no third writer).
-      try {
-        final existing = await db.messagesDao.getMessageByServerId(r.id);
-        if (existing != null) {
-          final serverPinned = r.getBoolValue('is_pinned');
-          final serverDeleted = r.getBoolValue('is_deleted_for_everyone');
-          if (serverPinned != existing.isPinned ||
-              serverDeleted != existing.isDeletedForEveryone) {
-            await ingestBoundary.commit(
-              IngestBatch(
-                upserts: [
-                  MessageUpsert(
-                    ssePinDeleteCompanion(
-                      existing: existing,
-                      serverPinned: serverPinned,
-                      serverDeleted: serverDeleted,
-                    ),
+  @visibleForTesting
+  Future<void> onMessageEvent(RecordSubscriptionEvent event) async {
+    // A delete (the disappearing cron) carries the dead record: ingesting it
+    // would bring the row back. The phone's own clock removes its copy.
+    if (event.record == null || event.action == 'delete') return;
+    final r = event.record!;
+    final myId = await _myId();
+    // Never process incoming events before the session id is known — that
+    // caused own-message echoes and empty recipient_id receipts.
+    if (myId.isEmpty) return;
+
+    // Sync pin + delete-for-everyone state for ANY message (including our
+    // own), so these reflect live across devices without reopening.
+    // Task 6: the former fast-path write is now an IngestBoundary commit
+    // (the SSE fast path is gone — spec §4: no third writer).
+    try {
+      final existing = await db.messagesDao.getMessageByServerId(r.id);
+      if (existing != null) {
+        final serverPinned = r.getBoolValue('is_pinned');
+        final serverDeleted = r.getBoolValue('is_deleted_for_everyone');
+        if (serverPinned != existing.isPinned ||
+            serverDeleted != existing.isDeletedForEveryone) {
+          await ingestBoundary.commit(
+            IngestBatch(
+              upserts: [
+                MessageUpsert(
+                  ssePinDeleteCompanion(
+                    existing: existing,
+                    serverPinned: serverPinned,
+                    serverDeleted: serverDeleted,
                   ),
-                ],
-              ),
-              IngestSource.sse,
-            );
-          }
+                ),
+              ],
+            ),
+            IngestSource.sse,
+          );
         }
-      } catch (_) {}
-
-      // Skip our own sent messages for the incoming-decrypt path — already
-      // handled optimistically in sendMessage (pin/delete synced above).
-      if (r.getStringValue('sender_id') == myId) return;
-
-      final convId = r.getStringValue('conversation_id');
-      final senderId = r.getStringValue('sender_id');
-      try {
-        // Ensure sender is cached in Drift (important for group messages)
-        if (await db.usersDao.getUserById(senderId) == null) {
-          try {
-            final u = await _pb.collection('users').getOne(senderId);
-            await _cacheUserRecord(u);
-          } catch (_) {}
-        }
-        List<int>? key;
-        try {
-          key = await _getConvKey(convId, myId);
-        } on MissingKeyException catch (e) {
-          debugPrint('[Msg] incoming key not ready, caching ciphertext: $e');
-          key = null;
-        }
-        // Cache even if we can't decrypt yet — a later fetch/reconcile will
-        // decrypt once the key is available. Message is never lost.
-        // Task 7: pass the NULL key through (was: `key ?? const <int>[]`)
-        // so the row lands decrypt_state='key_missing', not 'pending'.
-        await _cacheMsg(r, myId, key, source: IngestSource.sse);
-        // Acknowledge delivery so the sender's tick advances — narrative
-        // 'system' rows carry no ticks, skip them.
-        if (r.getStringValue('type') != 'system') {
-          await _markDelivered(r.id, convId, myId);
-        }
-        // Drift stream auto-emits — no manual push needed
-      } catch (e) {
-        debugPrint('[Msg] incoming error: $e');
       }
-    });
+    } catch (_) {}
+
+    // Skip our own sent messages for the incoming-decrypt path — already
+    // handled optimistically in sendMessage (pin/delete synced above).
+    if (r.getStringValue('sender_id') == myId) return;
+
+    final convId = r.getStringValue('conversation_id');
+    final senderId = r.getStringValue('sender_id');
+    try {
+      // Ensure sender is cached in Drift (important for group messages)
+      if (await db.usersDao.getUserById(senderId) == null) {
+        try {
+          final u = await _pb.collection('users').getOne(senderId);
+          await _cacheUserRecord(u);
+        } catch (_) {}
+      }
+      List<int>? key;
+      try {
+        key = await _getConvKey(convId, myId);
+      } on MissingKeyException catch (e) {
+        debugPrint('[Msg] incoming key not ready, caching ciphertext: $e');
+        key = null;
+      }
+      // Cache even if we can't decrypt yet — a later fetch/reconcile will
+      // decrypt once the key is available. Message is never lost.
+      // Task 7: pass the NULL key through (was: `key ?? const <int>[]`)
+      // so the row lands decrypt_state='key_missing', not 'pending'.
+      await _cacheMsg(r, myId, key, source: IngestSource.sse);
+      // Acknowledge delivery so the sender's tick advances — narrative
+      // 'system' rows carry no ticks, skip them.
+      if (r.getStringValue('type') != 'system') {
+        await _markDelivered(r.id, convId, myId);
+      }
+      // Drift stream auto-emits — no manual push needed
+    } catch (e) {
+      debugPrint('[Msg] incoming error: $e');
+    }
   }
 
   Future<void> _subConversations() async {
@@ -932,11 +937,63 @@ class MessageRepositoryImpl implements MessageRepository {
     // Track the on-screen conversation for the poll fallback — set FIRST so the
     // poll can track it even while the fetch below is awaiting.
     _activeConversationId = conversationId;
-    // Purge any locally-expired disappearing messages before showing the chat.
-    // The Drift stream auto-emits on delete.
-    db.messagesDao.deleteExpiredMessages();
-
     return _messagesStream(conversationId);
+  }
+
+  /// Spec B8. Server time only: a phone's clock moved ahead must never delete
+  /// a message early, and with no server time yet this waits for the next
+  /// open. Files first, so a kill between the two steps repeats the purge
+  /// rather than strand a decrypted photo with no row pointing at it.
+  Future<void> _purgeExpired() async {
+    final now = pbClient.serverClock.now;
+    if (now == null) return;
+    try {
+      final myId = await _myId();
+      if (myId.isEmpty) return;
+      for (final row in await db.messagesDao.getExpiredMessages(now)) {
+        if (row.senderId != myId && !await _readReceiptOnServer(row, myId)) {
+          continue;
+        }
+        final sid = row.serverId;
+        if (sid != null) await mediaBlobStore.forgetLocal(sid);
+        await db.messagesDao.deleteByLocalId(row.localId);
+      }
+    } catch (e) {
+      debugPrint('[Msg] purge: $e');
+    }
+  }
+
+  /// Spec B7: the server's clock only starts on my receipt, and a purged row
+  /// can no longer send one, so the sender's copy and the server's would stay
+  /// for good. False only when the network failed: the row waits. A refusal
+  /// is final, and must not keep an expired message on this phone.
+  Future<bool> _readReceiptOnServer(MessagesTableData row, String myId) async {
+    final sid = row.serverId;
+    if (sid == null) return true;
+    final nowUtc = DateTime.now().toUtc().toIso8601String();
+    final receipts = _pb.collection('message_receipts');
+    try {
+      final res = await receipts.getList(
+        filter: 'message_id="$sid"&&recipient_id="$myId"',
+        perPage: 1,
+      );
+      if (res.items.isEmpty) {
+        await receipts.create(
+          body: {
+            'message_id': sid,
+            'conversation_id': row.conversationId,
+            'recipient_id': myId,
+            'delivered_at': nowUtc,
+            'read_at': nowUtc,
+          },
+        );
+      } else if (res.items.first.getStringValue('read_at').isEmpty) {
+        await receipts.update(res.items.first.id, body: {'read_at': nowUtc});
+      }
+      return true;
+    } on ClientException catch (e) {
+      return e.statusCode != 0;
+    }
   }
 
   /// Backlog §170 fix (b): the count behind the "old messages need
@@ -958,6 +1015,12 @@ class MessageRepositoryImpl implements MessageRepository {
   }
 
   Stream<List<Message>> _messagesStream(String conversationId) async* {
+    // Before the first emission: an expired row on screen would ask for its
+    // media again. Bounded, so a slow network can't hold the chat open.
+    await _purgeExpired().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {},
+    );
     // Peek at the current local cache once to choose the cold vs warm path.
     final cached = await db.messagesDao.watchMessages(conversationId).first;
     if (cached.isEmpty) {
@@ -1081,7 +1144,6 @@ class MessageRepositoryImpl implements MessageRepository {
     await _assertCanSend(conversationId);
     final localId = _uuid.v4();
     final now = DateTime.now();
-    final expiresAt = await _computeExpiry(conversationId, now);
 
     debugPrint(
       '[Msg] Sending message - localId: $localId, convId: $conversationId',
@@ -1192,7 +1254,6 @@ class MessageRepositoryImpl implements MessageRepository {
           iv: encBody?.iv ?? sealedBody?.iv ?? '',
           replyToId: Value(replyToLocalId),
           status: Value('pending'),
-          expiresAt: Value(expiresAt),
           createdAt: now,
           updatedAt: now,
           // Own rows resolve on read: decrypt_state='ready' + key_id so a
@@ -1448,7 +1509,6 @@ class MessageRepositoryImpl implements MessageRepository {
           type: 'text',
           encryptedBody: encrypted.ciphertext,
           iv: encrypted.iv,
-          expiresAt: Value(msg.expiresAt),
           createdAt: msg.createdAt,
           updatedAt: DateTime.now(),
           decryptState: const Value('ready'),
@@ -1503,7 +1563,6 @@ class MessageRepositoryImpl implements MessageRepository {
     debugPrint('[Msg] Message created on server with serverId: ${record.id}');
 
     final serverCreated = DateTime.tryParse(record.created) ?? createdAt;
-    final expiresAt = await _computeExpiry(conversationId, serverCreated);
     // Review C1: encryption+create span the gap — never stamp rows into a
     // session that ended mid-send (the local row was wiped with it).
     if (!sessionStillValid(
@@ -1534,7 +1593,7 @@ class MessageRepositoryImpl implements MessageRepository {
           replyToId: Value(replyServerId),
           // Keep the local plaintext reply preview for display.
           status: Value('sent'),
-          expiresAt: Value(expiresAt),
+          disappearAfter: Value(_disappearAfterOf(record)),
           // Use the server's canonical timestamp so ordering matches all devices.
           createdAt: serverCreated,
           updatedAt: DateTime.now(),
@@ -1633,6 +1692,11 @@ class MessageRepositoryImpl implements MessageRepository {
               dupOp.ref,
               serverCreated,
             );
+            await (db.update(db.messagesTable)
+                  ..where((t) => t.localId.equals(dupOp.ref)))
+                .write(MessagesTableCompanion(
+              disappearAfter: Value(_disappearAfterOf(rec)),
+            ));
             await db.messagesDao.liftQueuedTextSends(
               conversationId,
               serverCreated,
@@ -1979,6 +2043,7 @@ class MessageRepositoryImpl implements MessageRepository {
           serverCreated: serverCreated,
           encryptedBody: encrypted.ciphertext,
           iv: encrypted.iv,
+          disappearAfter: _disappearAfterOf(record),
         );
         await db.messagesDao.liftQueuedSends(conversationId, serverCreated);
       });
@@ -2373,6 +2438,30 @@ class MessageRepositoryImpl implements MessageRepository {
       if (myId.isEmpty) return;
       final nowUtc = DateTime.now().toUtc().toIso8601String();
 
+      // Spec B8 on every open and resume: the chat's message stream is built
+      // once per app run, so its own purge only covers the first open.
+      await _purgeExpired();
+
+      // Spec B5: first, so reading offline still starts the clock. With no
+      // server time yet it starts at the next read, never on the device
+      // clock: a clock set back would make the message expire early.
+      final readAt = pbClient.serverClock.latest;
+      if (readAt != null) {
+        await db.messagesDao.startClockOnIncoming(
+          conversationId,
+          myId,
+          readAt,
+        );
+      }
+
+      // Spec B5: a row I can't show has not been read. A read receipt would
+      // start the server's clock and delete it before its key arrives.
+      final rows = await db.messagesDao.watchMessages(conversationId).first;
+      final readable = {
+        for (final row in rows)
+          if (row.serverId != null && row.decryptState == 'ready') row.serverId,
+      };
+
       // 1) Mark all my existing unread receipts in this conversation as read.
       // Fetch read ones too: step 2 must skip them, or every open re-creates
       // a receipt per old message (unique-index 400s, then 429 on *:create).
@@ -2385,6 +2474,7 @@ class MessageRepositoryImpl implements MessageRepository {
           );
       for (final r in res) {
         if (r.getStringValue('read_at').isNotEmpty) continue;
+        if (!readable.contains(r.getStringValue('message_id'))) continue;
         try {
           await _pb
               .collection('message_receipts')
@@ -2402,7 +2492,6 @@ class MessageRepositoryImpl implements MessageRepository {
 
       // 2) For any incoming messages that don't yet have a receipt for me
       //    (e.g. the sender's create failed), create one now marked read.
-      final rows = await db.messagesDao.watchMessages(conversationId).first;
       final withReceipt = res
           .map((r) => r.getStringValue('message_id'))
           .toSet();
@@ -2411,6 +2500,7 @@ class MessageRepositoryImpl implements MessageRepository {
         if (sid == null || sid.isEmpty) continue;
         if (row.senderId == myId) continue; // not my own messages
         if (row.type == 'system') continue; // narrative rows carry no receipts
+        if (!readable.contains(sid)) continue;
         if (withReceipt.contains(sid)) continue; // already handled above
         try {
           await _pb
@@ -2459,7 +2549,7 @@ class MessageRepositoryImpl implements MessageRepository {
   // ── Load more (pagination) ────────────────────────────────────
 
   @override
-  Future<void> loadMoreMessages(String conversationId, int offset) async {
+  Future<bool> loadMoreMessages(String conversationId, int offset) async {
     try {
       final myId = await _myId();
       final res = await _pb
@@ -2481,10 +2571,11 @@ class MessageRepositoryImpl implements MessageRepository {
         debugPrint('[Msg] loadMore key not ready — committing ciphertext: $e');
         keys = const [];
       }
-      for (final r in res.items) {
+      for (final r in await _withoutRunOut(res.items, myId)) {
         await _cacheMsg(r, myId, keys.firstOrNull, keyCandidates: keys);
       }
       // Drift auto-emits after the inserts above
+      return res.items.length >= 40;
     } catch (e) {
       // Rethrown so the chat keeps its offset and offers Retry: a swallowed
       // failure used to skip this page and mark history as ended (bug §1.3).
@@ -3263,7 +3354,7 @@ class MessageRepositoryImpl implements MessageRepository {
             // Cache every row even when key is null — _cacheMsg stores the
             // ciphertext and a later chat-open re-decrypts. Never drop history.
             // Task 7: null key passes through so rows land key_missing.
-            for (final r in res.items) {
+            for (final r in await _withoutRunOut(res.items, myId)) {
               await _cacheMsg(r, myId, keys.firstOrNull, keyCandidates: keys);
               downloaded++;
               if (msgTotal > 0) {
@@ -4519,10 +4610,6 @@ class MessageRepositoryImpl implements MessageRepository {
   }) async {
     if (records.isEmpty) return;
     final epoch = _sessionEpoch;
-    final convId = records.first.getStringValue('conversation_id');
-    final conv = await db.conversationsDao.getConversationById(convId);
-    _disappearingDurations[convId] = conv?.disappearingDuration ?? 0;
-
     final existing = await db.messagesDao.getMessagesByServerIds([
       for (final r in records) r.id,
     ]);
@@ -4659,6 +4746,7 @@ class MessageRepositoryImpl implements MessageRepository {
     String myId,
   ) async {
     if (records.isEmpty) return records;
+    records = await _withoutRunOut(records, myId);
     final existing = await db.messagesDao.getMessagesByServerIds([
       for (final r in records) r.id,
     ]);
@@ -4699,10 +4787,71 @@ class MessageRepositoryImpl implements MessageRepository {
           e.isDeletedForEveryone == r.getBoolValue('is_deleted_for_everyone') &&
           e.isPinned == r.getBoolValue('is_pinned') &&
           (e.replyToId ?? '') == r.getStringValue('reply_to_id') &&
-          (e.mediaId ?? '') == r.getStringValue('media_id');
+          (e.mediaId ?? '') == r.getStringValue('media_id') &&
+          (e.disappearAfter ?? 0) == r.getIntValue('disappear_after');
       if (!unchanged) out.add(r);
     }
     return out;
+  }
+
+  /// Spec B12: drops timed records this phone has no row for because its
+  /// clock already removed them. The server keeps a copy until everyone has
+  /// read it, and re-ingesting one would bring it back with a fresh clock and
+  /// a phantom unread badge. Records of one chat. Any doubt keeps the record:
+  /// a message must never be lost to this check.
+  Future<List<RecordModel>> _withoutRunOut(
+    List<RecordModel> records,
+    String myId,
+  ) async {
+    final timed = [
+      for (final r in records)
+        if (r.getIntValue('disappear_after') > 0) r,
+    ];
+    if (timed.isEmpty) return records;
+    final stored = await db.messagesDao.getMessagesByServerIds([
+      for (final r in timed) r.id,
+    ]);
+    final storedIds = {for (final e in stored) e.serverId};
+    final missing = [
+      for (final r in timed)
+        if (!storedIds.contains(r.id)) r,
+    ];
+    if (missing.isEmpty) return records;
+
+    final now = pbClient.serverClock.now;
+    if (now == null) return records;
+    final gone = <String>{};
+    if (missing.any((r) => r.getStringValue('sender_id') != myId)) {
+      try {
+        final mine = await _pb
+            .collection('message_receipts')
+            .getFullList(
+              filter:
+                  'conversation_id="${records.first.getStringValue('conversation_id')}"'
+                  '&&recipient_id="$myId"&&read_at!=""',
+              batch: 200,
+            );
+        final readAt = {
+          for (final x in mine)
+            x.getStringValue('message_id'): DateTime.tryParse(
+              x.getStringValue('updated'),
+            ),
+        };
+        for (final r in missing) {
+          final seconds = r.getIntValue('disappear_after');
+          if (readAt[r.id]?.add(Duration(seconds: seconds)).isBefore(now) ??
+              false) {
+            gone.add(r.id);
+          }
+        }
+      } catch (e) {
+        debugPrint('[Msg] run-out check skipped: $e');
+      }
+    }
+    return [
+      for (final r in records)
+        if (!gone.contains(r.id)) r,
+    ];
   }
 
   /// Review I1: bounded repair pass for rows whose ciphertext never
@@ -4805,6 +4954,10 @@ class MessageRepositoryImpl implements MessageRepository {
 
   /// Repairs sender-side tick status for a conversation by recomputing from
   /// the server receipts. Fixes ticks that got stuck due to missed events.
+  @visibleForTesting
+  Future<void> debugReconcileReceipts(String conversationId) async =>
+      _reconcileReceiptsForConversation(conversationId, await _myId());
+
   Future<void> _reconcileReceiptsForConversation(
     String conversationId,
     String myId,
@@ -4865,6 +5018,7 @@ class MessageRepositoryImpl implements MessageRepository {
                     isStarred: Value(row.isStarred),
                     isPinned: Value(row.isPinned),
                     expiresAt: Value(row.expiresAt),
+                    disappearAfter: Value(row.disappearAfter),
                     mediaId: Value(row.mediaId),
                     status: Value(row.status),
                     decryptState: Value(row.decryptState),
@@ -4927,6 +5081,7 @@ class MessageRepositoryImpl implements MessageRepository {
                     isStarred: Value(true),
                     isPinned: Value(row.isPinned),
                     expiresAt: Value(row.expiresAt),
+                    disappearAfter: Value(row.disappearAfter),
                     mediaId: Value(row.mediaId),
                     status: Value(row.status),
                     decryptState: Value(row.decryptState),
@@ -4989,6 +5144,7 @@ class MessageRepositoryImpl implements MessageRepository {
                   isStarred: Value(row.isStarred),
                   isPinned: Value(row.isPinned),
                   expiresAt: Value(row.expiresAt),
+                  disappearAfter: Value(row.disappearAfter),
                   mediaId: Value(row.mediaId),
                   status: Value(row.status),
                   decryptState: Value(row.decryptState),
@@ -5040,6 +5196,7 @@ class MessageRepositoryImpl implements MessageRepository {
                   isStarred: const Value(true),
                   isPinned: Value(row.isPinned),
                   expiresAt: Value(row.expiresAt),
+                  disappearAfter: Value(row.disappearAfter),
                   mediaId: Value(row.mediaId),
                   status: Value(row.status),
                   decryptState: Value(row.decryptState),
@@ -5294,7 +5451,14 @@ class MessageRepositoryImpl implements MessageRepository {
       albumIndex: Value(
         albumId.isEmpty ? null : r.getIntValue('album_index'),
       ),
-      expiresAt: Value(_computeExpirySync(convId, createdAt)),
+      disappearAfter: Value(_disappearAfterOf(r)),
+      // Spec B3: a running clock is never moved. A new row copies a clock the
+      // server already started (reinstall). Never derived from the chat's
+      // timer: that stamped old history and purged it (backlog §7).
+      expiresAt: Value(
+        existing?.expiresAt ??
+            DateTime.tryParse(r.getStringValue('expires_at')),
+      ),
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
@@ -5610,13 +5774,11 @@ class MessageRepositoryImpl implements MessageRepository {
       // add/remove windows) — that was letting "delivered" tick as soon as
       // even one recipient filled it in. We cross-check against the live
       // conversation_members list from the server.
-      String? convId;
-      String? senderId;
-      try {
-        final msg = await _pb.collection('messages').getOne(serverId);
-        convId = msg.getStringValue('conversation_id');
-        senderId = msg.getStringValue('sender_id');
-      } catch (_) {}
+      // The local row, not the server's: an expired record is hidden from
+      // every client, and this must still run for it.
+      final local = await db.messagesDao.getMessageByLocalId(localId);
+      final convId = local?.conversationId;
+      final senderId = local?.senderId;
 
       Set<String> requiredRecipientIds = {};
       if (convId != null && senderId != null) {
@@ -5674,7 +5836,22 @@ class MessageRepositoryImpl implements MessageRepository {
         '(deliveredIds=${deliveredIds.length}/${requiredRecipientIds.length}, '
         'readIds=${readIds.length}/${requiredRecipientIds.length})',
       );
-      await db.messagesDao.updateMessageStatus(localId, computed);
+      // `updated` is server time; `read_at` is the reader's device clock.
+      final reads = items
+          .where((r) => r.getStringValue('read_at').isNotEmpty)
+          .map((r) => DateTime.tryParse(r.getStringValue('updated')))
+          .nonNulls
+          .toList()
+        ..sort();
+      // One transaction: 'read' is terminal for reconcile, so a kill between
+      // the two writes would leave my copy's clock unstarted for good.
+      await db.transaction(() async {
+        await db.messagesDao.updateMessageStatus(localId, computed);
+        // Spec B6: everyone has read it, so my copy counts from the last read.
+        if (allRead && reads.isNotEmpty) {
+          await db.messagesDao.startClockOnRow(localId, reads.last);
+        }
+      });
     } catch (e) {
       debugPrint('[Receipt] ERROR in statusUpdate: $e');
     }
@@ -5829,7 +6006,6 @@ class MessageRepositoryImpl implements MessageRepository {
           updatedAt: tableData.updatedAt,
         ),
       );
-      _disappearingDurations[convId] = tableData.disappearingDuration;
       final membersRes = await _pb
           .collection('conversation_members')
           .getFullList(
@@ -5880,26 +6056,10 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
-  /// Computes when a message should locally disappear based on the
-  /// conversation's disappearing-messages setting. Returns null when the
-  /// feature is Off (duration <= 0), meaning the message never expires.
-  Future<DateTime?> _computeExpiry(String convId, DateTime from) async {
-    final conv = await db.conversationsDao.getConversationById(convId);
-    final seconds = conv?.disappearingDuration ?? 0;
-    _disappearingDurations[convId] = seconds; // self-warm the sync cache
-    if (seconds <= 0) return null;
-    return from.add(Duration(seconds: seconds));
-  }
-
-  /// Disappearing duration per conv, warmed by [_computeExpiry] and the
-  /// conversation sync — lets the batched message cache compute expiry
-  /// without a per-row DAO query.
-  final Map<String, int> _disappearingDurations = {};
-
-  DateTime? _computeExpirySync(String convId, DateTime from) {
-    final secs = _disappearingDurations[convId] ?? 0;
-    if (secs <= 0) return null;
-    return from.add(Duration(seconds: secs));
+  /// The timer length the server fixed on this message. 0 means none.
+  int? _disappearAfterOf(RecordModel r) {
+    final seconds = r.getIntValue('disappear_after');
+    return seconds > 0 ? seconds : null;
   }
 
   /// C1: best-effort conversation key resolution for encryption-at-enqueue.
@@ -6077,9 +6237,6 @@ class MessageRepositoryImpl implements MessageRepository {
             createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
             updatedAt: DateTime.now(),
           ),
-        );
-        _disappearingDurations[conv.id] = conv.getIntValue(
-          'disappearing_duration',
         );
         await db.conversationsDao.upsertMember(
           ConversationMembersTableCompanion.insert(

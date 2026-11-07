@@ -300,6 +300,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _markReadDebounce?.cancel();
         _markReadDebounce = Timer(const Duration(milliseconds: 1500), () async {
           if (!mounted) return;
+          // In the background nobody has seen it: a mark here would start its
+          // disappearing clock. `_enter` marks on resume.
+          final state = WidgetsBinding.instance.lifecycleState;
+          if (state != null && state != AppLifecycleState.resumed) return;
           await ref.read(appLockProvider.notifier).whenUnlocked();
           if (mounted) {
             ref.read(messageRepositoryProvider).markConversationRead(_cid);
@@ -356,14 +360,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (position.pixels >= position.maxScrollExtent - 200 &&
         !_historyExhausted &&
         !_historyLoadFailed) {
-      final loadedCount = _items.whereType<_MsgItem>().fold<int>(
-        0,
-        (n, m) => n + m.rows.length,
-      );
-      if (loadedCount < _offset) {
-        if (mounted) setState(() => _historyExhausted = true);
-        return;
-      }
       _loadMore();
     }
   }
@@ -375,8 +371,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _historyLoadFailed = false;
     });
     try {
-      await ref.read(messageRepositoryProvider).loadMoreMessages(_cid, _offset);
+      final more = await ref
+          .read(messageRepositoryProvider)
+          .loadMoreMessages(_cid, _offset);
       _offset += 40;
+      if (!more) _historyExhausted = true;
     } catch (_) {
       // Offset stays put so Retry refetches the same page (bug §1.3).
       _historyLoadFailed = true;

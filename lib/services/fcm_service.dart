@@ -515,6 +515,9 @@ class FcmService {
         // 'pending' is that value here; DecryptPass picks the row up on the
         // next open and resolves it to 'ready' (or 'key_missing').
         decryptState:   const Value('pending'),
+        disappearAfter: Value(r.getIntValue('disappear_after') > 0
+            ? r.getIntValue('disappear_after')
+            : null),
         createdAt:      DateTime.tryParse(r.created) ?? DateTime.now(),
         updatedAt:      DateTime.now(),
       ));

@@ -2269,6 +2269,15 @@ class $MessagesTableTable extends MessagesTable
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _disappearAfterMeta = const VerificationMeta('disappearAfter');
+  @override
+  late final GeneratedColumn<int> disappearAfter = GeneratedColumn<int>(
+    'disappear_after',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -2312,6 +2321,7 @@ class $MessagesTableTable extends MessagesTable
     keyId,
     albumId,
     albumIndex,
+    disappearAfter,
     createdAt,
     updatedAt,
   ];
@@ -2465,6 +2475,12 @@ class $MessagesTableTable extends MessagesTable
         albumIndex.isAcceptableOrUnknown(data['album_index']!, _albumIndexMeta),
       );
     }
+    if (data.containsKey('disappear_after')) {
+      context.handle(
+        _disappearAfterMeta,
+        disappearAfter.isAcceptableOrUnknown(data['disappear_after']!, _disappearAfterMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -2566,6 +2582,10 @@ class $MessagesTableTable extends MessagesTable
         DriftSqlType.int,
         data['${effectivePrefix}album_index'],
       ),
+      disappearAfter: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}disappear_after'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -2628,6 +2648,7 @@ class MessagesTableData extends DataClass
   final String? keyId;
   final String? albumId;
   final int? albumIndex;
+  final int? disappearAfter;
   final DateTime createdAt;
   final DateTime updatedAt;
   const MessagesTableData({
@@ -2650,6 +2671,7 @@ class MessagesTableData extends DataClass
     this.keyId,
     this.albumId,
     this.albumIndex,
+    this.disappearAfter,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -2688,6 +2710,9 @@ class MessagesTableData extends DataClass
     }
     if (!nullToAbsent || albumIndex != null) {
       map['album_index'] = Variable<int>(albumIndex);
+    }
+    if (!nullToAbsent || disappearAfter != null) {
+      map['disappear_after'] = Variable<int>(disappearAfter);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -2729,6 +2754,9 @@ class MessagesTableData extends DataClass
       albumIndex: albumIndex == null && nullToAbsent
           ? const Value.absent()
           : Value(albumIndex),
+      disappearAfter: disappearAfter == null && nullToAbsent
+          ? const Value.absent()
+          : Value(disappearAfter),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -2761,6 +2789,7 @@ class MessagesTableData extends DataClass
       keyId: serializer.fromJson<String?>(json['keyId']),
       albumId: serializer.fromJson<String?>(json['albumId']),
       albumIndex: serializer.fromJson<int?>(json['albumIndex']),
+      disappearAfter: serializer.fromJson<int?>(json['disappearAfter']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -2788,6 +2817,7 @@ class MessagesTableData extends DataClass
       'keyId': serializer.toJson<String?>(keyId),
       'albumId': serializer.toJson<String?>(albumId),
       'albumIndex': serializer.toJson<int?>(albumIndex),
+      'disappearAfter': serializer.toJson<int?>(disappearAfter),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -2813,6 +2843,7 @@ class MessagesTableData extends DataClass
     Value<String?> keyId = const Value.absent(),
     Value<String?> albumId = const Value.absent(),
     Value<int?> albumIndex = const Value.absent(),
+    Value<int?> disappearAfter = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => MessagesTableData(
@@ -2835,6 +2866,7 @@ class MessagesTableData extends DataClass
     keyId: keyId.present ? keyId.value : this.keyId,
     albumId: albumId.present ? albumId.value : this.albumId,
     albumIndex: albumIndex.present ? albumIndex.value : this.albumIndex,
+    disappearAfter: disappearAfter.present ? disappearAfter.value : this.disappearAfter,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -2869,6 +2901,7 @@ class MessagesTableData extends DataClass
       keyId: data.keyId.present ? data.keyId.value : this.keyId,
       albumId: data.albumId.present ? data.albumId.value : this.albumId,
       albumIndex: data.albumIndex.present ? data.albumIndex.value : this.albumIndex,
+      disappearAfter: data.disappearAfter.present ? data.disappearAfter.value : this.disappearAfter,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -2896,6 +2929,7 @@ class MessagesTableData extends DataClass
           ..write('keyId: $keyId, ')
           ..write('albumId: $albumId, ')
           ..write('albumIndex: $albumIndex, ')
+          ..write('disappearAfter: $disappearAfter, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -2923,6 +2957,7 @@ class MessagesTableData extends DataClass
     keyId,
     albumId,
     albumIndex,
+    disappearAfter,
     createdAt,
     updatedAt,
   ]);
@@ -2949,6 +2984,7 @@ class MessagesTableData extends DataClass
           other.keyId == this.keyId &&
           other.albumId == this.albumId &&
           other.albumIndex == this.albumIndex &&
+          other.disappearAfter == this.disappearAfter &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -2973,6 +3009,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
   final Value<String?> keyId;
   final Value<String?> albumId;
   final Value<int?> albumIndex;
+  final Value<int?> disappearAfter;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -2996,6 +3033,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.keyId = const Value.absent(),
     this.albumId = const Value.absent(),
     this.albumIndex = const Value.absent(),
+    this.disappearAfter = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -3020,6 +3058,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     this.keyId = const Value.absent(),
     this.albumId = const Value.absent(),
     this.albumIndex = const Value.absent(),
+    this.disappearAfter = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -3051,6 +3090,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Expression<String>? keyId,
     Expression<String>? albumId,
     Expression<int>? albumIndex,
+    Expression<int>? disappearAfter,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -3076,6 +3116,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       if (keyId != null) 'key_id': keyId,
       if (albumId != null) 'album_id': albumId,
       if (albumIndex != null) 'album_index': albumIndex,
+      if (disappearAfter != null) 'disappear_after': disappearAfter,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -3102,6 +3143,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     Value<String?>? keyId,
     Value<String?>? albumId,
     Value<int?>? albumIndex,
+    Value<int?>? disappearAfter,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -3126,6 +3168,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
       keyId: keyId ?? this.keyId,
       albumId: albumId ?? this.albumId,
       albumIndex: albumIndex ?? this.albumIndex,
+      disappearAfter: disappearAfter ?? this.disappearAfter,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -3194,6 +3237,9 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
     if (albumIndex.present) {
       map['album_index'] = Variable<int>(albumIndex.value);
     }
+    if (disappearAfter.present) {
+      map['disappear_after'] = Variable<int>(disappearAfter.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -3228,6 +3274,7 @@ class MessagesTableCompanion extends UpdateCompanion<MessagesTableData> {
           ..write('keyId: $keyId, ')
           ..write('albumId: $albumId, ')
           ..write('albumIndex: $albumIndex, ')
+          ..write('disappearAfter: $disappearAfter, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -8751,6 +8798,7 @@ typedef $$MessagesTableTableCreateCompanionBuilder =
       Value<String?> keyId,
       Value<String?> albumId,
       Value<int?> albumIndex,
+      Value<int?> disappearAfter,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -8776,6 +8824,7 @@ typedef $$MessagesTableTableUpdateCompanionBuilder =
       Value<String?> keyId,
       Value<String?> albumId,
       Value<int?> albumIndex,
+      Value<int?> disappearAfter,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
@@ -8882,6 +8931,11 @@ class $$MessagesTableTableFilterComposer
 
   ColumnFilters<int> get albumIndex => $composableBuilder(
     column: $table.albumIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get disappearAfter => $composableBuilder(
+    column: $table.disappearAfter,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9000,6 +9054,11 @@ class $$MessagesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get disappearAfter => $composableBuilder(
+    column: $table.disappearAfter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -9087,6 +9146,9 @@ class $$MessagesTableTableAnnotationComposer
   GeneratedColumn<int> get albumIndex =>
       $composableBuilder(column: $table.albumIndex, builder: (column) => column);
 
+  GeneratedColumn<int> get disappearAfter =>
+      $composableBuilder(column: $table.disappearAfter, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
@@ -9148,6 +9210,7 @@ class $$MessagesTableTableTableManager
                 Value<String?> keyId = const Value.absent(),
                 Value<String?> albumId = const Value.absent(),
                 Value<int?> albumIndex = const Value.absent(),
+                Value<int?> disappearAfter = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -9171,6 +9234,7 @@ class $$MessagesTableTableTableManager
                 keyId: keyId,
                 albumId: albumId,
                 albumIndex: albumIndex,
+                disappearAfter: disappearAfter,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -9196,6 +9260,7 @@ class $$MessagesTableTableTableManager
                 Value<String?> keyId = const Value.absent(),
                 Value<String?> albumId = const Value.absent(),
                 Value<int?> albumIndex = const Value.absent(),
+                Value<int?> disappearAfter = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -9219,6 +9284,7 @@ class $$MessagesTableTableTableManager
                 keyId: keyId,
                 albumId: albumId,
                 albumIndex: albumIndex,
+                disappearAfter: disappearAfter,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

@@ -1,19 +1,22 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
+import 'server_clock.dart';
 
 class PocketBaseClient {
-  PocketBaseClient._(this._pb);
+  PocketBaseClient._(this._pb, this.serverClock);
 
   /// Test seam: inject a PocketBase built with a MockClient
   /// (pocketbase's httpClientFactory exists "primarily for unit tests").
   @visibleForTesting
-  PocketBaseClient.forTest(this._pb);
+  PocketBaseClient.forTest(this._pb) : serverClock = ServerClock();
 
   final PocketBase _pb;
+  final ServerClock serverClock;
 
   PocketBase get pb => _pb;
   bool get isAuthenticated => _pb.authStore.isValid;
@@ -21,7 +24,11 @@ class PocketBaseClient {
   static Future<PocketBaseClient> create(
     SecureStorageService storage,
   ) async {
-    final pb = PocketBase(AppConstants.baseUrl);
+    final clock = ServerClock();
+    final pb = PocketBase(
+      AppConstants.baseUrl,
+      httpClientFactory: () => ServerClockClient(http.Client(), clock),
+    );
 
     // Restore token from SecureStorage.
     // Even if this fails, getCurrentUser() will handle the fallback.
@@ -36,7 +43,7 @@ class PocketBaseClient {
       debugPrint('[PB] SecureStorage restore failed: $e');
     }
 
-    final client = PocketBaseClient._(pb);
+    final client = PocketBaseClient._(pb, clock);
 
     // Keep SecureStorage in sync.
     pb.authStore.onChange.listen((event) async {

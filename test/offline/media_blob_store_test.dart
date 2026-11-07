@@ -171,6 +171,38 @@ Future<bool> _awaitState(
 }
 
 void main() {
+  test('forgetLocal leaves no file and never brings the row back', () async {
+    final h = charHarness();
+    addTearDown(h.close);
+    final parent = await Directory.systemTemp.createTemp('kb_forget');
+    addTearDown(() => parent.delete(recursive: true));
+    final cache = Directory('${parent.path}/media_clear')..createSync();
+    // One no row points at (a crash before `ready`), its thumbnail, and
+    // another message's file whose id starts the same way.
+    final orphan = File('${cache.path}/srv1_f_a.jpg')..writeAsStringSync('x');
+    final thumb = File('${cache.path}/srv1_t_a.jpg')..writeAsStringSync('x');
+    final other = File('${cache.path}/srv10_f_a.jpg')..writeAsStringSync('x');
+    var calls = 0;
+    final store = _store(
+      h,
+      client: MockClient((_) async {
+        calls++;
+        return http.Response('{}', 404);
+      }),
+      cacheDir: () async => parent,
+    );
+
+    await store.forgetLocal('srv1');
+    final again = await store.requestBlob('srv1_f', 'test');
+
+    expect(orphan.existsSync(), isFalse);
+    expect(thumb.existsSync(), isFalse);
+    expect(other.existsSync(), isTrue);
+    expect(again, isNull);
+    expect(await store.dao.byId('srv1_f'), isNull);
+    expect(calls, 0);
+  });
+
   test('stalled media download times out back to queued for retry', () async {
     final never = Completer<http.Response>();
     final mock = MockClient((req) async {

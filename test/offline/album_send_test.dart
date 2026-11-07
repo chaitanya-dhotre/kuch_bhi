@@ -300,6 +300,7 @@ void main() {
     final db12 = raw.sqlite3.open(path);
     db12.execute('ALTER TABLE messages_table DROP COLUMN album_id');
     db12.execute('ALTER TABLE messages_table DROP COLUMN album_index');
+    db12.execute('ALTER TABLE messages_table DROP COLUMN disappear_after');
     db12.execute('PRAGMA user_version = 12');
     db12.dispose();
 
@@ -310,6 +311,6 @@ void main() {
     expect(rows.single.serverId, 'srvold000000001');
     expect((rows.single.albumId, rows.single.albumIndex), (null, null));
     final v = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(v.data.values.first, 13);
+    expect(v.data.values.first, 14);
   });
 }

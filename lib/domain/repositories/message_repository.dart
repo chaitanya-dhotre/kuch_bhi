@@ -187,7 +187,8 @@ abstract class MessageRepository {
 
   /// Fetch older messages (pagination). Throws on failure (8s bound) so the
   /// caller keeps its offset instead of skipping the page.
-  Future<void> loadMoreMessages(String conversationId, int offset);
+  /// True when the page was full, so older history may remain.
+  Future<bool> loadMoreMessages(String conversationId, int offset);
 
   /// Fetch and cache a single message by its server ID.
   Future<void> fetchAndCacheSingleMessage(String messageId, String conversationId);
