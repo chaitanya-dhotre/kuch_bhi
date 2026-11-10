@@ -15,7 +15,7 @@ import '../../../core/widgets/status_banner.dart';
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../domain/entities/friend_request.dart';
 import '../../../domain/entities/group_invite.dart';
-import '../../../features/mascot/capybara.dart';
+import '../../../features/mascot/capy_spots.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../home/screens/add_friend_screen.dart';
 import '../providers/friend_request_provider.dart';
@@ -82,7 +82,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
       return _scrollableState(
         context,
         EmptyState(
-          mascot: const Capybara(mood: CapyMood.sleepy, size: Size(120, 106)),
+          mascot: capySpot('X5').build(),
           title: "Couldn't load requests.",
           subtitle: kConnectionRetryCopy,
           action: AppButton(
@@ -200,7 +200,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
     return SizedBox(
       height: MediaQuery.sizeOf(context).height * .58,
       child: EmptyState(
-        mascot: const Capybara(mood: CapyMood.neutral, size: Size(120, 106)),
+        mascot: capySpot('X4').build(),
         title: kNoPendingRequestsCopy,
         subtitle: 'Friend requests and group invites will show up here.',
         action: AppButton(

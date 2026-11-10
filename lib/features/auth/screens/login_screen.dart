@@ -8,7 +8,7 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
-import '../../mascot/capybara.dart';
+import '../../mascot/capy_spots.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/auth_ui.dart';
@@ -128,7 +128,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     const SizedBox(height: 48),
                     // Mascot slot (art stays swappable).
-                    const Center(child: Capybara(size: Size(112, 95))),
+                    Center(child: capySpot('X1').build()),
                     const SizedBox(height: 16),
                     const AuthTitle('Welcome back'),
                     const SizedBox(height: 4),

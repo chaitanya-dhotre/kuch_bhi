@@ -73,10 +73,8 @@
   - Pinned message: full-width band → floating compact pill (tap expand, swipe dismiss).
   - Inspiration: `docs/Inspiration/` folder.
 - `[DECIDED]` **Home reconciliation** — mockup had no top navbar (floating title) + rounded-rect chat cards with gaps; current feels disconnected. Diff against `docs/mockups/2026-10-05-home-chat.html`, restore card treatment.
-- `[DECIDED]` **Mascot shortlist (limited; more ⇒ Rive later):**
-  - Chat: C1 header-buddy info mode · C2 swipe companion (clock reaction) · C4 send-success bounce (needs §1 T2) · C5 failed-send concerned pose · C7 empty-chat = static + text below (no animation).
-  - Elsewhere: E1 offline banner sleepy (StatusBanner) · E4 cold-start sync-hold.
-  - Spec law: never in bubbles, never behind text, never every screen. Tier 2 list = typing, offline-sleepy, key-rotation dance, PIN-restore celebration, sync-hold (spec "built on demand").
+- `[SUPERSEDED 2026-11-09 → docs/design/pages/mascot.md, Page 10]` **Mascot shortlist.** Replaced by the Page 10 spec (Rive, S1 Sticker capybara redrawn by Claude in RML; full inventory in `docs/design/mascot/inventory.md`). Phase 2 = swap all 12 current capybaras + **E1 offline banner as a yuzu bath** (queued messages float as yuzus, one leaves per real send; replaces "offline sleepy") + C4 first-send hop + pet on tap (I3). Phase 3 security moments (app lock, key restore, key rotation, cold start); Phase 4 **capybara stickers** (I2, own spec, server change; the one exception to "never in bubbles"); Phase 5 onboarding, C1 header buddy, C5, About, night/festival looks (I4), app icon. **Dropped:** C2 swipe companion, typing-indicator capybara. Eye rule (user): idle = curved-line eyes, doing something = round eyes, intense = focused look.
+  - Old list kept for history: C1 header-buddy · C2 swipe companion · C4 send-success bounce · C5 failed-send pose · C7 empty chat · E1 offline sleepy · E4 cold-start sync-hold.
 - `[BACKLOG]` **Media screens** — "no proper work at all": media boxes, photo/video viewer, docs grid need real design pass (viewer currently = chewie defaults). Inspiration: image-banner message style (`docs/Inspiration/Image_banner_that_looks_cool.png` — avatar overlap, header text, horizontal photo carousel in-bubble, facepile+🔥 reactions, 👍/👎 actions) + voice recorder UI (`Functional_and_visually_pleasing_Voice_note.png` — centered, timer, thin waveform, mic; **violet accent → recolor Marigold if adopted**).
 - `[BACKLOG]` Voice-note bubble polish (current waveform acceptable; inspiration captured for redesign).
 
@@ -94,7 +92,7 @@
 ## 5. End-game
 
 - `[DECIDED]` **UI consistency sweep LAST** (radius/buttons/menus/spacing/type across all screens) — only when ALL UI complete (media viewers still pending). Driven by impeccable audit checklist. Tokens already exist (Phase A); this is enforcement.
-- `[DECIDED]` **Rive = spec-amendment option**, deferred until Tier 2 demands it (~max 10 animations needed now; native rig suffices). If revisited: layer the approved SVG (no redraw), State Machine, `rive` Flutter pkg.
+- `[REPLACED 2026-11-07, user]` ~~Rive = spec-amendment option, deferred until Tier 2; layer the approved SVG (no redraw)~~. **Rive now**: the capybara is redrawn (S1 Sticker, 4 views: Sit, Front, Head, Onsen) and authored by Claude as RML with the Rive CLI (`~/.rive/bin/rive`), checked headless (`--verify`, `inspect`, `--screenshot`). One `assets/mascot/capy.riv`, `rive: ^0.14.11`, at most 2 animated on screen (Redmi S2 limit). Spec: `docs/design/pages/mascot.md`. Built on the Free plan; one month of Cadet before release for unwatermarked export if needed.
 
 ## 6. Deferred minors (from W3-B final review)
 

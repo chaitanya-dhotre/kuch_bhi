@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/utils/app_haptic.dart';
 import '../../../core/widgets/app_avatar.dart';
@@ -37,7 +36,8 @@ import '../../profile/screens/view_profile_screen.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
-import '../../mascot/capybara.dart';
+import '../../mascot/capy_spots.dart';
+import '../../mascot/offline_bath_banner.dart';
 import '../../app_lock/app_lock_controller.dart';
 
 /// Who may send in [conv]: the composer and the share picker (12.1 D6) both
@@ -903,10 +903,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             if (_historyLoadFailed && !_loadingMore)
               HistoryLoadFailedRow(online: isOnline, onRetry: _loadMore),
 
-            if (!isOnline)
-              _OfflineStrip(
-                onRetry: () => ref.invalidate(messagesProvider(_cid)),
-              ),
+            OfflineBathBanner(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+              bordered: true,
+              onRetry: () => ref.invalidate(messagesProvider(_cid)),
+            ),
 
             if (!_searchActive)
               PinnedMessageBanner(
@@ -922,13 +923,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     error: (e, _) => ChatLoadError(
                       onRetry: () => ref.invalidate(messagesProvider(_cid)),
                     ),
-                    data: (_) => items.isEmpty
-                        ? _ChatEmptyState(
-                            displayName: conv.displayName,
-                            hidden: ref
-                                .watch(undecryptableCountProvider(_cid))
-                                .value,
-                          )
+                    data: (_) => _ChatEmptyFade(
+                      empty: items.isEmpty,
+                      emptyState: (hops) => _ChatEmptyState(
+                        displayName: conv.displayName,
+                        hidden: ref
+                            .watch(undecryptableCountProvider(_cid))
+                            .value,
+                        hops: hops,
+                      ),
+                      child: items.isEmpty
+                        ? const SizedBox.shrink()
                         : _searchActive &&
                               _searchCtrl.text.trim().isNotEmpty &&
                               !_searchPending &&
@@ -1075,6 +1080,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                     );
                             },
                           )),
+                    ),
                   ),
                   if (!_searchActive && _showScrollToLatest)
                     Positioned(
@@ -1505,13 +1511,7 @@ class ChatLoadError extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Center(
-                child: Capybara(
-                  mood: CapyMood.neutral,
-                  showKey: true,
-                  size: Size(72, 65),
-                ),
-              ),
+              Center(child: capySpot('X9').build()),
               const SizedBox(height: 8),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1587,16 +1587,88 @@ class HistoryLoadFailedRow extends StatelessWidget {
 
 /// Empty chat, or history this device can no longer decrypt.
 ///
+/// C4 (a): when the first message lands in an empty chat, the empty state
+/// stays on top for 400 ms, fading out while its capybara hops once.
+class _ChatEmptyFade extends StatefulWidget {
+  const _ChatEmptyFade({
+    required this.empty,
+    required this.emptyState,
+    required this.child,
+  });
+
+  final bool empty;
+  final Widget Function(int hops) emptyState;
+  final Widget child;
+
+  @override
+  State<_ChatEmptyFade> createState() => _ChatEmptyFadeState();
+}
+
+class _ChatEmptyFadeState extends State<_ChatEmptyFade>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 400),
+    value: widget.empty ? 1 : 0,
+  );
+
+  @override
+  void didUpdateWidget(_ChatEmptyFade old) {
+    super.didUpdateWidget(old);
+    if (old.empty && !widget.empty) {
+      _fade.duration = MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 400);
+      _fade.reverse(from: 1);
+    } else if (widget.empty) {
+      _fade.value = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _fade,
+      child: widget.emptyState(widget.empty ? 0 : 1),
+      builder: (context, empty) => Stack(
+        fit: StackFit.expand,
+        children: [
+          KeyedSubtree(key: const ValueKey('chat-list'), child: widget.child),
+          if (widget.empty || _fade.value > 0)
+            KeyedSubtree(
+              key: const ValueKey('chat-empty'),
+              child: IgnorePointer(
+                ignoring: !widget.empty,
+                child: Opacity(opacity: _fade.value, child: empty),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// An empty list used to render "Say hello" unconditionally, which is wrong for
 /// a conversation whose rows are all `pending`/`key_missing` (backlog §170):
 /// those rows are hidden by design — ciphertext must never reach a bubble — so
 /// a group with 75 unrecoverable rows looked brand-new. [hidden] > 0 means
 /// "history exists but cannot be decrypted", which is the honest copy.
 class _ChatEmptyState extends StatelessWidget {
-  const _ChatEmptyState({required this.displayName, this.hidden});
+  const _ChatEmptyState({
+    required this.displayName,
+    this.hidden,
+    this.hops = 0,
+  });
 
   final String displayName;
   final int? hidden;
+  final int hops;
 
   @override
   Widget build(BuildContext context) {
@@ -1606,15 +1678,14 @@ class _ChatEmptyState extends StatelessWidget {
         subtitle:
             'These messages were encrypted with a key this device no longer '
             'has. Ask a group admin to re-share them.',
-        mood: CapyMood.sleepy,
-        mascot: const Capybara(mood: CapyMood.sleepy, size: Size(64, 58)),
+        mascot: capySpot('X7').build(),
       );
     }
     return EmptyState(
       title: 'Say hello to $displayName',
       subtitle:
           'Messages here are end-to-end encrypted. Nobody else can read them.',
-      mascot: const Capybara(size: Size(108, 97)),
+      mascot: capySpot('X6').build(hops: hops),
     );
   }
 }
@@ -1629,7 +1700,7 @@ class _SearchEmptyState extends StatelessWidget {
     return EmptyState(
       title: 'Nothing found',
       subtitle: 'No messages match “$query”.',
-      mascot: const Capybara(mood: CapyMood.sleepy, size: Size(64, 58)),
+      mascot: capySpot('X8').build(),
     );
   }
 }
@@ -1739,42 +1810,6 @@ class _TypingDotsState extends State<_TypingDots>
                 ),
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OfflineStrip extends StatelessWidget {
-  const _OfflineStrip({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-      decoration: BoxDecoration(
-        color: context.t.accentSoft,
-        border: Border.all(color: context.t.accent.withValues(alpha: 0.45)),
-        borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.cloud_off_outlined,
-            size: 16,
-            color: context.t.accentPressed,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              kOfflineSendCopy,
-              style: TextStyle(color: context.t.ink, fontSize: 12),
-            ),
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
         ],
       ),
     );

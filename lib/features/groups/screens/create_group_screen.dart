@@ -13,6 +13,7 @@ import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_chip.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../mascot/capy.dart';
 import '../../../core/widgets/search_field.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/page_app_bar.dart';
@@ -501,6 +502,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     // H1: R7 error state — no `$e`, and the app bar stays reachable.
     if (friendsAsync.hasError && friendsAsync.valueOrNull == null) {
       return EmptyState(
+        mood: CapyMood.worried,
         title: kLoadFriendsFailedCopy,
         subtitle: kConnectionRetryCopy,
         action: AppButton(

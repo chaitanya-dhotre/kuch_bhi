@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/tokens.dart';
-import '../../features/mascot/capybara.dart';
+import '../../features/mascot/capy.dart';
+import '../../features/mascot/capy_spots.dart';
 
 /// Empty/error state with the mascot slot (spec: slots, not decisions).
 /// Never used inside message bubbles or behind readable text.
@@ -11,7 +12,7 @@ class EmptyState extends StatelessWidget {
       this.subtitle,
       this.action,
       this.withMascot = true,
-      this.mood = CapyMood.neutral,
+      this.mood = CapyMood.chill,
       this.mascot});
   final String title;
   final String? subtitle;
@@ -33,7 +34,7 @@ class EmptyState extends StatelessWidget {
             if (mascot != null)
               mascot!
             else if (withMascot)
-              Capybara(mood: mood, size: const Size(180, 152)),
+              capySpot('X10').build(mood: mood),
             const SizedBox(height: 16),
             Text(title,
                 textAlign: TextAlign.center,

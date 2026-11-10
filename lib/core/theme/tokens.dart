@@ -94,8 +94,6 @@ class WarmPopTokens {
   static const motionFast = Duration(milliseconds: 150);
   static const motionBase = Duration(milliseconds: 250);
   static const motionSlow = Duration(milliseconds: 400);
-  static const mascotBreathe = Duration(milliseconds: 3400);
-  static const mascotBlink = Duration(milliseconds: 4600);
 }
 
 /// Theme-scoped colors. Components consume `context.t`.

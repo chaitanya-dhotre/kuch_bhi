@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/features/chat/screens/chat_screen.dart';
-import 'package:kuch_bhi/features/mascot/capybara.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
 
 void main() {
   testWidgets('chat load error uses the key mascot and keeps retry', (
@@ -16,9 +16,10 @@ void main() {
       ),
     );
 
-    final mascot = tester.widget<Capybara>(find.byType(Capybara));
-    expect(mascot.showKey, isTrue);
-    expect(mascot.size, const Size(72, 65));
+    final mascot = tester.widget<Capy>(find.byType(Capy));
+    expect(mascot.view, CapyView.front);
+    expect(mascot.pose, CapyPose.guard);
+    expect(mascot.size, 72);
     expect(find.text("Couldn't load this chat."), findsOneWidget);
 
     await tester.tap(find.text('Retry'));

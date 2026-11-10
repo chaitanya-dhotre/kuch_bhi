@@ -26,8 +26,8 @@ import '../../../features/chat/providers/message_body_provider.dart';
 import '../../../features/chat/widgets/message_body_text.dart';
 import '../../../features/chat/widgets/message_context_menu.dart';
 import '../../../features/friend_requests/providers/friend_request_provider.dart';
-import '../../../features/mascot/capybara.dart';
-import '../../../infrastructure/offline/connectivity_signal.dart';
+import '../../../features/mascot/capy_spots.dart';
+import '../../../features/mascot/offline_bath_banner.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../providers/conversations_provider.dart';
 import '../providers/friends_provider.dart';
@@ -134,7 +134,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final conversationsAsync = ref.watch(conversationsProvider);
     final friendsAsync = ref.watch(friendshipsProvider);
     final backupAsync = ref.watch(showBackupBannerProvider);
-    final isOnline = ref.watch(isOnlineProvider).valueOrNull ?? true;
 
     // Keep an already-visible banner through a provider refresh. Initial
     // loading remains hidden until the provider has produced its first value.
@@ -217,8 +216,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onClear: _restoreSearchScroll,
             ),
           ),
-          _OfflineBannerSlot(
-            visible: !isOnline,
+          OfflineBathBanner(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            tapToRetry: true,
             onRetry: () => unawaited(_refreshHome()),
           ),
           Expanded(
@@ -324,11 +324,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         SizedBox(
           height: MediaQuery.sizeOf(context).height * .58,
           child: EmptyState(
-            mascot: const Capybara(
-              mood: CapyMood.sleepy,
-              showKey: true,
-              size: Size(84, 76),
-            ),
+            mascot: capySpot('X3').build(),
             title: 'Couldn’t load your chats',
             subtitle: kConnectionRetryCopy,
             action: FilledButton(
@@ -471,10 +467,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         SizedBox(
           height: MediaQuery.sizeOf(context).height * .58,
           child: EmptyState(
-            mascot: const Capybara(
-              mood: CapyMood.neutral,
-              size: Size(130, 117),
-            ),
+            mascot: capySpot('X2').build(),
             title: 'No chats yet',
             subtitle: 'Add friends to start chatting.',
             action: FilledButton.icon(
@@ -638,82 +631,6 @@ class _ProfileButtonState extends State<_ProfileButton> {
                   accentSoft: true,
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OfflineBannerSlot extends StatelessWidget {
-  const _OfflineBannerSlot({required this.visible, required this.onRetry});
-
-  final bool visible;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: _homeMotionDuration(context, WarmPopTokens.motionBase),
-      layoutBuilder: (currentChild, previousChildren) => Stack(
-        alignment: Alignment.topCenter,
-        children: [...previousChildren, if (currentChild != null) currentChild],
-      ),
-      child: visible
-          ? Padding(
-              key: const ValueKey('home-offline-banner'),
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
-              child: _OfflineBanner(onRetry: onRetry),
-            )
-          : const SizedBox.shrink(key: ValueKey('home-online-space')),
-    );
-  }
-}
-
-class _OfflineBanner extends StatelessWidget {
-  const _OfflineBanner({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      container: true,
-      label: kOfflineSendCopy,
-      child: Material(
-        color: t.accentSoft,
-        borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
-          onTap: onRetry,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.cloud_off_outlined,
-                  size: 16,
-                  color: t.accentPressed,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    kOfflineSendCopy,
-                    style: TextStyle(fontSize: 12, color: t.ink),
-                  ),
-                ),
-                TextButton(
-                  onPressed: onRetry,
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.ink,
-                    minimumSize: const Size(0, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                  child: const Text('Retry'),
-                ),
-              ],
             ),
           ),
         ),

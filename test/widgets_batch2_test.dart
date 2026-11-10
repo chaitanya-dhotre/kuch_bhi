@@ -6,7 +6,7 @@ import 'package:kuch_bhi/core/widgets/empty_state.dart';
 import 'package:kuch_bhi/core/widgets/settings_tile.dart';
 import 'package:kuch_bhi/core/widgets/skeleton.dart';
 import 'package:kuch_bhi/core/widgets/status_banner.dart';
-import 'package:kuch_bhi/features/mascot/capybara.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
 
 Widget host(Widget child) => MaterialApp(
   theme: warmPopLight(),
@@ -18,7 +18,10 @@ void main() {
     await tester.pumpWidget(
       host(const EmptyState(title: 'No chats yet', subtitle: 'Add a friend')),
     );
-    expect(find.byType(Capybara), findsOneWidget);
+    // X10: the default mascot is the Sit view at 120 (was 180).
+    final capy = tester.widget<Capy>(find.byType(Capy));
+    expect(capy.view, CapyView.sit);
+    expect(capy.size, 120);
     expect(find.text('No chats yet'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox());
@@ -102,7 +105,7 @@ void main() {
       ),
     );
     expect(find.text('custom-mascot'), findsOneWidget);
-    expect(find.byType(Capybara), findsNothing);
+    expect(find.byType(Capy), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
