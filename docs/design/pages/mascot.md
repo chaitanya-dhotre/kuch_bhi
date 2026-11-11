@@ -1,6 +1,9 @@
 # Mascot pass (Page 10): Capy, the chill guardian (spec + acceptance checklist)
 
-Date: 2026-11-09. Status: **spec PASS 2026-11-10 (user), all 9 deferred decisions at their defaults.** Phase 2 = implementation in a fresh session. Page 10 of `00-foundation.md` §8.
+Date: 2026-11-09. Status: **spec PASS 2026-11-10 (user), all 9 deferred decisions at their defaults.** Phase 2
+COMMITTED `a871498` 2026-11-10 (device PASS). **Phase 3 (§G, security moments) spec PASS 2026-11-11 (user), all 8
+decisions at their defaults**; implemented 2026-11-11 (gates green, 1186/1186), device PASS 2026-11-11
+(`mascot-work-log.md`, phase 3). Page 10 of `00-foundation.md` §8.
 Visual ground truth: **`docs/design/pages/mascot.html`** (S1 expression sheet, S2 views and where each is used,
 S3 the offline bath sequence, S4 in-app placements, S5 rig, S6 phases). Background and earlier rounds:
 `docs/design/mascot/inventory.md` (every place, role, action, view; ideas I1–I5), `docs/design/mascot/round2.html`.
@@ -175,10 +178,173 @@ Source of truth after PASS: a Rive project at `mascot/capy/` (`rive.yaml` + `sce
 
 | Phase | Items |
 |---|---|
-| 3 · security moments | **K2** app lock: Head 72, `focused`, `lookX` follows the PIN dots, `happy` + hop on unlock, `worried` on a wrong PIN · **K1** key restore success: Front `celebrate` · **K3** group key rotation: Front `guard`, swaps the key in the group settings banner · **E4** cold-start sync hold: Front `guard` · **X8** searching (looks left/right) |
+| 3 · security moments | **Specced in §G below.** K2 app lock · K1 key restore success · K3 group key rotation · E4 cold-start sync hold · X8 search looks around |
 | 4 · stickers (I2) | 8–12 stickers from the Front/Sit poses, sent as a `sticker` message holding only an id; art bundled, works offline, encryption unchanged; still images in chat. Needs a live PocketBase field + rule change and an old-client fallback. Own spec. |
 | 5 · more | **O1** onboarding (3 scenes, + Loaf view) · **C1** chat app-bar buddy (Head 32, tap = info mode) · **C5** failed-send sheet (Head 48, worried) · **S1** Settings › About (Sit 96) · **I4** night and festival looks (nightcap after 23:00; Diwali, Holi, New Year by date) · **I1** app icon / splash from the Head view |
 | dropped | C2 swipe companion (D5), typing-indicator capybara (D4) |
+
+## G. Phase 3: security moments (spec PASS 2026-11-11, all decisions at their defaults)
+
+Pictures: `mascot.html` **S7** (every frame is a headless render of the rig with the phase 3 additions). Rig
+additions as a script: `docs/design/mascot/phase3/apply_phase3.py` (patches a copy of `mascot/capy/scene.rml`;
+`render.sh` + `frames.commands` render the frames). Phase 3 applies the same edits to `mascot/capy/scene.rml` by hand
+and republishes `assets/mascot/capy.riv`.
+
+### ⛔ Frozen for phase 3 (on top of F1–F8; a breach is an automatic FAIL)
+
+- **P1** The lock screen never waits on the mascot. Unlock (PIN and fingerprint), the wrong-PIN shake, the lockout
+  countdown, Forgot PIN and app-lock **E4** ("right PIN → overlay gone at once") behave exactly as today. The
+  capybara only *reads* what the lock already has: the digit count (`PinPad.onChanged`) and `_unlock`'s result.
+- **P2** Key code is untouched, byte for byte: `restorePrivateKey`, `syncAllHistory`, `_restoreHistory`'s frozen
+  `go(home)`, `removeMemberFromGroup`, `_rotateGroupKey`, `encryptionSyncProvider`, `SyncRouteGate`, the router's
+  `redirect`. The capybara reacts only to state those already expose (restore phase, the remove result, the splash's
+  1 s timer).
+- **P3** The splash never stays up longer because of the capybara, and never shows an empty box: it only swaps in
+  when `CapyLoader.ready` is already non-null.
+- **P4** No copy changes except K3's one new line (decision 5).
+
+### G0. Rig and widget additions
+
+| # | Where | What | Why |
+|---|---|---|---|
+| R1 | Front, Head | `lookX` eased over 0.2 s (`DataConverterInterpolator` chained after the range mappers); Front face slide ±6 → **±10** | the PIN-dot follow must glide, and ±6 is under 2 dp at 72 dp |
+| R2 | Front | trigger **`swapKey`** (0.9 s): the held key drops and fades, a new one drops in from above into the paws, sparks flash, a small bounce | K3 |
+| R3 | Sit | trigger **`lookAround`** (1.6 s): turns to look the other way (a 100 ms scale-flip turn), turns back, small shrug bob | X8 |
+
+- **G0.1 MUST** R1–R3 follow C3/C4: one-shots live on the Action layer and are ignored under `reducedMotion`; Front
+  `rest` hold-keys the key's y (only the Action layer moves it, learning 2026-11-10); `.riv` stays ≤ 60 KB (now
+  50.8 KB; R1–R3 add about 1 KB); `--verify` clean, `inspect` problems empty. New ids start at `0:511`.
+- **G0.2 MUST** `Capy` gains: `double lookX = 0` (synced like `mood`; forced to 0 under reduced motion, so nothing
+  glides); `CapyOneShot? playOnShow` (enum `wave, swapKey, lookAround`), which **replaces** `waveOnShow` (X1 moves to
+  `playOnShow: wave`); `int celebrates = 0` (one `celebrate` per increase, the `hops`/`flushes` pattern). Still
+  capybaras play one-shots and return to still (as pet does today).
+- **G0.3 MUST** `CapyLoader.source` is kicked off unawaited in `main()` right before `runApp` (`lib/main.dart:70`),
+  so the lock screen and the splash usually have the file by their first frames. Nothing awaits it (F1).
+
+### G1. K2 · App lock
+
+| | |
+|---|---|
+| Hook | `lib/features/app_lock/lock_overlay.dart:304`: `_unlockContent`'s `AppLogoTile(size: 64)` becomes the capybara (decision 3). Digits from `PinPad(onChanged:)` (`widgets/pin_pad.dart:28`, already there, unused by the overlay); wrong PIN from `_unlock` (`lock_overlay.dart:121`) returning false. |
+| View · size | **Front 72**, `pose: guard` (holds the key), not flipped (decision 1). |
+| Moods | `focused` while you type · `worried` for 1.2 s after a wrong PIN, and the whole time `isWaiting()` (lockout countdown) · no unlock beat (decision 2). |
+| Eyes | `lookX` follows the dots: 0 digits → 0 (looks at you); n digits → −1 + (n − 1) × 0.4 (dot 1 = −1, dot 6 = +1). Delete moves it back. Pure function `pinLookX(n)`. |
+| Animated | yes (the only capybara visible; the app is `Offstage` under the lock). |
+| Not here | the Forgot PIN and create steps, the privacy cover (they keep the logo). |
+
+- **G1.1 MUST** Fingerprint unlock, the 6th-digit check and the lockout timer are not touched (P1). The 1.2 s
+  `worried` is a plain `Timer` in the overlay state, cancelled in `dispose`.
+- **G1.2 MUST** I3/I4 of app-lock still hold: 360×640 at 200% text scrolls with no overflow (72 vs 64 dp: +8 dp);
+  TalkBack focus still lands on the title.
+- **G1.3 CHECK** Capybaras under the lock (`Offstage` keeps them mounted) must not cost the Redmi frames while you
+  type. Device item 5 measures it. Only if it fails: wrap the gated child in `TickerMode(enabled: !gate)` in
+  `LockOverlay.build`.
+
+### G2. K1 · Key restore success
+
+| | |
+|---|---|
+| Hook | `lib/features/auth/screens/backup_pin_screen.dart:954` `_RestoreOverlayState._buildRestore`: a centred capybara above the progress card (first child of the `Column` at :981, then 12 dp). Phase from `widget.phase`; changes seen in a new `didUpdateWidget`. |
+| View · size | **Front 96**, animated (the overlay is the whole screen; decision 7). |
+| Sequence | `deriving` (checking the key): `guard` + `focused` → phase leaves `deriving` (key accepted): `pose: celebrate`, `celebrates += 1` **once** → after 1.2 s: `pose: none`, `active` (downloading) → `ready`: `happy`. Pure function `restoreCapy(phase, celebrated)` → (pose, mood). |
+| Not here | the saving card (`_buildSaving`: setup, change, upgrade, Start Fresh) gets no capybara. |
+
+- **G2.1 MUST** The overlay still leaves only through the frozen `go(home)` (P2); a `ready` that lasts one frame
+  simply never shows `happy`. Reduced motion: the arms-up `celebrate` pose shows for 1.2 s, no motion.
+
+### G3. K3 · Group key rotation
+
+There is no rotation banner today: rotation runs inside `removeMemberFromGroup` (awaited, so a successful remove
+means the new key exists) and the admin only sees the toast "Alex removed". K3 adds one small card.
+
+| | |
+|---|---|
+| Hook | `lib/features/groups/screens/group_settings_screen.dart:230` `_confirmRemove`: `_guard(onSuccess:)` stores the removed name in state; the card shows at the top of the members section (next to the `membersError` banner, :407) until you leave the screen. A second remove replaces the name. Failed or timed-out removes show nothing. |
+| Card | `t.surface2`, radius md, 12 padding: **Front 56** `guard`, `playOnShow: swapKey`, not animated (it swaps once, then holds the key still) · text 15/22 ink: **"New group key made. Alex can't read new messages."** (decision 5). |
+| Keeps | the "Alex removed" toast and its announcement (house contract). |
+
+- **G3.1 MUST** The card is plain text for TalkBack (the capybara excluded, F4); no buttons, no dismiss.
+
+### G4. E4 · Cold-start sync hold
+
+| | |
+|---|---|
+| Hook | `lib/features/auth/screens/splash_screen.dart:73`: when `_slow` (after 1 s) **and** `CapyLoader.ready != null`, the `AppLogoTile()` (88) cross-fades (150 ms, the spinner's own fade) into **Front 88** `guard` + `focused`, animated, in the same 88 box: no layout jump (decision 6). The spinner below stays. |
+| Fast start | under 1 s: the logo only, as today. File not loaded: the logo stays (P3). |
+
+- **G4.1 MUST** On cold start with the lock on, the splash sits `Offstage` under the lock: at most 2 animated (lock
+  + splash), so F2 holds.
+
+### G5. X8 · Search looks around
+
+| | |
+|---|---|
+| Hook | `lib/features/chat/screens/chat_screen.dart:1693` `_SearchEmptyState` (a `StatelessWidget` today) becomes stateful; spot `X8` in `capy_spots.dart:45` changes to `active` + `playOnShow: lookAround`. |
+| Sequence | "Nothing found" appears → round eyes, looks the other way, back, shrug (1.6 s) → `sleepy` (a 1.6 s `Timer`). |
+| Replays | each time "Nothing found" appears again (results → none, or after a clear); not while you keep typing into a no-results query (decision 8). The widget does *not* stay mounted while typing (each keystroke shows the list until the debounced search answers), so the chat state remembers that it already looked around. |
+| Animated | still + one-shot (chat screen budget: E1 banner + X8 ≤ 2). Reduced motion: `sleepy` at once, no trigger. |
+
+### Phase 3 test gates
+
+- Rig: `apply` the R1–R3 edits to `mascot/capy/scene.rml`, `--verify` clean, `inspect` problems empty, size ≤ 60 KB,
+  captures of `swapKey` and `lookAround` (two each) and `lookX` mid-ease (frame +4 is between the two ends).
+- Unit: `pinLookX` (0→0, 1→−1, 6→1, delete back); `restoreCapy` table (deriving / past deriving before and after
+  1.2 s / ready); `Capy` fires one `celebrate` per increase and `playOnShow` once per mount; `lookX` forced 0 under
+  reduced motion.
+- Widget (fake rig): lock overlay passes the digit count to `lookX`; a wrong PIN → `worried`, back to `focused` after
+  1.2 s; `isWaiting` → `worried`; **every existing app-lock test passes unchanged** (P1). Restore overlay: one
+  `celebrate` when the phase leaves `deriving`, none on later phase changes. Group settings: a successful remove shows
+  the card with the name; a failed or timed-out one does not; the toast still shows. Splash: the capybara only after
+  1 s and only with `CapyLoader.ready` set, else the logo. X8: `lookAround` once on show, `sleepy` after 1.6 s, no
+  replay while typing; reduced motion → `sleepy`, no trigger.
+- Frozen: function-level diff vs HEAD empty for every method in P2, `unlockWithPin`, `authenticateWithBiometrics`,
+  `PinPad._digit`.
+- Full suite green (baseline below), `flutter analyze` 0 errors, release build of both ABIs.
+
+### Phase 3 device check list (M52 + Redmi S2, light and dark)
+
+1. Lock screen: the capybara holds the key; its face slides along with each digit; delete slides it back.
+2. Right PIN: the app is there at once, exactly as fast as before phase 3.
+3. Wrong PIN: worried face + sweat drop while the keypad shakes, focused again after about a second. Lockout
+   countdown: worried the whole time.
+4. Fingerprint unlock: no delay.
+5. Redmi: open a chat with the offline banner and an empty chat, lock, type a PIN: keys respond at once; perf overlay
+   p99 build + raster under 16 ms (record numbers; G1.3 only if this fails).
+6. Fresh install + restore with the recovery key: the capybara guards the key while it checks, throws its arms up
+   when the key is accepted, then watches the download; Home arrives as before.
+7. Remove a member from a group: the card swaps the key once and names them; the toast still shows. Leave the
+   screen and come back: the card is gone.
+8. Cold start on slow mobile data (splash over 1 s): the logo turns into the guarding capybara, spinner below, no
+   jump. A fast start: logo only, no flash.
+9. Chat search for a word that isn't there: it looks around, shrugs, gets sleepy. Keep typing: no replay. Clear and
+   search again: it replays.
+10. System "remove animations": the lock face doesn't slide, no celebrate motion (arms-up still), no swap, no
+    look-around; all the words and timings above unchanged.
+11. TalkBack: the lock screen still focuses the title; no capybara is announced; the K3 card's text is read.
+12. Lock screen and restore screen at 200% text, 360×640: scroll, no overflow.
+
+### Phase 3 out of scope
+
+Phase 4 stickers, phase 5 items, any copy other than K3's line, any key, router or sync change, a capybara on the
+Forgot PIN / create-PIN steps or the saving-a-backup card, rotation UI for join or key-gap rotations (no screen shows
+them today).
+
+### Phase 3 deferred decisions (default in bold; reply with a number to change one)
+
+1. **K2 view:** **Front 72 holding the key (its face slides to follow the dots)** / Head 72 as first planned (a
+   profile can only nod: S7 shows both).
+2. **Unlock beat (`happy` + hop):** **drop it: app-lock E4 makes the lock leave at once, so it would never be seen** /
+   a 150 ms fade-out with a happy face (E4's maximum; a blink at most).
+3. **Lock screen logo:** **the capybara replaces the logo tile** / keep the logo and add the capybara above it
+   (+80 dp).
+4. **K3 card:** **shows after a remove until you leave the screen** / disappears after 6 s / no card (K3 dropped,
+   toast only).
+5. **K3 line:** **"New group key made. Alex can't read new messages."** / "Key changed. Alex is locked out of new
+   messages." / your own.
+6. **E4 splash:** **after 1 s the logo turns into the guarding capybara (same box)** / keep the logo and add the
+   capybara under the name (everything shifts up ~50 dp on every cold start).
+7. **K1 size:** **96** / 120.
+8. **X8 replay:** **each time "Nothing found" appears** / only the first time per search session.
 
 ## Test gates (phase 2)
 
@@ -229,3 +395,6 @@ change, any copy change other than E1's.
 
 `main` at `ceb1b36` (unpushed `8c3acce`, `ceb1b36` left alone). Last full suite **1161/1161**. Re-run before
 phase 2 starts.
+
+Phase 3: `main` at `a871498` (phase 2; main 3 ahead of origin, leave them unpushed). Last full suite **1173/1173**
+(phase 2 gates). Re-run before phase 3 starts.

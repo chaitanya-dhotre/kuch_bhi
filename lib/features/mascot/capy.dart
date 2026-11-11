@@ -16,12 +16,16 @@ enum CapyMood { chill, active, happy, sleepy, worried, focused }
 
 enum CapyPose { none, pet, celebrate, guard }
 
+/// One-shots a capybara can play when it first shows (names = rig triggers).
+enum CapyOneShot { wave, swapKey, lookAround }
+
 /// One artboard + view-model instance. The real one wraps Rive; tests fake it.
 abstract class CapyRig {
   void setMood(CapyMood mood);
   void setPose(CapyPose pose);
   void setBool(String name, bool value);
   void setQueued(int queued);
+  void setLookX(double x);
   void fire(String trigger);
   Widget get view;
   void dispose();
@@ -98,6 +102,8 @@ class _RiveCapyRig implements CapyRig {
   @override
   void setQueued(int queued) => vmi.number('queued')?.value = queued.toDouble();
   @override
+  void setLookX(double x) => vmi.number('lookX')?.value = x;
+  @override
   void fire(String trigger) => vmi.trigger(trigger)?.trigger();
   @override
   late final Widget view = rive.RiveWidget(
@@ -123,9 +129,11 @@ class Capy extends StatefulWidget {
     this.pose = CapyPose.none,
     this.queued = 0,
     this.pettable = true,
-    this.waveOnShow = false,
+    this.lookX = 0,
+    this.playOnShow,
     this.hops = 0,
     this.flushes = 0,
+    this.celebrates = 0,
   });
 
   final CapyView view;
@@ -145,12 +153,16 @@ class Capy extends StatefulWidget {
   final int queued;
   final bool pettable;
 
-  /// Waves once when the rig first shows (X1).
-  final bool waveOnShow;
+  /// Eyes and face toward a side, −1…1 (Front, Head). 0 under reduced motion.
+  final double lookX;
 
-  /// Each increase fires one hop / one flush (C4, E1).
+  /// Played once when the rig first shows (X1 wave, K3 swapKey, X8 lookAround).
+  final CapyOneShot? playOnShow;
+
+  /// Each increase fires one hop / flush / celebrate (C4, E1, K1).
   final int hops;
   final int flushes;
+  final int celebrates;
 
   @override
   State<Capy> createState() => _CapyState();
@@ -182,7 +194,7 @@ class _CapyState extends State<Capy> {
       return null;
     }
     _sync(_rig!);
-    if (widget.waveOnShow) _rig!.fire('wave');
+    if (widget.playOnShow case final shot?) _rig!.fire(shot.name);
     return _rig;
   }
 
@@ -212,6 +224,9 @@ class _CapyState extends State<Capy> {
     for (var i = old.hops; i < widget.hops; i++) {
       rig.fire('hop');
     }
+    for (var i = old.celebrates; i < widget.celebrates; i++) {
+      rig.fire('celebrate');
+    }
   }
 
   @override
@@ -225,7 +240,10 @@ class _CapyState extends State<Capy> {
     final rig = _ensureRig(CapyLoader.ready);
     final box = SizedBox.square(dimension: widget.size);
     if (rig == null) return box;
-    rig.setBool('reducedMotion', MediaQuery.disableAnimationsOf(context));
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    rig
+      ..setBool('reducedMotion', reduced)
+      ..setLookX(reduced ? 0 : widget.lookX.clamp(-1.0, 1.0));
     Widget child = Transform.flip(flipX: widget.flip, child: rig.view);
     if (widget.pettable) {
       child = GestureDetector(

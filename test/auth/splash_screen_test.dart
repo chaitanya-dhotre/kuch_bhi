@@ -7,7 +7,9 @@ import 'package:kuch_bhi/core/widgets/app_logo_tile.dart';
 import 'package:kuch_bhi/core/widgets/busy_spinner.dart';
 import 'package:kuch_bhi/features/auth/providers/auth_provider.dart';
 import 'package:kuch_bhi/features/auth/screens/splash_screen.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
 
+import '../mascot/capy_test.dart' show FakeSource;
 import 'auth_harness.dart';
 
 /// Auth that never resolves: the splash stays up.
@@ -41,5 +43,31 @@ void main() {
         notifier: _Hanging(), narrow: true);
     await tester.pump(const Duration(seconds: 2));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('E4: the logo turns into the capybara only after 1s', (
+      tester) async {
+    final capys = FakeSource();
+    CapyLoader.debugSource = capys;
+    addTearDown(() => CapyLoader.debugSource = null);
+    await pumpAuth(tester, const SplashScreen(), notifier: _Hanging());
+    expect(find.byType(AppLogoTile), findsOneWidget);
+    expect(find.byType(Capy), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.byType(AppLogoTile), findsNothing);
+    expect(tester.getSize(find.byType(Capy)), const Size(88, 88));
+    final rig = capys.rigs.single;
+    expect((rig.pose, rig.mood), (CapyPose.guard, CapyMood.focused));
+    expect(rig.bools['still'], isFalse);
+    expect(find.byType(BusySpinner), findsOneWidget);
+  });
+
+  testWidgets('E4: file not loaded, the logo stays (P3)', (tester) async {
+    CapyLoader.debugSource = null;
+    await pumpAuth(tester, const SplashScreen(), notifier: _Hanging());
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.byType(AppLogoTile), findsOneWidget);
+    expect(find.byType(Capy), findsNothing);
   });
 }

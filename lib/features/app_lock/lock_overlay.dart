@@ -12,6 +12,8 @@ import '../../core/widgets/app_logo_tile.dart';
 import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/status_banner.dart';
 import '../../features/auth/widgets/auth_ui.dart';
+import '../../features/mascot/capy.dart';
+import '../../features/mascot/capy_spots.dart';
 import '../../infrastructure/offline/connectivity_signal.dart';
 import '../../services/encryption_service.dart';
 import 'app_lock_controller.dart';
@@ -42,6 +44,10 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
   String? _cardError;
   Timer? _waitTicker;
   bool _navCanPop = false;
+  // Mascot (spec §G1): only reads what the lock already has (P1).
+  int _pinDigits = 0;
+  bool _wrongPin = false;
+  Timer? _wrongPinTimer;
 
   @override
   void initState() {
@@ -70,6 +76,7 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _waitTicker?.cancel();
+    _wrongPinTimer?.cancel();
     _recoveryInput.dispose();
     super.dispose();
   }
@@ -113,6 +120,7 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
       _step = _LockStep.unlock;
       _fieldError = null;
       _cardError = null;
+      _pinDigits = 0;
       _recoveryInput.clear();
     });
     _startWaitTicker();
@@ -121,6 +129,13 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
   Future<bool> _unlock(String pin) async {
     final ok = await ref.read(appLockProvider.notifier).unlockWithPin(pin);
     if (ok && mounted) _showUnlock();
+    if (!ok && mounted) {
+      setState(() => _wrongPin = true);
+      _wrongPinTimer?.cancel();
+      _wrongPinTimer = Timer(const Duration(milliseconds: 1200), () {
+        if (mounted) setState(() => _wrongPin = false);
+      });
+    }
     return ok;
   }
 
@@ -301,10 +316,20 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const AppLogoTile(size: 64),
+        Capy(
+          view: CapyView.front,
+          size: 72,
+          pose: CapyPose.guard,
+          animated: true,
+          mood: _wrongPin || controller.isWaiting()
+              ? CapyMood.worried
+              : CapyMood.focused,
+          lookX: pinLookX(_pinDigits),
+        ),
         const SizedBox(height: 20),
         PinPad(
           title: 'Enter your PIN',
+          onChanged: (pin) => setState(() => _pinDigits = pin.length),
           message: message,
           enabled: !controller.isWaiting(),
           showFingerprint: state.config?.bio == true && _biometricAvailable,

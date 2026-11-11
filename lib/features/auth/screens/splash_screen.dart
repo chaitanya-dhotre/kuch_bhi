@@ -9,6 +9,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_logo_tile.dart';
 import '../../../core/widgets/busy_spinner.dart';
+import '../../mascot/capy.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -64,13 +65,32 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     });
 
     final t = context.t;
+    // E4 (mascot spec §G4): a slow start turns the logo into the guarding
+    // capybara in the same box, only if the file is already loaded (P3).
+    final capy = _slow && CapyLoader.ready != null;
     return Scaffold(
       backgroundColor: t.bg,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const AppLogoTile(),
+            SizedBox.square(
+              dimension: 88,
+              child: AnimatedSwitcher(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 150),
+                child: capy
+                    ? const Capy(
+                        view: CapyView.front,
+                        size: 88,
+                        pose: CapyPose.guard,
+                        mood: CapyMood.focused,
+                        animated: true,
+                      )
+                    : const AppLogoTile(),
+              ),
+            ),
             const SizedBox(height: 16),
             Text(
               AppConstants.appName,

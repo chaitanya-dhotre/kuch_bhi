@@ -36,6 +36,7 @@ import '../../profile/screens/view_profile_screen.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../mascot/capy.dart';
 import '../../mascot/capy_spots.dart';
 import '../../mascot/offline_bath_banner.dart';
 import '../../app_lock/app_lock_controller.dart';
@@ -225,6 +226,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   List<int> _matchItemIndices = []; // indices into _items (the flat list)
   int _matchIndex = 0;
   bool _searchPending = false;
+  // X8: "Nothing found" remounts after every keystroke's search, so the
+  // look-around is remembered here until results show or the query clears.
+  bool _lookedAround = false;
 
   // Keys per message for scroll-to
   final Map<String, GlobalKey> _msgKeys = {};
@@ -282,6 +286,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _matchItemIndices = matches;
         _matchIndex = 0;
         _searchPending = false;
+        if (matches.isNotEmpty) _lookedAround = false;
       });
       if (matches.isNotEmpty) _scrollToMatch(0);
     };
@@ -424,7 +429,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() {
       _matchIndex = 0;
       _searchPending = q.trim().isNotEmpty;
-      if (!_searchPending) _matchItemIndices = [];
+      if (!_searchPending) {
+        _matchItemIndices = [];
+        _lookedAround = false;
+      }
     });
     // T9: debounced, cancellable decrypt-on-query over RESOLVED bodies —
     // results arrive via the controller's onResults (ephemeral index list).
@@ -938,7 +946,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               _searchCtrl.text.trim().isNotEmpty &&
                               !_searchPending &&
                               _matchItemIndices.isEmpty
-                        ? _SearchEmptyState(query: _searchCtrl.text.trim())
+                        ? _SearchEmptyState(
+                            query: _searchCtrl.text.trim(),
+                            lookAround: !_lookedAround,
+                            onLookedAround: () => _lookedAround = true,
+                          )
                         : _selectionGestures(ListView.builder(
                             key: _listKey,
                             controller: _scrollCtrl,
@@ -1433,6 +1445,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _matchItemIndices = [];
       _matchIndex = 0;
       _searchPending = false;
+      _lookedAround = false;
       _searchCtrl.clear();
     });
   }
@@ -1690,17 +1703,58 @@ class _ChatEmptyState extends StatelessWidget {
   }
 }
 
-class _SearchEmptyState extends StatelessWidget {
-  const _SearchEmptyState({required this.query});
+/// X8 (mascot spec §G5): looks around once, shrugs, then gets sleepy.
+class _SearchEmptyState extends StatefulWidget {
+  const _SearchEmptyState({
+    required this.query,
+    required this.lookAround,
+    required this.onLookedAround,
+  });
 
   final String query;
 
+  /// false = already looked around for this no-results query (decision 8).
+  final bool lookAround;
+  final VoidCallback onLookedAround;
+
+  @override
+  State<_SearchEmptyState> createState() => _SearchEmptyStateState();
+}
+
+class _SearchEmptyStateState extends State<_SearchEmptyState> {
+  late final bool _play = widget.lookAround;
+  bool _sleepy = false;
+  Timer? _sleepyTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_play) {
+      _sleepy = true;
+      return;
+    }
+    widget.onLookedAround();
+    _sleepyTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (mounted) setState(() => _sleepy = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sleepyTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final reduced = MediaQuery.disableAnimationsOf(context);
     return EmptyState(
       title: 'Nothing found',
-      subtitle: 'No messages match “$query”.',
-      mascot: capySpot('X8').build(),
+      subtitle: 'No messages match “${widget.query}”.',
+      mascot: capySpot('X8').build(
+        mood: _sleepy || reduced ? CapyMood.sleepy : null,
+        oneShot: _play && !reduced,
+      ),
     );
   }
 }

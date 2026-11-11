@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -15,6 +17,7 @@ import 'data/local/secure_storage/secure_storage_service.dart';
 import 'firebase_options.dart';
 import 'features/app_lock/app_lock_controller.dart';
 import 'features/app_lock/app_lock_platform.dart';
+import 'features/mascot/capy.dart';
 import 'infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
 import 'services/fcm_service.dart';
@@ -66,6 +69,10 @@ Future<void> main() async {
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // FCM token registration is handled by auth_repository_impl and fcm_service.
+
+  // Mascot file starts loading now so the lock and splash usually have it by
+  // their first frame. Never awaited (mascot spec F1, G0.3).
+  unawaited(CapyLoader.source);
 
   runApp(
     ProviderScope(

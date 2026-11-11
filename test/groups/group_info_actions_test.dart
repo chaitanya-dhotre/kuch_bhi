@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/core/widgets/busy_spinner.dart';
 import 'package:kuch_bhi/domain/entities/conversation.dart';
@@ -24,6 +25,7 @@ import 'package:kuch_bhi/features/groups/providers/group_admin_provider.dart';
 import 'package:kuch_bhi/features/groups/screens/group_settings_screen.dart';
 import 'package:kuch_bhi/infrastructure/offline/connectivity_signal.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
+import '../mascot/capy_test.dart' show FakeSource;
 
 const _updateFailed = "Couldn't update. Try again.";
 const _stillWorking = "Still working — this can take a moment.";
@@ -295,6 +297,7 @@ void main() {
 
     expect(find.text(_updateFailed), findsOneWidget);
     expect(find.textContaining('secret-remove'), findsNothing);
+    expect(find.textContaining('New group key made'), findsNothing);
   });
 
   testWidgets('promote success toasts "{name} is now an admin"', (tester) async {
@@ -403,6 +406,36 @@ void main() {
     // The UI never cancels or retries the in-flight repository call.
     await tester.pump(const Duration(seconds: 60));
     expect(repo.removeCalls, 1);
+    expect(find.textContaining('New group key made'), findsNothing);
+  });
+
+  testWidgets('K3: a successful remove shows the key card once; the toast '
+      'still shows', (tester) async {
+    final capys = FakeSource();
+    CapyLoader.debugSource = capys;
+    addTearDown(() => CapyLoader.debugSource = null);
+    final repo = _Repo();
+    await _pumpInfo(tester, repo: repo);
+    expect(find.textContaining('New group key made'), findsNothing);
+    expect(capys.rigs, isEmpty);
+
+    await _action(
+      tester,
+      'Alina',
+      'Remove from Group',
+      confirmLabel: 'Remove',
+    );
+
+    expect(find.text('Alina removed'), findsOneWidget);
+    expect(find.text("New group key made. Alina can't read new messages."),
+        findsOneWidget);
+    final rig = capys.rigs.single;
+    expect(capys.views.single, CapyView.front);
+    expect(rig.pose, CapyPose.guard);
+    expect(rig.bools['still'], isTrue, reason: 'swaps once, then holds still');
+    expect(rig.fired, ['swapKey']);
+    await tester.pump(const Duration(seconds: 2));
+    expect(rig.fired, ['swapKey'], reason: 'no replay on rebuilds');
   });
 
   testWidgets('"Remove Admin" is hidden when there is only one admin',

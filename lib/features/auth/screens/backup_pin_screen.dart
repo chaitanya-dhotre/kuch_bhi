@@ -20,6 +20,7 @@ import '../../../domain/repositories/message_repository.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
 import '../../../services/encryption_service.dart';
+import '../../mascot/capy.dart';
 import '../../settings/widgets/font_choice_group.dart';
 import '../../settings/widgets/notifications_status_row.dart';
 import '../../settings/widgets/theme_mode_group.dart';
@@ -853,6 +854,26 @@ class _RestoreOverlay extends StatefulWidget {
   State<_RestoreOverlay> createState() => _RestoreOverlayState();
 }
 
+/// K1 (mascot spec §G2): the restore capybara guards the key while it is
+/// checked, throws its arms up for 1.2 s once accepted, then watches the
+/// download and is happy when ready.
+@visibleForTesting
+(CapyPose, CapyMood) restoreCapy(
+  RestorePhase phase, {
+  required bool celebrating,
+}) {
+  if (celebrating) return (CapyPose.celebrate, CapyMood.happy);
+  return switch (phase) {
+    RestorePhase.idle ||
+    RestorePhase.deriving => (CapyPose.guard, CapyMood.focused),
+    RestorePhase.ready => (CapyPose.none, CapyMood.happy),
+    _ => (CapyPose.none, CapyMood.active),
+  };
+}
+
+bool _checkingKey(RestorePhase p) =>
+    p == RestorePhase.idle || p == RestorePhase.deriving;
+
 class _RestoreOverlayState extends State<_RestoreOverlay>
     with SingleTickerProviderStateMixin {
   late final Stopwatch _stopwatch;
@@ -863,6 +884,10 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   /// J6: the count line is announced at most once per 10% step.
   int _announcedStep = -1;
   String _announced = '';
+
+  int _celebrates = 0;
+  bool _celebrating = false;
+  Timer? _celebrateTimer;
 
   @override
   void initState() {
@@ -890,7 +915,24 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   }
 
   @override
+  void didUpdateWidget(_RestoreOverlay old) {
+    super.didUpdateWidget(old);
+    // Key accepted: the phase leaves deriving. Celebrate once (§G2).
+    if (_isRestore &&
+        _celebrates == 0 &&
+        _checkingKey(old.phase) &&
+        !_checkingKey(widget.phase)) {
+      _celebrates = 1;
+      _celebrating = true;
+      _celebrateTimer = Timer(const Duration(milliseconds: 1200), () {
+        if (mounted) setState(() => _celebrating = false);
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _celebrateTimer?.cancel();
     _stopwatch.stop();
     _ticker?.cancel();
     _pulseCtrl.dispose();
@@ -970,6 +1012,10 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
     }
     final small = TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final (capyPose, capyMood) = restoreCapy(
+      widget.phase,
+      celebrating: _celebrating,
+    );
 
     return Scaffold(
       backgroundColor: t.bg,
@@ -979,6 +1025,17 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Center(
+                child: Capy(
+                  view: CapyView.front,
+                  size: 96,
+                  animated: true,
+                  pose: capyPose,
+                  mood: capyMood,
+                  celebrates: _celebrates,
+                ),
+              ),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(

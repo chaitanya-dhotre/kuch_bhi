@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/domain/repositories/message_repository.dart';
 import 'package:kuch_bhi/features/auth/screens/backup_pin_screen.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
 import 'package:kuch_bhi/features/settings/providers/font_provider.dart';
 import 'package:kuch_bhi/features/settings/providers/notification_status_provider.dart';
 import 'package:kuch_bhi/features/settings/providers/theme_provider.dart';
@@ -14,11 +15,18 @@ import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dar
 import 'package:kuch_bhi/services/encryption_service.dart';
 
 import '../fakes/fake_message_repository.dart';
+import '../mascot/capy_test.dart' show FakeSource;
 
 class _Enc implements EncryptionService {
+  _Enc([this.gate]);
+
+  /// Holds the key check open so the overlay shows `deriving`.
+  final Completer<void>? gate;
   @override
-  Future<RestoreResult> restorePrivateKey(String pin) async =>
-      RestoreResult.restored;
+  Future<RestoreResult> restorePrivateKey(String pin) async {
+    await gate?.future;
+    return RestoreResult.restored;
+  }
   @override
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }
@@ -49,7 +57,8 @@ class _Font implements FontController {
 }
 
 Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
-    {bool narrow = false, bool reduceMotion = false}) async {
+    {bool narrow = false, bool reduceMotion = false,
+    Completer<void>? keyGate}) async {
   if (narrow) {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
@@ -65,7 +74,7 @@ Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
   ]);
   await tester.pumpWidget(ProviderScope(
     overrides: [
-      encryptionServiceProvider.overrideWithValue(_Enc()),
+      encryptionServiceProvider.overrideWithValue(_Enc(keyGate)),
       messageRepositoryProvider.overrideWithValue(sync),
       themeModeProvider.overrideWith((ref) => Stream.value(AppThemeMode.system)),
       themeControllerProvider.overrideWithValue(theme),
@@ -199,5 +208,56 @@ void main() {
     sync.done.complete();
     await tester.pump();
     expect(tester.takeException(), isNull);
+  });
+
+  test('restoreCapy: guard while checking, arms up 1.2 s, watch, happy', () {
+    for (final p in [RestorePhase.idle, RestorePhase.deriving]) {
+      expect(restoreCapy(p, celebrating: false),
+          (CapyPose.guard, CapyMood.focused));
+    }
+    expect(restoreCapy(RestorePhase.finalisingKey, celebrating: true),
+        (CapyPose.celebrate, CapyMood.happy));
+    for (final p in [
+      RestorePhase.finalisingKey,
+      RestorePhase.fetchingConvs,
+      RestorePhase.downloadingMsgs,
+      RestorePhase.decrypting,
+    ]) {
+      expect(restoreCapy(p, celebrating: false),
+          (CapyPose.none, CapyMood.active));
+    }
+    expect(restoreCapy(RestorePhase.ready, celebrating: false),
+        (CapyPose.none, CapyMood.happy));
+  });
+
+  testWidgets('K1: one celebrate when the key is accepted, none after',
+      (tester) async {
+    final capys = FakeSource();
+    CapyLoader.debugSource = capys;
+    addTearDown(() => CapyLoader.debugSource = null);
+    final keyGate = Completer<void>();
+    final (sync, _) = await _startRestore(tester, keyGate: keyGate);
+    final rig = capys.rigs.single;
+    expect(capys.views.single, CapyView.front);
+    expect(rig.bools['still'], isFalse);
+    expect((rig.pose, rig.mood), (CapyPose.guard, CapyMood.focused));
+    expect(rig.fired, isEmpty);
+    keyGate.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(rig.fired, ['celebrate']);
+    expect(rig.pose, CapyPose.celebrate);
+    sync.progress!(_p);
+    await tester.pump();
+    expect(rig.pose, CapyPose.celebrate, reason: 'arms up for 1.2 s');
+    await tester.pump(const Duration(milliseconds: 1200));
+    expect((rig.pose, rig.mood), (CapyPose.none, CapyMood.active));
+    sync.progress!(const HistorySyncProgress(phase: HistorySyncPhase.complete));
+    await tester.pump();
+    expect(rig.mood, CapyMood.happy);
+    expect(rig.fired, ['celebrate'], reason: 'later phases never re-fire');
+    sync.done.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('page:/home'), findsOneWidget);
   });
 }

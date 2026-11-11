@@ -34,6 +34,7 @@ import '../../../features/chat/widgets/message_context_menu.dart';
 import '../../../features/home/providers/friends_provider.dart';
 import '../../../features/media/screens/media_docs_screen.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
+import '../../mascot/capy.dart';
 import '../providers/group_admin_provider.dart';
 
 /// Stable mutation-failure copy (R5, shared with the Requests page) — the
@@ -66,6 +67,9 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
   /// the stream value (G2).
   bool? _switchValue;
   bool _leaving = false;
+
+  /// K3: who the last successful remove locked out (card until you leave).
+  String? _rotatedFor;
 
   String get _cid => widget.conversation.id;
 
@@ -243,6 +247,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       success: '$name removed',
       announce: true,
       timeoutCopy: _stillWorking,
+      onSuccess: () => setState(() => _rotatedFor = name),
     );
   }
 
@@ -425,6 +430,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     ];
 
     if (!membersError) {
+      if (_rotatedFor case final name?) children.add(_keyRotatedCard(name));
       children.add(
         _membersSection(
           active: active,
@@ -611,6 +617,40 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
   }
 
   // ── Members (D1–D3, E1–E2) ───────────────────────────────────────────
+
+  /// K3 (mascot spec §G3): the capybara swaps its key once, then holds it.
+  Widget _keyRotatedCard(String name) {
+    final t = context.t;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: t.surface2,
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+        ),
+        child: Row(
+          children: [
+            Capy(
+              // A new name replays the swap.
+              key: ValueKey(name),
+              view: CapyView.front,
+              size: 56,
+              pose: CapyPose.guard,
+              playOnShow: CapyOneShot.swapKey,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                groupKeyRotatedCopy(name),
+                style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _membersSection({
     required List<User> active,

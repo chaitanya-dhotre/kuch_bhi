@@ -10,11 +10,15 @@ import 'package:kuch_bhi/data/local/secure_storage/secure_storage_service.dart';
 import 'package:kuch_bhi/features/app_lock/app_lock_controller.dart';
 import 'package:kuch_bhi/features/app_lock/app_lock_platform.dart';
 import 'package:kuch_bhi/features/app_lock/lock_overlay.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
+import 'package:kuch_bhi/features/mascot/capy_spots.dart';
 import 'package:kuch_bhi/core/widgets/app_button.dart';
 import 'package:kuch_bhi/infrastructure/offline/connectivity_signal.dart';
 import 'package:kuch_bhi/services/encryption_service.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:pocketbase/pocketbase.dart';
+
+import '../mascot/capy_test.dart' show FakeSource;
 
 const _oldPin = '246813';
 const _newPin = '135790';
@@ -156,7 +160,10 @@ Future<void> _pumpOverlay(
             textScaler: TextScaler.linear(textScale),
             disableAnimations: disableAnimations,
           );
-          return MediaQuery(data: media, child: LockOverlay(child: child!));
+          return MediaQuery(
+            data: media,
+            child: LockOverlay(child: child!),
+          );
         },
       ),
     ),
@@ -742,4 +749,68 @@ void main() {
       expect(tester.hasRunningAnimations, false);
     },
   );
+
+  group('K2 capybara (mascot spec §G1)', () {
+    late FakeSource capys;
+    setUp(() => CapyLoader.debugSource = capys = FakeSource());
+    tearDown(() => CapyLoader.debugSource = null);
+
+    Future<void> pump(WidgetTester tester) async {
+      final entry = _entry();
+      await _pumpOverlay(
+        tester,
+        storage: _Storage({'app_lock': entry}),
+        platform: _Platform(),
+        entry: entry,
+        clock: () => _fixedNow,
+      );
+    }
+
+    testWidgets('guards the key, focused; its face follows the dots', (
+      tester,
+    ) async {
+      await pump(tester);
+      final rig = capys.rigs.single;
+      expect(capys.views.single, CapyView.front);
+      expect(rig.pose, CapyPose.guard);
+      expect(rig.mood, CapyMood.focused);
+      expect(rig.bools['still'], isFalse);
+      expect(rig.lookX, 0, reason: 'no digits: looks at you');
+      await tester.tap(find.text('1').last);
+      await tester.pump();
+      expect(rig.lookX, pinLookX(1));
+      await tester.tap(find.text('2').last);
+      await tester.pump();
+      expect(rig.lookX, pinLookX(2));
+      await tester.tap(_semanticsLabel('Delete digit'));
+      await tester.pump();
+      expect(rig.lookX, pinLookX(1), reason: 'delete moves it back');
+    });
+
+    testWidgets('wrong PIN: worried for 1.2 s, then focused again', (
+      tester,
+    ) async {
+      await pump(tester);
+      final rig = capys.rigs.single;
+      await _tapDigits(tester, '123456');
+      expect(find.text('Wrong PIN.'), findsOneWidget);
+      expect(rig.mood, CapyMood.worried);
+      expect(rig.lookX, 0, reason: 'the dots cleared');
+      await tester.pump(const Duration(milliseconds: 1100));
+      expect(rig.mood, CapyMood.worried);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(rig.mood, CapyMood.focused);
+    });
+
+    testWidgets('lockout countdown: worried the whole time', (tester) async {
+      await pump(tester);
+      final rig = capys.rigs.single;
+      for (var i = 0; i < 5; i++) {
+        await _tapDigits(tester, '123456');
+      }
+      expect(find.text('Too many tries. Try again in 0:30.'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      expect(rig.mood, CapyMood.worried);
+    });
+  });
 }

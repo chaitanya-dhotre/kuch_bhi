@@ -42,6 +42,11 @@ String voiceMessageRowCopy(String dur) => 'Voice message · $dur';
 String adminPromotedCopy(String name) => '$name is now an admin';
 String adminDemotedCopy(String name) => '$name is no longer an admin';
 
+/// K3 (mascot spec §G3): the card after a remove; the remove already rotated
+/// the group key.
+String groupKeyRotatedCopy(String name) =>
+    "New group key made. $name can't read new messages.";
+
 // ── Shared buttons / empty states (§3.11).
 const kAddFriendCtaLabel = 'Add a Friend';
 const kNoPendingRequestsCopy = 'No pending requests';

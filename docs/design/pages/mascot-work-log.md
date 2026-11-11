@@ -117,3 +117,101 @@ User: **PASS**, M52 + Redmi S2. Every item worked and no watermark or splash sho
 no Cadet month). Not checked on the phones: the error placements (X3 Home load error, X5 Requests error, X7
 undecryptable history, X9 chat load error) and the failed message in item 12, which are hard to trigger.
 Widget tests cover X9, X10 and the 10 s cap; the X1–X10 table test covers the rest.
+
+# Phase 3: security moments (§G), 2026-11-11
+
+Spec §G PASS 2026-11-11, all 8 decisions at their defaults. Baseline `a871498`, suite 1173/1173.
+
+## Rig (G0, R1–R3)
+
+Applied `docs/design/mascot/phase3/apply_phase3.py`'s edits to `mascot/capy/scene.rml` (run once against the
+real scene, diffed: 44 lines, then copied in; the script is retired, its `once()` asserts now fail on the patched
+scene by design). New ids `0:511`–`0:519`: `LookEase` 0.2 s interpolator chained after `LookToX` (Front, ±10) and
+`LookToTilt` (Head); triggers `swapKey` 0:514 / `lookAround` 0:515; Front `swapkey` animation 0:516 + state 0:517,
+`rest` hold-keys the Key's y; Sit `lookaround` 0:518 + state 0:519. Both one-shots sit on the Action layer behind
+`reducedMotion == false`.
+
+| Check | Result |
+|---|---|
+| `rive mascot/capy --verify` | 0 errors, 0 warnings |
+| `rive inspect --json` problems | `[]` |
+| `assets/mascot/capy.riv` | **51 596 bytes** (was 50 801; budget 60 KB). Publish log "watermarked" as in phase 2 (item 13 there found no mark) |
+| `--bench=600` advance / render p50 | Sit 0.013 / 0.108 ms · Front 0.012 / 0.095 ms (unchanged) |
+
+C5 captures (`docs/design/mascot/phase3/c5.png`, rendered from the real rig with `frames.commands` on the light
+background): row 1 = K2 centre, **lookX mid-ease (+4 frames)**, left, right, worried, swapKey a/b/c; row 2 =
+swapKey d/end, K1 celebrate, active, X8 before, **lookAround turned**, back + shrug, sleepy. Pixel diffs: centre vs
+left 527, mid-ease vs left 407 (between the two ends); swapKey a vs c 349; lookAround a vs b 5414.
+
+## Flutter
+
+- `Capy` (G0.2): `lookX` (clamped −1…1, set in `build` next to `reducedMotion`, 0 under reduced motion);
+  `playOnShow: CapyOneShot?` replaces `waveOnShow` (X1 = `wave`); `celebrates` counter like `hops`/`flushes`.
+  `CapyRig.setLookX` added. `CapySpot.build(oneShot:)` lets X8 skip its one-shot.
+- G0.3: `unawaited(CapyLoader.source)` in `main()` right before `runApp`.
+- G1 `lock_overlay.dart`: the unlock step's logo tile → Front 72 guard, animated; `PinPad.onChanged` → digit
+  count → `pinLookX` (in `capy_spots.dart`); `_unlock` returning false → `worried` for 1.2 s (Timer, cancelled in
+  dispose); `isWaiting()` → worried. `_showUnlock` resets the count. Forgot/create keep the logo.
+- G2 `backup_pin_screen.dart` (additions only): `restoreCapy(phase, celebrating:)`; `_RestoreOverlayState.
+  didUpdateWidget` celebrates once when the phase leaves idle/deriving; Front 96 above the progress card.
+- G3 `group_settings_screen.dart`: `_confirmRemove`'s `_guard(onSuccess:)` stores the name; `_keyRotatedCard`
+  above the members section (Front 56 guard, still, `playOnShow: swapKey`, keyed by name so a second remove
+  replays). Copy `groupKeyRotatedCopy` in `app_strings.dart`.
+- G4 `splash_screen.dart`: `_slow && CapyLoader.ready != null` → `AnimatedSwitcher` (150 ms, 0 under reduced
+  motion) from the logo to Front 88 guard focused, inside an 88 box.
+- G5 `chat_screen.dart` (hand-edited, not formatted): `_SearchEmptyState` is stateful (1.6 s → sleepy).
+  **Deviation from the spec's premise:** "Nothing found" does *not* stay mounted while you type: every keystroke
+  sets `_searchPending`, which swaps in the list until the 200 ms debounced search answers. So the "already looked
+  around" flag lives on the chat state (`_lookedAround`), reset when results show, the query clears or search
+  closes. The behaviour is decision 8's default exactly; only where the flag lives differs.
+
+## Gates
+
+| Gate | Result |
+|---|---|
+| Unit | `pinLookX` (0, 1, 3, 6, delete back); `restoreCapy` table; one `celebrate` per increase; `playOnShow` once per mount; `lookX` clamp + 0 under reduced motion |
+| Widget, lock (`lock_screen_test.dart`) | digits → `lookX`, delete back; wrong PIN worried 1.2 s → focused; lockout worried; **all 20 existing app-lock tests unchanged and green** |
+| Widget, restore | guard+focused while the key check is held open; one `celebrate` when it passes; none on later phases; active after 1.2 s; happy on ready; Home still arrives |
+| Widget, group | success → card with the name + the toast, `swapKey` once, still; failure and the 30 s timeout → no card |
+| Widget, splash | capybara only after 1 s with the file loaded, 88×88, spinner still there; no file → logo |
+| Widget, X8 (`search_capy_test.dart`) | `lookAround` once, sleepy at 1.6 s, no replay while typing (mutation-checked), replays after results and after a clear; reduced motion → sleepy, no trigger |
+| Frozen (P1/P2) | `_restoreHistory` identical to HEAD (56 lines), `backup_pin_screen.dart` has 0 deleted lines; `encryption_service`, `message_repository_impl`, router, `encryption_sync_provider`, `app_lock_controller`, `pin_pad` untouched |
+| Full suite | **1186/1186** (1173 + 13 new) |
+| `flutter analyze` | 0 errors (113 infos/warnings, none new) |
+| Release build | OK: `app-armeabi-v7a-release.apk` 43.4 MB, `app-arm64-v8a-release.apk` 48.1 MB |
+
+## Device check list (phase 3, M52 + Redmi S2, light and dark)
+
+1. Lock screen: the capybara holds the key; its face slides along with each digit; delete slides it back.
+2. Right PIN: the app is there at once, exactly as fast as before phase 3.
+3. Wrong PIN: worried face + sweat drop while the keypad shakes, focused again after about a second. Lockout
+   countdown (5 wrong PINs): worried the whole time.
+4. Fingerprint unlock: no delay.
+5. Redmi: open a chat with the offline banner and an empty chat, lock, type a PIN: keys respond at once; perf
+   overlay p99 build + raster under 16 ms (record the numbers here; G1.3's TickerMode only if this fails).
+6. Fresh install + restore with the recovery key: the capybara guards the key while it checks, throws its arms up
+   when the key is accepted, then watches the download; Home arrives as before.
+7. Remove a member from a group: the card swaps the key once and names them; the "… removed" toast still shows.
+   Leave the screen and come back: the card is gone.
+8. Cold start on slow mobile data (splash over 1 s): the logo turns into the guarding capybara, spinner below, no
+   jump. A fast start: logo only, no flash.
+9. Chat search for a word that isn't there: it looks around, shrugs, gets sleepy. Keep typing: no replay. Clear and
+   search again: it replays.
+10. System "remove animations": the lock face doesn't slide, no celebrate motion (arms-up still), no swap, no
+    look-around; all the words and timings above unchanged.
+11. TalkBack: the lock screen still focuses the title; no capybara is announced; the K3 card's text is read.
+12. Lock screen and restore screen at 200% text, 360×640: scroll, no overflow.
+
+## Device result (phase 3), 2026-11-11
+
+User: **PASS**, every item. Seen on item 7: the member leaves the list at once, then the key card and the
+"… removed" toast show together 1–2 s later. That is by design: both wait for the key rotation to reach the
+server, and the card must not claim a new key before one exists.
+
+New ideas from the run, not part of phase 3:
+- Chat search in a long chat shows 0/0 while older messages are still being decrypted, so it looks like "no
+  match". Wanted: a searching state (capybara with a magnifying glass) until the search is really done, then
+  today's X8 behaviour.
+- Restore (K1) redesign: a big capybara in the centre checks the key and throws it up on a match, then slides to
+  the top and, during the download, takes envelopes (messages), opens them with its eyes closed (privacy) and
+  files them in a small vault ("Chats").
