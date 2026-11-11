@@ -164,13 +164,14 @@ void main() {
     expect(rig.disposed, isTrue);
   });
 
-  testWidgets('one celebrate per increase; playOnShow once per mount', (
+  testWidgets('one tossKey / envelope per increase; playOnShow once per mount', (
     tester,
   ) async {
-    Widget capy(int celebrates) => host(
+    Widget capy(int tosses, [int envelopes = 0]) => host(
       Capy(
         view: CapyView.front,
-        celebrates: celebrates,
+        tosses: tosses,
+        envelopes: envelopes,
         playOnShow: CapyOneShot.swapKey,
       ),
     );
@@ -179,9 +180,9 @@ void main() {
     expect(rig.fired, ['swapKey']);
     await tester.pumpWidget(capy(1));
     await tester.pumpWidget(capy(1));
-    expect(rig.fired, ['swapKey', 'celebrate'], reason: 'no replay on rebuild');
-    await tester.pumpWidget(capy(3));
-    expect(rig.fired, ['swapKey', 'celebrate', 'celebrate', 'celebrate']);
+    expect(rig.fired, ['swapKey', 'tossKey'], reason: 'no replay on rebuild');
+    await tester.pumpWidget(capy(1, 2));
+    expect(rig.fired, ['swapKey', 'tossKey', 'envelope', 'envelope']);
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(capy(0));
     expect(source.rigs.last.fired, ['swapKey'], reason: 'a new mount plays');

@@ -854,25 +854,32 @@ class _RestoreOverlay extends StatefulWidget {
   State<_RestoreOverlay> createState() => _RestoreOverlayState();
 }
 
-/// K1 (mascot spec §G2): the restore capybara guards the key while it is
-/// checked, throws its arms up for 1.2 s once accepted, then watches the
-/// download and is happy when ready.
+/// K1b (mascot spec §I): a big capybara guards the key in the centre while it
+/// is checked, tosses it happily once accepted, then docks at the top beside
+/// its vault and files envelopes during the download.
 @visibleForTesting
 (CapyPose, CapyMood) restoreCapy(
   RestorePhase phase, {
-  required bool celebrating,
+  required bool docked,
 }) {
-  if (celebrating) return (CapyPose.celebrate, CapyMood.happy);
-  return switch (phase) {
-    RestorePhase.idle ||
-    RestorePhase.deriving => (CapyPose.guard, CapyMood.focused),
-    RestorePhase.ready => (CapyPose.none, CapyMood.happy),
-    _ => (CapyPose.none, CapyMood.active),
-  };
+  if (!docked) {
+    return (
+      CapyPose.guard,
+      _checkingKey(phase) ? CapyMood.focused : CapyMood.happy,
+    );
+  }
+  return (
+    CapyPose.vault,
+    phase == RestorePhase.ready ? CapyMood.happy : CapyMood.active,
+  );
 }
 
 bool _checkingKey(RestorePhase p) =>
     p == RestorePhase.idle || p == RestorePhase.deriving;
+
+/// K1b box sizes: centre stage, docked (decisions 1, 2).
+const double _kCapyCentre = 200;
+const double _kCapyDocked = 120;
 
 class _RestoreOverlayState extends State<_RestoreOverlay>
     with SingleTickerProviderStateMixin {
@@ -885,9 +892,14 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   int _announcedStep = -1;
   String _announced = '';
 
-  int _celebrates = 0;
-  bool _celebrating = false;
-  Timer? _celebrateTimer;
+  /// K1b: tossKey count, docked at the top, envelope count (§I1, §I3).
+  int _tosses = 0;
+  late bool _docked = !_checkingKey(widget.phase);
+  Timer? _dockTimer;
+  int _envelopes = 0;
+  Timer? _envelopeTimer;
+  (int, int)? _lastProgress;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
@@ -905,7 +917,11 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_isRestore) return;
+    if (_isRestore) {
+      _reduceMotion = MediaQuery.disableAnimationsOf(context);
+      _syncEnvelopes();
+      return;
+    }
     // G5: reduced motion parks the saving card's pulse at full strength.
     if (MediaQuery.disableAnimationsOf(context)) {
       _pulseCtrl.value = 1;
@@ -917,22 +933,49 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   @override
   void didUpdateWidget(_RestoreOverlay old) {
     super.didUpdateWidget(old);
-    // Key accepted: the phase leaves deriving. Celebrate once (§G2).
-    if (_isRestore &&
-        _celebrates == 0 &&
+    if (!_isRestore) return;
+    // Key accepted: the phase leaves deriving. Toss once, dock 1.0 s later
+    // (§I1, decision 6). Nothing waits on either (Q2).
+    if (!_docked &&
+        _tosses == 0 &&
         _checkingKey(old.phase) &&
         !_checkingKey(widget.phase)) {
-      _celebrates = 1;
-      _celebrating = true;
-      _celebrateTimer = Timer(const Duration(milliseconds: 1200), () {
-        if (mounted) setState(() => _celebrating = false);
+      _tosses = 1;
+      _dockTimer = Timer(const Duration(milliseconds: 1000), () {
+        if (!mounted) return;
+        setState(() => _docked = true);
+        _syncEnvelopes();
       });
     }
+    _syncEnvelopes();
+  }
+
+  /// I3: while docked and downloading (motion on), one envelope per 1.6 s
+  /// tick, and only if the counts moved since the last tick.
+  void _syncEnvelopes() {
+    final filing = _docked &&
+        !_reduceMotion &&
+        (widget.phase == RestorePhase.downloadingMsgs ||
+            widget.phase == RestorePhase.decrypting);
+    if (!filing) {
+      _envelopeTimer?.cancel();
+      _envelopeTimer = null;
+      return;
+    }
+    if (_envelopeTimer != null) return;
+    _lastProgress = (widget.convIndex, widget.msgCurrent);
+    _envelopeTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) {
+      final now = (widget.convIndex, widget.msgCurrent);
+      if (now == _lastProgress) return;
+      _lastProgress = now;
+      setState(() => _envelopes++);
+    });
   }
 
   @override
   void dispose() {
-    _celebrateTimer?.cancel();
+    _dockTimer?.cancel();
+    _envelopeTimer?.cancel();
     _stopwatch.stop();
     _ticker?.cancel();
     _pulseCtrl.dispose();
@@ -1012,30 +1055,33 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
     }
     final small = TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final (capyPose, capyMood) = restoreCapy(
-      widget.phase,
-      celebrating: _celebrating,
+    final (capyPose, capyMood) = restoreCapy(widget.phase, docked: _docked);
+    final titleStyle = TextStyle(
+      fontSize: 16,
+      height: 22 / 16,
+      fontWeight: FontWeight.w600,
+      color: t.ink,
     );
+    final scaler = MediaQuery.textScalerOf(context);
 
-    return Scaffold(
-      backgroundColor: t.bg,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          child: Column(
+    // K1b check stage (§I1, decision 7): the capybara and today's two lines.
+    final checkStage = Column(
+      children: [
+        Semantics(
+          header: true,
+          child: Text(
+            'Unlocking your chats',
+            textAlign: TextAlign.center,
+            style: titleStyle,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(phase.message, textAlign: TextAlign.center, style: small),
+      ],
+    );
+    final progress = Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Capy(
-                  view: CapyView.front,
-                  size: 96,
-                  animated: true,
-                  pose: capyPose,
-                  mood: capyMood,
-                  celebrates: _celebrates,
-                ),
-              ),
-              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1132,7 +1178,66 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
               const SizedBox(height: 12),
               const NotificationsStatusRow(),
             ],
-          ),
+          );
+
+    return Scaffold(
+      backgroundColor: t.bg,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, box) {
+            // I1.1: the centre is a space above the capybara, not an Align,
+            // so the card can appear while the capybara slides up.
+            final centreGap = ((box.maxHeight -
+                        44 -
+                        _kCapyCentre -
+                        12 -
+                        scaler.scale(22) -
+                        4 -
+                        scaler.scale(18)) /
+                    2)
+                .clamp(0.0, double.infinity);
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(end: _docked ? 1 : 0),
+                // I2: under reduced motion the dock is a cut.
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 450),
+                curve: Curves.easeInOutCubic,
+                builder: (context, k, below) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: centreGap * (1 - k)),
+                    Center(
+                      child: Capy(
+                        view: CapyView.front,
+                        size: _kCapyCentre + (_kCapyDocked - _kCapyCentre) * k,
+                        animated: true,
+                        pose: capyPose,
+                        mood: capyMood,
+                        tosses: _tosses,
+                        envelopes: _envelopes,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    below!,
+                  ],
+                ),
+                child: !_docked
+                    ? checkStage
+                    : reduceMotion
+                        ? progress
+                        : TweenAnimationBuilder<double>(
+                            tween: Tween(begin: 0, end: 1),
+                            duration: const Duration(milliseconds: 200),
+                            builder: (context, o, c) =>
+                                Opacity(opacity: o, child: c),
+                            child: progress,
+                          ),
+              ),
+            );
+          },
         ),
       ),
     );

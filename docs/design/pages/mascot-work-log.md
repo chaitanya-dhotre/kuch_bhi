@@ -252,13 +252,36 @@ and dark).
 | Widget, X8b (`search_capy_test.dart`, bodies held from open by a `Completer` or made to throw) | slow search: "…", no busy within the grace, then "Searching…" with Sit `search` focused animated, never 0/0 or "Nothing found" meanwhile, a match → "1/1"; ends empty → "Nothing found", `lookAround` once, pose none; typing on → busy at once, then sleepy with no replay; fast search → never busy; a throwing lookup → the search finishes; clear and close → no busy; reduced motion → `reducedMotion` true. Mutation-checked: dropping the catch, the "…" counter or the `_lookedAround` branch each fails a test |
 | Both existing X8 tests | unchanged, green |
 | Placement table (`capy_test.dart`) | + `X8b sit focused 72 anim search`; animated spots now 2 (X6, X8b: never on one screen) |
-| Full suite | **1195/1195** in the shared checkout (with the K1b session's uncommitted work); this commit's own tree re-run alone, see below |
+| Full suite | **1195/1195** (shared checkout: includes the K1b session's uncommitted work) |
 | `flutter analyze` | 0 errors (113 infos/warnings, none new) |
 
 ## Device check list (X8b, M52 + Redmi S2, light and dark)
 
 Spec §H list, items 1–9.
 
-## Device result (X8b), 2026-11-11
+# K1b: restore key toss + envelope vault (§I), 2026-11-11
 
-User: **PASS**, every item.
+Spec §I PASS 2026-11-11 (user, all 8 decisions at their defaults). Built in the same checkout as X8b (§H), which
+was being built at the same time; the rig carries both.
+
+- Rig: `docs/design/mascot/k1/apply_k1.py` applied on top of X8b's uncommitted R4 `scene.rml` (hash-checked, so
+  nothing changed underneath). `--verify` clean, `inspect` problems empty. `assets/mascot/capy.riv` 51 596 →
+  **56 634 B** (X8b +1 051, K1b +3 987), under 60 KB. Ids 0:540–0:566.
+- Flutter: `Capy` gets `CapyPose.vault`; `celebrates` is replaced by `tosses` (tossKey) and `envelopes` (envelope).
+  `_RestoreOverlayState` adds the check stage (200), toss, a 1.0 s dock timer, a 450 ms gap+size tween to 120, the
+  card fading in at the dock, and a 1.6 s envelope timer that fires only when `(convIndex, msgCurrent)` moved. Under
+  reduced motion the dock is a cut and there are no envelopes.
+- Tests: restore_overlay_test has 5 new K1b tests (centre → toss → dock → envelope pace → ready; late mount; reduced
+  motion; 360×640 at 200% text in both stages and mid-slide; header in both stages). `_startRestore` now waits for the
+  dock. capy_test: tossKey/envelope per increase. Watch out: a test must pump a frame after a progress update before
+  the next envelope tick, because `pump(duration)` runs timers before it builds, so the tick still sees the old counts.
+  A real device always draws a frame in between.
+- Frozen: `_restore`, `_restoreHistory`, `_buildSaving` byte-identical to HEAD; encryption_service,
+  message_repository_impl, encryption_sync_provider untouched.
+- Gates: full suite **1196/1196** (includes X8b's tests as they stood); `flutter analyze` 0 errors (113
+  infos/warnings, same as baseline); release `--split-per-abi` arm + arm64 OK (48.1 MB arm64), installed on the M52
+  as an update. Redmi not connected.
+
+## Device result (K1b), 2026-11-11
+
+User: **PASS** (M52; the Redmi was not connected for this build).

@@ -101,8 +101,30 @@ Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
   await tester.tap(find.text('Restore'));
   await tester.pump();
   await tester.pump();
+  // K1b: past the key check the card shows once the capybara has docked.
+  if (keyGate == null) {
+    await tester.pump(const Duration(milliseconds: 1000));
+    await tester.pump(const Duration(milliseconds: 500));
+  }
   return (sync, theme);
 }
+
+Future<FakeSource> _fakeCapys() async {
+  final capys = FakeSource();
+  CapyLoader.debugSource = capys;
+  addTearDown(() => CapyLoader.debugSource = null);
+  return capys;
+}
+
+Size _capySize(WidgetTester tester) => tester.getSize(find.byType(Capy));
+
+HistorySyncProgress _at(int conv, int msg) => HistorySyncProgress(
+      phase: HistorySyncPhase.downloadingMessages,
+      conversationIndex: conv,
+      conversationCount: 12,
+      messageCurrent: msg,
+      messageTotal: 3100,
+    );
 
 const _p = HistorySyncProgress(
   phase: HistorySyncPhase.downloadingMessages,
@@ -210,54 +232,153 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test('restoreCapy: guard while checking, arms up 1.2 s, watch, happy', () {
+  test('restoreCapy: guard + focused while checking, happy toss, then the '
+      'vault: active, happy when ready', () {
     for (final p in [RestorePhase.idle, RestorePhase.deriving]) {
-      expect(restoreCapy(p, celebrating: false),
-          (CapyPose.guard, CapyMood.focused));
+      expect(restoreCapy(p, docked: false), (CapyPose.guard, CapyMood.focused));
     }
-    expect(restoreCapy(RestorePhase.finalisingKey, celebrating: true),
-        (CapyPose.celebrate, CapyMood.happy));
+    expect(restoreCapy(RestorePhase.finalisingKey, docked: false),
+        (CapyPose.guard, CapyMood.happy));
     for (final p in [
       RestorePhase.finalisingKey,
       RestorePhase.fetchingConvs,
       RestorePhase.downloadingMsgs,
       RestorePhase.decrypting,
     ]) {
-      expect(restoreCapy(p, celebrating: false),
-          (CapyPose.none, CapyMood.active));
+      expect(restoreCapy(p, docked: true), (CapyPose.vault, CapyMood.active));
     }
-    expect(restoreCapy(RestorePhase.ready, celebrating: false),
-        (CapyPose.none, CapyMood.happy));
+    expect(restoreCapy(RestorePhase.ready, docked: true),
+        (CapyPose.vault, CapyMood.happy));
   });
 
-  testWidgets('K1: one celebrate when the key is accepted, none after',
-      (tester) async {
-    final capys = FakeSource();
-    CapyLoader.debugSource = capys;
-    addTearDown(() => CapyLoader.debugSource = null);
+  testWidgets('K1b: centre check, one toss, dock after 1 s, envelopes only '
+      'while the counts move', (tester) async {
+    final capys = await _fakeCapys();
     final keyGate = Completer<void>();
     final (sync, _) = await _startRestore(tester, keyGate: keyGate);
     final rig = capys.rigs.single;
     expect(capys.views.single, CapyView.front);
     expect(rig.bools['still'], isFalse);
     expect((rig.pose, rig.mood), (CapyPose.guard, CapyMood.focused));
-    expect(rig.fired, isEmpty);
+    expect(_capySize(tester), const Size(200, 200));
+    expect(find.text('Checking your key…'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing,
+        reason: 'the card comes with the dock (decision 7)');
+    expect(find.text('While you wait'), findsNothing);
+
     keyGate.complete();
     await tester.pump();
     await tester.pump();
-    expect(rig.fired, ['celebrate']);
-    expect(rig.pose, CapyPose.celebrate);
-    sync.progress!(_p);
+    expect(rig.fired, ['tossKey']);
+    expect((rig.pose, rig.mood), (CapyPose.guard, CapyMood.happy));
+    sync.progress!(_at(3, 410));
     await tester.pump();
-    expect(rig.pose, CapyPose.celebrate, reason: 'arms up for 1.2 s');
-    await tester.pump(const Duration(milliseconds: 1200));
-    expect((rig.pose, rig.mood), (CapyPose.none, CapyMood.active));
+    expect(rig.fired, ['tossKey'], reason: 'no envelopes before the dock');
+
+    await tester.pump(const Duration(milliseconds: 1000));
+    expect((rig.pose, rig.mood), (CapyPose.vault, CapyMood.active));
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(_capySize(tester), const Size(120, 120));
+
+    await tester.pump(const Duration(milliseconds: 1600));
+    expect(rig.fired, ['tossKey'], reason: 'counts still: it waits');
+    sync.progress!(_at(3, 900));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1600));
+    expect(rig.fired, ['tossKey', 'envelope']);
+    sync.progress!(_at(4, 1200));
+    sync.progress!(_at(5, 1500));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1600));
+    expect(rig.fired, ['tossKey', 'envelope', 'envelope'],
+        reason: 'a pace, never a backlog');
+    await tester.pump(const Duration(milliseconds: 3200));
+    expect(rig.fired.where((f) => f == 'envelope').length, 2);
+
     sync.progress!(const HistorySyncProgress(phase: HistorySyncPhase.complete));
     await tester.pump();
     expect(rig.mood, CapyMood.happy);
-    expect(rig.fired, ['celebrate'], reason: 'later phases never re-fire');
+    sync.progress!(_at(12, 3100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 3200));
+    expect(rig.fired.where((f) => f == 'envelope').length, 2,
+        reason: 'none after ready');
+    expect(rig.fired.where((f) => f == 'tossKey').length, 1);
     sync.done.complete();
     await tester.pumpAndSettle();
     expect(find.text('page:/home'), findsOneWidget);
+  });
+
+  testWidgets('K1b: an overlay first shown past the key check starts docked, '
+      'no toss', (tester) async {
+    final capys = await _fakeCapys();
+    // No gate: the key check resolves before the overlay's first frame, as
+    // after the legacy-PIN upgrade (§I1 late mount).
+    final (sync, _) = await _startRestore(tester);
+    final rig = capys.rigs.single;
+    expect(rig.fired, isEmpty);
+    expect(rig.pose, CapyPose.vault);
+    expect(_capySize(tester), const Size(120, 120));
+    sync.done.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('K1b reduced motion: the dock is a cut, no envelopes',
+      (tester) async {
+    final capys = await _fakeCapys();
+    final keyGate = Completer<void>();
+    final (sync, _) =
+        await _startRestore(tester, keyGate: keyGate, reduceMotion: true);
+    final rig = capys.rigs.single;
+    keyGate.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(rig.mood, CapyMood.happy, reason: 'same 1 s beat, the rig is still');
+    await tester.pump(const Duration(milliseconds: 1000));
+    expect(_capySize(tester), const Size(120, 120), reason: 'no in-between');
+    expect(rig.pose, CapyPose.vault);
+    sync.progress!(_at(3, 410));
+    await tester.pump(const Duration(milliseconds: 1600));
+    sync.progress!(_at(4, 900));
+    await tester.pump(const Duration(milliseconds: 3200));
+    expect(rig.fired.contains('envelope'), isFalse);
+    sync.done.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('K1b: 360dp x 200% text, check stage and docked: no overflow',
+      (tester) async {
+    await _fakeCapys();
+    final keyGate = Completer<void>();
+    final (sync, _) =
+        await _startRestore(tester, narrow: true, keyGate: keyGate);
+    expect(tester.takeException(), isNull);
+    keyGate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1000));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.takeException(), isNull, reason: 'mid-slide');
+    await tester.pump(const Duration(milliseconds: 300));
+    sync.progress!(_p);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    sync.done.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('K1b: a header in both stages', (tester) async {
+    final keyGate = Completer<void>();
+    final (sync, _) = await _startRestore(tester, keyGate: keyGate);
+    final handle = tester.ensureSemantics();
+    expect(tester.getSemantics(find.text('Unlocking your chats')),
+        isSemantics(isHeader: true, label: 'Unlocking your chats'));
+    keyGate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1500));
+    expect(find.text('Unlocking your chats'), findsOneWidget);
+    handle.dispose();
+    sync.done.complete();
+    await tester.pumpAndSettle();
   });
 }

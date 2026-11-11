@@ -14,7 +14,7 @@ enum CapyView { sit, front, head, onsen }
 
 enum CapyMood { chill, active, happy, sleepy, worried, focused }
 
-enum CapyPose { none, pet, celebrate, guard, search }
+enum CapyPose { none, pet, celebrate, guard, search, vault }
 
 /// One-shots a capybara can play when it first shows (names = rig triggers).
 enum CapyOneShot { wave, swapKey, lookAround }
@@ -133,7 +133,8 @@ class Capy extends StatefulWidget {
     this.playOnShow,
     this.hops = 0,
     this.flushes = 0,
-    this.celebrates = 0,
+    this.tosses = 0,
+    this.envelopes = 0,
   });
 
   final CapyView view;
@@ -159,10 +160,11 @@ class Capy extends StatefulWidget {
   /// Played once when the rig first shows (X1 wave, K3 swapKey, X8 lookAround).
   final CapyOneShot? playOnShow;
 
-  /// Each increase fires one hop / flush / celebrate (C4, E1, K1).
+  /// Each increase fires one hop / flush / tossKey / envelope (C4, E1, K1b).
   final int hops;
   final int flushes;
-  final int celebrates;
+  final int tosses;
+  final int envelopes;
 
   @override
   State<Capy> createState() => _CapyState();
@@ -224,8 +226,11 @@ class _CapyState extends State<Capy> {
     for (var i = old.hops; i < widget.hops; i++) {
       rig.fire('hop');
     }
-    for (var i = old.celebrates; i < widget.celebrates; i++) {
-      rig.fire('celebrate');
+    for (var i = old.tosses; i < widget.tosses; i++) {
+      rig.fire('tossKey');
+    }
+    for (var i = old.envelopes; i < widget.envelopes; i++) {
+      rig.fire('envelope');
     }
   }
 

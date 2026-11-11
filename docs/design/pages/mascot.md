@@ -3,8 +3,8 @@
 Date: 2026-11-09. Status: **spec PASS 2026-11-10 (user), all 9 deferred decisions at their defaults.** Phase 2
 COMMITTED `a871498` 2026-11-10 (device PASS). **Phase 3 (§G, security moments) spec PASS 2026-11-11 (user), all 8
 decisions at their defaults**; implemented 2026-11-11 (gates green, 1186/1186), device PASS 2026-11-11
-(`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults;
-device PASS 2026-11-11** (`mascot-work-log.md`, X8b). Page 10 of `00-foundation.md` §8.
+(`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults.** Page 10 of
+`00-foundation.md` §8.
 Visual ground truth: **`docs/design/pages/mascot.html`** (S1 expression sheet, S2 views and where each is used,
 S3 the offline bath sequence, S4 in-app placements, S5 rig, S6 phases). Background and earlier rounds:
 `docs/design/mascot/inventory.md` (every place, role, action, view; ideas I1–I5), `docs/design/mascot/round2.html`.
@@ -447,6 +447,141 @@ loaded into the chat yet, home search, any change to what counts as a match.
    (shows from the first keystroke; flashes in fast chats) / 700 ms.
 5. **View and size:** **Sit 72 with the glass (same spot and capybara as "Nothing found")** / Front 72 holding the
    glass in both paws (a new Front pose; it then turns into the Sit for "Nothing found") / Sit 96.
+
+## I. K1b · Restore: the key toss and the envelope vault (spec PASS 2026-11-11, all decisions at their defaults; built, device PASS 2026-11-11)
+
+The user's idea from the phase 3 device run (work log, "New ideas"): a big capybara in the centre checks the key and
+throws it up when it matches, then slides to the top and, during the download, takes envelopes (the messages), opens
+each with its eyes closed (privacy) and files it in a small vault beside it. This **replaces §G2** (K1: Front 96,
+celebrate once, then `active`). Everything else in §G stays.
+
+Pictures: `mascot.html` **S9**. Every capybara there is a headless render of the rig with the additions below, made by
+`docs/design/mascot/k1/apply_k1.py` (patches a copy of `mascot/capy/scene.rml`; `render.sh` + `frames.commands` render
+the frames). The build applies the same edits to `mascot/capy/scene.rml` by hand, then the script is retired.
+
+### ⛔ Frozen for K1b (on top of F1–F8 and P1–P4; a breach is an automatic FAIL)
+
+- **Q1** The key flow is untouched, byte for byte: `_restore`, `_restoreHistory` (and its frozen `go(home)`),
+  `restorePrivateKey`, `syncAllHistory`, `encryptionSyncProvider`. The overlay only *reads* what it already gets: the
+  phase and the four counts.
+- **Q2** Nothing waits on the capybara. Home arrives the moment `_restoreHistory` sends it, mid-toss, mid-slide or
+  mid-envelope. A wrong key, a missing backup or an error closes the overlay exactly as today (no capybara beat first).
+- **Q3** No copy changes. The check stage shows today's two strings ("Unlocking your chats", "Checking your key…");
+  the card, its counts and While you wait are today's.
+- **Q4** One animated capybara on this screen (F2); the envelopes never outrun the real download (I3).
+
+### I0. Rig additions (Front only; Sit, Head and Onsen unchanged)
+
+| # | What | How |
+|---|---|---|
+| R5 | **Vault** beside the capybara | Root node at (196, 214), origin at its feet: a rounded box in water teal `#A9DCD6`, a door in ripple teal `#7FC4BC`, a white **chat bubble on the door** as its label, a key-gold dial, a slot on top, two ink feet. 6 shapes. Hidden (opacity 0) in every pose but `vault` (decisions 3, 4). |
+| R6 | **Envelope** | Node under Breathe, in the paws (0, −58), opacity 0: back, letter (rises 22 when opened), front pocket, flap hinged at its top edge (scaleY −1 = open) with a blush seal. 5 shapes. Under the arms, over the body. |
+| R7 | **Eyes shut** (`Face_shut`) | First child of `Look` (drawn in front of every mood face): two body-colour lids over the eyes, closed arcs with two lash ticks each. Only the `envelope` one-shot shows it, so it works over any mood. 2 shapes. |
+| R8 | pose enum value **`vault`** | `pose_vault`: Place x 120 → 80 and scale 1 → 0.8 (the capybara steps left), the vault fades in, the key is put away, arms in the guard hold. Every other pose now hold-keys Place (x 120, scale 1) and the vault (hidden). Transition 400 ms, or a **cut** when `reducedMotion` (listed first, so it wins). |
+| R9 | trigger **`tossKey`** (1.0 s) | From `guard`: crouch, spring, the key flies up past the right ear spinning twice, sparks, arms up, falls back into the paws, a small bounce. |
+| R10 | trigger **`envelope`** (1.5 s) | An envelope flies in from the top left into the paws · eyes shut and a small turn away · the flap opens, the letter peeks up, back in, flap closes · eyes open · it arcs into the vault slot, shrinking · the vault squashes and its dial turns. |
+
+- **I0.1 MUST** C3/C4 as before: R9/R10 live on the Action layer and are ignored under `reducedMotion`; `rest`
+  hold-keys everything only the Action layer moves (Key x and rotation; Envelope x, y, rotation, scale, opacity; Flap;
+  Letter; Face_shut; Vault scale; Dial). `--verify` clean, `inspect` problems empty.
+- **I0.2 MUST** `.riv` ≤ 60 KB. Measured draft: 51.6 → **55.6 KB** (+3.9 KB); with X8b's glass (+1.1 KB, §H) about
+  **56.7 KB**. New ids **0:540–0:566** (0:520–0:533 are X8b's). Whichever of §H and §I is built second rebases its
+  edits onto the other's `scene.rml`.
+- **I0.3 MUST** Front shape cap (C1 says ≤ 30 visible): in pose `vault` with an envelope in flight about 36 are
+  visible. Allowed here only, because this screen has one capybara (the spike: one animated capybara is smooth on the
+  Redmi); device item 9 measures it.
+
+### I1. Flutter
+
+| | |
+|---|---|
+| Hook | `lib/features/auth/screens/backup_pin_screen.dart` `_RestoreOverlayState._buildRestore` (only the restore view; `_buildSaving` is untouched). Phase changes seen in its `didUpdateWidget` (as today). |
+| `Capy` | `CapyPose.vault` added. **`celebrates` is replaced by `tosses`** (fires `tossKey`) and **`envelopes`** (fires `envelope`), one trigger per increase as `hops`/`flushes` do. K1 was `celebrates`' only user; the rig keeps its `celebrate` (decision 8). |
+| Stages | **Check** (mounted while the key is checked): Front **200** centred in the screen, `guard` + `focused`, under it the two strings centred, the title still a header. No card, no While you wait yet (decision 7). → **Toss** (phase leaves `deriving`): `tosses += 1`, mood `happy`, still centred. → **Dock** 1.0 s later (decision 6): over **450 ms** (`easeInOutCubic`) the space above the capybara shrinks to 0 and its box shrinks 200 → **120**, while the rig's `vault` pose steps it aside and fades the vault in; the progress card and While you wait fade in (200 ms) under it at once. → **Download**: `vault` + `active`, envelopes (I3). → **Ready**: `vault` + `happy`, no more envelopes. |
+| Late mount | If the overlay first mounts already past `deriving` (a legacy PIN restore, which runs the history sync only after the recovery-key upgrade), it starts docked: no check stage, no toss, no slide. |
+| Pure function | `restoreCapy(phase, {required bool docked})` → (pose, mood): not docked + checking → (`guard`, `focused`); not docked + past checking → (`guard`, `happy`); docked → (`vault`, `happy` if `ready` else `active`). |
+
+- **I1.1 MUST** The centre is a computed space above the capybara, not an `Align`, so the card can appear while the
+  capybara slides: `gap = max(0, (viewport − 200 − 12 − textHeight) / 2)` with `textHeight` from the text scaler
+  (two lines at 22 and 18 dp). The slide is one `TweenAnimationBuilder` (0 → 1) driving both the gap and the size.
+- **I1.2 MUST** The dock delay is a plain `Timer` cancelled in `dispose`. Nothing else is gated on it (Q2).
+
+### I2. Reduced motion (F3: nothing moves)
+
+The check stage looks the same (the rig's idle is already still). On accept: `happy` for the same 1.0 s, no toss (the
+rig ignores the trigger). The dock is a **cut**: gap and size jump (duration 0), the pose cuts (R8), the card shows
+without a fade. No envelopes are counted, so the screen holds the capybara, the vault and the card, still. Every word
+and timing is the same as with motion.
+
+### I3. How the envelopes follow the real download
+
+- **I3.1 MUST** While docked, in `downloadingMsgs` or `decrypting`, with motion on: a `Timer.periodic(1.6 s)` (the
+  1.5 s envelope plus a breath). On each tick, if the progress signature `(convIndex, msgCurrent)` changed since the
+  last tick, `envelopes += 1`; if not, the capybara waits (it breathes and blinks). So the envelopes keep pace with the
+  download, stop when it stalls, and never queue up or play on after it ends.
+- **I3.2** One envelope is not one message (4,000 messages would take 100 minutes): it is a pace, never a tally. The
+  numbers stay in the card's count line.
+- **I3.3 MUST** No envelopes in `finalisingKey` or `fetchingConvs` (nothing downloaded yet) or `ready`. The timer stops
+  on `ready`, on reduced motion and in `dispose`.
+
+### I4. 200% text, 360×640
+
+The check stage scrolls if the two strings at 200% do not fit beside the 200 box (the gap is then 0). Docked, the
+column is today's plus 24 dp (120 box vs 96) and scrolls as today. No overflow in either stage or mid-slide.
+
+### K1b test gates
+
+- Rig: the R5–R10 edits in `mascot/capy/scene.rml`, `--verify` clean, `inspect` problems empty, size ≤ 60 KB,
+  captures of `tossKey` (apex) and `envelope` (eyes shut, filed), the `vault` pose under `reducedMotion` is a cut (no
+  in-between frame).
+- Unit: `restoreCapy` table (checking / tossing / docked downloading / docked ready); `Capy` fires one `tossKey` per
+  `tosses` increase and one `envelope` per `envelopes` increase.
+- Widget (fake rig, fake async): mounted at `deriving` → size 200, `guard`/`focused`, card absent; phase →
+  `finalisingKey` → one `tossKey`, `happy`; +1.0 s → pose `vault`, card present, +450 ms → size 120. Mounted at
+  `finalisingKey` → docked at once, no `tossKey`. Downloading with counts moving → one `envelope` per 1.6 s; counts
+  still → none; `ready` → none after; reduced motion → no envelopes and size 120 with no in-between frame. 360×640 at
+  200% text: no overflow in both stages. Existing restore-overlay tests pass, their celebrate checks rewritten.
+- Frozen: function-level diff vs HEAD empty for Q1's methods and `_buildSaving`.
+- Full suite green, `flutter analyze` 0 errors, release build of both ABIs.
+
+### K1b device check list (M52 + Redmi S2, light and dark)
+
+1. Fresh install, restore with the recovery key: a big capybara in the middle holds the key with a focused face while
+   "Checking your key…" shows.
+2. Key accepted: it throws the key up past its ear, catches it, happy; then slides up and shrinks, steps aside, and the
+   vault appears beside it; the card and While you wait fade in.
+3. Download: envelopes fly in; it shuts its eyes and turns a little away while each opens, then files it in the vault
+   (the vault squashes, the dial turns). On a slow connection it waits between envelopes; it never runs ahead.
+4. Home arrives as soon as before (time it against phase 3: no wait for a toss, slide or envelope).
+5. Wrong recovery key: the error shows at once, as today.
+6. Legacy 6-digit PIN restore: after saving the new key, the restore screen starts with the capybara at the top beside
+   the vault; no toss.
+7. System "remove animations": no toss, no slide (it jumps to the top), no envelopes; the words and timings are the
+   same.
+8. 200% text on a 360×640 screen: both stages scroll, nothing cut off.
+9. Redmi: perf overlay during the download, p99 build + raster under 16 ms (record the numbers).
+10. TalkBack: "Unlocking your chats" is the header in both stages; the capybara, vault and envelopes are never read.
+
+### K1b out of scope
+
+Copy changes, the saving-a-backup card, a vault that fills up with progress, sounds, haptics, any key, router or sync
+change, a capybara beat on a wrong key.
+
+### K1b deferred decisions (default in bold; reply with a number to change one)
+
+1. **Check-stage size:** **200** / 160.
+2. **Docked size:** **120 (the capybara is as big as today's 96, the vault beside it)** / 96 (everything 20% smaller).
+3. **Vault label:** **a white chat bubble on the door, no word** / the word "Chats" drawn into the rig (about 4 dp
+   tall at 120, never translated, never read out) / a "Chats" caption in Flutter under the vault.
+4. **Vault colours:** **water teal with a key-gold dial** (palette colours so far used only by the bath and the sweat
+   drop) / a brown wooden strongbox (shade `#B27A42`, gold fittings).
+5. **Envelope pace:** **at most one every 1.6 s, only while the counts move** / one per finished chat (a long single
+   chat then shows nothing for a long time).
+6. **Toss then dock:** **the toss plays in the centre, the dock starts 1.0 s after the key is accepted** / dock at once
+   and toss while sliding (the card shows 1 s sooner).
+7. **Check stage:** **the capybara and the two strings only; the card and While you wait come with the dock** / today's
+   full card under the big capybara from the start.
+8. **The rig's old `celebrate`:** **keep it (phase 5 may use it); only K1 stops using it** / delete it (about −1 KB).
 
 ## Test gates (phase 2)
 
