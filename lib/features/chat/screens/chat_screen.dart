@@ -229,6 +229,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   // X8: "Nothing found" remounts after every keystroke's search, so the
   // look-around is remembered here until results show or the query clears.
   bool _lookedAround = false;
+  // X8b (§H): the search outlived its grace, so "Searching…" may show.
+  bool _searchSlow = false;
+  Timer? _searchSlowTimer;
 
   // Keys per message for scroll-to
   final Map<String, GlobalKey> _msgKeys = {};
@@ -268,6 +271,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       return await ref
           .read(messageBodyProvider(id).future)
           .timeout(const Duration(seconds: 2), onTimeout: () => null);
+    } catch (_) {
+      return null; // a failed lookup counts as no body, so the search still ends
     } finally {
       keepAlive.close();
     }
@@ -282,10 +287,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
     _search.onResults = (matches) {
       if (!mounted) return;
+      _searchSlowTimer?.cancel();
       setState(() {
         _matchItemIndices = matches;
         _matchIndex = 0;
         _searchPending = false;
+        _searchSlow = false;
         if (matches.isNotEmpty) _lookedAround = false;
       });
       if (matches.isNotEmpty) _scrollToMatch(0);
@@ -324,6 +331,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       FcmService.activeConversationId = null;
     }
     _search.dispose();
+    _searchSlowTimer?.cancel();
     _flashTimer?.cancel();
     _autoScroll?.cancel();
     _markReadSub?.close();
@@ -432,6 +440,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       if (!_searchPending) {
         _matchItemIndices = [];
         _lookedAround = false;
+        _searchSlow = false;
+        _searchSlowTimer?.cancel();
+      } else if (!_searchSlow) {
+        // Grace (§H decision 4): restarted per keystroke; once "Searching…"
+        // shows it stays until an answer, so typing never flashes the list.
+        _searchSlowTimer?.cancel();
+        _searchSlowTimer = Timer(
+          _search.debounce + const Duration(milliseconds: 300),
+          () {
+            if (mounted && _searchPending) setState(() => _searchSlow = true);
+          },
+        );
       }
     });
     // T9: debounced, cancellable decrypt-on-query over RESOLVED bodies —
@@ -944,6 +964,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         ? const SizedBox.shrink()
                         : _searchActive &&
                               _searchCtrl.text.trim().isNotEmpty &&
+                              _searchPending &&
+                              _matchItemIndices.isEmpty &&
+                              (_searchSlow || _lookedAround)
+                        ? _SearchBusyState(query: _searchCtrl.text.trim())
+                        : _searchActive &&
+                              _searchCtrl.text.trim().isNotEmpty &&
                               !_searchPending &&
                               _matchItemIndices.isEmpty
                         ? _SearchEmptyState(
@@ -1407,7 +1433,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Text(
-              '${_matchItemIndices.isEmpty ? 0 : _matchIndex + 1}/${_matchItemIndices.length}',
+              // §H: never 0/0 for a search that hasn't answered yet.
+              _searchPending ? '…' : '${_matchItemIndices.isEmpty ? 0 : _matchIndex + 1}/${_matchItemIndices.length}',
               style: TextStyle(fontSize: 13, color: context.t.inkSoft),
             ),
           ),
@@ -1446,6 +1473,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _matchIndex = 0;
       _searchPending = false;
       _lookedAround = false;
+      _searchSlow = false;
+      _searchSlowTimer?.cancel();
       _searchCtrl.clear();
     });
   }
@@ -1701,6 +1730,20 @@ class _ChatEmptyState extends StatelessWidget {
       mascot: capySpot('X6').build(hops: hops),
     );
   }
+}
+
+/// X8b (mascot spec §H): a search still running holds up the magnifying glass.
+class _SearchBusyState extends StatelessWidget {
+  const _SearchBusyState({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) => EmptyState(
+    title: 'Searching…',
+    subtitle: 'Looking for “$query”.',
+    mascot: capySpot('X8b').build(),
+  );
 }
 
 /// X8 (mascot spec §G5): looks around once, shrugs, then gets sleepy.

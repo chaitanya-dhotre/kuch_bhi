@@ -3,7 +3,8 @@
 Date: 2026-11-09. Status: **spec PASS 2026-11-10 (user), all 9 deferred decisions at their defaults.** Phase 2
 COMMITTED `a871498` 2026-11-10 (device PASS). **Phase 3 (§G, security moments) spec PASS 2026-11-11 (user), all 8
 decisions at their defaults**; implemented 2026-11-11 (gates green, 1186/1186), device PASS 2026-11-11
-(`mascot-work-log.md`, phase 3). Page 10 of `00-foundation.md` §8.
+(`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults;
+device PASS 2026-11-11** (`mascot-work-log.md`, X8b). Page 10 of `00-foundation.md` §8.
 Visual ground truth: **`docs/design/pages/mascot.html`** (S1 expression sheet, S2 views and where each is used,
 S3 the offline bath sequence, S4 in-app placements, S5 rig, S6 phases). Background and earlier rounds:
 `docs/design/mascot/inventory.md` (every place, role, action, view; ideas I1–I5), `docs/design/mascot/round2.html`.
@@ -345,6 +346,107 @@ them today).
    capybara under the name (everything shifts up ~50 dp on every cold start).
 7. **K1 size:** **96** / 120.
 8. **X8 replay:** **each time "Nothing found" appears** / only the first time per search session.
+
+## H. X8b · Still searching (spec PASS 2026-11-11, all decisions at their defaults)
+
+From the phase 3 device run: in a long chat whose older messages are not decrypted yet, chat search shows **0/0**
+with the chat list still visible, which reads as "no match" while the app is still decrypting and searching.
+Pictures: `mascot.html` **S8** (headless renders of the rig with R4, made by
+`docs/design/mascot/search/apply_search.py`; `render.sh` + `frames.commands`; sheet `search/frames.png`).
+
+**Why 0/0 shows early** (`lib/features/chat/screens/chat_screen.dart`, line numbers at `9236c01`):
+
+1. The counter has no "still searching" case: `'${_matchItemIndices.isEmpty ? 0 : _matchIndex + 1}/${_matchItemIndices.length}'`
+   (:1410). From the first keystroke until the search answers, the match list is empty, so it prints 0/0.
+2. While `_searchPending` the body keeps showing the chat list (:945–948 only swaps in "Nothing found" once the
+   search is not pending), so the screen looks like a finished search with no hits.
+3. In a long chat that wait is long: `ConversationSearchController._scan` (:155) looks up the bodies one after
+   another, each through `messageBodyProvider` (a decrypt when not cached), each capped at 2 s (`_resolveSearchBody`,
+   :265). Hundreds of undecrypted messages = many seconds of 0/0.
+4. Found on the way: if a body lookup throws, `_scan` dies unawaited, `onResults` never runs and `_searchPending`
+   stays true for good. Today that is a frozen 0/0; with a searching state it would be a capybara searching forever.
+
+### ⛔ Frozen for X8b (on top of F1–F8)
+
+- **H1** What search finds is unchanged: the same `ConversationSearchController` (200 ms debounce, per-keystroke
+  cancel, candidates, ephemeral matches), no new decrypt path, no database writes, `searchMessages` untouched.
+- **H2** After a search really finishes, everything is as today: matches → the list jumps to the newest match;
+  none → X8 "Nothing found" (looks around once per no-results stretch, then sleepy; §G5, learning 2026-11-11).
+- **H3** F2 on the chat screen: the E1 offline banner + the searching capybara = 2 animated. X6 (empty chat) never
+  shows with a search state (search states only replace a non-empty list). X8 stays still + one-shot.
+
+### H0. Rig addition (R4)
+
+| # | Where | What |
+|---|---|---|
+| R4 | Sit | pose enum value **`search`** (`0:520`). A magnifying glass (rim in the outline brown, a pale see-through lens over the eye, a white glint, a short handle) in the near front paw, raised to the eye. New **Pose** layer on Sit: `pose_search` sweeps paw + glass in a slow 2 s loop (toward the snout and down, back, a little up), `pose_search_still` holds it centred when `still` or `reducedMotion`, `pose_none` puts the paw back down. Front ignores `search` (its Pose layer has no transition for it). |
+
+- **H0.1 MUST** C3/C4 hold: the near paw moves to the front of Sit's draw order (first child = front in this rig) so
+  the raised glass sits over the face; at rest it overlaps nothing of the head, so every existing Sit frame is
+  unchanged (drafted: the resting `chill` frame is pixel-identical to the current rig, 0 px differ). `--verify` clean,
+  `inspect` problems empty, `.riv` ≤ 60 KB (51.6 KB now; the draft build grows 1 053 bytes). New ids `0:520`–`0:533`.
+
+### H1. Flutter
+
+| | |
+|---|---|
+| Spot | `capy_spots.dart`: **`X8b searching`** = Sit 72, `focused`, `pose: search`, **animated** (it is working: the glass sweeps). `CapyPose` gains `search`. |
+| Busy state | New `_SearchBusyState` next to `_SearchEmptyState`: `EmptyState(title: 'Searching…', subtitle: 'Looking for “pizza”.', mascot: X8b)` (decision 3). Shows when search is open, the query is not empty, the search is still running and no matches are on screen, **and** either the search has run past the grace time (decision 4) or "Nothing found" was showing (typing on from "Nothing found" picks the glass straight back up instead of flashing the chat list). |
+| Grace | A `Timer` of debounce + 300 ms, restarted on every keystroke and cancelled when results arrive, on clear and on close. A search that answers within it never shows the capybara: no flash in short or already-decrypted chats. |
+| Counter | While a search is running: **"…"** instead of a number (decision 2). It never shows 0/0 for a search that hasn't finished. Arrows as today (they need matches). |
+| Matches on screen | Refining a query that has matches keeps the list and its highlights until the new answer (decision 1); only the counter shows "…". |
+| Stuck guard | `_resolveSearchBody` treats a lookup that throws like one that times out (no body), so every search finishes (point 4 above). |
+| Hand-over to X8 | Results come back empty → the busy state leaves and "Nothing found" mounts as today: the glass is gone and it looks around (or stays sleepy if it already did in this stretch, H2). |
+| Reduced motion | The busy capybara holds the glass still, centred (`pose_search_still`); same words, same timings. |
+
+- **H1.1 MUST** `chat_screen.dart` is hand-edited, never `dart format`ted.
+- **H1.2 MUST** The busy state, like X8, remounts per stretch; nothing it must remember lives in its widget
+  (learning 2026-11-11). It only reads the chat state.
+
+### X8b test gates
+
+- Rig: R4 applied to `mascot/capy/scene.rml` by hand, `--verify` clean, `inspect` problems empty, size ≤ 60 KB,
+  captures: rest unchanged, sweep (two frames differ), still pose under `reducedMotion`, back to `none`.
+- Widget (`test/chat/search_capy_test.dart`, fake rig, body lookups held open with a `Completer`):
+  slow search → "…" at once, busy state after the grace with Sit `pose: search`, `focused`, animated, and never
+  "0/0" or "Nothing found" while it runs; it ends empty → "Nothing found", `lookAround` once, no glass; a fast search
+  with matches → never the busy state, "…" then "1/n"; typing on from "Nothing found" → busy at once, no list, then
+  sleepy "Nothing found" with no replay; a lookup that throws → the search still finishes; clear and close → no busy
+  state, timer gone; reduced motion → busy capybara with `reducedMotion` true. Both existing X8 tests unchanged.
+- `ConversationSearchController` tests unchanged and green (H1).
+- Full suite green, `flutter analyze` 0 errors.
+
+### X8b device check list (M52 + Redmi S2, light and dark)
+
+1. A long chat with older messages not decrypted yet (e.g. right after a restore): search a word. The counter shows
+   "…", then the capybara raises the magnifying glass and scans; it never shows 0/0 or "Nothing found" meanwhile.
+2. The search finds it: the list comes back and jumps to the match, counter "1/n".
+3. The search finds nothing: the glass goes, it looks around, shrugs, gets sleepy ("Nothing found").
+4. Keep typing after "Nothing found": it picks the glass back up (no chat-list flash), then sleepy "Nothing found",
+   no look-around replay.
+5. A short or already-searched chat: search a word that is there: no capybara flash, "…" then the count.
+6. Offline banner showing while searching: both move smoothly (2 animated).
+7. System "remove animations": the glass is held still; words and timings the same.
+8. TalkBack: "Searching…" and "Looking for …" are read; no capybara is announced.
+9. 200% text at 360×640: the busy state fits like "Nothing found" (no overflow).
+
+### X8b out of scope
+
+Making the search itself faster (the scan looks up one body at a time; batching misses through
+`DecryptPass.runFor`, as `searchMessages` does, would shorten the wait: a separate change), searching messages not
+loaded into the chat yet, home search, any change to what counts as a match.
+
+### X8b deferred decisions (default in bold; reply with a number to change one)
+
+1. **Refining a query that has matches:** **keep the list and highlights, counter "…" until the new answer** / clear
+   the matches on every keystroke (the capybara then shows on each pause in typing past the grace).
+2. **Counter while searching:** **"…"** / a small 12 dp spinner / the last count, greyed.
+3. **Copy:** **"Searching…" / "Looking for “pizza”."** / "Still looking…" / "Unlocking older messages to search
+   them." (only true when it is decrypting, so not the default) / your own.
+4. **Grace before the capybara shows:** **300 ms after the search starts (500 ms after the last keystroke)** / none
+   (shows from the first keystroke; flashes in fast chats) / 700 ms.
+5. **View and size:** **Sit 72 with the glass (same spot and capybara as "Nothing found")** / Front 72 holding the
+   glass in both paws (a new Front pose; it then turns into the Sit for "Nothing found") / Sit 96.
 
 ## Test gates (phase 2)
 

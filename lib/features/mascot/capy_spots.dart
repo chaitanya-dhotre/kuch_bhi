@@ -55,6 +55,14 @@ const capySpots = <String, CapySpot>{
     72,
     playOnShow: CapyOneShot.lookAround,
   ),
+  // §H: still searching. Animated: the glass sweeps (E1 banner + this = 2).
+  'X8b searching': CapySpot(
+    CapyView.sit,
+    CapyMood.focused,
+    72,
+    animated: true,
+    pose: CapyPose.search,
+  ),
   'X9 chat load error': CapySpot(
     CapyView.front,
     CapyMood.focused,

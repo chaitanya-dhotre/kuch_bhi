@@ -215,3 +215,50 @@ New ideas from the run, not part of phase 3:
 - Restore (K1) redesign: a big capybara in the centre checks the key and throws it up on a match, then slides to
   the top and, during the download, takes envelopes (messages), opens them with its eyes closed (privacy) and
   files them in a small vault ("Chats").
+
+# X8b: still searching (§H), 2026-11-11
+
+Spec §H PASS 2026-11-11, all 5 decisions at their defaults. Baseline `9236c01`.
+
+## Rig (R4)
+
+Applied `docs/design/mascot/search/apply_search.py` to `mascot/capy/scene.rml` (run against the real scene, diffed:
+52 lines, copied in; the script then retires). New ids `0:520`–`0:533`: Pose enum `search`; Sit `Scan` 0:521 and
+`Glass` 0:522 (Handle/Lens/Glint) inside `PawLHolder`, which moved to the front of Sit's draw order; Sit `Pose` layer
+0:530 with `pose_none` 0:527, `pose_search` 0:528 (2 s loop), `pose_search_still` 0:529.
+
+| Check | Result |
+|---|---|
+| `rive mascot/capy --verify` | 0 errors, 0 warnings |
+| `rive inspect --json` problems | `[]` |
+| `assets/mascot/capy.riv` | **52 647 bytes** (was 51 596; budget 60 KB). Note: `--output-dir=assets/mascot` resolves under `mascot/capy/`; the file was moved into `assets/mascot/` |
+| Resting Sit (`chill`) frame | pixel-identical to the phase 3 rig (0 px differ) |
+
+Captures: `docs/design/mascot/search/frames.png` (rest, search frames 10/30/60/90, still, none, X8 turned, sleepy; light
+and dark).
+
+## Flutter
+
+- `CapyPose.search`; spot `X8b searching` (Sit 72 focused, animated, pose search) in `capy_spots.dart`.
+- `chat_screen.dart` (hand-edited, not formatted): `_SearchBusyState` ("Searching…" / "Looking for “q”."); shows while
+  the search runs with no matches on screen and either `_searchSlow` (a `Timer` of debounce + 300 ms, restarted per
+  keystroke until it fires, cancelled on results, clear, close and dispose) or `_lookedAround` (typing on from
+  "Nothing found"). Counter shows "…" while `_searchPending`. `_resolveSearchBody` returns null when a lookup throws.
+
+## Gates
+
+| Gate | Result |
+|---|---|
+| Widget, X8b (`search_capy_test.dart`, bodies held from open by a `Completer` or made to throw) | slow search: "…", no busy within the grace, then "Searching…" with Sit `search` focused animated, never 0/0 or "Nothing found" meanwhile, a match → "1/1"; ends empty → "Nothing found", `lookAround` once, pose none; typing on → busy at once, then sleepy with no replay; fast search → never busy; a throwing lookup → the search finishes; clear and close → no busy; reduced motion → `reducedMotion` true. Mutation-checked: dropping the catch, the "…" counter or the `_lookedAround` branch each fails a test |
+| Both existing X8 tests | unchanged, green |
+| Placement table (`capy_test.dart`) | + `X8b sit focused 72 anim search`; animated spots now 2 (X6, X8b: never on one screen) |
+| Full suite | **1195/1195** in the shared checkout (with the K1b session's uncommitted work); this commit's own tree re-run alone, see below |
+| `flutter analyze` | 0 errors (113 infos/warnings, none new) |
+
+## Device check list (X8b, M52 + Redmi S2, light and dark)
+
+Spec §H list, items 1–9.
+
+## Device result (X8b), 2026-11-11
+
+User: **PASS**, every item.

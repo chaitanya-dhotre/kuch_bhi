@@ -230,10 +230,12 @@ void main() {
       'X6': 'sit chill 108 anim',
       'X7': 'front worried 72 still',
       'X8': 'sit active 72 still lookAround',
+      'X8b': 'sit focused 72 anim search',
       'X9': 'front focused 72 still guard',
       'X10': 'sit chill 120 still',
     });
-    // F2: E1 (the bath) + X6 are the only animated ones, and never > 2 a screen.
-    expect(capySpots.values.where((s) => s.animated).length, 1);
+    // F2: X6 (empty chat) and X8b (searching a non-empty chat) are the only
+    // animated spots; they never share a screen, so with E1 it stays ≤ 2.
+    expect(capySpots.values.where((s) => s.animated).length, 2);
   });
 }

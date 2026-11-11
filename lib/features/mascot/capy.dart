@@ -14,7 +14,7 @@ enum CapyView { sit, front, head, onsen }
 
 enum CapyMood { chill, active, happy, sleepy, worried, focused }
 
-enum CapyPose { none, pet, celebrate, guard }
+enum CapyPose { none, pet, celebrate, guard, search }
 
 /// One-shots a capybara can play when it first shows (names = rig triggers).
 enum CapyOneShot { wave, swapKey, lookAround }

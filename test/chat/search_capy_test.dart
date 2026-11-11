@@ -1,5 +1,7 @@
 /// X8 (mascot spec §G5): "Nothing found" looks around once, then gets
 /// sleepy; no replay while you keep typing; replays after results or a clear.
+/// X8b (§H): while a search still runs, "…" and never 0/0; past the grace the
+/// capybara holds the magnifying glass; "Nothing found" only once it is done.
 library;
 
 import 'dart:async';
@@ -36,6 +38,10 @@ final _rows = [
     ),
 ];
 
+/// Body lookups: held open while [_gate] is pending; [_throwFor] fails.
+Completer<void>? _gate;
+String? _throwFor;
+
 class _Pres implements PresenceService {
   @override
   dynamic noSuchMethod(Invocation invocation) => Future<void>.value();
@@ -62,7 +68,13 @@ class _Repo implements MessageRepository {
   Future<int> countUndecryptable(String conversationId) async => 0;
 }
 
-Future<void> _openSearch(WidgetTester tester, {required bool reduced}) async {
+Future<void> _openSearch(
+  WidgetTester tester, {
+  required bool reduced,
+  bool held = false,
+}) async {
+  // Held from the start: the chat resolves (and caches) every body on open.
+  if (held) _gate = Completer<void>();
   // Opening settles with motion off (the composer's mic pulse never settles).
   final motionOff = ValueNotifier(true);
   addTearDown(motionOff.dispose);
@@ -92,7 +104,11 @@ Future<void> _openSearch(WidgetTester tester, {required bool reduced}) async {
       presenceServiceProvider.overrideWithValue(_Pres()),
       currentUserIdProvider.overrideWith((ref) async => 'u_me'),
       isOnlineProvider.overrideWith((ref) => Stream.value(true)),
-      messageBodyProvider.overrideWith((ref, id) async => id),
+      messageBodyProvider.overrideWith((ref, id) async {
+        if (_gate case final g?) await g.future;
+        if (id == _throwFor) throw StateError('lookup failed');
+        return id;
+      }),
       outboxStatusProvider.overrideWith((ref, c) => Stream.value(const [])),
       reactionsProvider.overrideWith((ref, id) => Stream.value(const [])),
     ],
@@ -118,6 +134,8 @@ Future<void> _type(WidgetTester tester, String query) async {
 void main() {
   late FakeSource capys;
   setUp(() {
+    _gate = null;
+    _throwFor = null;
     bodyCache.clear();
     CapyLoader.debugSource = capys = FakeSource();
   });
@@ -127,6 +145,16 @@ void main() {
   });
 
   FakeRig x8() => capys.rigs[capys.views.lastIndexOf(CapyView.sit)];
+  Finder counter(String text) => find.text(text);
+
+  /// Lets the held lookups answer and drains their timers.
+  Future<void> release(WidgetTester tester) async {
+    _gate?.complete();
+    _gate = null;
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+  }
 
   testWidgets('looks around once, sleepy after 1.6 s; no replay while typing; '
       'replays after results', (tester) async {
@@ -164,6 +192,117 @@ void main() {
     expect(find.text('Nothing found'), findsOneWidget);
     expect(x8().fired, isEmpty);
     expect(x8().mood, CapyMood.sleepy);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('X8b: a slow search shows "…", then the glass; never 0/0 or '
+      'Nothing found while it runs; a match brings the list back',
+      (tester) async {
+    await _openSearch(tester, reduced: false, held: true);
+    await tester.enterText(find.byType(TextField).first, 'lunch');
+    await tester.pump();
+    expect(counter('…'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(counter('…'), findsOneWidget, reason: 'search started, not done');
+    expect(counter('0/0'), findsNothing);
+    expect(find.text('Searching…'), findsNothing, reason: 'grace (decision 4)');
+    expect(find.text('Nothing found'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Searching…'), findsOneWidget);
+    expect(find.text('Looking for “lunch”.'), findsOneWidget);
+    expect(find.text('Nothing found'), findsNothing);
+    expect(counter('0/0'), findsNothing);
+    final busy = x8();
+    expect(busy.pose, CapyPose.search);
+    expect(busy.mood, CapyMood.focused);
+    expect(busy.bools['still'], isFalse, reason: 'animated: the glass sweeps');
+
+    await release(tester);
+    expect(find.text('Searching…'), findsNothing);
+    expect(counter('1/1'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('X8b: ends empty → Nothing found looks around, no glass; typing '
+      'on picks the glass straight back up, then no replay', (tester) async {
+    await _openSearch(tester, reduced: false, held: true);
+    await tester.enterText(find.byType(TextField).first, 'zz');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(find.text('Searching…'), findsOneWidget);
+    await release(tester);
+    expect(find.text('Nothing found'), findsOneWidget);
+    expect(counter('0/0'), findsOneWidget, reason: 'done: a real zero');
+    expect(x8().fired, ['lookAround']);
+    expect(x8().pose, CapyPose.none);
+    await tester.pump(const Duration(milliseconds: 1600));
+
+    await tester.enterText(find.byType(TextField).first, 'zzq');
+    await tester.pump();
+    expect(find.text('Searching…'), findsOneWidget,
+        reason: 'from Nothing found: no chat-list flash');
+    expect(x8().pose, CapyPose.search);
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+    expect(find.text('Nothing found'), findsOneWidget);
+    expect(x8().fired, isEmpty, reason: 'no replay while typing');
+    expect(x8().mood, CapyMood.sleepy);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('X8b: a fast search never shows the glass', (tester) async {
+    await _openSearch(tester, reduced: false);
+    await tester.enterText(find.byType(TextField).first, 'lunch');
+    await tester.pump();
+    expect(counter('…'), findsOneWidget);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Searching…'), findsNothing);
+    }
+    expect(counter('1/1'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('X8b: a lookup that throws still lets the search finish',
+      (tester) async {
+    _throwFor = 'later'; // before open, so the lookup is not cached
+    await _openSearch(tester, reduced: false);
+    await _type(tester, 'zz');
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Searching…'), findsNothing);
+    expect(find.text('Nothing found'), findsOneWidget);
+    expect(counter('…'), findsNothing);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('X8b: clear and close drop the busy state and its timer',
+      (tester) async {
+    await _openSearch(tester, reduced: false, held: true);
+    await tester.enterText(find.byType(TextField).first, 'zz');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(find.byType(TextField).first, '');
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Searching…'), findsNothing);
+    expect(counter('0/0'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'zz');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byTooltip('Close search').first);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Searching…'), findsNothing);
+    await release(tester);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('X8b reduced motion: the glass is held still', (tester) async {
+    await _openSearch(tester, reduced: true, held: true);
+    await tester.enterText(find.byType(TextField).first, 'zz');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(find.text('Searching…'), findsOneWidget);
+    expect(x8().pose, CapyPose.search);
+    expect(x8().bools['reducedMotion'], isTrue);
+    await release(tester);
     await tester.pump(const Duration(seconds: 2));
   });
 }
