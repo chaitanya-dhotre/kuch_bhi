@@ -59,6 +59,14 @@ abstract class MessageRepository {
     String? replyToLocalId,
   });
 
+  /// Send a capybara sticker (mascot §J2.4): a text send whose encrypted body
+  /// is `Sticker: <id>` and whose row type is `sticker`.
+  Future<void> sendSticker({
+    required String conversationId,
+    required String stickerId,
+    String? replyToLocalId,
+  });
+
   /// Send a media message (voice, image, video, document).
   /// Creates the message record first, then uploads the media file.
   Future<void> sendMediaMessage({

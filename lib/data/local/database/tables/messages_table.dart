@@ -16,7 +16,7 @@ class MessagesTable extends Table {
   TextColumn get conversationId => text()();
   TextColumn get senderId => text()();
 
-  /// 'text' | 'image' | 'video' | 'voice' | 'poll' | 'system'
+  /// 'text' | 'image' | 'video' | 'voice' | 'poll' | 'system' | 'sticker'
   TextColumn get type => text()();
 
   /// AES-256-GCM ciphertext, base64 encoded.

@@ -11,6 +11,8 @@ import '../providers/album_provider.dart';
 import '../chat_run_grouping.dart' show albumLabel;
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
+import '../providers/message_body_provider.dart';
+import '../../stickers/sticker_widgets.dart';
 
 /// Resolves the original (replied-to) message row from Drift.
 ///
@@ -83,6 +85,7 @@ class ReplyQuote extends ConsumerWidget {
       'video' => kMediaRowVideoLabel,
       'voice' => body?.startsWith('🎤') == true ? body : kPreviewVoiceLabel,
       'document' => body?.isNotEmpty == true ? body : kMediaRowDocumentLabel,
+      'sticker' => 'Sticker',
       _ =>
         body == null
             ? null
@@ -104,7 +107,7 @@ class ReplyQuote extends ConsumerWidget {
     );
   }
 
-  static const _mediaTypes = {'image', 'video', 'voice', 'document'};
+  static const _mediaTypes = {'image', 'video', 'voice', 'document', 'sticker'};
 
   /// Type guess when the original row isn't available locally.
   String get _fallbackType {
@@ -223,6 +226,8 @@ class ReplyQuote extends ConsumerWidget {
               : _stripEmoji(bodyCache.get(original.localId) ?? '');
           previewLine =
               _line(doc.isNotEmpty ? doc : kMediaRowDocumentLabel, previewColor);
+        case 'sticker':
+          previewLine = _line('Sticker', previewColor);
         default:
           // text (or the parent row is gone): messageBodyProvider is the
           // single read path. A gone/unresolvable parent resolves null ⇒
@@ -254,6 +259,16 @@ class ReplyQuote extends ConsumerWidget {
         (resolvedType == 'image' || resolvedType == 'video') &&
         thumbServerId != null &&
         conversationId != null;
+    // §J2.5: a sticker quotes a 32 dp copy of itself.
+    final stickerId = original?.localId ?? replyToId;
+    final Widget? stickerThumbnail = resolvedType == 'sticker' &&
+            stickerId != null
+        ? stickerThumb(
+            bodyCache.get(stickerId) ??
+                ref.watch(messageBodyProvider(stickerId)).valueOrNull,
+            32,
+          )
+        : null;
 
     final textColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,6 +314,10 @@ class ReplyQuote extends ConsumerWidget {
                     Expanded(child: textColumn)
                   else
                     Flexible(child: textColumn),
+                  if (stickerThumbnail != null) ...[
+                    const SizedBox(width: 8),
+                    stickerThumbnail,
+                  ],
                   if (showThumb) ...[
                     const SizedBox(width: 8),
                     _QuoteThumb(

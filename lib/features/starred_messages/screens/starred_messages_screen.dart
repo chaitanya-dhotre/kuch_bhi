@@ -17,6 +17,7 @@ import '../../chat/chat_run_grouping.dart' show albumLabel;
 import '../../chat/providers/chat_provider.dart';
 import '../../chat/providers/message_body_provider.dart';
 import '../../chat/widgets/message_body_text.dart';
+import '../../stickers/sticker_widgets.dart';
 
 final _starredProvider = FutureProvider.autoDispose
     .family<List<Message>, String>((ref, conversationId) {
@@ -293,6 +294,24 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
           context,
           Icons.description_outlined,
           body.isNotEmpty ? body : kMediaRowDocumentLabel,
+        );
+      case 'sticker':
+        return Row(
+          children: [
+            SizedBox.square(dimension: 48, child: stickerThumb(body, 48)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Sticker',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: context.t.ink.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          ],
         );
       default:
         // Body resolves on device (cache → decrypt); never a server copy.

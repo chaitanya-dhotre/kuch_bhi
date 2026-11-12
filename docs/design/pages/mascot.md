@@ -3,7 +3,8 @@
 Date: 2026-11-09. Status: **spec PASS 2026-11-10 (user), all 9 deferred decisions at their defaults.** Phase 2
 COMMITTED `a871498` 2026-11-10 (device PASS). **Phase 3 (§G, security moments) spec PASS 2026-11-11 (user), all 8
 decisions at their defaults**; implemented 2026-11-11 (gates green, 1186/1186), device PASS 2026-11-11
-(`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults.** Page 10 of
+(`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults.**
+**§J (phase 4, capybara stickers) spec PASS 2026-11-11 (user), all 8 decisions at their defaults.** Page 10 of
 `00-foundation.md` §8.
 Visual ground truth: **`docs/design/pages/mascot.html`** (S1 expression sheet, S2 views and where each is used,
 S3 the offline bath sequence, S4 in-app placements, S5 rig, S6 phases). Background and earlier rounds:
@@ -180,7 +181,7 @@ Source of truth after PASS: a Rive project at `mascot/capy/` (`rive.yaml` + `sce
 | Phase | Items |
 |---|---|
 | 3 · security moments | **Specced in §G below.** K2 app lock · K1 key restore success · K3 group key rotation · E4 cold-start sync hold · X8 search looks around |
-| 4 · stickers (I2) | 8–12 stickers from the Front/Sit poses, sent as a `sticker` message holding only an id; art bundled, works offline, encryption unchanged; still images in chat. Needs a live PocketBase field + rule change and an old-client fallback. Own spec. |
+| 4 · stickers (I2) | **Specced in §J below.** 10 stickers from the Front/Sit/Onsen views, sent as a `sticker` message holding only an id; art bundled, works offline, encryption unchanged; still images in chat. Needs a live PocketBase check (and a field change if `type` is a select) and an old-client fallback. |
 | 5 · more | **O1** onboarding (3 scenes, + Loaf view) · **C1** chat app-bar buddy (Head 32, tap = info mode) · **C5** failed-send sheet (Head 48, worried) · **S1** Settings › About (Sit 96) · **I4** night and festival looks (nightcap after 23:00; Diwali, Holi, New Year by date) · **I1** app icon / splash from the Head view |
 | dropped | C2 swipe companion (D5), typing-indicator capybara (D4) |
 
@@ -583,6 +584,220 @@ change, a capybara beat on a wrong key.
    full card under the big capybara from the start.
 8. **The rig's old `celebrate`:** **keep it (phase 5 may use it); only K1 stops using it** / delete it (about −1 KB).
 
+## J. Phase 4 · Capybara stickers (idea I2) (spec PASS 2026-11-11, all decisions at their defaults)
+
+Friends send each other a capybara sticker from the composer. A sticker is a tiny message that holds only a sticker
+id; the art ships inside the app, so nothing is uploaded, it works offline through the existing outbox, and the
+encryption is unchanged. This is F5's one exception: the capybara inside the chat, because the user chose to send it.
+
+Pictures: `mascot.html` **S10** (forelegs redrawn 2026-11-11 after the user's review). Every sticker there is a headless
+render of the rig plus sticker-only shapes, made by
+`docs/design/mascot/stickers/apply_stickers.py` (patches one copy of `mascot/capy/` per sticker) → `render.sh` (renders
+each on white and on black, since CLI captures are opaque) → `matte.py` (recovers the alpha from the two renders and adds
+the white die-cut edge). Drafts: `docs/design/mascot/stickers/previews/*.png` (384 px, transparent).
+
+Code line numbers below are at `e4ad70e`.
+
+### ⛔ Frozen for phase 4 (on top of F1–F8; a breach is an automatic FAIL)
+
+- **T1** Encryption unchanged. The sticker id travels only inside `encrypted_body`, encrypted like a text. The server
+  learns "this message is a sticker" (as it learns "photo" today), never which sticker. No new key path, no new crypto.
+- **T2** No upload, no download, no network for the art. Stickers are assets in the APK. A sticker sent offline queues
+  in the drift outbox like a text and sends on reconnect.
+- **T3** Old app versions never break: they show the sticker as a readable text line (J2.3). Nothing an old app does
+  with a sticker crashes or blocks its chat.
+- **T4** The live server is read or changed only with the user's yes, and the field change (if any, J4) is live
+  **before** a build that can send stickers is installed on any phone.
+- **T5** Never touch the user's real chats: every server test runs on a copy of `data.db` on a throwaway port.
+- **T6** Stickers in the chat are still images, never `Capy` widgets or Rive (J1.2). They do not count toward F2.
+- **T7** The wire body format (J2.2) and the ten ids are permanent once shipped: a later app may add ids, never rename
+  or reuse one.
+
+### J1. The sticker set
+
+| id | Label (picker, TalkBack, fallback) | View | Built from | Sticker-only shapes |
+|---|---|---|---|---|
+| `hi` | Hi | Front | `active` (round eyes) | right foreleg raised from the side, two wave ticks; built-in arm lines hidden |
+| `lol` | LOL | Front | `happy` (^ eyes, open mouth, sparkles) | two joy tears in water teal at the outer eye corners |
+| `sorry` | Sorry | Front | `pet` pose (paws in) + `worried` (sweat drop) | — |
+| `love` | Love | Front | `pet` + `happy` | a blush heart held at the chest, a small one floating top right |
+| `thanks` | Thanks | Front | `pet` + `happy` | a yuzu held out in the paws (a gift) |
+| `sleepy` | Sleepy | Sit | `sleepy` (z z) | — |
+| `on-my-way` | On my way | Sit | `active` mid-`hop` | three ink speed lines and two dust puffs behind it |
+| `chill` | Chill | Onsen | `chill`, `queued` 2 | steam hidden (inside the die-cut edge it read as "$$") |
+| `guarding` | Guarding | Front | `guard` (holds the key) + `focused` | — |
+| `celebrate` | Celebrate | Front | `happy` | both forelegs raised, six confetti bits in palette colours; built-in arm lines hidden |
+
+- **J1.1 MUST** Art: S1 style and A3 palette only (F7: no purple, no gradients). Every sticker has a **white die-cut
+  edge** (6 px at 384, ≈ 2 dp at 128 dp) so the dark outline reads on the dark chat background (decision 2). A raised
+  paw is a **short foreleg shaped like the legs** (user, 2026-11-11: a capybara's front limbs are short like its legs,
+  never long arms): a stub about 35 units long, 22 thick (13 body-colour core inside the ink), drawn **in front of** the
+  body like the feet, starting just inside the body's side edge so the paw breaks the outline (user pick "B, at the
+  edge"), with a body-colour joint hiding the ink's rounded end at the base, and ending in a small shade-colour paw with
+  two toe ticks. Ruled out on review: long arms behind the body (monkey arms growing from the back); a thick stub wholly
+  inside the outline (reads as a sausage stuck on the chest). Profile views face left as drawn.
+- **J1.2 MUST** **Still images, not Rive** (decision 1). Why: a chat can hold 20 stickers on screen, and F2 allows 2
+  animated capybaras (the spike: six Rive capybaras drop the Redmi to ~40 fps); a still `Image` is decoded once and
+  cached, scrolls like a photo, needs no `.riv` load (F1), and also serves the 32 dp reply thumbnail and the starred
+  list. Sticker shapes stay out of `capy.riv`, which keeps its ≤ 60 KB budget.
+- **J1.3 MUST** Format: one **384 × 384 lossless WebP with alpha** per sticker at `assets/stickers/<id>.webp`
+  (`Image.asset` decodes WebP on Android; 384 px = 128 dp at 3×). Measured on the drafts: 10 PNGs 220 KB, as lossless
+  WebP **96 KB** in all. Registered in `pubspec.yaml` as the `assets/stickers/` folder.
+- **J1.4 MUST** Source of truth: `docs/design/mascot/stickers/` (`apply_stickers.py`, `render.sh`, `matte.py`). The build
+  regenerates the ten files with `zsh docs/design/mascot/stickers/render.sh <scratch>` and converts the PNGs to WebP; if the
+  rig changes later, the stickers are re-rendered the same way. The drafts in `previews/` are deleted at build time
+  (the WebP files replace them).
+- **J1.5** The catalogue lives in one Dart file, `lib/features/stickers/stickers.dart`: `const kStickers = [Sticker('hi',
+  'Hi'), …]` in picker order, plus `stickerById(String id)`. Adding a sticker later = one art file + one line.
+
+### J2. The message
+
+- **J2.1 MUST** New message `type` **`sticker`**. The row is a normal `messages` row: same conversation, sender,
+  receipts, reactions, reply, star, pin, delete, disappearing timer. Drift `messages.type` is already a free text column:
+  **no drift schema bump** (only the column comment gains `'sticker'`).
+- **J2.2 MUST** Wire body (the plaintext that is encrypted into `encrypted_body`): **`Sticker: <id>`**, e.g.
+  `Sticker: on-my-way`. Ids match `^[a-z]+(-[a-z]+)*$`. The app reads the id with that exact pattern; a body that
+  does not match, or an id not in `kStickers` (sent by a newer app), renders the **unknown sticker** line: "Sticker"
+  plus "Update Kuch Bhi to see it" in `inkSoft`, in a normal text bubble.
+- **J2.3 MUST (old app fallback)** Today's app sends any type it does not know to `_TextBubble` with the decrypted body
+  (`message_bubble.dart:396`), so an old app shows the line **"Sticker: hi"**; its chat list shows "New message"
+  (`conversationPreviewLabel`'s default, `message_body_text.dart:573`); its notification is built from the push's own
+  `preview` field, or "Sent you a message" when that is empty (`fcm_service.dart:627`), the same for old and new apps
+  (W0 item 2). Copy is not offered (its `_copyable` is text only). Device item 9 proves it.
+
+#### J2.4 Send path (reuse the text send; no new outbox kind)
+
+| Where | Change |
+|---|---|
+| `MessageRepository` (+ `fake_message_repository.dart`) | new `sendSticker(conversationId, stickerId, {replyToId})`: the same enqueue as `sendMessage` (`message_repository_impl.dart:1135`) with body `Sticker: <id>` and row `type: 'sticker'`, outbox kind **`text_send`** (so the queue, F-b cancel, burst-order lift and the bath banner's waiting count all work unchanged). |
+| `_sendTextOp` (~:1440–1600) | the server create sends `'type': row.type` instead of `'text'` (:1535); the two local upserts (:1506, :1570) keep the row's type instead of writing `'text'`. |
+| `const kTextLikeTypes = {'text', 'sticker'}` (one place, beside the type labels) | used at every text-only gate that must also cover stickers: the pending-retry loop (:2340), `retryMessage`'s media branch (:2376, else a sticker would go to the media upload), the unsent-delete cancel (:2665), `liftQueuedTextSends` (`messages_dao.dart:443`), and the sender prefix in the chat list (`home_screen.dart:1127`). |
+
+- **J2.4.1 MUST** Every other `type == 'text'` check stays text-only on purpose: emoji-only and link detection, Copy
+  (`chat_screen.dart:766`), the body prefetch list (`messages_dao.dart:129`).
+- **J2.4.2 MUST** Sticker sends from the sheet get a reply quote when a reply is open (then the reply clears, as a text
+  send does). No draft text is touched.
+
+#### J2.5 Where a sticker shows
+
+| Surface | What it shows | Hook |
+|---|---|---|
+| Chat bubble | `StickerBubble`: the image at **128 dp** (decision 3), no bubble fill; under it, aligned to the sender's side, the time + ticks row (the media timestamp style). While the body is still decrypting: an empty 128 box (no jump, no shimmer); unknown id → J2.2's line. | new `else if (message.type == 'sticker')` branch before `emojiOnly` in `message_bubble.dart` (~:390) |
+| Reactions, swipe to reply, long-press menu, multi-select | unchanged (they wrap the bubble). Menu: no Copy. | — |
+| Chat list preview | **"🍊 Sticker"** (decision 5), the sender prefix as for a text | `conversationPreviewLabel` (`message_body_text.dart:573`) + `kPreviewStickerLabel` in `app_strings.dart` |
+| Reply quote (in the bubble and above the composer) | a **32 dp** thumbnail of the sticker + "Sticker" | `reply_quote.dart` `_mediaTypes` (:107) and the label switch (:84); the encrypted `reply_preview` is `kPreviewStickerLabel` (`_deriveReplyPreview`, :5483) |
+| Pinned banner | "Sticker" + 24 dp thumbnail | `pinned_message_banner.dart:42` |
+| Starred list | a 48 dp thumbnail + "Sticker" in the media-row style | `starred_messages_screen.dart:282` |
+| Notification | the push hook's `preview` for the type, else "Sent you a message" (`fcm_service.dart:627`). If W0 finds the hook labels types (e.g. "📷 Photo"), W1 adds `sticker` → "🍊 Sticker" there; otherwise unchanged | server hook (W0/W1) |
+| Chat search | **never matches a sticker** (its body "Sticker: hi" would match "hi") | `searchMessages` prefilter (`message_repository_impl.dart:3405`) adds `type != 'sticker'` |
+| Media & docs gallery, albums | not listed (a sticker has no `message_media` row) | — |
+| Background push isolate | stores the row with `rawType` as is (`fcm_service.dart:493`): already fine | — |
+
+- **J2.5.1 MUST** Semantics: unlike every other capybara (F4), a sticker is content, so `StickerBubble` is read:
+  **"Sticker, Hi"** followed by the bubble's usual sender/time/status announcement. The 32/24/48 dp thumbnails are
+  `ExcludeSemantics` (their "Sticker" text is read).
+- **J2.5.2 MUST** Images are decoded at their shown size (`cacheWidth = dp × devicePixelRatio`) so 20 stickers in a
+  chat cost 20 small textures, not 20 × 384².
+
+### J3. The picker
+
+| | |
+|---|---|
+| Button | a new `_ComposerAction` **"Stickers"** (`Icons.emoji_emotions_outlined`, 21 dp, same 40 dp round button as Attach) to the right of Attach (`message_input.dart:1761`), always visible while the chat can send. Hidden in the read-only state (group you left), as Attach is. |
+| Sheet | the house sheet `showAppSheet` (`lib/core/widgets/app_sheet.dart:9`, registry R19), title **"Stickers"** as a header. A 4-column grid of **72 dp** tiles (8 dp gaps, 16 dp side padding): 10 stickers = 3 rows. Height = its content (about 310 dp with the handle and title); at 200% text only the title grows, and the grid scrolls inside the sheet if it must. |
+| Tap | sends at once, a light haptic (`appHaptic(HapticsType.light)`), and the sheet **closes** (decision 4). The sticker lands in the chat as a queued bubble like a text. |
+| Offline | the sheet works the same; the sticker queues (T2) and the bath banner counts it as waiting. |
+| Keyboard | opening the sheet hides the keyboard; closing it does not bring it back. |
+
+- **J3.1 MUST** Accessibility: the button's label is **"Stickers"** (tooltip on a long press, as the other composer
+  actions); each tile is a button labelled **"Send sticker: Hi"** (… "On my way", etc.), focus order = picker order; the
+  48 dp minimum touch target holds (72 dp tiles). The picker images are `ExcludeSemantics` under the tile's label.
+- **J3.2 MUST** A double tap sends one sticker (the tile ignores taps while its send call is in flight; the sheet is
+  already closing).
+
+### J4. The live PocketBase change
+
+Nothing has been read or written on the server for this spec (T4). What the client sends is known: the messages create
+body carries `type` as plain text beside `encrypted_body` (`message_repository_impl.dart:1535`). Whether the server
+accepts `sticker` depends on how `messages.type` is defined, which no doc in this repo records.
+
+- **W0 (read only, asks the user first).** Over Tailscale, `sqlite3 -readonly` on `data.db`: the `messages` row of
+  `_collections` (fields, `createRule`, `updateRule`), and `grep -n type` over `pb_hooks/*.js` (`fcm_notify.pb.js`,
+  `disappearing_stamp.pb.js`, any create check). Three answers decide W1:
+  1. `type` is a **select** → W1 adds the value `sticker`. A **plain text** field → no field change.
+  2. Does any rule or hook allow-list types, or map a type to the push's `preview` (the app shows `data['preview']`
+     as the notification body)? → add `sticker` there ("🍊 Sticker" for a preview).
+  3. Is `type` in both `updateRule` branches' deny-list (`type:isset = false`)? (learning 2026-11-01: the update rule
+     only blocks fields it names.)
+- **W1 (only what W0 shows is needed; asks the user first).** One migration
+  `pb_migrations/<ts>_updated_messages_type_sticker.js` with a down step: add `sticker` to the select values (if a
+  select); append `type:isset = false` to both `updateRule` branches **if absent** (decision 7). Recipe as for albums W1
+  and disappearing W1 (memory `server-topology`): back up `data.db` to `/home/ubuntu/pb_backups/data.db.<date>-stickers-pre`,
+  dry-run on a `.backup` copy with `migrate up` on a throwaway dir (T5), create one `sticker` row there as a test, then
+  `scp` → `sudo mv` into `pb_migrations` → restart → check `_migrations`. Hook edits, if any, follow `pb-hook-pitfalls`
+  (flat hooks, scp not heredoc).
+- **W2** If W0 shows a plain text field, no allow-list and `type` already locked: **no live change at all**, and the spec
+  says so in the work log.
+
+### J5. Phase 4 test gates
+
+- Art: `render.sh` builds all ten with `--verify` clean per copy; `assets/stickers/*.webp` are 384 × 384 with alpha,
+  ≤ 120 KB in all; a test lists `assets/stickers/` and checks it equals `kStickers` ids one to one.
+- Unit: `stickerIdOf(body)` (`Sticker: hi` → `hi`; `Sticker: on-my-way` → `on-my-way`; `Sticker: Hi`, `Sticker: hi!`,
+  `hi`, `Sticker:` → null); unknown-but-valid id → the unknown line; `kTextLikeTypes` gates (a pending sticker retries
+  through the text op, never `_uploadMediaMessage`); `conversationPreviewLabel('sticker')`; `searchMessages` never
+  returns a sticker row whose body contains the query.
+- Repository (fake PB): `sendSticker` writes a `sticker` row + one `text_send` op; the create body has `type: sticker`
+  and an `encrypted_body` that decrypts to `Sticker: hi`; offline → queued, reconnect → sent with the same id;
+  delete before ack cancels it (F-b) like a text; a reply carries `reply_to_id` and an encrypted "🍊 Sticker" preview.
+- Widget: `StickerBubble` shows the image at 128 with the label "Sticker, Hi"; while undecrypted, an empty 128 box;
+  unknown id → the line; the picker sheet has 10 tiles with "Send sticker: …" labels, a tap calls `sendSticker` once
+  and closes the sheet; the long-press menu of a sticker has no Copy; reply quote, pinned banner and starred row show
+  the thumbnail; 360×640 at 200% text: the sheet and a sticker bubble do not overflow.
+- Server: W0 notes in the work log; if W1 ran, the dry run's sticker create succeeded on the copy and `_migrations`
+  lists the file live.
+- Full suite green (baseline below), `flutter analyze` 0 errors, release build of both ABIs (APK grows by ≈ 0.1 MB).
+- `trail check` before the commit.
+
+### J6. Phase 4 device check list (M52 + Redmi S2, light and dark)
+
+1. Composer: the Stickers button sits beside Attach; TalkBack reads "Stickers".
+2. Open it: 10 stickers in a 4-column sheet; each looks like its preview in S10, crisp, with a white edge on dark.
+3. Tap Hi: it sends, the sheet closes, a light haptic; the other phone shows the sticker at the same size, no bubble.
+4. Long press a sticker: react, reply, star, pin, delete work; no Copy. Swipe to reply works.
+5. Reply to a sticker: the quote shows its thumbnail and "Sticker"; the reply arrives with the quote on the other phone.
+6. Chat list: "🍊 Sticker" (with "You: " for your own); pinned banner and Starred show the thumbnail.
+7. Airplane mode: send 2 stickers: they queue, the bath banner counts 2; airplane off: both send, in order.
+8. Search the chat for "hi": a sent Hi sticker is never a match.
+9. **Old app**: with the Redmi on the pre-sticker build (`e4ad70e`), send a sticker from the M52: the Redmi shows a
+   text bubble "Sticker: hi", the chat list "New message", the notification as usual, and nothing breaks. Then update
+   the Redmi: the same message now shows the sticker.
+10. Redmi: a chat with 20+ stickers scrolls smoothly; perf overlay p99 build + raster under 16 ms (record numbers).
+11. 200% text on 360×640: the sheet and the sticker bubbles fit; nothing cut off.
+12. Disappearing chat: a sticker disappears on the same timer as a text.
+13. TalkBack: a received sticker reads "Sticker, Hi" and the sender/time; picker tiles read "Send sticker: Hi".
+
+### J7. Phase 4 out of scope
+
+Animated stickers, user-made or downloadable packs, sticker search, "recent" or favourite stickers, stickers in
+notifications or the app icon, a keyboard-height picker panel, sending a sticker to several chats (forwarding does not
+exist), festival stickers (phase 5 I4), any change to the `Capy` widget or `capy.riv`.
+
+### J8. Phase 4 deferred decisions (default in bold; reply with a number to change one)
+
+1. **Format:** **still images (WebP, ≈ 96 KB for all ten)** / Rive stickers that animate once when they arrive (breaks
+   F2 in any chat with more than two; needs a per-bubble artboard).
+2. **Edge:** **white die-cut edge (the classic sticker look; the outline reads on dark)** / no edge (on dark the
+   outline almost disappears: S10 shows both).
+3. **Size in the chat:** **128 dp** / 112 / 152.
+4. **After a tap:** **send and close the sheet** / stay open for another sticker.
+5. **Chat list and reply label:** **"🍊 Sticker"** / "Sticker" with no emoji.
+6. **The set:** **the ten in J1** / swap any (say which; e.g. a "searching" sticker from the X8b glass, or "ok").
+7. **Lock `type` in the update rule if it is open:** **yes, in the same migration (a later edit of `type` would change
+   how old apps show a message)** / leave the rule alone.
+8. **Old app line:** **"Sticker: hi"** / "Sticker: hi (update Kuch Bhi to see it)" (longer, but it tells old users
+   why; it is the permanent wire text, T7).
+
 ## Test gates (phase 2)
 
 - Unit: `queuedCountProvider` counts only `text_send` in `queued|sending`; X1–X10 mapping table (view, mood,
@@ -635,3 +850,6 @@ phase 2 starts.
 
 Phase 3: `main` at `a871498` (phase 2; main 3 ahead of origin, leave them unpushed). Last full suite **1173/1173**
 (phase 2 gates). Re-run before phase 3 starts.
+
+Phase 4: `main` at `e4ad70e` (pushed). Last full suite recorded in the work log **1196/1196** (X8b/K1b gates, shared
+checkout). Re-run before phase 4 starts.

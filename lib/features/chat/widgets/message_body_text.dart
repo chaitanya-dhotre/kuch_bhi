@@ -572,6 +572,7 @@ String conversationPreviewLabel(String type) => switch (type) {
   'video' => kPreviewVideoLabel,
   'voice' => kPreviewVoiceLabel,
   'document' => kPreviewDocumentLabel,
+  'sticker' => kPreviewStickerLabel,
   'poll' => '📊 Poll',
   'system' => 'New message',
   _ => 'New message',

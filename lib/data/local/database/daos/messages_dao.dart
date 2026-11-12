@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../../../core/constants/app_strings.dart';
 import '../../../../core/decrypt/body_cache.dart';
 import '../../../../core/utils/chunk_ids.dart';
 import '../app_database.dart';
@@ -440,7 +441,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
             ..where((t) =>
                 t.conversationId.equals(conversationId) &
                 t.serverId.isNull() &
-                t.type.equals('text') &
+                t.type.isIn(kTextLikeTypes) &
                 t.status.equals('pending') &
                 t.createdAt.isSmallerThanValue(floor)))
           .write(MessagesTableCompanion(createdAt: Value(floor)));

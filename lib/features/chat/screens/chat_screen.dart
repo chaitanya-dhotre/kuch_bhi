@@ -456,9 +456,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
     // T9: debounced, cancellable decrypt-on-query over RESOLVED bodies —
     // results arrive via the controller's onResults (ephemeral index list).
+    // Mascot §J2.5: a sticker's body "Sticker: hi" would match "hi".
     final candidates = <(int, String)>[
       for (var i = 0; i < _items.length; i++)
-        if (_items[i] is _MsgItem) (i, (_items[i] as _MsgItem).msg.localId),
+        if (_items[i] case _MsgItem(:final msg) when msg.type != 'sticker')
+          (i, msg.localId),
     ];
     _search.setQuery(q, candidates: candidates);
   }

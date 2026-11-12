@@ -38,6 +38,9 @@ final _rows = [
     ),
 ];
 
+/// Rows added for one test (body = local id, as for [_rows]).
+var _extra = <Message>[];
+
 /// Body lookups: held open while [_gate] is pending; [_throwFor] fails.
 Completer<void>? _gate;
 String? _throwFor;
@@ -52,7 +55,7 @@ class _Repo implements MessageRepository {
   dynamic noSuchMethod(Invocation invocation) => Future<void>.value();
   @override
   Stream<List<Message>> watchMessages(String conversationId) =>
-      Stream.value(_rows);
+      Stream.value([..._rows, ..._extra]);
   @override
   Stream<Conversation?> watchConversation(String conversationId) =>
       Stream.value(const Conversation(id: 'c1', type: 'direct'));
@@ -78,7 +81,7 @@ Future<void> _openSearch(
   // Opening settles with motion off (the composer's mic pulse never settles).
   final motionOff = ValueNotifier(true);
   addTearDown(motionOff.dispose);
-  for (final m in _rows) {
+  for (final m in [..._rows, ..._extra]) {
     bodyCache.put(m.localId, m.localId);
   }
   await pumpHost(
@@ -136,6 +139,7 @@ void main() {
   setUp(() {
     _gate = null;
     _throwFor = null;
+    _extra = [];
     bodyCache.clear();
     CapyLoader.debugSource = capys = FakeSource();
   });
@@ -247,6 +251,27 @@ void main() {
     expect(find.text('Nothing found'), findsOneWidget);
     expect(x8().fired, isEmpty, reason: 'no replay while typing');
     expect(x8().mood, CapyMood.sleepy);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('a sticker never matches, though its body holds the query '
+      '(mascot §J2.5)', (tester) async {
+    _extra = [
+      Message(
+        localId: 'Sticker: lunch', // its body (the resolver returns the id)
+        serverId: 's_sticker',
+        conversationId: 'c1',
+        senderId: 'u_asha',
+        type: 'sticker',
+        status: 'read',
+        createdAt: DateTime(2026, 10, 1, 10, 9),
+      ),
+    ];
+    await _openSearch(tester, reduced: false);
+    await _type(tester, 'lunch');
+    expect(counter('1/1'), findsOneWidget, reason: 'the text only');
+    await _type(tester, 'sticker');
+    expect(find.text('Nothing found'), findsOneWidget);
     await tester.pump(const Duration(seconds: 2));
   });
 

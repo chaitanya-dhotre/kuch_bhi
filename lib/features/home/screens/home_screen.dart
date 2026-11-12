@@ -1124,7 +1124,9 @@ class _GroupConversationPreview extends ConsumerWidget {
     final lastMessage = ref
         .watch(conversationLastMessageProvider(conversation.id))
         .valueOrNull;
-    final senderId = lastMessage?.type == 'text' ? lastMessage!.senderId : '';
+    final senderId = kTextLikeTypes.contains(lastMessage?.type)
+        ? lastMessage!.senderId
+        : '';
     final lookupId = senderId == currentUserId ? '' : senderId;
     final senderName = ref
         .watch(_groupSenderNameProvider(lookupId))

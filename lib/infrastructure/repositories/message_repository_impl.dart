@@ -38,6 +38,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
+import '../../features/stickers/stickers.dart' show stickerBody;
 import '../offline/outbox_worker.dart';
 import '../media/media_blob_store.dart';
 import '../ingest/ingest_batch.dart';
@@ -1136,7 +1137,28 @@ class MessageRepositoryImpl implements MessageRepository {
     required String conversationId,
     required String plaintext,
     String? replyToLocalId,
-  }) async {
+  }) => _enqueueTextSend(conversationId, plaintext, replyToLocalId, 'text');
+
+  /// Mascot §J2.4: a sticker is a text send whose body names the sticker, so
+  /// the queue, F-b cancel, burst-order lift and offline count stay one path.
+  @override
+  Future<void> sendSticker({
+    required String conversationId,
+    required String stickerId,
+    String? replyToLocalId,
+  }) => _enqueueTextSend(
+    conversationId,
+    stickerBody(stickerId),
+    replyToLocalId,
+    'sticker',
+  );
+
+  Future<void> _enqueueTextSend(
+    String conversationId,
+    String plaintext,
+    String? replyToLocalId,
+    String type,
+  ) async {
     final myId = await _myId();
     // Hard group-membership gate (#17): the chat screen hides the composer
     // for removed/left members, this covers races (removed while the
@@ -1244,7 +1266,7 @@ class MessageRepositoryImpl implements MessageRepository {
           localId: localId,
           conversationId: conversationId,
           senderId: myId,
-          type: 'text',
+          type: type,
           // Real ciphertext when the key resolved (C1); the DEVICE-SEALED
           // ciphertext when the keyless path sealed under the device key
           // (P8); the interim marker only if even that failed. Never a
@@ -1506,7 +1528,7 @@ class MessageRepositoryImpl implements MessageRepository {
           localId: localId,
           conversationId: conversationId,
           senderId: myId,
-          type: 'text',
+          type: msg.type,
           encryptedBody: encrypted.ciphertext,
           iv: encrypted.iv,
           createdAt: msg.createdAt,
@@ -1532,7 +1554,7 @@ class MessageRepositoryImpl implements MessageRepository {
               'id': op.opId,
               'conversation_id': conversationId,
               'sender_id': myId,
-              'type': 'text',
+              'type': msg.type,
               'encrypted_body': encrypted.ciphertext,
               'iv': encrypted.iv,
               'reply_to_id': replyServerId ?? '',
@@ -1587,7 +1609,7 @@ class MessageRepositoryImpl implements MessageRepository {
           serverId: Value(record.id),
           conversationId: conversationId,
           senderId: myId,
-          type: 'text',
+          type: msg.type,
           encryptedBody: encrypted.ciphertext,
           iv: encrypted.iv,
           replyToId: Value(replyServerId),
@@ -2337,7 +2359,7 @@ class MessageRepositoryImpl implements MessageRepository {
     // Media rows upload through their own path, never the text outbox.
     unawaited(resumeMediaUploads());
     for (final msg in pending) {
-      if (msg.type != 'text') continue;
+      if (!kTextLikeTypes.contains(msg.type)) continue;
       if (bodyCache.get(msg.localId) == null && msg.mediaId == null) continue;
       // Repair ghost messages whose senderId was lost to an early auth race:
       // adopt the now-known id instead of destroying the user's message.
@@ -2373,7 +2395,7 @@ class MessageRepositoryImpl implements MessageRepository {
     if (msg == null) return;
     // D5 Try again: media re-runs its own upload (an acked create may
     // already have given it a server id).
-    if (msg.type != 'text') {
+    if (!kTextLikeTypes.contains(msg.type)) {
       await db.messagesDao.updateMessageStatus(localId, 'pending');
       unawaited(_uploadMediaMessage(localId));
       return;
@@ -2662,7 +2684,7 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> deleteMessage(String localId, {bool forEveryone = false}) async {
     var row = await db.messagesDao.getMessageByLocalId(localId);
     if (row == null) return;
-    if (row.type == 'text' && row.serverId == null) {
+    if (kTextLikeTypes.contains(row.type) && row.serverId == null) {
       if (await _cancelTextSend(row)) return;
       // Acked meanwhile: the normal delete, with the server id.
       row = await db.messagesDao.getMessageByLocalId(localId) ?? row;
@@ -3407,6 +3429,8 @@ class MessageRepositoryImpl implements MessageRepository {
               ..where((t) => t.conversationId.equals(conversationId))
               ..where((t) => t.isDeletedForMe.equals(false))
               ..where((t) => t.isDeletedForEveryone.equals(false))
+              // Its body "Sticker: hi" would match "hi" (mascot §J2.5).
+              ..where((t) => t.type.equals('sticker').not())
               ..orderBy([
                 (t) => OrderingTerm(
                   expression: t.createdAt,
@@ -5489,6 +5513,8 @@ class MessageRepositoryImpl implements MessageRepository {
         return kPreviewVoiceLabel;
       case 'document':
         return kPreviewDocumentLabel;
+      case 'sticker':
+        return kPreviewStickerLabel;
       case 'poll':
         return '📊 Poll';
       case 'system':

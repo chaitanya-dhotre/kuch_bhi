@@ -27,6 +27,12 @@ const kPreviewPhotoLabel = '📷 Photo';
 const kPreviewVideoLabel = '🎬 Video';
 const kPreviewVoiceLabel = '🎤 Voice message';
 const kPreviewDocumentLabel = '📎 Document';
+const kPreviewStickerLabel = '🍊 Sticker';
+
+/// Message types sent through the text outbox (`text_send`): a sticker is a
+/// text whose body names it (mascot §J2.4). Text-only checks (Copy, links,
+/// emoji-only, body prefetch) stay on `'text'` on purpose.
+const kTextLikeTypes = {'text', 'sticker'};
 
 // ── Failure copy (§3.7) — toasts and empty-state subtitles.
 const kUpdateFailedCopy = "Couldn't update. Try again.";

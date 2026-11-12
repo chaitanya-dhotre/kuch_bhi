@@ -6,6 +6,7 @@ import 'package:kuch_bhi/domain/entities/group_invite.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
 import 'package:kuch_bhi/domain/entities/user.dart';
 import 'package:kuch_bhi/domain/repositories/message_repository.dart';
+import 'package:kuch_bhi/features/stickers/stickers.dart';
 import 'package:kuch_bhi/features/chat/providers/chat_provider.dart'
     show ReactionGroup;
 
@@ -100,12 +101,26 @@ class FakeMessageRepository implements MessageRepository {
     required String conversationId,
     required String plaintext,
     String? replyToLocalId,
-  }) async {
+  }) => _send(conversationId, plaintext, replyToLocalId, 'text');
+
+  @override
+  Future<void> sendSticker({
+    required String conversationId,
+    required String stickerId,
+    String? replyToLocalId,
+  }) => _send(conversationId, stickerBody(stickerId), replyToLocalId, 'sticker');
+
+  Future<void> _send(
+    String conversationId,
+    String plaintext,
+    String? replyToLocalId,
+    String type,
+  ) async {
     final message = Message(
       localId: generateOpId(),
       conversationId: conversationId,
       senderId: 'me',
-      type: 'text',
+      type: type,
       decryptedBody: plaintext,
       replyToId: replyToLocalId,
       status: 'sent',

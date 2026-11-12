@@ -31,6 +31,7 @@ import 'reply_quote.dart';
 import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
 import 'expiry_badge.dart';
+import '../../stickers/sticker_widgets.dart';
 
 // 5 deterministic sender name colors — Warm Pop tokens only (no violet/
 // indigo; spec veto). Names render on t.surface. Light surface needs dark
@@ -65,6 +66,7 @@ String _messageTypeLabel(String type) => switch (type) {
   'document' => kMediaRowDocumentLabel,
   'poll' => 'Poll',
   'system' => 'System message',
+  'sticker' => 'Sticker',
   _ => 'Message',
 };
 
@@ -79,6 +81,7 @@ String _messageBodyLabel(Message message, String resolvedBody) {
   if (message.type == 'text' || message.type == 'system') {
     return body.isEmpty ? _messageTypeLabel(message.type) : body;
   }
+  if (message.type == 'sticker') return stickerSemanticsLabel(body);
   return _messageTypeLabel(message.type);
 }
 
@@ -96,6 +99,10 @@ String _messageRowSemanticsLabel({
   final body = _messageBodyLabel(message, resolvedBody);
   final time = DateFormat('HH:mm').format(message.createdAt.toLocal());
   final status = message.status.trim().isEmpty ? 'unknown' : message.status;
+  // J2.5.1: a sticker is content, read first ("Sticker, Hi").
+  if (message.type == 'sticker' && !message.isDeletedForEveryone) {
+    return '$body. From $sender. Time $time. Status $status.';
+  }
   return 'From $sender. $body. Time $time. Status $status.';
 }
 
@@ -391,6 +398,16 @@ class MessageBubble extends ConsumerWidget {
                 status: message.status,
                 createdAt: message.createdAt,
               ),
+            )
+          else if (message.type == 'sticker' &&
+              !message.isDeletedForEveryone &&
+              message.decryptState != 'key_missing' &&
+              message.decryptState != 'failed')
+            StickerBubble(
+              message: message,
+              body: resolved,
+              isMine: isMine,
+              runEnd: runEnd,
             )
           else if (emojiOnly)
             _EmojiOnlyBubble(message: message, isMine: isMine, runEnd: runEnd)

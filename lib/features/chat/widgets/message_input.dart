@@ -29,6 +29,7 @@ import '../message_offline_policy.dart';
 import '../providers/chat_provider.dart';
 import '../providers/voice_recorder_providers.dart';
 import '../voice_draft_store.dart';
+import '../../stickers/sticker_widgets.dart';
 import 'attach_sheets.dart';
 import 'reply_quote.dart';
 import 'voice_recorder_panel.dart';
@@ -243,6 +244,30 @@ class _MessageInputState extends ConsumerState<MessageInput>
       showToast(context, "Couldn't send. Try again.", error: true);
     }
   }
+
+  // ── Sticker send (mascot §J3) ─────────────────────────────────
+
+  Future<void> _onStickersPressed() => showStickerSheet(
+    context,
+    onSend: (sticker) async {
+      final reply = ref.read(_reply);
+      ref.read(_reply.notifier).state = null;
+      try {
+        await ref
+            .read(messageRepositoryProvider)
+            .sendSticker(
+              conversationId: widget.conversationId,
+              stickerId: sticker.id,
+              replyToLocalId: reply?.localId,
+            );
+      } catch (_) {
+        // Rejected before the row landed, as a text send: give the reply back.
+        if (!mounted) return;
+        ref.read(_reply.notifier).state ??= reply;
+        showToast(context, "Couldn't send. Try again.", error: true);
+      }
+    },
+  );
 
   // ── Recording helpers ────────────────────────────────────────
 
@@ -1626,6 +1651,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
               hasText: _hasText,
               isLoading: widget.isLoading,
               onAttach: _onAttachPressed,
+              onStickers: () => unawaited(_onStickersPressed()),
               onSend: _send,
               accessibleNavigation: MediaQuery.accessibleNavigationOf(context),
               onMicPointerDown: _onMicPointerDown,
@@ -1733,6 +1759,7 @@ class _NormalInputRow extends StatelessWidget {
     required this.hasText,
     required this.isLoading,
     required this.onAttach,
+    required this.onStickers,
     required this.onSend,
     required this.accessibleNavigation,
     required this.onMicPointerDown,
@@ -1745,6 +1772,7 @@ class _NormalInputRow extends StatelessWidget {
   final bool hasText;
   final bool isLoading;
   final VoidCallback onAttach;
+  final VoidCallback onStickers;
   final VoidCallback onSend;
   final bool accessibleNavigation;
   final PointerDownEventListener onMicPointerDown;
@@ -1764,6 +1792,15 @@ class _NormalInputRow extends StatelessWidget {
             foregroundColor: context.t.inkSoft,
             icon: const Icon(Icons.attach_file, size: 21),
             onTap: onAttach,
+          ),
+          const SizedBox(width: 4),
+          _ComposerAction(
+            key: const Key('composer-stickers'),
+            tooltip: 'Stickers',
+            backgroundColor: context.t.surface2,
+            foregroundColor: context.t.inkSoft,
+            icon: const Icon(Icons.emoji_emotions_outlined, size: 21),
+            onTap: onStickers,
           ),
           const SizedBox(width: 8),
           Expanded(

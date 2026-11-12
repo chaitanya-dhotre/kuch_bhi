@@ -438,7 +438,8 @@ class _ContextSheet extends ConsumerWidget {
             Navigator.of(context).pop();
           }, key: const Key('message-menu-select')),
 
-        if (!isAlbum && body.isNotEmpty)
+        // J2.4.1: a sticker's body is its wire id, not text to copy.
+        if (!isAlbum && body.isNotEmpty && message.type != 'sticker')
           _tile(Icons.copy_outlined, 'Copy', () {
             Clipboard.setData(ClipboardData(text: body));
             _afterAction(context);

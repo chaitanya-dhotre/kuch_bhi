@@ -285,3 +285,71 @@ was being built at the same time; the rig carries both.
 ## Device result (K1b), 2026-11-11
 
 User: **PASS** (M52; the Redmi was not connected for this build).
+
+# Phase 4: capybara stickers (§J), 2026-11-11
+
+Spec §J PASS 2026-11-11 (user, all 8 decisions at their defaults).
+
+## W0, live read (user yes, read only)
+
+`sqlite3 -readonly` on live `data.db` + grep of `pb_hooks/*.js` and `fcm_webhook.py`:
+1. `messages.type` is a **select** (`text, image, video, voice, poll, system, document, file`, maxSelect 0), so a
+   sticker create was refused → W1 needed.
+2. No rule or hook allow-lists or labels types. `fcm_notify.pb.js` has no `preview`; the webhook sends
+   `type: new_message` only, so the notification stays "Sent you a message" for old and new apps. No hook change.
+   `disappearing_stamp.pb.js` stamps every non-`system` row, so stickers get the same timer as a text.
+3. `type:isset = false` is already in **both** `updateRule` branches → no rule change (decision 7 satisfied as is).
+Live counts at read time: text 546, image 80, system 37, voice 11, video 10, file 9.
+
+## W1, live migration (user yes)
+
+- Backup `/home/ubuntu/pb_backups/data.db.20261111-stickers-pre` (`.backup`).
+- Migration `pb_migrations/1794400000_updated_messages_type_sticker.js`: re-adds the `type` select by its id
+  (`select625724656`) with `sticker` appended; down step restores the 8 values. Rules untouched.
+- Dry run (T5) on a `.backup` copy in `/tmp/pbtest` with no hooks: a throwaway migration saving one `sticker` row
+  **failed before** ("type: Invalid value sticker.") and **succeeded after**; rules hash unchanged; `migrate down`
+  restored the 8 values. Copy deleted.
+- Live: `scp` → `sudo mv` into `pb_migrations` → `systemctl restart pocketbase` → `_migrations` lists the file,
+  `type` values end in `sticker`, `/api/health` 200. Live before any sticker build is installed (T4).
+
+## Art
+
+`zsh docs/design/mascot/stickers/render.sh <scratch>`: all ten copies `rive rig --verify` clean (0 errors, 0
+warnings). The renders are pixel-identical to the reviewed drafts (`magick compare -metric AE` = 0 for all ten).
+Converted with `magick -define webp:lossless=true` to `assets/stickers/<id>.webp`: 384×384 sRGBA, **98 052 B** for
+all ten (≤ 120 KB). `previews/` is to be deleted (the WebP files replace them).
+
+## Client
+
+- `lib/features/stickers/stickers.dart`: `kStickers` (picker order), `stickerById`, `stickerBody`, `stickerIdOf`
+  (`^Sticker: ([a-z]+(?:-[a-z]+)*)$`).
+- `lib/features/stickers/sticker_widgets.dart`: `StickerImage` (cacheWidth = dp × dpr), `stickerThumb`,
+  `StickerBubble` (128, chrome-less, media time pill under it; empty 128 box while decrypting; unknown id → "Sticker"
+  + "Update Kuch Bhi to see it"), `showStickerSheet` (house sheet, 4-column grid, one send per open sheet).
+- Repo: `sendSticker` and `sendMessage` share one enqueue (`text_send`, row type passed through); `_sendTextOp`
+  sends and keeps `msg.type`; `kTextLikeTypes` (app_strings) at the pending-retry loop, `retryMessage`, the unsent
+  delete cancel, `liftQueuedTextSends`, the home sender prefix; `_deriveReplyPreview` → "🍊 Sticker"; search skips
+  `type = sticker`.
+- Bubble: sticker branch before emoji-only; row label "Sticker, Hi. From …". Menu: no Copy. Reply quote, pinned
+  banner, starred list: 32/24/48 dp thumbnail + "Sticker". Composer: "Stickers" button right of Attach.
+- No drift schema bump (column comment only).
+- Tests: `test/stickers/sticker_send_test.dart` (6, real repo on the fake PB: create type + decrypted body, offline
+  queue, F-b cancel, reply preview, retry through the text op, search) and `sticker_widgets_test.dart` (13: ids,
+  assets = kStickers, labels, bubble 128 + "Sticker, Hi" + cacheWidth, undecrypted box, unknown line, 200% text,
+  picker 10 tiles + labels + one send + closes, 200% sheet, menu without Copy, reply quote 32, pinned 24, starred 48).
+
+## Gates (phase 4)
+
+- Full suite **1215/1215** (1196 + 19). `flutter analyze` 0 errors (113 issues, same as baseline).
+- Release `--split-per-abi`: arm64 **48.3 MB** (K1b 48.1), armeabi-v7a 43.5 MB.
+- `trail check`: 2 flagged, both explained: `mascot.md:587` matched "keep the capybara soft" on words only (S1, no
+  gradients); `message_repository_impl.dart:1140` matched "don't widen the frozen text send path to media": stickers
+  are text sends by spec (J2.4), the lift is not renamed and media stays out.
+
+## Device round 1 (phase 4), 2026-11-12
+
+- User: **stickers appear in the chat search results.** Cause: the chat screen searches on its own
+  (`ConversationSearchController` over the loaded `_items`); the repo's `searchMessages` prefilter is not on that
+  path. Fix: the candidate list in `chat_screen.dart` skips `type == 'sticker'`. Test in `search_capy_test.dart` ("a
+  sticker never matches…"): a row whose body is "Sticker: lunch" plus the text "lunch" → 1/1; fails without the fix
+  (0 widgets with "1/1", it counted 2).

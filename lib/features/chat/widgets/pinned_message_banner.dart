@@ -8,6 +8,8 @@ import '../chat_run_grouping.dart' show albumLabel;
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import 'message_body_text.dart';
+import '../providers/message_body_provider.dart';
+import '../../stickers/sticker_widgets.dart';
 
 class PinnedMessageBanner extends ConsumerStatefulWidget {
   const PinnedMessageBanner({
@@ -80,6 +82,29 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
 
     // Text and terminal rows must use the shared body state machine. This
     // removes the misleading old "🔒 Encrypted" fallback from pinned UI.
+    if (msg.type == 'sticker' && !terminal) {
+      return Row(
+        children: [
+          SizedBox.square(
+            dimension: 24,
+            child: stickerThumb(
+              ref.watch(messageBodyProvider(msg.localId)).valueOrNull ??
+                  msg.decryptedBody,
+              24,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Sticker',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: previewStyle,
+            ),
+          ),
+        ],
+      );
+    }
     if (msg.type == 'text' || terminal) {
       return MessageBodyText(
         messageId: msg.localId,
