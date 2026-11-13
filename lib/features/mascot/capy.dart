@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:rive/rive.dart' as rive;
 
 import '../../core/utils/app_haptic.dart';
+import 'capy_look.dart';
 
 /// Page 10 mascot (spec docs/design/pages/mascot.md §C–D). One bundled
 /// `assets/mascot/capy.riv` (source: `mascot/capy/scene.rml`), four views,
@@ -26,6 +27,7 @@ abstract class CapyRig {
   void setBool(String name, bool value);
   void setQueued(int queued);
   void setLookX(double x);
+  void setLook(CapyLook look);
   void fire(String trigger);
   Widget get view;
   void dispose();
@@ -104,6 +106,8 @@ class _RiveCapyRig implements CapyRig {
   @override
   void setLookX(double x) => vmi.number('lookX')?.value = x;
   @override
+  void setLook(CapyLook look) => vmi.enumerator('look')?.value = look.name;
+  @override
   void fire(String trigger) => vmi.trigger(trigger)?.trigger();
   @override
   late final Widget view = rive.RiveWidget(
@@ -174,9 +178,13 @@ class _CapyState extends State<Capy> {
   CapyRig? _rig;
   CapySource? _source;
 
+  // K1: every capybara wears the current look (not stickers: they are PNGs).
+  void _onLook() => _rig?.setLook(CapyLook.current.value);
+
   @override
   void initState() {
     super.initState();
+    CapyLook.current.addListener(_onLook);
     if (CapyLoader.ready == null) {
       CapyLoader.source.then((s) {
         if (mounted && s != null) setState(() {});
@@ -205,7 +213,8 @@ class _CapyState extends State<Capy> {
       ..setMood(widget.mood)
       ..setPose(widget.pose)
       ..setBool('still', !widget.animated)
-      ..setQueued(widget.queued.clamp(0, 3));
+      ..setQueued(widget.queued.clamp(0, 3))
+      ..setLook(CapyLook.current.value);
   }
 
   @override
@@ -236,6 +245,7 @@ class _CapyState extends State<Capy> {
 
   @override
   void dispose() {
+    CapyLook.current.removeListener(_onLook);
     _rig?.dispose();
     super.dispose();
   }

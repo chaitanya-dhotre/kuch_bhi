@@ -15,6 +15,9 @@ import 'package:kuch_bhi/domain/repositories/message_repository.dart';
 import 'package:kuch_bhi/features/chat/providers/outbox_status_provider.dart';
 import 'package:kuch_bhi/features/chat/providers/message_body_provider.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
+
+import '../mascot/capy_test.dart' show FakeSource;
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
 
@@ -102,15 +105,97 @@ Future<FakeMessageRepository> _pump(
 }
 
 void main() {
+  late FakeSource capys;
+  setUp(() => CapyLoader.debugSource = capys = FakeSource());
+  tearDown(() => CapyLoader.debugSource = null);
+
+  test('failedSendReason: every class and null (decision 6)', () {
+    expect(failedSendReason('bad_request'),
+        'The server turned this message down.');
+    expect(failedSendReason('forbidden'),
+        "You can't send to this chat any more.");
+    expect(failedSendReason('dead_link'),
+        "This chat isn't on the server any more.");
+    expect(failedSendReason('payload_too_large'),
+        'This message is too big to send.');
+    expect(failedSendReason('encrypt_failed'),
+        "It couldn't be locked (encrypted) on this phone.");
+    for (final other in [null, 'http_500', '']) {
+      expect(failedSendReason(other), 'Something went wrong while sending it.');
+    }
+  });
+
+  testWidgets('tap the title → sheet with worried capybara, reason, code',
+      (tester) async {
+    await _pump(tester, rows: [_op()]);
+    await tester.tap(find.text('Failed to send'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Message not sent'), findsOneWidget);
+    expect(find.text("This chat isn't on the server any more."),
+        findsOneWidget);
+    expect(find.text('Code: dead_link'), findsOneWidget);
+    final capy = tester.widget<Capy>(find.byType(Capy));
+    expect(capy.view, CapyView.head);
+    expect(capy.size, 48);
+    expect(capy.mood, CapyMood.worried);
+    expect(capy.flip, isTrue, reason: 'faces the text');
+    expect(capy.animated, isFalse);
+    expect(capys.views, [CapyView.head]);
+  });
+
+  for (final (label, retried) in [('Retry', true), ('Discard', false)]) {
+    testWidgets('sheet $label closes it and calls the banner\'s op once (V3)',
+        (tester) async {
+      final fake = await _pump(tester, rows: [_op()]);
+      await tester.tap(find.text('Failed to send'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Message not sent'), findsNothing);
+      expect(fake.retried, retried ? ['opdead000000001'] : isEmpty);
+      expect(fake.discarded, retried ? isEmpty : ['opdead000000001']);
+    });
+  }
+
+  testWidgets('360×640 at 200%: the sheet fits', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: warmPopLight(),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: const TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => showFailedSendSheet(context,
+              errorClass: 'payload_too_large', onRetry: () {}, onDiscard: () {}),
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('This message is too big to send.'), findsOneWidget);
+    expect(find.text('Code: payload_too_large'), findsOneWidget);
+  });
+
   testWidgets(
-      'failedTerminal op renders banner: title + error class + Retry/Discard',
+      'failedTerminal op renders banner: title + Retry/Discard; the class '
+      'moved into the sheet (K3)',
       (tester) async {
     await _pump(tester, rows: [_op()]);
 
     expect(find.text('Failed to send'), findsOneWidget,
         reason: 'banner title must be visible');
-    expect(find.text('dead_link'), findsOneWidget,
-        reason: 'error class text must be visible (spec: terminal block VISIBLE)');
+    expect(find.text('dead_link'), findsNothing);
+    expect(find.bySemanticsLabel('Failed to send. Why it failed'),
+        findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Discard'), findsOneWidget);
   });
@@ -212,3 +297,4 @@ void main() {
     expect(rows.single.errorClass, 'dead_link');
   });
 }
+

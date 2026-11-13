@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/features/mascot/capy.dart';
+import 'package:kuch_bhi/features/mascot/capy_look.dart';
 import 'package:kuch_bhi/features/mascot/capy_spots.dart';
 
 /// Records what the widget writes into the view model.
@@ -10,6 +11,7 @@ class FakeRig implements CapyRig {
   CapyPose? pose;
   int queued = -1;
   double? lookX;
+  CapyLook? look;
   final bools = <String, bool>{};
   final fired = <String>[];
   bool disposed = false;
@@ -24,6 +26,8 @@ class FakeRig implements CapyRig {
   void setQueued(int q) => queued = q;
   @override
   void setLookX(double x) => lookX = x;
+  @override
+  void setLook(CapyLook l) => look = l;
   @override
   void fire(String trigger) => fired.add(trigger);
   @override

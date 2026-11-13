@@ -18,6 +18,7 @@ import 'firebase_options.dart';
 import 'features/app_lock/app_lock_controller.dart';
 import 'features/app_lock/app_lock_platform.dart';
 import 'features/mascot/capy.dart';
+import 'features/mascot/capy_look.dart';
 import 'infrastructure/repositories/message_repository_impl.dart'
     show messageRepositoryProvider;
 import 'services/fcm_service.dart';
@@ -73,6 +74,7 @@ Future<void> main() async {
   // Mascot file starts loading now so the lock and splash usually have it by
   // their first frame. Never awaited (mascot spec F1, G0.3).
   unawaited(CapyLoader.source);
+  startCapyLookClock();
 
   runApp(
     ProviderScope(

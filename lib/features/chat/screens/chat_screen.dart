@@ -24,6 +24,7 @@ import '../chat_run_grouping.dart';
 import '../message_offline_policy.dart';
 import 'album_screen.dart';
 import '../widgets/disappearing_dialog.dart';
+import '../widgets/expiry_badge.dart' show ChatInfoMode;
 import '../widgets/message_bubble.dart';
 import '../widgets/message_context_menu.dart';
 import '../widgets/message_input.dart';
@@ -205,6 +206,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _loadingMore = false;
   int _offset = 40;
   bool _searchActive = false;
+
+  /// K2: the app-bar capybara shows every bubble's time. Off on every open.
+  bool _infoMode = false;
   bool _historyExhausted = false;
   bool _historyLoadFailed = false;
   bool _showScrollToLatest = false;
@@ -979,7 +983,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                             lookAround: !_lookedAround,
                             onLookedAround: () => _lookedAround = true,
                           )
-                        : _selectionGestures(ListView.builder(
+                        : _selectionGestures(ChatInfoMode(on: _infoMode, child: ListView.builder(
                             key: _listKey,
                             controller: _scrollCtrl,
                             reverse: true,
@@ -1119,7 +1123,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                       child: row,
                                     );
                             },
-                          )),
+                          ))),
                     ),
                   ),
                   if (!_searchActive && _showScrollToLatest)
@@ -1270,6 +1274,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 ),
               ),
             ),
+          ),
+          // K2 C1: always still (V5); mood is the only change.
+          IconButton(
+            tooltip: _infoMode ? 'Hide message times' : 'Show message times',
+            isSelected: _infoMode,
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            icon: Capy(
+              view: CapyView.head,
+              size: 32,
+              mood: _infoMode ? CapyMood.active : CapyMood.chill,
+              pettable: false,
+            ),
+            onPressed: () {
+              appHaptic(HapticsType.light);
+              setState(() => _infoMode = !_infoMode);
+            },
           ),
           IconButton(
             tooltip: 'Search messages',

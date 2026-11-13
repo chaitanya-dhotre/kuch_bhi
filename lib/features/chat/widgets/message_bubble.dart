@@ -6,6 +6,8 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/busy_spinner.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/utils/emoji_utils.dart';
@@ -32,6 +34,7 @@ import 'swipe_to_reply.dart';
 import 'message_context_menu.dart';
 import 'expiry_badge.dart';
 import '../../stickers/sticker_widgets.dart';
+import '../../mascot/capy.dart';
 
 // 5 deterministic sender name colors — Warm Pop tokens only (no violet/
 // indigo; spec veto). Names render on t.surface. Light surface needs dark
@@ -766,29 +769,44 @@ class TerminalFailureBanner extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.error_outline, size: 15, color: err),
-                const SizedBox(width: 6),
-                Text(
-                  'Failed to send',
-                  style: TextStyle(
-                    color: err,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600, // plan floor: ≥w600 12px
+            // K3 C5: the title opens the sheet, which says why (the raw
+            // class moved there).
+            Semantics(
+              button: true,
+              // The spec's "Why it failed", after the status it replaces.
+              label: 'Failed to send. Why it failed',
+              excludeSemantics: true,
+              child: InkWell(
+                onTap: () => showFailedSendSheet(
+                  context,
+                  errorClass: errorClass,
+                  onRetry: onRetry,
+                  onDiscard: onDiscard,
+                ),
+                borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 36),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.error_outline, size: 15, color: err),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Failed to send',
+                          style: TextStyle(
+                            color: err,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600, // plan floor: ≥w600 12px
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, size: 15, color: err),
+                    ],
                   ),
                 ),
-              ],
-            ),
-            if (errorClass != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, left: 21),
-                child: Text(
-                  errorClass!,
-                  style: TextStyle(color: err, fontSize: 11),
-                ),
               ),
+            ),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -827,6 +845,89 @@ class TerminalFailureBanner extends StatelessWidget {
   }
 }
 
+/// K3 decision 6: a terminal failure's error class in plain words.
+String failedSendReason(String? errorClass) => switch (errorClass) {
+  'bad_request' => 'The server turned this message down.',
+  'forbidden' => "You can't send to this chat any more.",
+  'dead_link' => "This chat isn't on the server any more.",
+  'payload_too_large' => 'This message is too big to send.',
+  'encrypt_failed' => "It couldn't be locked (encrypted) on this phone.",
+  _ => 'Something went wrong while sending it.',
+};
+
+/// K3 C5: why a message failed for good. Retry and Discard close the sheet,
+/// then call exactly what the banner's buttons call (V3).
+Future<void> showFailedSendSheet(
+  BuildContext context, {
+  required String? errorClass,
+  required VoidCallback onRetry,
+  required VoidCallback onDiscard,
+}) {
+  final t = context.t;
+  return showAppSheet<void>(
+    context: context,
+    builder: (sheet) {
+      void close(VoidCallback then) {
+        Navigator.of(sheet).pop();
+        then();
+      }
+
+      return AppSheetChrome(
+        title: 'Message not sent',
+        children: [
+          Row(
+            children: [
+              const Capy(
+                view: CapyView.head,
+                size: 48,
+                mood: CapyMood.worried,
+                flip: true,
+                pettable: false,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      failedSendReason(errorClass),
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 22 / 15,
+                        color: t.ink,
+                      ),
+                    ),
+                    if (errorClass != null)
+                      Text(
+                        'Code: $errorClass',
+                        style: TextStyle(fontSize: 12, color: t.inkSoft),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            expanded: true,
+            onPressed: () => close(onRetry),
+            child: const Text('Retry'),
+          ),
+          const SizedBox(height: 4),
+          TextButton(
+            onPressed: () => close(onDiscard),
+            style: TextButton.styleFrom(
+              foregroundColor: t.error,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 // ── Emoji-only (no bubble, large font) ────────────────────────────────────
 
 class _EmojiOnlyBubble extends StatelessWidget {
@@ -859,7 +960,7 @@ class _EmojiOnlyBubble extends StatelessWidget {
               ciphertextLength: message.ciphertextLength,
             ),
           ),
-          if (runEnd) ...[
+          if (runEnd || ChatInfoMode.of(context)) ...[
             const SizedBox(height: ChatBubbleGeometry.metadataGap),
             ChatBubbleTimestamp(
               isMine: isMine,
@@ -939,7 +1040,7 @@ class _TextBubble extends StatelessWidget {
           if (url != null && !message.isDeletedForEveryone)
             LinkPreviewCard(url: url!),
 
-          if (runEnd) ...[
+          if (runEnd || ChatInfoMode.of(context)) ...[
             const SizedBox(height: ChatBubbleGeometry.metadataGap),
             ChatBubbleTimestamp(
               isMine: isMine,

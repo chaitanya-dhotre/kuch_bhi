@@ -3,10 +3,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/tokens.dart';
-import '../../../core/widgets/app_logo_tile.dart';
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/widgets/settings_tile.dart';
 import '../../../core/widgets/skeleton.dart';
+import '../../mascot/capy.dart';
 
 class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
@@ -42,7 +42,8 @@ class _AboutScreenState extends State<AboutScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(12, 20, 12, 24),
             children: [
-              const Center(child: AppLogoTile()),
+              // K4 S1: still; a tap pets it (squish, blush, light haptic).
+              const Center(child: Capy(view: CapyView.sit, size: 96)),
               const SizedBox(height: 16),
               Text(
                 AppConstants.appName,

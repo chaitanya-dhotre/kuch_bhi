@@ -95,6 +95,20 @@ class ChatBubbleGeometry {
 }
 
 /// The single outer frame used by text, emoji, media, voice, and documents.
+/// K2 (mascot spec §K2): while on, every bubble shows its time and ticks,
+/// not only a run's last one. Only shows (V2): nothing is sent or saved.
+class ChatInfoMode extends InheritedWidget {
+  const ChatInfoMode({super.key, required this.on, required super.child});
+
+  final bool on;
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ChatInfoMode>()?.on ?? false;
+
+  @override
+  bool updateShouldNotify(ChatInfoMode old) => on != old.on;
+}
+
 class ChatBubbleFrame extends StatelessWidget {
   const ChatBubbleFrame({
     super.key,
@@ -137,7 +151,9 @@ class ChatBubbleFrame extends StatelessWidget {
     );
     Widget content = child;
     final hasTimestamp =
-        showTimestamp && runEnd && (createdAt != null || status != null);
+        showTimestamp &&
+        (runEnd || ChatInfoMode.of(context)) &&
+        (createdAt != null || status != null);
     if (hasTimestamp && !timestampOverlay) {
       Widget timestamp = Align(
         alignment: Alignment.centerRight,

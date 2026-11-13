@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/core/theme/tokens.dart';
+import 'package:kuch_bhi/features/mascot/capy.dart';
 import 'package:kuch_bhi/features/settings/screens/about_screen.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+
+import '../mascot/capy_test.dart' show FakeSource;
 
 Future<void> _pump(WidgetTester tester,
     {String version = '1.0.0', String build = '1', double textScale = 1}) async {
@@ -28,6 +31,23 @@ Future<void> _pump(WidgetTester tester,
 }
 
 void main() {
+  late FakeSource capys;
+  setUp(() => CapyLoader.debugSource = capys = FakeSource());
+  tearDown(() => CapyLoader.debugSource = null);
+
+  testWidgets('S1: a still Sit 96 capybara; a tap pets it once', (tester) async {
+    await _pump(tester);
+    final capy = tester.widget<Capy>(find.byType(Capy));
+    expect(capy.view, CapyView.sit);
+    expect(capy.size, 96);
+    expect(capy.mood, CapyMood.chill);
+    expect(capy.animated, isFalse);
+    final rig = capys.rigs.single;
+    expect(rig.bools['still'], isTrue);
+    await tester.tap(find.byType(Capy));
+    expect(rig.fired, ['pet']);
+  });
+
   testWidgets('version row shows version (build)', (tester) async {
     await _pump(tester);
     expect(find.text('Version'), findsOneWidget);

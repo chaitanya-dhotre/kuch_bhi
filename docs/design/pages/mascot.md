@@ -4,7 +4,8 @@ Date: 2026-11-09. Status: **spec PASS 2026-11-10 (user), all 9 deferred decision
 COMMITTED `a871498` 2026-11-10 (device PASS). **Phase 3 (§G, security moments) spec PASS 2026-11-11 (user), all 8
 decisions at their defaults**; implemented 2026-11-11 (gates green, 1186/1186), device PASS 2026-11-11
 (`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults.**
-**§J (phase 4, capybara stickers) spec PASS 2026-11-11 (user), all 8 decisions at their defaults.** Page 10 of
+**§J (phase 4, capybara stickers) spec PASS 2026-11-11 (user), all 8 decisions at their defaults.** **§K (phase 5:
+looks, app-bar buddy, failed-send sheet, About, app icon) spec PASS 2026-11-12 (user), all 9 decisions at their defaults; onboarding + Loaf parked.** Page 10 of
 `00-foundation.md` §8.
 Visual ground truth: **`docs/design/pages/mascot.html`** (S1 expression sheet, S2 views and where each is used,
 S3 the offline bath sequence, S4 in-app placements, S5 rig, S6 phases). Background and earlier rounds:
@@ -182,7 +183,7 @@ Source of truth after PASS: a Rive project at `mascot/capy/` (`rive.yaml` + `sce
 |---|---|
 | 3 · security moments | **Specced in §G below.** K2 app lock · K1 key restore success · K3 group key rotation · E4 cold-start sync hold · X8 search looks around |
 | 4 · stickers (I2) | **Specced in §J below.** 10 stickers from the Front/Sit/Onsen views, sent as a `sticker` message holding only an id; art bundled, works offline, encryption unchanged; still images in chat. Needs a live PocketBase check (and a field change if `type` is a select) and an old-client fallback. |
-| 5 · more | **O1** onboarding (3 scenes, + Loaf view) · **C1** chat app-bar buddy (Head 32, tap = info mode) · **C5** failed-send sheet (Head 48, worried) · **S1** Settings › About (Sit 96) · **I4** night and festival looks (nightcap after 23:00; Diwali, Holi, New Year by date) · **I1** app icon / splash from the Head view |
+| 5 · more | **Specced in §K below** (5a looks + C1 + C5 + S1 · 5b icon · onboarding + Loaf parked). **O1** onboarding (3 scenes, + Loaf view) · **C1** chat app-bar buddy (Head 32, tap = info mode) · **C5** failed-send sheet (Head 48, worried) · **S1** Settings › About (Sit 96) · **I4** night and festival looks (nightcap after 23:00; Diwali, Holi, New Year by date) · **I1** app icon / splash from the Head view |
 | dropped | C2 swipe companion (D5), typing-indicator capybara (D4) |
 
 ## G. Phase 3: security moments (spec PASS 2026-11-11, all decisions at their defaults)
@@ -798,6 +799,196 @@ exist), festival stickers (phase 5 I4), any change to the `Capy` widget or `capy
 8. **Old app line:** **"Sticker: hi"** / "Sticker: hi (update Kuch Bhi to see it)" (longer, but it tells old users
    why; it is the permanent wire text, T7).
 
+## K. Phase 5 · the rest of the mascot pass (spec PASS 2026-11-12, all decisions at their defaults)
+
+The last mascot phase: night and festival looks (**I4**), the chat app-bar buddy (**C1**), the failed-send sheet
+(**C5**), Settings › About (**S1**) and the launcher icon / splash (**D7**). Two sub-phases, each its own commit after
+its own device PASS: **5a** looks + C1 + C5 + S1 (one rig change), **5b** the icon (after you pick one). Code line
+numbers below are at `49a6ec4`.
+
+**Parked (user, 2026-11-12):** **O1 onboarding** waits for a reference review of other apps' onboardings (and a
+redesign pass, K5), and the **Loaf** view is dropped ("does not look good at all"; the draft lying capybara was cut
+from the Head view onto a long body). D6 stays open for whatever onboarding later needs.
+
+Pictures: `mascot.html` **S11**. Every capybara there is a headless render of the rig with the R11 additions, made by
+`docs/design/mascot/phase5/apply_phase5.py` (patches a copy of `mascot/capy/`) → `render.sh` (+ `rig.commands`) on the
+light and dark page colours. Icon options: `docs/design/mascot/phase5/icon.py` (renders on white and black, recovers
+the alpha, builds the adaptive layers and the masked previews). The build applies the same edits to
+`mascot/capy/scene.rml` by hand and retires the script.
+
+### ⛔ Frozen for phase 5 (on top of F1–F8; a breach is an automatic FAIL)
+
+- **V1** No key, router or sync change: `BackupPinScreen`, the router's `redirect` and `SyncRouteGate` are untouched.
+- **V2** Info mode only *shows*: no receipt is sent, nothing is written to drift or the server, it is not saved, and
+  it ends when you leave the chat.
+- **V3** The failed-send sheet's Retry and Discard call the same `retryOp` / `discardOp` as the banner's buttons
+  (`message_bubble.dart:436–441`); the banner stays as it is apart from becoming tappable.
+- **V4** Looks come from the phone's own clock and a table in the app. No network, no server date.
+- **V5** F2 on the chat screen: the app-bar buddy is always still, so E1 + X6 (or E1 + X8b) stay the only two that
+  move.
+- **V6** Stickers and their art are unchanged (T6, T7): no hats on stickers.
+- **V7** The icon change keeps `applicationId` and the version-code scheme: the new build installs over the old one
+  (split-per-ABI, learning 2026-11-11), never needs an uninstall.
+
+### K0. Rig additions
+
+| # | Where | What | How |
+|---|---|---|---|
+| R11 | Sit, Front, Head, Onsen | **Looks** (I4): view-model enum **`look`** = `none, night, diwali, holi, newYear` (enum `0:600`, values `0:601–0:605`, property `0:606`) and a new **Look** layer per state machine (one 1-frame animation per value, cut, no blend). | **Nightcap** (water-teal cone that flops back, white brim and stripe, a mini yuzu as the pom-pom) and **party hat** (leaf-green cone with yuzu dots, white brim, leaning toward the snout, mini yuzu on the tip): both hide the yuzu while worn (it becomes the pom-pom). **Diya** (Diwali): a clay lamp in shade brown with a yuzu flame and a white core, on the ground in front of Sit and Front, under the chin on Head, floating on the bath in Onsen; the yuzu stays. **Holi**: 3–4 colour-powder dabs (blush, ripple teal, leaf, yuzu; no purple) on the head and body; the yuzu stays. Nightcap, party hat and diya are each drawn **once** as a component artboard (`Acc_night`, `Acc_party`, `Acc_diya`, ids `0:900–0:902`) and placed into the four views as `NestedArtboard`s; the Holi dabs are one small shape per view (their places differ). Front wears the hats at 0.8 (it has 36 units above its yuzu). |
+
+- **K0.1 MUST (size, measured on the draft)** Published `capy.riv` today: **56 634 B**. With R11 as nested artboards:
+  **63 657 B** (+7.0 KB). Drawn into each view instead of nested: 69.6 KB. Of every published file, **13.9 KB is the
+  Free-plan watermark** (published minus built: 56 634 − 42 703); the content goes 42.7 → 50.0 KB. So R11 **breaks the
+  60 KB budget (C4)** and no second file can fix it: a hat must sit on the same artboard as the head it rides on. →
+  **decision 1**: raise C4 to **64 KB published** (default).
+- **K0.2 MUST** C3/C4 otherwise hold: `--verify` clean, `inspect` problems empty (both checked on the draft), no
+  Feather, no new clips. The Look layer is not gated by `reducedMotion` (a look is a still picture, not motion). New
+  ids `0:600–0:606`, `0:611+` and `0:900–0:902`.
+
+### K1. I4 · Night and festival looks (5a)
+
+| | |
+|---|---|
+| Logic | New `lib/features/mascot/capy_look.dart`: pure **`capyLookAt(DateTime local) → CapyLook`** and a static `CapyLook.current` (`ValueNotifier`). One `Timer` set to the next boundary (05:00, 18:00, 23:00, midnight) re-evaluates it; so does app resume (the phone may have slept past a boundary). Every `Capy` listens and sets `look`. |
+| Rules (phone's local time) | **newYear**: 31 Dec 18:00 → 1 Jan 23:59. **diwali**: Lakshmi Puja day −2 … +2 (Dhanteras to Bhai Dooj). **holi**: the evening before Holi from 18:00, and Holi day. **night**: 23:00–05:00 on any other day. Priority newYear > diwali > holi > night (decision 3). |
+| Date table | `const kDiwali = {2027: (10, 29), 2028: (10, 17), 2029: (11, 5), 2030: (10, 26)}`, `const kHoli = {2027: (3, 22), 2028: (3, 11), 2029: (3, 1), 2030: (3, 20)}` (New Delhi panchang; Diwali 2026 was 8 Nov). **MUST**: re-check both against drikpanchang.com (New Delhi) at build time; Holi especially (one calendar lists 4 Mar 2027 for some northern traditions). After 2030 the festivals stop silently: `shortcut: dates end 2030, add years when the table runs out`. |
+| Where | Every `Capy` (all 4 views). Not stickers (V6), not the launcher icon. |
+| Mood | Unchanged: the nightcap is a hat, not a mood. A placement that is `chill` stays `chill` at 23:30, with the cap. |
+| Test hook | `const String.fromEnvironment('CAPY_LOOK')` overrides the clock when set (e.g. `--dart-define=CAPY_LOOK=diwali`): device checks don't change the phone's date (which breaks sign-in tokens). Empty in normal builds. |
+
+### K2. C1 · Chat app-bar buddy (5a)
+
+| | |
+|---|---|
+| Hook | `lib/features/chat/screens/chat_screen.dart` app bar: a new `IconButton` right before "Search messages" (:1274), 48 × 48, child **Head 32** (decision 4), not flipped (it faces the name, as drawn), `animated: false`, `pettable: false`. Not shown in the search or selection bars (they replace the app bar). |
+| Tap | Toggles **info mode** + `appHaptic(HapticsType.light)`. Mood `chill` (curved eyes) when off, **`active`** (round eyes, "looking") when on: the rig's 150 ms face cross-fade is the only motion, so it stays a still capybara (V5). |
+| Info mode | Every bubble shows its **time and ticks**, not only the last bubble of a run (today `ChatBubbleShell` shows them only when `runEnd`, `expiry_badge.dart:140`). One `InheritedWidget` `ChatInfoMode(on:)` around the message list; `ChatBubbleShell` reads it: `showTimestamp && (runEnd \|\| ChatInfoMode.of(context))`. No per-bubble plumbing. Starts off on every chat open (V2, decision 5). |
+| Words | `tooltip` / semantics label **"Show message times"** / **"Hide message times"**, `isSelected: infoMode` (TalkBack reads a toggle). The capybara stays in `ExcludeSemantics` (F4: the button's label carries the meaning). |
+| 360 dp | The name loses 48 dp; it already ellipsises. |
+
+### K3. C5 · Failed-send sheet (5a)
+
+There is no failed-send sheet today: a message that fails for good shows `TerminalFailureBanner`
+(`message_bubble.dart:742`) under its bubble with "Failed to send", the **raw error class** (`bad_request`,
+`http_500`, `encrypt_failed`…) and Retry / Discard. C5 adds the sheet and says why in plain words.
+
+| | |
+|---|---|
+| Open | The banner's title row ("Failed to send" + a 15 dp `chevron_right`) becomes a button (label "Why it failed"); the raw class line moves into the sheet. Retry and Discard stay on the banner. |
+| Sheet | `showAppSheet` (R19), header **"Message not sent"**. A row: **Head 48 `worried`** (sweat drop), flipped so it faces the text, still · the reason (15/22 ink) and under it "Code: bad_request" (12 inkSoft). Then **Retry** (filled) and **Discard** (text, error colour), full width. Either closes the sheet, then calls exactly what the banner's button calls (V3). |
+| Reasons (decision 6) | `bad_request` → "The server turned this message down." · `forbidden` → "You can't send to this chat any more." · `dead_link` → "This chat isn't on the server any more." · `payload_too_large` → "This message is too big to send." · `encrypt_failed` → "It couldn't be locked (encrypted) on this phone." · anything else → "Something went wrong while sending it." One pure `failedSendReason(String? errorClass)`. |
+| Never | next to the bubble: the banner keeps its icon, no capybara there (inventory C5). |
+
+### K4. S1 · Settings › About (5a)
+
+`lib/features/settings/screens/about_screen.dart:45`: `AppLogoTile()` (88) becomes **Sit 96**, `chill`, still,
+pettable: a tap plays the pet (eyes close, blush, squish, I3) with the light haptic; that squish + happy face is the
+"giggle" (decision 7: no sound). +8 dp; the page already scrolls (200% text fine).
+
+### K5. O1 · Onboarding (parked)
+
+Parked by the user on 2026-11-12, together with the Loaf view. It comes back as its own spec after a review of how
+other apps onboard (a reference library such as Mobbin needs its paid plan: the free connector refuses every search)
+and the in-chat redesign. What this draft learned stays useful: the hook is a local flag set on a new account
+(`auth_provider.dart:177` register, `google_onboarding_screen.dart:87` Google username), shown by `BackupPinScreen` in
+setup mode before its key step (setup starts at `_Step.key`, :120), with Skip on every scene.
+
+### K6. D7 · App icon and splash (5b; pick one in S11)
+
+Today the launcher icon is still **Flutter's default** (`mipmap-*/ic_launcher.png`, no adaptive icon); the native
+launch window is a flat `launch_bg`; the Flutter splash shows `AppLogoTile` (a lock on the accent). On Android 12+
+(the M52) the system splash draws the launcher icon, so at every cold start you see the Flutter logo, then the lock
+tile.
+
+| | |
+|---|---|
+| Art | A **full-body** capybara, `chill` (curved eyes: the calm brand face), no hat (user, 2026-11-12: Front or Sit, not the Head bust). Options in S11 (decision 8): **A Front on bath teal** `#A9DCD6` · **B Front on cream** `#FAF7F1` · **C Sit on bath teal** · **D Sit on cream**. Front is symmetric and fills the circle; Sit is drawn at 54% of the canvas so its back clears the circle mask. |
+| Adaptive icon | `mipmap-anydpi-v26/ic_launcher.xml`: background `@color/ic_launcher_background`, foreground `@mipmap/ic_launcher_foreground` (108 dp canvas, art inside the 66 dp safe circle: 108/162/216/324/432 px), **monochrome** `@mipmap/ic_launcher_monochrome` (the line art: outline, eyes, nostrils, snout patch) for Android 13 themed icons. `ic_launcher.png` per density (48 dp) as the legacy fallback. Generated by `icon.py` (a `--ship <res-dir>` mode added at build); no new dependency (no `flutter_launcher_icons`). |
+| Splash | Android 12+ shows the new icon on `launch_bg` by itself. **`AppLogoTile`** draws the same art (the foreground PNG on the background colour, same `radiusXl` tile), so cold start goes icon → same picture → (after 1 s, phase 3 E4) the guarding capybara, with no lock tile in between (decision 9). Its other users (lock create/forgot steps, the privacy cover, app-lock settings) get the same picture. |
+| Keeps | `applicationId`, version code, the app name (V7). |
+
+### K7. Test gates
+
+- **Rig (5a)**: R11 in `mascot/capy/scene.rml`; `--verify` clean, `inspect` problems empty, `capy.riv` ≤ the budget of
+  decision 1; captures: each look on each view (compare with S11), and a look while `pet` and `hop` play (the hat moves
+  with the head).
+- **Unit (5a)**: `capyLookAt` table: 22:59 → none, 23:00 → night, 04:59 → night, 05:00 → none, 31 Dec 17:59 → none
+  (or night if after 23:00), 31 Dec 18:00 → newYear, 1 Jan 03:00 → newYear (beats night), Diwali day −2/+2/+3,
+  Holi eve 17:59/18:00, Holi day 23:30 → holi (beats night); the next-boundary function; `CAPY_LOOK` override.
+  `failedSendReason` for every class and null.
+- **Widget (5a, fake rig)**: every `Capy` gets `look` from `CapyLook.current` and changes when it changes. Chat app
+  bar: the button is there with "Show message times", a tap → `isSelected`, mood `active`, every bubble of a run shows
+  its time; a second tap → only run ends; reopening the chat → off; not in search or selection bars. Failed banner tap
+  → the sheet with the reason and code; its Retry / Discard call `retryOp` / `discardOp` once with the banner's op id.
+  About: Sit 96, tap → one `pet`. 360×640 at 200%: app bar, sheet, About do not overflow.
+- **Frozen**: function-level diff vs HEAD empty for `SyncRouteGate.redirect`, `BackupPinScreen`, `retryOp`,
+  `discardOp`.
+- **5b**: `icon.py --ship` writes every density; `aapt dump badging` on the release APK names the adaptive icon; the
+  APK installs over the previous build (V7).
+- Each sub-phase: full suite green (baseline below), `flutter analyze` 0 errors, release build of both ABIs,
+  `trail check` before the commit.
+
+### K8. Device check list (M52 + Redmi S2, light and dark)
+
+**5a**
+1. Build with `--dart-define=CAPY_LOOK=night`: every capybara (Home empty, chat empty, bath banner, lock screen,
+   About, the app-bar buddy) wears the nightcap, the yuzu as its pom-pom. Repeat for `diwali` (a lamp beside it,
+   floating in the bath), `holi` (colour dabs, no purple), `newYear` (party hat).
+2. A normal build after 23:00: the nightcap appears without a restart (leave the app open across 23:00, or open it
+   after). Before 23:00 and after 05:00: no cap.
+3. Pet and hop with a hat on: the hat stays on the head.
+4. Chat: the small capybara left of the search icon; tap → round eyes, every message shows its time and ticks; tap
+   → back. Leave and reopen the chat: off. TalkBack: "Show message times", toggle.
+5. Chat with the bath banner and an empty chat (two moving): the app-bar capybara does not move; Redmi perf overlay
+   p99 build + raster under 16 ms (record numbers).
+6. A message that fails for good (e.g. send to a group you were removed from): the banner, tap "Failed to send" →
+   the sheet with the worried capybara, a plain reason and the code; Retry resends, Discard removes it.
+7. Settings › About: the sitting capybara; tap → it squishes and blushes, light haptic.
+8. Reduced motion: looks still show; nothing moves; info mode still toggles.
+9. 200% text at 360×640: chat app bar, the sheet and About fit.
+
+**5b**
+10. Home screen and app drawer: the new icon on both phones (circle on Redmi, squircle on M52), crisp; M52 themed
+    icons on → the line-art capybara in the wallpaper tint.
+11. Cold start on the M52: system splash shows the icon, then the same picture in the Flutter splash, no lock tile flash.
+12. The update installs over the previous build; chats intact.
+
+### K9. Out of scope
+
+Onboarding and the Loaf view (parked, K5); sounds; an animated launcher icon or animated splash; looks on stickers or
+the icon; festivals beyond Diwali, Holi and New Year (Eid, Christmas… later: one enum value + art each); a look picker
+in Settings; info mode that stays on; read-by lists in groups; a name for the capybara in copy (I5 stays "no name",
+phase 2 decision 1); the Cadet plan purchase.
+
+### K10. Deferred decisions (default in bold; reply with a number to change one)
+
+1. **`capy.riv` budget (looks make it 63.7 KB):** **raise C4 to 64 KB published** / buy the Rive Cadet month (no
+   watermark: 49.7 KB) / looks on Sit and Head only (est. ~61.5 KB, still over 60 without a raise).
+2. **Festivals:** **Diwali, Holi, New Year (+ the nightcap)** / add one more now (say which).
+3. **Looks priority and windows:** **New Year > Diwali (5 days) > Holi (eve + day) > night 23:00–05:00** / Diwali on
+   the main day only.
+4. **C1 size and place:** **Head 32 left of the search icon** / Head 28 / inside the title (before the avatar).
+5. **Info mode:** **off on every chat open** / remembered per chat until the app closes.
+6. **Failed-send reasons:** **the six lines in K3** / your own wording.
+7. **About "giggle":** **the pet squish + happy face, no sound** / add a short sound (a new audio asset).
+8. **App icon:** **A Front on bath teal** (symmetric, fills the circle, the brown and the yuzu stand out on light and
+   dark wallpapers) / B Front on cream (blends into light launchers) / C Sit on teal (more capybara-shaped in profile,
+   smaller in the circle) / D Sit on cream.
+9. **`AppLogoTile`:** **becomes the icon picture (splash matches the launcher)** / keep the lock tile.
+
+### K11. Build notes (5a, 2026-11-12)
+
+- Rig: `apply_phase5.py` output applied to `mascot/capy/scene.rml` as is (the script stays as the record and must
+  not be re-run on the patched rig; `render.sh` now renders `mascot/capy` itself). Published **63 657 B**,
+  `--verify` clean, `inspect` problems empty. Holi and Diwali dates re-checked on drikpanchang (New Delhi): unchanged.
+- At the hop's peak the hat's tip is cut by the artboard top for a few frames (Sit X6 first-send hop; Front never
+  hops in the app). The hat stays on the head.
+- The spec's `ChatBubbleShell` is `ChatBubbleFrame` in the code. Stickers, emoji-only, unknown-sticker and the
+  plain-text bubble draw their own time on `runEnd`; they read `ChatInfoMode` too, so info mode reaches every bubble.
+- The banner's title button reads "Failed to send. Why it failed" to TalkBack (the status stays audible).
+- `startCapyLookClock()` runs in `main()`; widget tests never start it (no pending timer), and set
+  `CapyLook.current` themselves.
+
 ## Test gates (phase 2)
 
 - Unit: `queuedCountProvider` counts only `text_send` in `queued|sending`; X1–X10 mapping table (view, mood,
@@ -853,3 +1044,6 @@ Phase 3: `main` at `a871498` (phase 2; main 3 ahead of origin, leave them unpush
 
 Phase 4: `main` at `e4ad70e` (pushed). Last full suite recorded in the work log **1196/1196** (X8b/K1b gates, shared
 checkout). Re-run before phase 4 starts.
+
+Phase 5: `main` at `49a6ec4` (phase 4, not pushed). Last full suite **1216/1216** (phase 4 gates). Re-run before 5a
+starts. Rive CLI is now **1.9.2** (`rive update` was required to render, 2026-11-12).

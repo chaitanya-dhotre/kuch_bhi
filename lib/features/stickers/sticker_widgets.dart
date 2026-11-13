@@ -86,7 +86,7 @@ class StickerBubble extends StatelessWidget {
             : CrossAxisAlignment.start,
         children: [
           picture,
-          if (runEnd) ...[
+          if (runEnd || ChatInfoMode.of(context)) ...[
             const SizedBox(height: ChatBubbleGeometry.metadataGap),
             ChatBubbleTimestamp(
               isMine: isMine,
@@ -147,7 +147,7 @@ class _UnknownStickerBubble extends StatelessWidget {
               ],
             ),
           ),
-          if (runEnd) ...[
+          if (runEnd || ChatInfoMode.of(context)) ...[
             const SizedBox(height: ChatBubbleGeometry.metadataGap),
             ChatBubbleTimestamp(
               isMine: isMine,
