@@ -5,7 +5,8 @@ COMMITTED `a871498` 2026-11-10 (device PASS). **Phase 3 (§G, security moments) 
 decisions at their defaults**; implemented 2026-11-11 (gates green, 1186/1186), device PASS 2026-11-11
 (`mascot-work-log.md`, phase 3). **§H (X8b, still searching) spec PASS 2026-11-11, all 5 decisions at their defaults.**
 **§J (phase 4, capybara stickers) spec PASS 2026-11-11 (user), all 8 decisions at their defaults.** **§K (phase 5:
-looks, app-bar buddy, failed-send sheet, About, app icon) spec PASS 2026-11-12 (user), all 9 decisions at their defaults; onboarding + Loaf parked.** Page 10 of
+looks, app-bar buddy, failed-send sheet, About, app icon) spec PASS 2026-11-12 (user), all 9 decisions at their defaults; onboarding + Loaf parked.** **5a COMMITTED `d49afbf` 2026-11-13. 5b (launcher
+icon A, Front on bath teal, + `AppLogoTile`) device PASS 2026-11-14, COMMITTED 2026-11-14: phase 5 done.** Page 10 of
 `00-foundation.md` §8.
 Visual ground truth: **`docs/design/pages/mascot.html`** (S1 expression sheet, S2 views and where each is used,
 S3 the offline bath sequence, S4 in-app placements, S5 rig, S6 phases). Background and earlier rounds:
