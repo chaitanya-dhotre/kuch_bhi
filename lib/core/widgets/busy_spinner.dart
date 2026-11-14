@@ -8,7 +8,7 @@ import '../theme/tokens.dart';
 /// grep gates) can still show a busy state.
 ///
 /// Under reduced motion (K3) the ring does not spin: it parks as a static
-/// surface2 ring, matching [Skeleton]'s shimmer park.
+/// surface2 ring, matching [Skeleton]'s reduced-motion park.
 class BusySpinner extends StatelessWidget {
   const BusySpinner({
     super.key,

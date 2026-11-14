@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../voice_body.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,7 @@ import '../../media/providers/media_viewer_providers.dart';
 import '../providers/chat_provider.dart';
 import 'expiry_badge.dart';
 import 'media_upload_disc.dart';
+import 'voice_waveform.dart';
 
 class VoiceMessageBubble extends ConsumerStatefulWidget {
   const VoiceMessageBubble({
@@ -21,17 +23,22 @@ class VoiceMessageBubble extends ConsumerStatefulWidget {
     required this.conversationId,
     required this.serverId,
     required this.isMine,
-    this.runEnd = true,
+    this.runStart = true,
     this.durationText,
     this.status,
     this.createdAt,
     this.localId,
+    this.waveSeed,
   });
 
   final String conversationId;
   final String serverId;
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
+
+  /// D-3 B: the bars come from this id (the message's), the same for both
+  /// people. Falls back to [serverId].
+  final String? waveSeed;
   final String? durationText;
   final String? status;
   final DateTime? createdAt;
@@ -136,21 +143,30 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
     _player.setSpeed(_speed);
   }
 
+  /// E3: a tap or drag on the bars seeks, once the note is loaded.
+  void _seekTo(double dx, double width) {
+    if (_cachedPath == null || _total <= Duration.zero || width <= 0) return;
+    final f = (dx / width).clamp(0.0, 1.0);
+    _player.seek(_total * f);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final onBubble = widget.isMine
-        ? context
-              .t
-              .onAccent // on the marigold sent bubble (never raw white)
-        : context.t.ink;
+    final t = context.t;
+    final width = ChatBubbleGeometry.attachmentWidthOf(context);
 
     final progress = _total.inMilliseconds > 0
         ? (_position.inMilliseconds / _total.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
-    final displayDuration = _total > Duration.zero
-        ? '${formatMmSs((_total - _position).inSeconds)} / ${formatMmSs(_total.inSeconds)}'
-        : widget.durationText ?? '0:00';
+    final body = parseVoiceBody(widget.durationText);
+    final started =
+        _total > Duration.zero && (_isPlaying || _position > Duration.zero);
+    final displayDuration = started
+        ? formatMmSs(_position.inSeconds)
+        : body.duration.isEmpty
+        ? '0:00'
+        : body.duration;
 
     // Purged on the server for sure: no download, no retry.
     final gone = isPastRetention('voice', widget.createdAt);
@@ -183,182 +199,177 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
           : blobStatus == MediaBlobStatus.deadLink
           ? kMediaNoLongerAvailable
           : kMediaExpired;
-      final endedInk = widget.isMine
-          ? context.t.onAccent.withValues(alpha: 0.70)
-          : context.t.inkSoft;
       return ChatBubbleFrame(
         isMine: widget.isMine,
-        runEnd: widget.runEnd,
-        fillWidth: true,
-        showTimestamp: true,
-        timestampOverlay: false,
-        createdAt: widget.createdAt,
-        status: widget.status,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: Row(
-            children: [
-              Icon(
+        runStart: widget.runStart,
+        width: width,
+        padding: ChatBubbleGeometry.attachmentPadding,
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: ChatBubbleGeometry.leadingSize,
+              child: Icon(
                 blobStatus == MediaBlobStatus.cantDecrypt
                     ? Icons.lock_outline
                     : expired
                     ? Icons.timer_off_outlined
                     : Icons.info_outline,
-                color: endedInk,
+                color: t.inkSoft,
                 size: 20,
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  caption,
-                  style: TextStyle(
-                    color: endedInk,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                caption,
+                style: TextStyle(
+                  color: t.inkSoft,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
 
+    final Widget lead = widget.localId != null
+        ? MediaUploadControl(
+            localId: widget.localId!,
+            status: widget.status,
+            kind: 'Voice message',
+            size: ChatBubbleGeometry.leadingSize,
+          )
+        : Semantics(
+            button: true,
+            enabled: !retryOffline,
+            label: _hasError
+                ? "Voice message didn't load. "
+                      '${online ? 'Tap to retry' : kOfflineActionHint}'
+                : _isPlaying
+                ? 'Pause voice message'
+                : 'Play voice message',
+            child: GestureDetector(
+              onTap: retryOffline ? null : _loadAndPlay,
+              child: Opacity(
+                opacity: retryOffline ? .38 : 1,
+                child: Container(
+                  key: const ValueKey('voice-play-disc'),
+                  width: ChatBubbleGeometry.leadingSize,
+                  height: ChatBubbleGeometry.leadingSize,
+                  // E3: the one solid accent spot in a bubble.
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: t.accent,
+                  ),
+                  child: _isLoading
+                      ? BusySpinner(size: 18, strokeWidth: 2, color: t.onAccent)
+                      : Icon(
+                          _hasError
+                              ? Icons.error_outline
+                              : _isPlaying
+                              ? Icons.pause
+                              : Icons.play_arrow,
+                          color: t.onAccent,
+                          size: 24,
+                        ),
+                ),
+              ),
+            ),
+          );
+
+    // D-3: the sender's levels; a body without them gets generated bars.
+    final levels =
+        body.levels ?? generatedWaveLevels(widget.waveSeed ?? widget.serverId);
+
     return ChatBubbleFrame(
       isMine: widget.isMine,
-      runEnd: widget.runEnd,
-      fillWidth: true,
-      showTimestamp: true,
-      timestampOverlay: false,
-      createdAt: widget.createdAt,
-      status: widget.status,
+      runStart: widget.runStart,
+      width: width,
+      padding: ChatBubbleGeometry.attachmentPadding,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+          Row(
             children: [
-              Row(
-                children: [
-                  // Play / pause / loading
-                  if (widget.localId != null)
-                    MediaUploadControl(
-                      localId: widget.localId!,
-                      status: widget.status,
-                      kind: 'Voice message',
-                      size: 30,
-                      onAccent: widget.isMine,
-                    )
-                  else
-                    Semantics(
-                      button: true,
-                      enabled: !retryOffline,
-                      label: _hasError
-                          ? "Voice message didn't load. "
-                                '${online ? 'Tap to retry' : kOfflineActionHint}'
-                          : _isPlaying
-                          ? 'Pause voice message'
-                          : 'Play voice message',
-                      child: GestureDetector(
-                        onTap: retryOffline ? null : _loadAndPlay,
-                        child: Opacity(
-                          opacity: retryOffline ? .38 : 1,
-                          child: Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: widget.isMine
-                                  ? context.t.onAccent.withValues(alpha: 0.16)
-                                  : context.t.accent.withValues(alpha: 0.15),
-                            ),
-                            child: _isLoading
-                                ? BusySpinner(
-                                    size: 16,
-                                    strokeWidth: 2,
-                                    color: widget.isMine
-                                        ? context.t.onAccent
-                                        : context.t.accent,
-                                  )
-                                : _hasError
-                                ? Icon(
-                                    Icons.error_outline,
-                                    color: context.t.error,
-                                    size: 22,
-                                  )
-                                : Icon(
-                                    _isPlaying ? Icons.pause : Icons.play_arrow,
-                                    color: widget.isMine
-                                        ? context.t.onAccent
-                                        : context.t.accent,
-                                    size: 20,
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  const SizedBox(width: 10),
-
-                  // Progress + duration
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: onBubble.withValues(alpha: 0.2),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            widget.isMine
-                                ? context.t.onAccent
-                                : context.t.accent,
-                          ),
-                          minHeight: 3,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          retryOffline ? kOfflineActionHint : displayDuration,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: onBubble.withValues(alpha: 0.7),
-                          ),
-                        ),
-                      ],
+              lead,
+              const SizedBox(width: 10),
+              // Offline after a failed load: the hint takes the bars' place,
+              // so it wraps instead of overflowing at large text.
+              if (retryOffline)
+                Expanded(
+                  child: Text(
+                    kOfflineActionHint,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 18 / 13,
+                      color: t.inkSoft,
                     ),
                   ),
-
-                  const SizedBox(width: 8),
-
-                  // Speed toggle
-                  Semantics(
-                    button: true,
-                    label: 'Playback speed',
-                    child: GestureDetector(
-                      onTap: _cycleSpeed,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
+                )
+              else ...[
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, box) => GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (d) =>
+                          _seekTo(d.localPosition.dx, box.maxWidth),
+                      onHorizontalDragUpdate: (d) =>
+                          _seekTo(d.localPosition.dx, box.maxWidth),
+                      child: VoiceWaveform(
+                        key: const ValueKey('voice-bubble-wave'),
+                        levels: levels,
+                        bars: kVoiceBubbleBars,
+                        height: 28,
+                        progress: progress,
+                        restAlpha: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  displayDuration,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 18 / 13,
+                    color: t.inkSoft,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+              // E3: speed only while playing.
+              if (_isPlaying) ...[
+                const SizedBox(width: 6),
+                Semantics(
+                  button: true,
+                  label: 'Playback speed',
+                  child: GestureDetector(
+                    onTap: _cycleSpeed,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: t.ink.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(
+                          WarmPopTokens.radiusPill,
                         ),
-                        decoration: BoxDecoration(
-                          color: onBubble.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          '${_speed == _speed.truncateToDouble() ? _speed.toInt() : _speed}×',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: onBubble.withValues(alpha: 0.8),
-                          ),
+                      ),
+                      child: Text(
+                        '${_speed == _speed.truncateToDouble() ? _speed.toInt() : _speed}×',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: t.ink,
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ],
           ),
           if (badgeText != null) ExpiryBadge(label: badgeText),

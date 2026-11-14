@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../voice_body.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -24,7 +25,7 @@ import '../chat_run_grouping.dart';
 import '../message_offline_policy.dart';
 import 'album_screen.dart';
 import '../widgets/disappearing_dialog.dart';
-import '../widgets/expiry_badge.dart' show ChatInfoMode;
+import '../widgets/expiry_badge.dart' show ChatBubbleGeometry, ChatInfoMode;
 import '../widgets/message_bubble.dart';
 import '../widgets/message_context_menu.dart';
 import '../widgets/message_input.dart';
@@ -64,6 +65,7 @@ class _MsgItem extends _ChatItem {
     this.key, {
     required this.runStart,
     required this.runEnd,
+    this.streakStart = true,
     this.album,
   });
 
@@ -72,6 +74,7 @@ class _MsgItem extends _ChatItem {
   final GlobalKey key;
   final bool runStart;
   final bool runEnd;
+  final bool streakStart;
 
   /// 12.5: the album's rows in order; null for a single message.
   final List<Message>? album;
@@ -272,9 +275,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<String?> _resolveSearchBody(String id) async {
     final keepAlive = ref.listenManual(messageBodyProvider(id), (_, __) {});
     try {
-      return await ref
+      final body = await ref
           .read(messageBodyProvider(id).future)
           .timeout(const Duration(seconds: 2), onTimeout: () => null);
+      // D-3: a voice body's level glyphs are never searchable text.
+      return body == null ? null : voiceBodyText(body);
     } catch (_) {
       return null; // a failed lookup counts as no body, so the search still ends
     } finally {
@@ -418,6 +423,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           key,
           runStart: runFlags[i].runStart,
           runEnd: runFlags[i].runEnd,
+          streakStart: runFlags[i].streakStart,
           album: units[i].isAlbum ? units[i].rows : null,
         ),
       );
@@ -952,7 +958,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             Expanded(
               child: Stack(
                 children: [
-                  messagesAsync.when(
+                  // F: content fades in over 150 ms (none under reduced motion).
+                  AnimatedSwitcher(
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : WarmPopTokens.motionFast,
+                    child: messagesAsync.when(
                     loading: () => const _ChatLoadingState(),
                     error: (e, _) => ChatLoadError(
                       onRetry: () => ref.invalidate(messagesProvider(_cid)),
@@ -1042,6 +1053,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                     isGroup: conv.isGroup,
                                     runStart: msgItem.runStart,
                                     runEnd: msgItem.runEnd,
+                                    streakStart: msgItem.streakStart,
                                     searchQuery:
                                         _searchActive &&
                                             _searchCtrl.text.trim().isNotEmpty
@@ -1125,6 +1137,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                             },
                           ))),
                     ),
+                  ),
                   ),
                   if (!_searchActive && _showScrollToLatest)
                     Positioned(
@@ -1503,51 +1516,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
 }
 
+/// F / R11: the chat's placeholder in the real shapes (B1 corners, A sizes,
+/// own side in bubbleMine), breathing on one clock after 300 ms.
 class _ChatLoadingState extends StatelessWidget {
   const _ChatLoadingState();
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-      children: [
-        Align(child: const Skeleton(width: 72, height: 18, radius: 999)),
-        const SizedBox(height: 14),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: const _ChatSkeletonBubble(width: 220),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: const _ChatSkeletonBubble(width: 164),
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: const _ChatSkeletonBubble(width: 260),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: const _ChatSkeletonBubble(width: 196, height: 76),
-        ),
-      ],
+    final w = MediaQuery.sizeOf(context).width;
+    final text = ChatBubbleGeometry.textMaxWidth(w);
+    final media = ChatBubbleGeometry.attachmentWidth(w);
+    return SkeletonGroup(
+      child: ListView(
+        key: const ValueKey('chat-loading'),
+        padding: const EdgeInsets.only(bottom: 8),
+        physics: const NeverScrollableScrollPhysics(),
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 16),
+            child: Center(
+              child: Skeleton(
+                width: 72,
+                height: 22,
+                radius: WarmPopTokens.radiusPill,
+              ),
+            ),
+          ),
+          _ChatSkeletonBubble(isMine: false, runStart: true, width: text * 0.62),
+          _ChatSkeletonBubble(isMine: false, runStart: false, width: text * 0.45),
+          _ChatSkeletonBubble(isMine: true, runStart: true, width: text * 0.5),
+          _ChatSkeletonBubble(
+            isMine: true,
+            runStart: false,
+            width: text * 0.78,
+            height: 58,
+          ),
+          _ChatSkeletonBubble(
+            isMine: false,
+            runStart: true,
+            width: media,
+            height: ChatBubbleGeometry.mediaHeight(media, 4 / 3),
+          ),
+          _ChatSkeletonBubble(isMine: true, runStart: true, width: text * 0.4),
+        ],
+      ),
     );
   }
 }
 
 class _ChatSkeletonBubble extends StatelessWidget {
-  const _ChatSkeletonBubble({required this.width, this.height = 34});
+  const _ChatSkeletonBubble({
+    required this.isMine,
+    required this.runStart,
+    required this.width,
+    this.height = 38,
+  });
 
+  final bool isMine;
+  final bool runStart;
   final double width;
   final double height;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Skeleton(
-        width: width,
-        height: height,
-        radius: WarmPopTokens.radiusBubble,
+      padding: ChatBubbleGeometry.margin(isMine: isMine).copyWith(
+        top: runStart ? ChatBubbleGeometry.newRunGap : ChatBubbleGeometry.runGap,
+      ),
+      child: Align(
+        alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Skeleton(
+          width: width,
+          height: height,
+          color: isMine ? context.t.bubbleMine : context.t.surface2,
+          borderRadius: ChatBubbleGeometry.radius(
+            isMine: isMine,
+            runStart: runStart,
+          ),
+        ),
       ),
     );
   }
@@ -2034,7 +2080,8 @@ class _DateSeparator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 12),
+        // C3: 16 above; the 12 below is the next run's own gap (C2).
+        margin: const EdgeInsets.only(top: 16),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
           color: context.t.surface2,

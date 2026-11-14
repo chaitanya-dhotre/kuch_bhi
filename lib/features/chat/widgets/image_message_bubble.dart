@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
-import '../../../core/widgets/skeleton.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
@@ -20,7 +19,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
     required this.serverId,
     required this.isMine,
     required this.isDark,
-    this.runEnd = true,
+    this.runStart = true,
     this.status,
     this.createdAt,
     this.senderName = '',
@@ -38,7 +37,7 @@ class ImageMessageBubble extends ConsumerStatefulWidget {
   final String serverId;
   final bool isMine;
   final bool isDark;
-  final bool runEnd;
+  final bool runStart;
   final String? status;
   final DateTime? createdAt;
   final String senderName;
@@ -73,16 +72,11 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
   Widget _expired() => _BubbleWrapper(
     bare: widget.onTileTap != null,
     isMine: widget.isMine,
-    runEnd: widget.runEnd,
-    createdAt: widget.createdAt,
-    status: widget.status,
-    child: SizedBox(
-      width: ChatBubbleGeometry.mediaMaxWidth,
-      height: 158,
+    runStart: widget.runStart,
+    child: const _MediaBox(
       child: ExpiredPlaceholder(
         glyph: Icons.timer_off_outlined,
         decorate: false,
-        ink: widget.isMine ? context.t.onAccent.withValues(alpha: 0.70) : null,
       ),
     ),
   );
@@ -102,17 +96,13 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
       loading: () => _BubbleWrapper(
         bare: widget.onTileTap != null,
         isMine: widget.isMine,
-        runEnd: widget.runEnd,
-        createdAt: widget.createdAt,
-        status: widget.status,
+        runStart: widget.runStart,
         child: const _ImageSkeleton(),
       ),
       error: (_, __) => _BubbleWrapper(
         bare: widget.onTileTap != null,
         isMine: widget.isMine,
-        runEnd: widget.runEnd,
-        createdAt: widget.createdAt,
-        status: widget.status,
+        runStart: widget.runStart,
         child: _ImageUnavailable(retry: thumbRef),
       ),
       data: (media) {
@@ -120,9 +110,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
           return _BubbleWrapper(
             bare: widget.onTileTap != null,
             isMine: widget.isMine,
-            runEnd: widget.runEnd,
-            createdAt: widget.createdAt,
-            status: widget.status,
+            runStart: widget.runStart,
             child: _ImageUnavailable(retry: thumbRef),
           );
         }
@@ -144,7 +132,8 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
             MediaRef(widget.conversationId, widget.serverId),
           ),
         );
-        // Only on a positive "not on disk": an unknown row shows no disc.
+        // Only on a positive "not on disk": an unknown row says nothing.
+        // E1 (D-4 A): no disc; the label still says it, the viewer downloads.
         final notDownloaded = local.hasValue && local.value == null;
         final full = local.valueOrNull;
         final thumbImage = Image.file(
@@ -166,7 +155,9 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                   cacheWidth:
                       ((widget.onTileTap != null
                                   ? MediaQuery.sizeOf(context).width
-                                  : ChatBubbleGeometry.mediaMaxWidth) *
+                                  : ChatBubbleGeometry.attachmentWidthOf(
+                                      context,
+                                    )) *
                               MediaQuery.devicePixelRatioOf(context))
                           .round(),
                   frameBuilder: (_, child, frame, sync) =>
@@ -187,9 +178,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
             child: _BubbleWrapper(
               bare: widget.onTileTap != null,
               isMine: widget.isMine,
-              runEnd: widget.runEnd,
-              createdAt: widget.createdAt,
-              status: widget.status,
+              runStart: widget.runStart,
               child: Stack(
                 // A tile is sized by the album; the photo covers it.
                 fit: widget.onTileTap != null
@@ -199,15 +188,7 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                   if (widget.onTileTap != null)
                     hero
                   else
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: ChatBubbleGeometry.mediaMaxWidth,
-                      ),
-                      child: AspectRatio(
-                        aspectRatio: _aspectRatio,
-                        child: hero,
-                      ),
-                    ),
+                    _MediaBox(aspect: _aspectRatio, child: hero),
                   if (widget.localId != null)
                     Positioned.fill(
                       child: Center(
@@ -217,10 +198,6 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
                           kind: 'Photo',
                         ),
                       ),
-                    )
-                  else if (notDownloaded)
-                    const Positioned.fill(
-                      child: MediaDisc(icon: Icons.download_rounded),
                     ),
                   // Expiry badge — top right (an album shows one for all)
                   if (expiryLabel != null && widget.onTileTap == null)
@@ -235,23 +212,19 @@ class _ImageMessageBubbleState extends ConsumerState<ImageMessageBubble> {
   }
 }
 
-// ── Bubble wrapper — matches _TextBubble styling ────────────────────────────
+// ── Bubble wrapper ──────────────────────────────────────────────────────────
 
 class _BubbleWrapper extends StatelessWidget {
   const _BubbleWrapper({
     required this.isMine,
     required this.child,
-    this.runEnd = true,
-    this.createdAt,
-    this.status,
+    this.runStart = true,
     this.bare = false,
   });
 
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
   final Widget child;
-  final DateTime? createdAt;
-  final String? status;
 
   /// An album tile: the album draws the shell.
   final bool bare;
@@ -259,27 +232,45 @@ class _BubbleWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (bare) return child;
+    // E1: edge to edge, radius from B1, no border, no fill behind it.
     return ChatBubbleFrame(
       isMine: isMine,
-      runEnd: runEnd,
+      runStart: runStart,
       padding: EdgeInsets.zero,
-      showTimestamp: true,
-      createdAt: createdAt,
-      status: status,
-      border: isMine ? Border.all(color: context.t.accent, width: 2) : null,
+      background: context.t.surface2,
+      border: const Border(),
       child: child,
     );
   }
 }
 
+/// A2 × A3: the one box a photo, its placeholder and its ended states use.
+class _MediaBox extends StatelessWidget {
+  const _MediaBox({required this.child, this.aspect = 4 / 3});
+
+  final Widget child;
+  final double aspect;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = ChatBubbleGeometry.attachmentWidthOf(context);
+    return SizedBox(
+      width: w,
+      height: ChatBubbleGeometry.mediaHeight(w, aspect),
+      child: child,
+    );
+  }
+}
+
+/// F: before the preview, a flat box in the final size with a photo glyph.
 class _ImageSkeleton extends StatelessWidget {
   const _ImageSkeleton();
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: ChatBubbleGeometry.mediaMaxWidth,
-    height: 158,
-    child: const Skeleton.fill(radius: 0),
+  Widget build(BuildContext context) => _MediaBox(
+    child: Center(
+      child: Icon(Icons.photo_outlined, size: 28, color: context.t.inkFaint),
+    ),
   );
 }
 
@@ -291,18 +282,19 @@ class _ImageUnavailable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: ChatBubbleGeometry.mediaMaxWidth,
-      height: 158,
-      color: context.t.surface2,
-      alignment: Alignment.center,
-      child: retry == null
-          ? Icon(Icons.broken_image_outlined, color: context.t.inkFaint)
-          : MediaRetry(
-              media: retry!,
-              what: kMediaRowPhotoLabel,
-              icon: Icons.broken_image_outlined,
-            ),
+    return _MediaBox(
+      child: ColoredBox(
+        color: context.t.surface2,
+        child: Center(
+          child: retry == null
+              ? Icon(Icons.broken_image_outlined, color: context.t.inkFaint)
+              : MediaRetry(
+                  media: retry!,
+                  what: kMediaRowPhotoLabel,
+                  icon: Icons.broken_image_outlined,
+                ),
+        ),
+      ),
     );
   }
 }

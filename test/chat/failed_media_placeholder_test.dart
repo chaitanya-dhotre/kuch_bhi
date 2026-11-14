@@ -40,10 +40,10 @@ Future<void> _pump(WidgetTester tester, String type, String status) =>
       ),
     );
 
-/// The bubble shell sits on the full accent, like every other own bubble,
-/// so its onAccent ink is readable in dark mode.
+/// Chat calm D2/E7: the shell is the own tint (`bubbleMine`), like every
+/// other own bubble, and its ink is `ink`, readable in dark mode.
 void _expectAccentShell(WidgetTester tester) {
-  final accent = tester.element(find.byType(MessageBubble)).t.accent;
+  final accent = tester.element(find.byType(MessageBubble)).t.bubbleMine;
   final shells = tester
       .widgetList<Container>(find.byType(Container))
       .map((c) => c.decoration)

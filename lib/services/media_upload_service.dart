@@ -26,6 +26,7 @@ class LocalMediaFile {
     this.expiresAt,
     this.mimeType,
     this.fileName,
+    this.fileSize,
   });
   final File file;
   final int? width;
@@ -34,6 +35,9 @@ class LocalMediaFile {
   final DateTime? expiresAt;
   final String? mimeType;
   final String? fileName;
+
+  /// The full file's size from the server row (E2: "0:42 · 8.1 MB").
+  final int? fileSize;
 }
 
 typedef ImageCompressor =

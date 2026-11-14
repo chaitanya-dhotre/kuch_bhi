@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat calm board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens from 00-foundation.md §2, plus the D1 shade card of chat-calm.md. */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;
+--p50:#FEF5EA;--p100:#FFE9CF;--p200:#FFD59E;--p300:#FEBF67;--p400:#F9AC33;--p500:#EFA00B;--p600:#CC8808;--p700:#A56D01;--p800:#744C01;--p900:#492F06;
+--mine:var(--p100);--accentText:var(--p800);--theirBorder:var(--line)}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--onAccent:#21260F;--mine:var(--p900);--accentText:var(--p300);--theirBorder:transparent}
+.optB{--mine:var(--p200)}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 "Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:900px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.band .n{font-weight:800;color:#744C01}
+.note{background:#FEF5EA;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px;max-width:900px}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border:1px solid #E4DDD1;padding:6px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+.tblwrap{overflow-x:auto}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+
+/* phone: 300 css px stands for a 384 dp screen (scale .78) */
+.ph{width:300px;max-width:100%;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);padding:10px 0 12px;overflow:hidden;font-family:Roboto,-apple-system,"Segoe UI",sans-serif;font-size:12px;line-height:17px}
+.day{width:max-content;margin:12px auto 10px;background:var(--surface2);color:var(--inkSoft);border-radius:999px;padding:2px 10px;font-size:10px;font-weight:600}
+.name{font-size:10.5px;font-weight:600;margin:10px 0 3px 46px;color:var(--inkSoft)}
+.m{display:flex;margin:2px 10px;position:relative}
+.m.me{justify-content:flex-end}
+.m.gap{margin-top:10px}
+.m.grp{padding-left:28px}
+.av{position:absolute;left:0;bottom:0;width:22px;height:22px;border-radius:50%;background:var(--surface2);border:1px solid var(--line);font-size:9px;font-weight:700;color:var(--inkSoft);display:grid;place-items:center}
+.b{max-width:234px;padding:7px 10px;border-radius:14px;background:var(--surface);border:1px solid var(--theirBorder);position:relative}
+.me .b{background:var(--mine);border-color:transparent}
+.b.f{border-bottom-left-radius:5px}.b.c{border-top-left-radius:5px;border-bottom-left-radius:5px}
+.me .b.f{border-bottom-left-radius:14px;border-bottom-right-radius:5px}.me .b.c{border-radius:14px 5px 5px 14px}
+.meta{font-size:9px;line-height:11px;color:var(--inkSoft);margin:3px 12px 0}
+.grpmeta{margin-left:40px}.me+.meta,.meta.r{text-align:right}
+.att{width:198px;padding:0;overflow:hidden;border:0}
+.photo{display:block;width:198px;background:linear-gradient(160deg,#7c8f6a,#3f5a4a 55%,#c9b28a)}
+.voice{width:198px;display:flex;align-items:center;gap:8px;padding:8px}
+.disc{flex:none;width:31px;height:31px;border-radius:50%;background:var(--accent);display:grid;place-items:center}
+.disc:before{content:"";border-left:9px solid var(--onAccent);border-top:6px solid transparent;border-bottom:6px solid transparent;margin-left:3px}
+.wave{flex:1;display:flex;align-items:center;gap:2px;height:22px}
+.wave i{flex:1;border-radius:2px;background:var(--ink);opacity:.3}
+.wave i.p{opacity:1}
+.dur{font-size:10px;color:var(--inkSoft)}
+.doc{width:198px;display:flex;align-items:center;gap:8px;padding:8px}
+.tile{flex:none;width:31px;height:31px;border-radius:8px;background:color-mix(in srgb,var(--ink) 8%,transparent);display:grid;place-items:center;font-size:8px;font-weight:700}
+.doc b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
+.doc span{font-size:10px;color:var(--inkSoft)}
+.rx{position:absolute;bottom:-9px;left:8px;background:var(--surface2);border:1.5px solid var(--bg);border-radius:999px;font-size:9.5px;padding:0 6px;line-height:15px}
+.m.hasrx{margin-bottom:9px}
+.comp{display:flex;gap:8px;align-items:center;margin:14px 10px 0}
+.comp div{flex:1;height:34px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--inkFaint);padding:8px 14px}
+.comp i{width:34px;height:34px;border-radius:50%;background:var(--accent)}
+
+/* "before" phone */
+.old .b{border-radius:14px!important;border:0;padding:6px 10px}
+.old .m{margin:3px 10px}
+.old .me .b{background:var(--accent);color:var(--onAccent)}
+.old .b.last{border-bottom-left-radius:5px!important}.old .me .b.last{border-bottom-right-radius:5px!important;border-bottom-left-radius:14px!important}
+.old .t{display:block;text-align:right;font-size:8.5px;opacity:.66;margin-top:2px}
+.old .att{width:164px;border:2px solid var(--accent)}.old .photo{width:160px}
+.old .m:not(.me) .att{border:0}
+.old .voice,.old .doc{width:234px}
+.old .disc{width:23px;height:23px;background:color-mix(in srgb,var(--accent) 20%,transparent)}
+.old .me .disc{background:rgba(42,37,32,.16)}
+.old .disc:before{border-left-color:var(--accent);border-left-width:7px;border-top-width:5px;border-bottom-width:5px}
+.old .me .disc:before{border-left-color:var(--onAccent)}
+.old .line{flex:1;height:2px;background:color-mix(in srgb,currentColor 25%,transparent)}
+.old .dl{position:absolute;inset:0;display:grid;place-items:center}.old .dl:before{content:"↓";width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center;font-size:15px}
+.old .name{color:var(--accent)}
+.old .rxrow{margin:2px 10px 2px 38px;font-size:9.5px}.old .rxrow span{background:var(--surface2);border-radius:999px;padding:1px 7px;margin-right:4px}
+
+.sw{display:flex;flex-wrap:wrap;gap:6px}
+.sw div{width:84px;border-radius:10px;padding:8px;font-size:11px;font-weight:600;border:1px solid #E4DDD1}
+.bar{height:16px;border-radius:5px;background:#FFD59E;margin:3px 0;font-size:10.5px;padding:0 6px;line-height:16px;white-space:nowrap}
+.bar.o{background:#E4DDD1}
+.scr{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:8px;padding:6px;margin-bottom:8px}
+@keyframes breathe{from{opacity:1}to{opacity:.55}}
+.sk .b{color:transparent;animation:breathe 1.6s ease-in-out infinite alternate;border-color:transparent;background:var(--surface2);min-height:31px}
+.sk .me .b{background:var(--mine)}
+@media(prefers-reduced-motion:reduce){.sk .b{animation:none}}
+</style>
+</head>
+<body>
+<h1>Chat calm</h1>
+<p class="sub">Board for <code>chat-calm.md</code> (sizing, shape, colour, placeholders). Each phone is drawn at 78 % of a 384 dp screen. Pictures are stand-ins; the numbers in the spec are the contract.</p>
+
+<section class="band">
+<header><span class="n">1</span><h2>Before and after, the same conversation</h2></header>
+<div class="row" id="main"></div>
+<p class="note">What changed: own bubbles are a tint, not solid marigold (D). The time sits under each run instead of inside its last bubble, so no bubble is taller than its neighbours (B2). Photo, voice note and document share one width (A2). The photo has no border and no download button (E1). The voice note has a waveform (E3). Runs are 2 dp apart inside and 12 dp between (C).</p>
+</section>
+
+<section class="band">
+<header><span class="n">2</span><h2>Decision D-1: own bubble tint in light mode</h2></header>
+<div class="row" id="d1"></div>
+<p class="note">A is the default: the calmest, and text on it is 12.9 : 1. B is warmer and stands out more from the page (1.29 : 1 against 1.10 : 1).</p>
+</section>
+
+<section class="band">
+<header><span class="n">3</span><h2>Decision D-2: where the time goes</h2></header>
+<div class="row" id="d2"></div>
+<p class="note">A (default): one quiet line under the run; every bubble is only its content. B: the time stays inside the last bubble but at the end of its last text line, so it adds no row.</p>
+</section>
+
+<section class="band">
+<header><span class="n">4</span><h2>Group chat: names, discs, reactions</h2></header>
+<div class="row" id="grp"></div>
+<p class="note">The name shows once per streak. The disc sits beside the last bubble of the run. Reaction chips sit on the bubble's lower edge; the "+" chip is gone.</p>
+</section>
+
+<section class="band">
+<header><span class="n">5</span><h2>Sizing on the three screen widths (A1–A3)</h2></header>
+<div id="sizes"></div>
+<p class="note">Grey = text bubble limit. Amber = every attachment. Today a photo is 210 dp on all of them, and voice notes and documents fill the grey bar.</p>
+</section>
+
+<section class="band">
+<header><span class="n">6</span><h2>Shade card (D1) and roles (D2)</h2></header>
+<div class="sw" id="sw"></div>
+<div class="tblwrap" style="margin-top:12px"><table>
+<tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+<tr><td>Text on own bubble</td><td>ink on primary/100: 12.9</td><td>ink on primary/900: 10.7</td></tr>
+<tr><td>Time line under a run</td><td>inkSoft on bg: 5.35</td><td>inkSoft on bg: 5.95</td></tr>
+<tr><td>Marigold text</td><td>primary/800 on bg: 7.07</td><td>primary/300 on surface: 10.2</td></tr>
+<tr><td>Icon on the play disc</td><td>onAccent on primary/500: 7.0</td><td>7.0</td></tr>
+<tr><td>Today: time inside own bubble</td><td colspan="2">3.49 (fails 4.5)</td></tr>
+</table></div>
+</section>
+
+<section class="band">
+<header><span class="n">7</span><h2>Loading placeholder (F)</h2></header>
+<div class="row" id="sk"></div>
+<p class="note">One slow fade for the whole group, in the real shapes and sizes. No moving highlight. Still when reduced motion is on.</p>
+</section>
+
+<script>
+const wave=n=>'<div class="wave">'+[5,9,14,8,18,12,20,10,15,7,12,19,9,14,6,11,16,8,13,5,9,12].map((h,i)=>`<i class="${i<n?'p':''}" style="height:${h}px"></i>`).join('')+'</div>';
+const photo=h=>`<span class="photo" style="height:${h}px"></span>`;
+function after(o={}){const t=o.inline;return `
+<div class="day">12 November</div>
+<div class="m"><div class="b f">Did you reach?</div></div>
+<div class="m"><div class="b c">Send me the photo from the hill</div></div>
+<div class="m"><div class="b c">And the ticket</div></div>
+<div class="m"><div class="b c att">${photo(150)}</div></div>
+${t?'':'<div class="meta">11:42</div>'}
+<div class="m me gap"><div class="b f">Yes, just now</div></div>
+<div class="m me"><div class="b c">The view was unreal, I will send everything tonight once I am back on wifi</div></div>
+<div class="m me"><div class="b c voice"><span class="disc"></span>${wave(8)}<span class="dur">0:21</span></div></div>
+<div class="m me"><div class="b c doc"><span class="tile">PDF</span><div><b>Ticket-Pune-Goa.pdf</b><span>PDF · 2.4 MB</span></div></div></div>
+<div class="m me"><div class="b c">Ok${t?' <span style="font-size:9px;color:var(--inkSoft);margin-left:8px">13:14 ✓✓</span>':''}</div></div>
+${t?'':'<div class="meta r">13:14 ✓✓</div>'}
+<div class="comp"><div>Message</div><i></i></div>`}
+const before=`
+<div class="day">12 November</div>
+<div class="m"><div class="b">Did you reach?</div></div>
+<div class="m"><div class="b">Send me the photo from the hill</div></div>
+<div class="m"><div class="b">And the ticket</div></div>
+<div class="m"><div class="b last att" style="position:relative">${photo(120)}<span class="dl"></span></div></div>
+<div class="m me"><div class="b">Yes, just now</div></div>
+<div class="m me"><div class="b">The view was unreal, I will send everything tonight once I am back on wifi</div></div>
+<div class="m me"><div class="b voice"><span class="disc"></span><span class="line"></span><span style="font-size:9px">1×</span></div></div>
+<div class="m me"><div class="b doc"><span class="tile">PDF</span><div><b>Ticket-Pune-Goa.pdf</b><span style="color:inherit;opacity:.7">PDF · 2.4 MB</span></div></div></div>
+<div class="m me"><div class="b last">Ok<span class="t">13:14 ✓✓</span></div></div>
+<div class="comp"><div>Message</div><i></i></div>`;
+const grp=`
+<div class="day">4 November</div>
+<div class="name">Chait galx</div>
+<div class="m grp"><div class="b f">Video bubble duration shows 00:00</div></div>
+<div class="m grp hasrx"><div class="b c">Download icon appears for your own photos as well.<span class="rx">😂 1</span></div></div>
+<div class="m grp"><span class="av">C</span><div class="b c">In the photo viewer you can zoom outside the photo</div></div>
+<div class="meta grpmeta">19:45</div>
+<div class="name">Pixel Chait</div>
+<div class="m grp"><span class="av">P</span><div class="b f voice"><span class="disc"></span>${wave(0)}<span class="dur">0:14</span></div></div>
+<div class="meta grpmeta">23:45</div>
+<div class="m me gap"><div class="b f">From here</div></div>
+<div class="m me"><div class="b c">Reply shows as unknown</div></div>
+<div class="meta r">13:14 ✓</div>`;
+const grpOld=`
+<div class="day">4 November</div>
+<div class="name">Chait galx</div>
+<div class="m grp"><div class="b">Video bubble duration shows 00:00</div></div>
+<div class="m grp"><div class="b last">Download icon appears for your own photos as well.<span class="t">19:38</span></div></div>
+<div class="rxrow"><span>😂 1</span><span>+</span></div>
+<div class="name">Chait galx</div>
+<div class="m grp"><span class="av" style="border:0">C</span><div class="b last">In the photo viewer you can zoom outside the photo<span class="t">19:45</span></div></div>
+<div class="name" style="color:#E5484D">Pixel Chait</div>
+<div class="m grp"><span class="av" style="border:0">P</span><div class="b last voice" style="flex-wrap:wrap"><span class="disc"></span><span class="line"></span><span style="font-size:9px">1×</span><span class="t" style="width:100%">23:45</span></div></div>
+<div class="m me"><div class="b">From here</div></div>
+<div class="m me"><div class="b last">Reply shows as unknown<span class="t">13:14 ✓</span></div></div>`;
+const ph=(cls,label,html)=>`<div><span class="tag">${label}</span><div class="ph ${cls}">${html}</div></div>`;
+main.innerHTML=ph('dark old','Before · dark',before)+ph('dark','After · dark',after())+ph('old','Before · light',before)+ph('','After · light',after());
+d1.innerHTML=ph('','A · primary/100 (default)',after())+ph('optB','B · primary/200',after());
+d2.innerHTML=ph('','A · under the run (default)',after())+ph('','B · inline in the last bubble',after({inline:1}));
+document.getElementById('grp').innerHTML=ph('dark old','Before · dark',grpOld)+ph('dark','After · dark',grp)+ph('','After · light',grp);
+sizes.innerHTML=[[384,300,253,'S24'],[411,321,271,'Pixel 9 / M52'],[554,420,340,'Redmi S2']].map(([w,t,a,n])=>`<div class="scr" style="width:${w*.9}px;max-width:100%"><span class="tag">${n} · ${w} dp</span><div class="bar o" style="width:${t/w*100}%">text ≤ ${t}</div><div class="bar" style="width:${a/w*100}%">attachment ${a}</div><div class="bar" style="width:${210/w*100}%;background:#FBE3E3">today 210</div></div>`).join('');
+sw.innerHTML=[[50,'#FEF5EA'],[100,'#FFE9CF'],[200,'#FFD59E'],[300,'#FEBF67'],[400,'#F9AC33'],[500,'#EFA00B'],[600,'#CC8808'],[700,'#A56D01'],[800,'#744C01'],[900,'#492F06']].map(([k,h])=>`<div style="background:${h};color:${k>=700?'#F3EDE3':'#2A2520'}">${k}<br>${h}</div>`).join('');
+const skel=`<div class="sk"><div class="m"><div class="b f" style="width:150px"></div></div><div class="m"><div class="b c" style="width:198px;height:120px"></div></div><div class="m me gap"><div class="b f" style="width:110px"></div></div><div class="m me"><div class="b c" style="width:180px"></div></div><div class="m gap"><div class="b f" style="width:170px;height:48px"></div></div></div>`;
+sk.innerHTML=ph('','Light',skel)+ph('dark','Dark',skel);
+</script>
+</body>
+</html>

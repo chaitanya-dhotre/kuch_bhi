@@ -44,12 +44,54 @@ void main() {
     expect(flags[2].runEnd, isFalse);
   });
 
-  test('breaks after a five-minute gap and across a date separator', () {
+  // Chat calm gate 4 (B3, D-6): a 4 min gap joins, 6 min splits.
+  test('joins across a four-minute gap', () {
     final flags = computeChatRunFlags([
       _message(
         id: 'new',
         sender: 'a',
-        createdAt: base.add(const Duration(minutes: 5)),
+        createdAt: base.add(const Duration(minutes: 4)),
+      ),
+      _message(id: 'old', sender: 'a', createdAt: base),
+    ]);
+    expect(flags[0].runStart, isFalse);
+    expect(flags[1].runEnd, isFalse);
+  });
+
+  test('sender name once per streak: a long gap splits the run, not the '
+      'streak; another sender or a new day starts a new streak', () {
+    final flags = computeChatRunFlags([
+      _message(
+        id: 'b',
+        sender: 'b',
+        createdAt: base.add(const Duration(minutes: 40)),
+      ),
+      _message(
+        id: 'a-late',
+        sender: 'a',
+        createdAt: base.add(const Duration(minutes: 30)),
+      ),
+      _message(id: 'a-early', sender: 'a', createdAt: base),
+      _message(
+        id: 'a-yesterday',
+        sender: 'a',
+        createdAt: base.subtract(const Duration(days: 1)),
+      ),
+    ]);
+    // a-late starts its own run (30 min gap) but not a new streak.
+    expect(flags[1].runStart, isTrue);
+    expect(flags[1].streakStart, isFalse);
+    expect(flags[2].streakStart, isTrue);
+    expect(flags[0].streakStart, isTrue);
+    expect(flags[3].streakStart, isTrue);
+  });
+
+  test('breaks after a six-minute gap and across a date separator', () {
+    final flags = computeChatRunFlags([
+      _message(
+        id: 'new',
+        sender: 'a',
+        createdAt: base.add(const Duration(minutes: 6)),
       ),
       _message(id: 'old', sender: 'a', createdAt: base),
       _message(

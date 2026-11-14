@@ -225,7 +225,8 @@ Future<_Repo> _pumpChat(
         (ref, id) => Stream.value(reactions[id] ?? const []),
       ),
       mediaFileProvider.overrideWith(
-        (ref, r) async => LocalMediaFile(file: _file, width: 300, height: 400),
+        // Landscape: the chat calm A3 box keeps the rows above it on screen.
+        (ref, r) async => LocalMediaFile(file: _file, width: 400, height: 300),
       ),
       mediaFullLocalProvider.overrideWith((ref, r) => Stream.value(_file)),
       mediaBlobStatusProvider.overrideWith(

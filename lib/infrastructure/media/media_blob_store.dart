@@ -41,6 +41,7 @@ String mediaMetaJson(LocalMediaFile m, [Map<String, Object?> extra = const {}]) 
       'expiresAt': m.expiresAt?.toUtc().toIso8601String(),
       'mimeType': m.mimeType,
       'fileName': m.fileName,
+      if (m.fileSize != null) 'fileSize': m.fileSize,
       ...extra,
     });
 
@@ -63,6 +64,7 @@ LocalMediaFile _withMeta(File file, String? meta) {
     expiresAt: expires == null ? null : DateTime.tryParse(expires)?.toLocal(),
     mimeType: m['mimeType'] as String?,
     fileName: m['fileName'] as String? ?? p.basename(file.path),
+    fileSize: m['fileSize'] as int?,
   );
 }
 
@@ -420,6 +422,7 @@ class MediaBlobStore {
         expiresAt: expiresAt,
         mimeType: record.data['mime_type']?.toString(),
         fileName: record.getStringValue('file_name'),
+        fileSize: asInt(record.data['file_size']),
       );
 
       if (!_stillValid(epochAtStart, 'ready write')) return null;

@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/media_utils.dart';
-import '../../../core/widgets/skeleton.dart';
 import '../../../domain/entities/message.dart';
 import '../providers/chat_provider.dart';
 import '../providers/upload_progress_provider.dart';
@@ -22,7 +21,7 @@ class AlbumBubble extends ConsumerWidget {
     super.key,
     required this.rows,
     required this.isMine,
-    this.runEnd = true,
+    this.runStart = true,
     this.senderName = '',
     this.onOpen,
   });
@@ -30,19 +29,20 @@ class AlbumBubble extends ConsumerWidget {
   /// In album order (grouping sorts them).
   final List<Message> rows;
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
   final String senderName;
 
   /// Tap on tile i (D5).
   final ValueChanged<int>? onOpen;
 
-  static const tileHeight = 180.0;
   static const _pad = 4.0;
   static const _gap = 4.0;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    const width = ChatBubbleGeometry.mediaMaxWidth;
+    // A5: width A2, tiles 0.72 × width tall.
+    final width = ChatBubbleGeometry.attachmentWidthOf(context);
+    final tileHeight = ChatBubbleGeometry.albumTileHeight(width) - 2 * _pad;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final inputs = [
       for (final m in rows) mediaBubbleInputs(ref, m, isMine: isMine),
@@ -66,15 +66,6 @@ class AlbumBubble extends ConsumerWidget {
                   .valueOrNull,
     ];
 
-    // D2: ticks = the least advanced item; a clock until all are sent.
-    const rank = {'sent': 1, 'delivered': 2, 'read': 3};
-    final least = inputs
-        .map((x) => x.status)
-        .reduce((a, b) => (rank[a] ?? 0) <= (rank[b] ?? 0) ? a : b);
-    final status = (rank[least] ?? 0) == 0 ? 'pending' : least;
-    final earliest = rows
-        .map((m) => m.createdAt)
-        .reduce((a, b) => a.isBefore(b) ? a : b);
     DateTime? expiresAt;
     for (final e in metas.map((m) => m?.expiresAt)) {
       if (e == null || isExpired(e)) continue;
@@ -100,7 +91,7 @@ class AlbumBubble extends ConsumerWidget {
       void open() => onOpen?.call(i);
       final Widget child;
       if (input.mediaId == null) {
-        child = const Skeleton.fill(radius: 0);
+        child = ColoredBox(color: context.t.surface2);
       } else if (video) {
         child = VideoMessageBubble(
           conversationId: m.conversationId,
@@ -135,7 +126,8 @@ class AlbumBubble extends ConsumerWidget {
         behavior: HitTestBehavior.opaque,
         onTap: open,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          // C7 / E5: inner radius 10.
+          borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
           child: SizedBox(
             width: (tileHeight * aspect).clamp(100.0, width - 40),
             height: tileHeight,
@@ -147,12 +139,9 @@ class AlbumBubble extends ConsumerWidget {
 
     return ChatBubbleFrame(
       isMine: isMine,
-      runEnd: runEnd,
+      runStart: runStart,
       padding: EdgeInsets.zero,
-      showTimestamp: true,
-      createdAt: earliest,
-      status: status,
-      border: isMine ? Border.all(color: context.t.accent, width: 2) : null,
+      border: const Border(),
       child: Stack(
         children: [
           SizedBox(
@@ -188,6 +177,7 @@ class AlbumBubble extends ConsumerWidget {
                           '${rows.length}',
                           style: const TextStyle(
                             fontSize: ChatBubbleGeometry.timestampFontSize,
+                            height: ChatBubbleGeometry.timestampLineHeight,
                             fontFeatures: [FontFeature.tabularFigures()],
                           ),
                         ),
@@ -204,6 +194,16 @@ class AlbumBubble extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// D2: an album's ticks = the least advanced item; a clock until all are
+/// sent. Read by the time line under the run (chat calm B2).
+String albumStatus(List<({String? mediaId, String? uploadLocalId, String status})> inputs) {
+  const rank = {'sent': 1, 'delivered': 2, 'read': 3};
+  final least = inputs
+      .map((x) => x.status)
+      .reduce((a, b) => (rank[a] ?? 0) <= (rank[b] ?? 0) ? a : b);
+  return (rank[least] ?? 0) == 0 ? 'pending' : least;
 }
 
 /// D7: "Photo 1 of 5" / "Video 2 of 5", plus the tile's state. A video

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuch_bhi/core/widgets/skeleton.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/domain/entities/message.dart';
 import 'package:kuch_bhi/features/chat/providers/chat_provider.dart';
@@ -14,7 +15,6 @@ import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_input.dart';
 import 'package:kuch_bhi/infrastructure/services/link_preview_service.dart';
 import 'package:kuch_bhi/services/media_upload_service.dart';
-import 'package:shimmer/shimmer.dart';
 
 Widget _host({required Widget child, List<Override> overrides = const []}) {
   return ProviderScope(
@@ -196,7 +196,10 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.byType(Shimmer), findsOneWidget);
+      // Chat calm F: before the preview, a flat box in the final size with
+      // a photo glyph; no moving highlight at all.
+      expect(find.byIcon(Icons.photo_outlined), findsOneWidget);
+      expect(find.byType(Skeleton), findsNothing);
 
       await tester.pumpWidget(
         _host(
@@ -207,7 +210,8 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.byType(Shimmer), findsNothing);
+      expect(find.byIcon(Icons.photo_outlined), findsOneWidget);
+      expect(find.byType(Skeleton), findsNothing);
     });
   });
 
@@ -227,7 +231,7 @@ void main() {
     );
 
     testWidgets(
-      'parks optimistic image/video/voice shimmer under reduced motion',
+      'optimistic image/video/voice placeholders are flat (no shimmer)',
       (tester) async {
         for (final type in ['image', 'video', 'voice']) {
           await tester.pumpWidget(
@@ -242,10 +246,12 @@ void main() {
             ),
           );
           await tester.pump();
+          // Chat calm F: flat blocks in the final size; no shimmer next to
+          // the upload spinner.
           expect(
-            find.byType(Shimmer),
-            findsOneWidget,
-            reason: '$type should shimmer with animations enabled',
+            find.byType(Skeleton),
+            findsNothing,
+            reason: '$type placeholder is a flat block',
           );
 
           await tester.pumpWidget(
@@ -261,7 +267,7 @@ void main() {
           );
           await tester.pump();
           expect(
-            find.byType(Shimmer),
+            find.byType(Skeleton),
             findsNothing,
             reason: '$type must use a static surface under reduced motion',
           );

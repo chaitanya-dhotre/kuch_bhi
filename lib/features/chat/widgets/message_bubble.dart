@@ -28,6 +28,7 @@ import 'document_message_bubble.dart';
 import 'image_message_bubble.dart';
 import 'video_message_bubble.dart';
 import 'voice_message_bubble.dart';
+import 'voice_waveform.dart';
 import 'reaction_bar.dart';
 import 'reply_quote.dart';
 import 'swipe_to_reply.dart';
@@ -159,6 +160,7 @@ class MessageBubble extends ConsumerWidget {
     this.isGroup = false,
     this.runStart = true,
     this.runEnd = true,
+    this.streakStart = true,
     this.searchQuery,
     this.searchCurrent = false,
     this.selected = false,
@@ -176,6 +178,9 @@ class MessageBubble extends ConsumerWidget {
   final bool isGroup;
   final bool runStart;
   final bool runEnd;
+
+  /// B3: first of a same-sender streak; the group name shows here only.
+  final bool streakStart;
   final String? searchQuery;
   final bool searchCurrent;
   final bool selected;
@@ -256,6 +261,144 @@ class MessageBubble extends ConsumerWidget {
     }
     final terminalOp = failedOp; // effectively final → promotable in closures
 
+    // A receipt can reach an acked row mid-upload: keep the clock.
+    final mediaStatus = ownUpload && message.status != 'failed'
+        ? 'pending'
+        : message.status;
+    final Widget core;
+    if (album != null) {
+      core = AlbumBubble(
+        rows: album,
+        isMine: isMine,
+        runStart: runStart,
+        senderName: senderName,
+        onOpen: onOpenAlbum,
+      );
+    } else if (message.type == 'voice' && mediaId != null) {
+      core = VoiceMessageBubble(
+        conversationId: message.conversationId,
+        serverId: mediaId,
+        isMine: isMine,
+        runStart: runStart,
+        durationText: resolved,
+        status: mediaStatus,
+        createdAt: message.createdAt,
+        localId: ownUpload ? message.localId : null,
+        waveSeed: cover.serverId ?? message.localId,
+      );
+    } else if (message.type == 'image' && mediaId != null) {
+      core = ImageMessageBubble(
+        conversationId: message.conversationId,
+        serverId: mediaId,
+        isMine: isMine,
+        isDark: isDark,
+        runStart: runStart,
+        status: mediaStatus,
+        createdAt: message.createdAt,
+        senderName: senderName,
+        localId: ownUpload ? message.localId : null,
+      );
+    } else if (message.type == 'video' && mediaId != null) {
+      core = VideoMessageBubble(
+        conversationId: message.conversationId,
+        serverId: mediaId,
+        isMine: isMine,
+        isDark: isDark,
+        runStart: runStart,
+        status: mediaStatus,
+        createdAt: message.createdAt,
+        senderName: senderName,
+        localId: ownUpload ? message.localId : null,
+      );
+    } else if (message.type == 'document' && mediaId != null) {
+      core = DocumentMessageBubble(
+        conversationId: message.conversationId,
+        serverId: mediaId,
+        isMine: isMine,
+        isDark: isDark,
+        runStart: runStart,
+        status: mediaStatus,
+        createdAt: message.createdAt,
+        localId: ownUpload ? message.localId : null,
+      );
+    } else if (mediaId == null &&
+        const {'image', 'video', 'voice', 'document'}.contains(message.type)) {
+      // Optimistic upload in flight (serverId not stamped yet). Keep the
+      // shape/type recognizable without changing the data layer.
+      core = ExcludeSemantics(
+        child: _OptimisticMediaPlaceholder(
+          type: message.type,
+          isMine: isMine,
+          runStart: runStart,
+          status: message.status,
+        ),
+      );
+    } else if (message.type == 'sticker' &&
+        !message.isDeletedForEveryone &&
+        message.decryptState != 'key_missing' &&
+        message.decryptState != 'failed') {
+      core = StickerBubble(
+        message: message,
+        body: resolved,
+        isMine: isMine,
+        runStart: runStart,
+      );
+    } else if (emojiOnly) {
+      core = _EmojiOnlyBubble(message: message, isMine: isMine);
+    } else {
+      core = _TextBubble(
+        message: message,
+        isMine: isMine,
+        runStart: runStart,
+        skeletonShell: resolved == null && !message.isDeletedForEveryone,
+        highlightQuery: searchQuery,
+        highlightCurrent: searchCurrent,
+        url: url,
+      );
+    }
+
+    // C9: in groups their bubbles leave a slot for the sender disc, which
+    // sits beside the run's last bubble, bottom-aligned to the bubble.
+    final grouped = isGroup && !isMine;
+    final lead = grouped ? ChatBubbleGeometry.senderSlot : 0.0;
+    Widget indent(Widget w) => grouped
+        ? Padding(padding: EdgeInsets.only(left: lead), child: w)
+        : w;
+    final coreRow = grouped
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(
+                  left: ChatBubbleGeometry.nearMargin,
+                ),
+                child: SizedBox(
+                  width: ChatBubbleGeometry.senderDisc,
+                  child: runEnd
+                      ? ExcludeSemantics(
+                          child: AppAvatar(
+                            radius: ChatBubbleGeometry.senderDisc / 2,
+                            initials: initialsOf(senderName),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+              Flexible(child: core),
+            ],
+          )
+        : core;
+
+    // B2: the time leaves the bubble for one line under the run's last.
+    final showMeta = runEnd || ChatInfoMode.of(context);
+    final metaStatus = album != null
+        ? albumStatus([
+            for (final m in album) mediaBubbleInputs(ref, m, isMine: isMine),
+          ])
+        : const {'image', 'video', 'voice', 'document'}.contains(message.type)
+        ? mediaStatus
+        : message.status;
+
     final bubble = GestureDetector(
       onLongPress: () => showMessageMenu(
         context: context,
@@ -272,14 +415,19 @@ class MessageBubble extends ConsumerWidget {
             : CrossAxisAlignment.start,
         children: [
           // ── Group sender name ────────────────────────────────
-          if (isGroup && !isMine && runStart)
+          // C10: once per streak, 12 in from the bubble's edge, 4 above.
+          if (grouped && streakStart)
             Padding(
-              padding: const EdgeInsets.only(left: 14, bottom: 1, top: 4),
+              padding: EdgeInsets.only(
+                left: lead + ChatBubbleGeometry.nearMargin + 12,
+                bottom: 4,
+              ),
               child: ExcludeSemantics(
                 child: Text(
                   senderName,
                   style: TextStyle(
-                    fontSize: 12, // plan floor: labels ≥ w600 12px
+                    fontSize: 13,
+                    height: 18 / 13,
                     fontWeight: FontWeight.w600,
                     color: _colorForSender(
                       message.senderId,
@@ -300,9 +448,10 @@ class MessageBubble extends ConsumerWidget {
             GestureDetector(
               onTap: onReplyTap,
               child: Padding(
-                padding: ChatBubbleGeometry.margin(
-                  isMine: isMine,
-                ).copyWith(bottom: 0),
+                padding: EdgeInsets.only(
+                  left: isMine ? 0 : lead + ChatBubbleGeometry.nearMargin,
+                  right: isMine ? ChatBubbleGeometry.nearMargin : 0,
+                ),
                 child: ReplyQuote(
                   // The quote shows WHO was replied to, not who sent THIS message.
                   // If I sent this message, I replied to the other user → show their name.
@@ -317,131 +466,56 @@ class MessageBubble extends ConsumerWidget {
               ),
             ),
 
-          // ── Bubble ──────────────────────────────────────────
-          if (album != null)
-            AlbumBubble(
-              rows: album,
-              isMine: isMine,
-              runEnd: runEnd,
-              senderName: senderName,
-              onOpen: onOpenAlbum,
-            )
-          else if (message.type == 'voice' && mediaId != null)
-            VoiceMessageBubble(
-              conversationId: message.conversationId,
-              serverId: mediaId,
-              isMine: isMine,
-              runEnd: runEnd,
-              durationText: resolved,
-              // A receipt can reach an acked row mid-upload: keep the clock.
-              status: ownUpload && message.status != 'failed'
-                  ? 'pending'
-                  : message.status,
-              createdAt: message.createdAt,
-              localId: ownUpload ? message.localId : null,
-            )
-          else if (message.type == 'image' && mediaId != null)
-            ImageMessageBubble(
-              conversationId: message.conversationId,
-              serverId: mediaId,
-              isMine: isMine,
-              isDark: isDark,
-              runEnd: runEnd,
-              // A receipt can reach an acked row mid-upload: keep the clock.
-              status: ownUpload && message.status != 'failed'
-                  ? 'pending'
-                  : message.status,
-              createdAt: message.createdAt,
-              senderName: senderName,
-              localId: ownUpload ? message.localId : null,
-            )
-          else if (message.type == 'video' && mediaId != null)
-            VideoMessageBubble(
-              conversationId: message.conversationId,
-              serverId: mediaId,
-              isMine: isMine,
-              isDark: isDark,
-              runEnd: runEnd,
-              // A receipt can reach an acked row mid-upload: keep the clock.
-              status: ownUpload && message.status != 'failed'
-                  ? 'pending'
-                  : message.status,
-              createdAt: message.createdAt,
-              senderName: senderName,
-              localId: ownUpload ? message.localId : null,
-            )
-          else if (message.type == 'document' && mediaId != null)
-            DocumentMessageBubble(
-              conversationId: message.conversationId,
-              serverId: mediaId,
-              isMine: isMine,
-              isDark: isDark,
-              runEnd: runEnd,
-              // A receipt can reach an acked row mid-upload: keep the clock.
-              status: ownUpload && message.status != 'failed'
-                  ? 'pending'
-                  : message.status,
-              createdAt: message.createdAt,
-              localId: ownUpload ? message.localId : null,
-            )
-          else if (mediaId == null &&
-              const {
-                'image',
-                'video',
-                'voice',
-                'document',
-              }.contains(message.type))
-            // Optimistic upload in flight (serverId not stamped yet). Keep
-            // the shape/type recognizable without changing the data layer.
-            ExcludeSemantics(
-              child: _OptimisticMediaPlaceholder(
-                type: message.type,
-                isMine: isMine,
-                runEnd: runEnd,
-                status: message.status,
-                createdAt: message.createdAt,
+          coreRow,
+
+          // ── Reactions (C8: chips overlap the bubble's lower edge) ──
+          if (cover.serverId != null)
+            indent(
+              Transform.translate(
+                offset: const Offset(0, -8),
+                child: ReactionBar(
+                  messageServerId: cover.serverId!,
+                  isMine: isMine,
+                ),
               ),
-            )
-          else if (message.type == 'sticker' &&
-              !message.isDeletedForEveryone &&
-              message.decryptState != 'key_missing' &&
-              message.decryptState != 'failed')
-            StickerBubble(
-              message: message,
-              body: resolved,
-              isMine: isMine,
-              runEnd: runEnd,
-            )
-          else if (emojiOnly)
-            _EmojiOnlyBubble(message: message, isMine: isMine, runEnd: runEnd)
-          else
-            _TextBubble(
-              message: message,
-              isMine: isMine,
-              runEnd: runEnd,
-              skeletonShell: resolved == null && !message.isDeletedForEveryone,
-              highlightQuery: searchQuery,
-              highlightCurrent: searchCurrent,
-              url: url,
             ),
 
-          // ── Reactions ────────────────────────────────────────
-          if (cover.serverId != null)
-            ReactionBar(messageServerId: cover.serverId!, isMine: isMine),
+          if (showMeta)
+            indent(
+              Padding(
+                key: const ValueKey('chat-meta-line'),
+                padding: ChatBubbleGeometry.margin(
+                  isMine: isMine,
+                ).copyWith(top: ChatBubbleGeometry.metaGap),
+                child: ChatBubbleTimestamp(
+                  isMine: isMine,
+                  createdAt: album != null
+                      ? album
+                            .map((m) => m.createdAt)
+                            .reduce((a, b) => a.isBefore(b) ? a : b)
+                      : message.createdAt,
+                  status: metaStatus,
+                  starred: cover.isStarred,
+                ),
+              ),
+            ),
 
           // ── Terminal-failure banner (spec: stuck message VISIBLE) ──
           // Keyed by message localId; Retry/Discard wire straight to the
           // real repo (Task 3 retryOp/discardOp — discard cascades).
           if (terminalOp != null)
-            TerminalFailureBanner(
-              key: ValueKey('terminal-banner-${message.localId}'),
-              isMine: isMine,
-              errorClass: terminalOp.errorClass,
-              onRetry: () =>
-                  ref.read(messageRepositoryProvider).retryOp(terminalOp.opId),
-              onDiscard: () => ref
-                  .read(messageRepositoryProvider)
-                  .discardOp(terminalOp.opId),
+            indent(
+              TerminalFailureBanner(
+                key: ValueKey('terminal-banner-${message.localId}'),
+                isMine: isMine,
+                errorClass: terminalOp.errorClass,
+                onRetry: () => ref
+                    .read(messageRepositoryProvider)
+                    .retryOp(terminalOp.opId),
+                onDiscard: () => ref
+                    .read(messageRepositoryProvider)
+                    .discardOp(terminalOp.opId),
+              ),
             ),
         ],
       ),
@@ -456,31 +530,15 @@ class MessageBubble extends ConsumerWidget {
             child: bubble,
           );
 
-    if (isGroup && !isMine) {
-      final initial = initialsOf(senderName);
-      content = Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // The bubble's own margin gives the disc→bubble gap; this pad
-          // keeps the disc off the screen edge and level with the bubble.
-          Padding(
-            padding: const EdgeInsets.only(
-              left: ChatBubbleGeometry.nearMargin,
-              bottom: ChatBubbleGeometry.verticalMargin,
-            ),
-            child: SizedBox(
-              width: 28,
-              child: runStart
-                  ? ExcludeSemantics(
-                      child: AppAvatar(radius: 14, initials: initial),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ),
-          Flexible(child: content),
-        ],
-      );
-    }
+    // C1 / C2: 2 between bubbles of a run, 12 before a new run.
+    content = Padding(
+      padding: EdgeInsets.only(
+        top: runStart
+            ? ChatBubbleGeometry.newRunGap
+            : ChatBubbleGeometry.runGap,
+      ),
+      child: content,
+    );
 
     // C1: a selected row = full-row soft accent + the accent fill and ring.
     // Both always in the tree, so a toggle keeps the bubble's state.
@@ -489,10 +547,7 @@ class MessageBubble extends ConsumerWidget {
       child: DecoratedBox(
         decoration: selected
             ? BoxDecoration(
-                color: context.t.accent.withValues(alpha: 0.08),
-                border: Border.all(
-                  color: context.t.accent.withValues(alpha: 0.55),
-                ),
+                border: Border.all(color: context.t.accent, width: 1.5),
                 borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
               )
             : const BoxDecoration(),
@@ -523,197 +578,124 @@ class MessageBubble extends ConsumerWidget {
 
 /// Per-type optimistic media shell. It deliberately stays presentation-only:
 /// the real media widgets take over as soon as the server id is stamped.
+/// F: the final size, a flat block, no shimmer next to a spinner.
 class _OptimisticMediaPlaceholder extends StatelessWidget {
   const _OptimisticMediaPlaceholder({
     required this.type,
     required this.isMine,
-    required this.runEnd,
+    required this.runStart,
     required this.status,
-    required this.createdAt,
   });
 
   final String type;
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
   final String status;
-  final DateTime createdAt;
 
   @override
   Widget build(BuildContext context) {
-    final shellColor = isMine
-        ? context.t.accent.withValues(alpha: 0.18)
-        : context.t.surface2;
-    final mediaType = type == 'video' ? 'video' : 'image';
+    final t = context.t;
     final failed = status == 'failed';
-    final mediaSkeleton = ConstrainedBox(
-      constraints: const BoxConstraints(
-        maxWidth: ChatBubbleGeometry.mediaMaxWidth,
-      ),
-      child: AspectRatio(
-        aspectRatio: mediaType == 'video' ? 16 / 9 : 4 / 3,
-        child: Skeleton.fill(),
-      ),
-    );
+    final width = ChatBubbleGeometry.attachmentWidthOf(context);
 
     if (type == 'image' || type == 'video') {
-      if (failed) {
-        return ChatBubbleFrame(
-          isMine: isMine,
-          runEnd: runEnd,
-          background: shellColor,
-          showShadow: false,
-          showTimestamp: true,
-          createdAt: createdAt,
-          status: status,
-          padding: EdgeInsets.zero,
-          child: SizedBox(
-            width: ChatBubbleGeometry.mediaMaxWidth,
-            height: 158,
-            child: Center(
-              child: Text(
-                kUploadNotSent,
-                // inkSoft: onAccent on the faint 18% shell is unreadable in
-                // dark mode (failed-upload learning).
-                style: TextStyle(color: context.t.inkSoft),
-              ),
-            ),
-          ),
-        );
-      }
+      final video = type == 'video';
       return ChatBubbleFrame(
         isMine: isMine,
-        runEnd: runEnd,
-        background: shellColor,
-        showShadow: false,
-        showTimestamp: true,
-        createdAt: createdAt,
-        status: status,
+        runStart: runStart,
+        background: t.surface2,
+        border: const Border(),
         padding: EdgeInsets.zero,
-        child: mediaSkeleton,
+        width: width,
+        child: SizedBox(
+          height: ChatBubbleGeometry.mediaHeight(width, video ? 16 / 9 : 4 / 3),
+          child: Center(
+            child: failed
+                ? Text(kUploadNotSent, style: TextStyle(color: t.inkSoft))
+                : Icon(
+                    video ? Icons.videocam_outlined : Icons.photo_outlined,
+                    size: 28,
+                    color: t.inkFaint,
+                  ),
+          ),
+        ),
       );
     }
 
     // A failed upload never gets a server id, so it stays here: say so
     // instead of spinning forever.
-    final content = switch (type) {
-      'voice' => _OptimisticVoiceContent(isMine: isMine, failed: failed),
-      _ => _OptimisticDocumentContent(isMine: isMine, failed: failed),
-    };
-    // Default shell (full accent when mine): onAccent ink on the 18% shell
-    // was unreadable in dark mode.
-    return ChatBubbleFrame(
-      isMine: isMine,
-      runEnd: runEnd,
-      showShadow: false,
-      fillWidth: true,
-      showTimestamp: true,
-      timestampOverlay: false,
-      createdAt: createdAt,
-      status: status,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [content]),
-    );
-  }
-}
-
-class _OptimisticVoiceContent extends StatelessWidget {
-  const _OptimisticVoiceContent({required this.isMine, required this.failed});
-
-  final bool isMine;
-  final bool failed;
-
-  @override
-  Widget build(BuildContext context) {
-    final foreground = isMine ? context.t.onAccent : context.t.accent;
+    final voice = type == 'voice';
+    final Widget content;
     if (failed) {
-      return _FailedUploadRow(
-        icon: Icons.mic_none_outlined,
-        label: 'Voice note not sent',
-        foreground: foreground,
+      content = _FailedUploadRow(
+        icon: voice ? Icons.mic_none_outlined : Icons.insert_drive_file_outlined,
+        label: voice ? 'Voice note not sent' : 'Document not sent',
       );
-    }
-    return Row(
-      children: [
-        BusySpinner(size: 30, strokeWidth: 2, color: foreground),
-        const SizedBox(width: 10),
-        Expanded(child: SizedBox(height: 10, child: Skeleton.fill())),
-      ],
-    );
-  }
-}
-
-class _OptimisticDocumentContent extends StatelessWidget {
-  const _OptimisticDocumentContent({
-    required this.isMine,
-    required this.failed,
-  });
-
-  final bool isMine;
-  final bool failed;
-
-  @override
-  Widget build(BuildContext context) {
-    final foreground = isMine ? context.t.onAccent : context.t.accent;
-    if (failed) {
-      return _FailedUploadRow(
-        icon: Icons.insert_drive_file_outlined,
-        label: 'Document not sent',
-        foreground: foreground,
-      );
-    }
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: foreground.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(Icons.insert_drive_file_outlined, color: foreground),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            'Uploading document…',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: foreground.withValues(alpha: 0.76),
-              fontSize: 13,
+    } else {
+      content = Row(
+        children: [
+          SizedBox.square(
+            dimension: ChatBubbleGeometry.leadingSize,
+            child: Center(
+              child: BusySpinner(size: 24, strokeWidth: 2, color: t.ink),
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        BusySpinner(size: 18, strokeWidth: 2, color: foreground),
-      ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: voice
+                ? SizedBox(
+                    height: 28,
+                    child: Opacity(
+                      opacity: 0.3,
+                      child: VoiceWaveform(
+                        levels: generatedWaveLevels(type),
+                        bars: kVoiceBubbleBars,
+                        height: 28,
+                        progress: 1,
+                      ),
+                    ),
+                  )
+                : Text(
+                    'Uploading document…',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: t.inkSoft, fontSize: 13),
+                  ),
+          ),
+        ],
+      );
+    }
+    return ChatBubbleFrame(
+      isMine: isMine,
+      runStart: runStart,
+      padding: ChatBubbleGeometry.attachmentPadding,
+      width: width,
+      child: content,
     );
   }
 }
 
-/// Static row for an upload that failed; the timestamp's ⚠ carries the state.
+/// Static row for an upload that failed; the time line's ⚠ carries the
+/// state. Ink on the tint, never onAccent (E7).
 class _FailedUploadRow extends StatelessWidget {
-  const _FailedUploadRow({
-    required this.icon,
-    required this.label,
-    required this.foreground,
-  });
+  const _FailedUploadRow({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
-  final Color foreground;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       children: [
         Container(
-          width: 38,
-          height: 38,
+          width: ChatBubbleGeometry.leadingSize,
+          height: ChatBubbleGeometry.leadingSize,
           decoration: BoxDecoration(
-            color: foreground.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(10),
+            color: t.ink.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
           ),
-          child: Icon(icon, color: foreground),
+          child: Icon(icon, color: t.ink),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -721,7 +703,7 @@ class _FailedUploadRow extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: foreground, fontSize: 13),
+            style: TextStyle(color: t.ink, fontSize: 13),
           ),
         ),
       ],
@@ -931,44 +913,23 @@ Future<void> showFailedSendSheet(
 // ── Emoji-only (no bubble, large font) ────────────────────────────────────
 
 class _EmojiOnlyBubble extends StatelessWidget {
-  const _EmojiOnlyBubble({
-    required this.message,
-    required this.isMine,
-    required this.runEnd,
-  });
+  const _EmojiOnlyBubble({required this.message, required this.isMine});
   final Message message;
   final bool isMine;
-  final bool runEnd;
 
   @override
   Widget build(BuildContext context) {
     return ChatBubbleFrame(
       isMine: isMine,
-      runEnd: runEnd,
       chrome: false,
       padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: isMine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          ExcludeSemantics(
-            child: MessageBodyText(
-              messageId: message.localId,
-              styleContext: 'emoji',
-              decryptState: message.decryptState,
-              ciphertextLength: message.ciphertextLength,
-            ),
-          ),
-          if (runEnd || ChatInfoMode.of(context)) ...[
-            const SizedBox(height: ChatBubbleGeometry.metadataGap),
-            ChatBubbleTimestamp(
-              isMine: isMine,
-              createdAt: message.createdAt,
-              status: message.status,
-            ),
-          ],
-        ],
+      child: ExcludeSemantics(
+        child: MessageBodyText(
+          messageId: message.localId,
+          styleContext: 'emoji',
+          decryptState: message.decryptState,
+          ciphertextLength: message.ciphertextLength,
+        ),
       ),
     );
   }
@@ -980,7 +941,7 @@ class _TextBubble extends StatelessWidget {
   const _TextBubble({
     required this.message,
     required this.isMine,
-    required this.runEnd,
+    required this.runStart,
     required this.skeletonShell,
     this.highlightQuery,
     this.highlightCurrent = false,
@@ -989,7 +950,7 @@ class _TextBubble extends StatelessWidget {
 
   final Message message;
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
   final bool skeletonShell;
   final String? highlightQuery;
   final bool highlightCurrent;
@@ -997,17 +958,20 @@ class _TextBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChatBubbleFrame(
+    // F: while the text decrypts, the bubble itself is the placeholder in
+    // its real shape (B1) and size; terminal decrypt states never are.
+    final placeholder =
+        skeletonShell &&
+        message.decryptState != 'key_missing' &&
+        message.decryptState != 'failed';
+    final frame = ChatBubbleFrame(
       isMine: isMine,
-      runEnd: runEnd,
-      background: skeletonShell
-          ? (isMine
-                ? context.t.accent.withValues(alpha: 0.18)
-                : context.t.surface2)
-          : null,
-      showShadow: !skeletonShell,
+      runStart: runStart,
+      background: placeholder && !isMine ? context.t.surface2 : null,
+      border: placeholder ? const Border() : null,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        // B6: always start-aligned.
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           if (message.isDeletedForEveryone)
@@ -1017,9 +981,7 @@ class _TextBubble extends StatelessWidget {
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
                   fontSize: 14,
-                  color: isMine
-                      ? context.t.onAccent.withValues(alpha: 0.7)
-                      : context.t.inkSoft,
+                  color: context.t.inkSoft,
                 ),
               ),
             )
@@ -1037,20 +999,12 @@ class _TextBubble extends StatelessWidget {
             ),
 
           // Link preview
-          if (url != null && !message.isDeletedForEveryone)
+          if (url != null && !message.isDeletedForEveryone && !placeholder)
             LinkPreviewCard(url: url!),
-
-          if (runEnd || ChatInfoMode.of(context)) ...[
-            const SizedBox(height: ChatBubbleGeometry.metadataGap),
-            ChatBubbleTimestamp(
-              isMine: isMine,
-              createdAt: message.createdAt,
-              status: message.status,
-            ),
-          ],
         ],
       ),
     );
+    return placeholder ? SkeletonBreath(child: frame) : frame;
   }
 }
 

@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuch_bhi/features/chat/voice_body.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/features/chat/providers/chat_provider.dart';
 import 'package:kuch_bhi/features/chat/providers/voice_recorder_providers.dart';
@@ -511,7 +512,11 @@ void main() {
     expect(call['mediaType'], 'voice');
     expect(call['conversationId'], h.chat);
     expect(call['durationSeconds'], greaterThanOrEqualTo(2));
-    expect(call['durationText'], matches(RegExp(r'^\d+:\d{2}$')));
+    // D-3 A: the body is the duration + the level suffix.
+    expect(
+      voiceBodyText(call['durationText'] as String?),
+      matches(RegExp(r'^\d+:\d{2}$')),
+    );
     expect(find.text('Voice note'), findsNothing);
     expect(find.text('Recording'), findsNothing);
   });
@@ -533,7 +538,10 @@ void main() {
     await settle(tester);
 
     expect(h.send.calls.single['durationSeconds'], 5);
-    expect(h.send.calls.single['durationText'], '0:05');
+    expect(
+      voiceBodyText(h.send.calls.single['durationText'] as String?),
+      '0:05',
+    );
   });
 
   // ── 10–14: delete, failed send, permission, start errors ─────────────────

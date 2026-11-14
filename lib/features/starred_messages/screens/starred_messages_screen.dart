@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../../chat/voice_body.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -281,7 +282,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         return _mediaRow(
             context, Icons.videocam_outlined, kMediaRowVideoLabel);
       case 'voice':
-        final dur = body.replaceFirst('🎤', '').trim();
+        final dur = voiceBodyText(body).replaceFirst('🎤', '').trim();
         return _mediaRow(
           context,
           Icons.mic_none,

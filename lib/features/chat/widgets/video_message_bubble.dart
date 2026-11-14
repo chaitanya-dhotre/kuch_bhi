@@ -4,7 +4,6 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/media_utils.dart';
-import '../../../core/widgets/skeleton.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/media/providers/media_viewer_providers.dart';
 import '../../../features/media/screens/media_viewer_screen.dart';
@@ -19,7 +18,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
     required this.serverId,
     required this.isMine,
     required this.isDark,
-    this.runEnd = true,
+    this.runStart = true,
     this.status,
     this.createdAt,
     this.senderName = '',
@@ -37,7 +36,7 @@ class VideoMessageBubble extends ConsumerStatefulWidget {
   final String serverId;
   final bool isMine;
   final bool isDark;
-  final bool runEnd;
+  final bool runStart;
   final String? status;
   final DateTime? createdAt;
   final String senderName;
@@ -72,7 +71,14 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     );
 
     Widget content = thumbAsync.when(
-      loading: () => const Skeleton.fill(radius: 0),
+      // F: a flat box with the video glyph until the poster lands.
+      loading: () => Center(
+        child: Icon(
+          Icons.videocam_outlined,
+          size: 28,
+          color: context.t.inkFaint,
+        ),
+      ),
       error: (_, __) => unavailable(),
       data: (media) {
         final durationSec = media?.durationSeconds ?? 0;
@@ -80,12 +86,9 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
 
         // ── Expired state ──────────────────────────────────────
         if (gone || isExpired(expiresAt)) {
-          return ExpiredPlaceholder(
+          return const ExpiredPlaceholder(
             glyph: Icons.timer_off_outlined,
             decorate: false,
-            ink: widget.isMine
-                ? context.t.onAccent.withValues(alpha: 0.70)
-                : null,
           );
         }
 
@@ -158,56 +161,26 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
                     ),
                   )
                 else
-                  MediaDisc(
-                    icon: notDownloaded
-                        ? Icons.download_rounded
-                        : Icons.play_arrow,
-                  ),
+                  const MediaDisc(icon: Icons.play_arrow),
                 // Expiry badge — top right (an album shows one for all)
                 if (expiryLabel != null && widget.onTileTap == null)
                   ExpiryBadge(label: expiryLabel),
+                // E2: duration, plus the size only on a known "not on disk".
                 Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    color: Colors.black.withValues(alpha: 0.55),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.videocam,
-                                size: 10,
-                                color: Colors.white70,
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                formatMmSs(durationSec),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                  left: 8,
+                  bottom: 8,
+                  // Its text joins the tile's label (album D7: "… 0:14").
+                  child: MediaOverlayPill(
+                    child: Text(
+                      videoPillLabel(
+                        durationSec,
+                        notDownloaded ? media.fileSize : null,
+                      ),
+                      style: const TextStyle(
+                        fontSize: ChatBubbleGeometry.timestampFontSize,
+                        height: ChatBubbleGeometry.timestampLineHeight,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ),
                 ),
@@ -219,19 +192,26 @@ class _VideoMessageBubbleState extends ConsumerState<VideoMessageBubble> {
     );
 
     if (widget.onTileTap != null) return content;
+    final width = ChatBubbleGeometry.attachmentWidthOf(context);
+    // E1/E2: edge to edge, B1 radius, no border.
     return ChatBubbleFrame(
       isMine: widget.isMine,
-      runEnd: widget.runEnd,
+      runStart: widget.runStart,
       padding: EdgeInsets.zero,
-      showTimestamp: true,
-      createdAt: widget.createdAt,
-      status: widget.status,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: ChatBubbleGeometry.mediaMaxWidth,
-        ),
-        child: AspectRatio(aspectRatio: _aspectRatio, child: content),
+      background: context.t.surface2,
+      border: const Border(),
+      child: SizedBox(
+        width: width,
+        height: ChatBubbleGeometry.mediaHeight(width, _aspectRatio),
+        child: content,
       ),
     );
   }
 }
+
+/// E2: "0:42" or "0:42 · 8.1 MB" (size only when the file is known to be
+/// missing and its size is known).
+String videoPillLabel(int seconds, int? bytes) => [
+  formatMmSs(seconds),
+  if (bytes != null && bytes > 0) formatFileSize(bytes, bytesUnitSpaced: true),
+].join(' · ');

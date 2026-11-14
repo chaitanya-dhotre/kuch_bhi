@@ -42,21 +42,22 @@ String stickerSemanticsLabel(String body) {
   return sticker == null ? 'Sticker' : 'Sticker, ${sticker.label}';
 }
 
-/// The chat bubble of a `sticker` message: the image with no bubble fill and
-/// the media time pill under it (§J2.5). [body] is null while decrypting.
+/// The chat bubble of a `sticker` message: the image with no bubble fill
+/// (§J2.5). Its time is on the line under the run (chat calm B2). [body] is
+/// null while decrypting.
 class StickerBubble extends StatelessWidget {
   const StickerBubble({
     super.key,
     required this.message,
     required this.body,
     required this.isMine,
-    required this.runEnd,
+    this.runStart = true,
   });
 
   final Message message;
   final String? body;
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
 
   @override
   Widget build(BuildContext context) {
@@ -66,96 +67,44 @@ class StickerBubble extends StatelessWidget {
     if (body == null) {
       picture = const SizedBox.square(dimension: kStickerChatSize);
     } else if (sticker == null) {
-      return _UnknownStickerBubble(
-        message: message,
-        isMine: isMine,
-        runEnd: runEnd,
-      );
+      return _UnknownStickerBubble(isMine: isMine, runStart: runStart);
     } else {
       picture = StickerImage(sticker, size: kStickerChatSize);
     }
     return ChatBubbleFrame(
       isMine: isMine,
-      runEnd: runEnd,
       chrome: false,
       padding: EdgeInsets.zero,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: isMine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          picture,
-          if (runEnd || ChatInfoMode.of(context)) ...[
-            const SizedBox(height: ChatBubbleGeometry.metadataGap),
-            ChatBubbleTimestamp(
-              isMine: isMine,
-              createdAt: message.createdAt,
-              status: message.status,
-              overlay: true,
-            ),
-          ],
-        ],
-      ),
+      child: picture,
     );
   }
 }
 
 /// J2.2: a sticker this app does not have (sent by a newer app).
 class _UnknownStickerBubble extends StatelessWidget {
-  const _UnknownStickerBubble({
-    required this.message,
-    required this.isMine,
-    required this.runEnd,
-  });
+  const _UnknownStickerBubble({required this.isMine, required this.runStart});
 
-  final Message message;
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return ChatBubbleFrame(
       isMine: isMine,
-      runEnd: runEnd,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ExcludeSemantics(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Sticker',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: isMine ? t.onAccent : t.ink,
-                  ),
-                ),
-                Text(
-                  'Update Kuch Bhi to see it',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isMine
-                        ? t.onAccent.withValues(alpha: 0.7)
-                        : t.inkSoft,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (runEnd || ChatInfoMode.of(context)) ...[
-            const SizedBox(height: ChatBubbleGeometry.metadataGap),
-            ChatBubbleTimestamp(
-              isMine: isMine,
-              createdAt: message.createdAt,
-              status: message.status,
+      runStart: runStart,
+      child: ExcludeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Sticker', style: TextStyle(fontSize: 15, color: t.ink)),
+            Text(
+              'Update Kuch Bhi to see it',
+              style: TextStyle(fontSize: 13, color: t.inkSoft),
             ),
           ],
-        ],
+        ),
       ),
     );
   }

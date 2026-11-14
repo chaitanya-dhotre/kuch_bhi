@@ -145,7 +145,8 @@ void main() {
   }
 
   // Device round 2: in full-width voice/doc bubbles the mark sat centred and
-  // faint grey on the own amber bubble. Now a left row in onAccent ink.
+  // faint grey on the own amber bubble. Now a left row; chat calm E7: the
+  // own bubble is a tint, so both sides read inkSoft.
   for (final mine in [true, false]) {
     testWidgets('expired voice + document (${mine ? 'own' : 'theirs'}): a '
         'left-aligned row in readable ink (360dp, 200%)', (tester) async {
@@ -182,7 +183,7 @@ void main() {
         final t = tokens(tester);
         expect(
           paintedColor(tester, find.text('Media expired')),
-          mine ? t.onAccent.withValues(alpha: 0.70) : t.inkSoft,
+          t.inkSoft,
         );
         expect(tester.takeException(), isNull);
       }

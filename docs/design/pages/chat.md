@@ -54,9 +54,11 @@ status is also recorded in `chat-work-log.md`.
 
 - [x] **C1 MUST** Date pill separators: Today / Yesterday / "d MMMM" / "d MMMM y" (older);
   above first message of day; rollover corrects while chat open.
-- [x] **C2 MUST** Sender runs (group): avatar + name on FIRST bubble of run only (≤2min
-  apart); middle bubbles no tail; last bubble tail + timestamp; runs never cross date sep.
-  1:1: same mechanics, no avatar/name anywhere.
+- [x] **C2 MUST** Sender runs: same sender, same day, ≤ **5 min** apart (chat calm B3,
+  was 2). Group: name once per **streak** of that sender (13/18 600, 12 in from the bubble
+  edge, 4 above); 28 dp disc (surface2 + 1 dp line) beside the run's **last** bubble,
+  bottom-aligned to the bubble (C9/C10). Gaps: 2 inside a run, 12 before a new run; day
+  pill 16 above (C1–C3). Runs never cross date sep. 1:1: same mechanics, no avatar/name.
 - [x] **C3 MUST** Load-older: near-top ≤200px auto-loads 40/page with 3px accent indeterminate bar.
 - [x] **C4 MUST** End-of-history: one-time centered pill "This is the beginning of your chat…";
   bar never shows again after.
@@ -64,17 +66,25 @@ status is also recorded in `chat-work-log.md`.
   count badge when new messages below; tap = 250ms animateTo newest.
 - [x] **C6 MUST** Keyboard-open keeps latest message visible (reverse-list contract).
 - [x] **C7 MUST** Loading = shape-matching skeleton (bubble rows + separator pill), never a
-  bare spinner (foundation §6).
+  bare spinner (foundation §6). Chat calm §F: real B1 shapes and A sizes, own side
+  `bubbleMine`, their side surface2, one `SkeletonGroup` breath, after 300 ms; content
+  fades in over 150 ms.
 - [x] **C8 MUST** Empty = mascot EmptyState ("Say hello to {name}" + encryption line), composer live.
 - [x] **C9 MUST** Error = "Couldn't load this chat." + Retry (never raw `Error: $e`).
 
 ## D. Bubbles (S7)
 
-- [x] **D1 MUST** Radius 18 + 6px tail (mine bottom-right, theirs bottom-left); max width 84%;
-  mine accent/onAccent, theirs surface/ink; one warm shadow ink@6% on mine only.
-- [x] **D2 MUST** Timestamps in-bubble 10.5px @66% opacity, bottom-right; ticks when mine.
+- [x] **D1 MUST** (chat calm B1/A1/D2) Radius 18; sender-side bottom corner always 6,
+  sender-side top 6 unless the bubble starts a run, far side 18. Text max
+  `min(W×0.78, 420)`, padding 12 × 9, text 15/20 → one-line bubbles 38 dp. Mine =
+  `bubbleMine` (primary/100 light, primary/900 dark) with **ink** text; theirs = surface +
+  1 dp line border in light mode (none in dark). No shadow. Text always start-aligned (B6).
+- [x] **D2 MUST** (chat calm B2/B4/B5) The time leaves the bubble: one line under the
+  run's last bubble, 4 dp below, 11/14 inkSoft, aligned to the bubble's side; ticks after
+  the time on own runs; the failed ⚠ tick and a star (starred) sit on the same line. In
+  info mode (K2) every bubble gets the line. Photos and videos have no time pill.
 - [x] **D3 MUST** Long-token overflow: `word-break:break-word`, no horizontal clip at 1.3 font scale.
-- [x] **D4 MUST** Emoji-only (1–3 glyphs): chrome-less, 40px, time+tick below, alignment by side;
+- [x] **D4 MUST** Emoji-only (1–3 glyphs): chrome-less, 40px, time line below (D2), alignment by side;
   4+ glyphs render in a normal bubble.
   **R2 fixed (2026-10-18):** `isEmojiOnly` now counts grapheme glyphs; four or more emoji
   glyphs use the normal bubble.
@@ -96,9 +106,12 @@ status is also recorded in `chat-work-log.md`.
 
 ## F. Reactions (S9)
 
-- [x] **F1 MUST** Chips under bubble aligned to side; mine = accentSoft + accent@50% border.
+- [x] **F1 MUST** (chat calm C8) Chips overlap the bubble's lower edge by 8, on the
+  sender's side, 4 in from the corner; theirs-reaction chip = surface2 + 1.5 bg ring, mine =
+  accentSoft + 1.5 accent ring.
 - [x] **F2 MUST** Tap chip = toggle own reaction; long-press chip = detail sheet (was tap=sheet only).
-- [x] **F3 MUST** Ghost ＋ chip when ≥1 reaction exists → mini 32-emoji picker popover.
+- [x] ~~**F3 MUST** Ghost ＋ chip when ≥1 reaction exists~~ **Removed (chat calm C8,
+  2026-11-14):** long-press → message menu ＋ is the way to add a reaction.
 - [ ] **F4 SHOULD** Count-change pop: scale 1→1.12→1 (250ms spring); instant under reduced-motion.
   **Deferred:** reaction count pop animation is not implemented.
 - [x] **F5 MUST** Detail sheet: real avatars (was generic glyph), own row "Remove" in error color.
@@ -136,23 +149,30 @@ status is also recorded in `chat-work-log.md`.
 
 ## J. Media (S13)
 
-- [x] **J1 MUST** Image: 4:3/AR-preserving ≤210dp, overlay pill (time+tick) black@55%,
-  mine = accent 2px ring, tap → MediaViewerScreen (Hero).
-- [x] **J2 MUST** Video: cover thumb + 44px play circle + duration pill + overlay pill;
-  tap → MediaViewerScreen; never inline playback.
-- [x] **J3 MUST** Voice: 30px play circle, 3px progress bar, speed pill cycle 1×/1.5×/2×,
-  remaining/total times, timer glyph expiry in header row.
-- [x] **J4 MUST** Document: 38px type tile, name ≤2 lines, size+type, download arrow ↔ spinner.
-- [x] **J5 MUST** Link preview: first-URL card (72px thumb + title + domain); URL in body =
-  info-blue underlined; no-thumb fallback = surface2 + domain.
-- [x] **J6 MUST** Optimistic placeholder is PER-TYPE (img/video skeleton block, voice row w/ spinner,
-  doc tile+name+spinner) — the generic 140px box is gone.
+- [x] **J1 MUST** (chat calm A2/A3/E1) Image: width `clamp(W×0.66, 240, 340)`, height
+  `width ÷ aspect` clamped 0.56–1.25 × width, cover, edge to edge, B1 radius, no border, no
+  time pill, **no download disc** (D-4 A; the label still says "not downloaded"); tap →
+  MediaViewerScreen (Hero), which downloads.
+- [x] **J2 MUST** (E2) Video: same box; 44px play circle; bottom-left pill "0:42", plus
+  " · 8.1 MB" only on a known "not on disk"; tap → MediaViewerScreen; never inline playback.
+- [x] **J3 MUST** (E3) Voice: width A2, padding 10; 40 solid-accent play disc (onAccent
+  icon) · 36 bars (played ink, rest ink@30%; tap/drag seeks once loaded) · duration 13/18
+  inkSoft; speed chip only while playing. Bars are generated from the message id (D-3 B)
+  until real levels ship.
+- [x] **J4 MUST** (E4) Document: width A2, padding 10; 40 tile (ink@8%, radius 10, ink
+  icon) · name 15/22 600 one line, middle-ellipsis · "PDF · 2.4 MB" 13/18 inkSoft. No marigold.
+- [x] **J5 MUST** (E6) Link preview: one surface2 tile, width A2, link glyph + title 15/22
+  600 (2 lines) + host 13/18 inkSoft; no second border.
+- [x] **J6 MUST** Optimistic placeholder is PER-TYPE (chat calm F): photo/video = flat
+  surface2 box in the final size with a 28 dp glyph; voice = static bars @30% + spinner disc;
+  doc = tile + "Uploading document…". Ink on the tint, never onAccent (E7).
 - [x] **J7 MUST** Unified `ExpiryBadge` (timer + "23h"/"1d") top-right on ALL media; one
   `ExpiredMediaPlaceholder` pattern for expired content (dim + glyph + "Media expired").
 - [ ] **J8 MUST** Download progress: determinate "Downloading N%" overlay (was spinner-only).
   **Re-scoped backlog:** current media pipeline exposes loading/final states but no determinate
   download percentage. This is a media-pipeline capability gap, not a chat redesign miss.
-- [x] **J9 MUST** Side margins unified: 12 near / 64 far — video 12/12 inconsistency fixed.
+- [x] **J9 MUST** Side margins unified (chat calm A7): 12 on the bubble's own side; the
+  far side is whatever A1/A2 leave.
 
 ## K. Composer (S14)
 

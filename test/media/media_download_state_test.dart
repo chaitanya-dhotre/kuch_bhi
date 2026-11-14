@@ -26,7 +26,9 @@ void main() {
         mediaFileProvider.overrideWith((ref, r) => LocalMediaFile(
             file: File('/nonexistent/thumb_${r.serverId}.jpg'),
             width: 4,
-            height: 3)),
+            height: 3,
+            fileSize: 8493466,
+            durationSeconds: 42)),
         mediaFullLocalProvider.overrideWith((ref, r) => local),
       ],
       child: MaterialApp(
@@ -46,10 +48,12 @@ void main() {
   Finder resized() => find.byWidgetPredicate(
       (w) => w is Image && w.image is ResizeImage);
 
-  testWidgets('photo not downloaded: download disc and label', (tester) async {
+  // Chat calm gate 9 (E1, D-4 A): no disc on a photo; the label still says
+  // it is not downloaded, and a tap opens the viewer, which downloads.
+  testWidgets('photo not downloaded: no disc, the label says so', (tester) async {
     final semantics = tester.ensureSemantics();
     await pump(tester, photo, local: Stream.value(null));
-    expect(find.byIcon(Icons.download_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.download_rounded), findsNothing);
     expect(resized(), findsNothing);
     expect(
         tester.getSemantics(find.bySemanticsLabel(
@@ -74,12 +78,14 @@ void main() {
     expect(find.byIcon(Icons.download_rounded), findsNothing);
   });
 
-  testWidgets('video not downloaded: disc shows download, not play',
+  // Gate 9 (E2): the size joins the duration only on a known "not on disk".
+  testWidgets('video not downloaded: play disc, pill with duration and size',
       (tester) async {
     final semantics = tester.ensureSemantics();
     await pump(tester, video, local: Stream.value(null));
-    expect(find.byIcon(Icons.download_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.play_arrow), findsNothing);
+    expect(find.byIcon(Icons.download_rounded), findsNothing);
+    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    expect(find.text('0:42 · 8.1 MB'), findsOneWidget);
     expect(
         tester.getSemantics(find.bySemanticsLabel(
             RegExp('^Open video, not downloaded'))),
@@ -87,10 +93,20 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('video downloaded: disc shows play', (tester) async {
+  testWidgets('video downloaded: disc shows play, pill has no size',
+      (tester) async {
     await pump(tester, video, local: Stream.value(fullFile));
     expect(find.byIcon(Icons.play_arrow), findsOneWidget);
     expect(find.byIcon(Icons.download_rounded), findsNothing);
+    expect(find.text('0:42'), findsOneWidget);
+  });
+
+  testWidgets('video with an unknown row shows no size', (tester) async {
+    final never = StreamController<File?>();
+    addTearDown(never.close);
+    await pump(tester, video, local: never.stream);
+    expect(find.text('0:42'), findsOneWidget);
+    expect(find.textContaining('MB'), findsNothing);
   });
 
   group('mediaFullLocalProvider', () {

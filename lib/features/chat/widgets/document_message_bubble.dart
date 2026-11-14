@@ -15,12 +15,14 @@ import 'expiry_badge.dart';
 import 'media_retry.dart';
 import 'media_upload_disc.dart';
 
+/// E4: "PDF · 2.4 MB": the extension, else the mime subtype, else "File".
 String _formatType(String fileName, String? mimeType) {
-  final mime = mimeType?.trim();
-  if (mime != null && mime.isNotEmpty) return mime;
   final dot = fileName.lastIndexOf('.');
-  if (dot < 0 || dot == fileName.length - 1) return 'File';
-  return '${fileName.substring(dot + 1).toUpperCase()} file';
+  if (dot >= 0 && dot < fileName.length - 1) {
+    return fileName.substring(dot + 1).toUpperCase();
+  }
+  final sub = mimeType?.split('/').last.trim();
+  return sub == null || sub.isEmpty ? 'File' : sub.toUpperCase();
 }
 
 IconData _docIcon(String fileName) {
@@ -45,7 +47,7 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
     required this.serverId,
     required this.isMine,
     required this.isDark,
-    this.runEnd = true,
+    this.runStart = true,
     this.status,
     this.createdAt,
     this.localId,
@@ -55,7 +57,7 @@ class DocumentMessageBubble extends ConsumerStatefulWidget {
   final String serverId;
   final bool isMine;
   final bool isDark;
-  final bool runEnd;
+  final bool runStart;
   final String? status;
   final DateTime? createdAt;
   final String? localId;
@@ -92,23 +94,17 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
         : ref.watch(
             mediaFileProvider(MediaRef(widget.conversationId, widget.serverId)),
           );
+    final t = context.t;
     return ChatBubbleFrame(
       isMine: widget.isMine,
-      runEnd: widget.runEnd,
-      fillWidth: true,
-      padding: const EdgeInsets.only(bottom: 8),
-      showTimestamp: true,
-      timestampOverlay: false,
-      timestampPadding: const EdgeInsets.symmetric(horizontal: 12),
-      createdAt: widget.createdAt,
-      status: widget.status,
+      runStart: widget.runStart,
+      width: ChatBubbleGeometry.attachmentWidthOf(context),
+      padding: ChatBubbleGeometry.attachmentPadding,
       child: mediaAsync.when(
-        loading: () => _shimmer(),
+        loading: () => _loadingRow(),
         error: (_, __) => _retryTile(),
         data: (media) {
-          if (gone) {
-            return _expired();
-          }
+          if (gone) return _expired();
           if (media == null) return _retryTile();
           final fileName = media.fileName ?? 'file';
           final size = formatFileSize(
@@ -118,9 +114,7 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
           final type = _formatType(fileName, media.mimeType);
           final expiresAt = media.expiresAt;
 
-          if (isExpired(expiresAt)) {
-            return _expired();
-          }
+          if (isExpired(expiresAt)) return _expired();
 
           final expiryLabel = compactExpiryLabel(expiresAt);
           return Stack(
@@ -130,98 +124,53 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
                 button: true,
                 label: 'Open document $fileName',
                 child: InkWell(
-                  borderRadius: ChatBubbleGeometry.radius(
-                    isMine: widget.isMine,
-                    runEnd: widget.runEnd,
-                  ),
+                  borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
                   onTap: () => _open(media),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
+                  child: Row(
                     children: [
-                      // ── File info row ─────────────────────────────────
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-                        child: Row(
+                      _DocTile(
+                        child: widget.localId != null
+                            ? MediaUploadControl(
+                                localId: widget.localId!,
+                                status: widget.status,
+                                kind: 'Document',
+                                size: ChatBubbleGeometry.leadingSize,
+                              )
+                            : _isDownloading
+                            ? BusySpinner(
+                                size: 20,
+                                strokeWidth: 2,
+                                color: t.ink,
+                              )
+                            : Icon(_docIcon(fileName), color: t.ink, size: 22),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: widget.isMine
-                                    ? context.t.onAccent.withValues(alpha: 0.16)
-                                    : context.t.accent.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                _docIcon(fileName),
-                                color: widget.isMine
-                                    ? context.t.onAccent
-                                    : context.t.accent,
-                                size: 22,
+                            Text(
+                              middleEllipsis(fileName, 26),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15,
+                                height: 22 / 15,
+                                fontWeight: FontWeight.w600,
+                                color: t.ink,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    fileName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      color: widget.isMine
-                                          ? context.t.onAccent
-                                          : context.t.ink,
-                                    ),
-                                  ),
-                                  if (size.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                  ],
-                                  Text(
-                                    [
-                                      if (size.isNotEmpty) size,
-                                      type,
-                                    ].join(' · '),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: widget.isMine
-                                          ? context.t.onAccent.withValues(
-                                              alpha: 0.70,
-                                            )
-                                          : context.t.ink.withValues(
-                                              alpha: 0.55,
-                                            ),
-                                    ),
-                                  ),
-                                ],
+                            Text(
+                              [type, if (size.isNotEmpty) size].join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 18 / 13,
+                                color: t.inkSoft,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            widget.localId != null
-                                ? MediaUploadControl(
-                                    localId: widget.localId!,
-                                    status: widget.status,
-                                    kind: 'Document',
-                                    size: 30,
-                                    onAccent: widget.isMine,
-                                  )
-                                : _isDownloading
-                                ? BusySpinner(size: 20, strokeWidth: 2)
-                                : Icon(
-                                    Icons.download_outlined,
-                                    size: 20,
-                                    color: widget.isMine
-                                        ? context.t.onAccent.withValues(
-                                            alpha: 0.70,
-                                          )
-                                        : context.t.accent,
-                                  ),
                           ],
                         ),
                       ),
@@ -237,25 +186,60 @@ class _DocumentMessageBubbleState extends ConsumerState<DocumentMessageBubble> {
     );
   }
 
-  Widget _shimmer() => const SizedBox(
-    height: 68,
-    width: double.infinity,
-    child: Skeleton.fill(radius: 0),
+  Widget _loadingRow() => Row(
+    children: [
+      const _DocTile(child: SizedBox.shrink()),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Skeleton(height: 14, width: 140),
+            SizedBox(height: 6),
+            Skeleton(height: 12, width: 80),
+          ],
+        ),
+      ),
+    ],
   );
 
   Widget _expired() => ExpiredPlaceholder(
     glyph: Icons.timer_off_outlined,
     decorate: false,
     inline: true,
-    ink: widget.isMine ? context.t.onAccent.withValues(alpha: 0.70) : null,
   );
 
   Widget _retryTile() => MediaRetry(
     media: MediaRef(widget.conversationId, widget.serverId),
     what: kMediaRowDocumentLabel,
     icon: Icons.insert_drive_file_outlined,
-    ink: widget.isMine
-        ? context.t.onAccent.withValues(alpha: 0.70)
-        : context.t.inkSoft,
+    ink: context.t.inkSoft,
   );
+}
+
+/// E4: the 40 dp icon tile, ink at 8 %, radius 10.
+class _DocTile extends StatelessWidget {
+  const _DocTile({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: ChatBubbleGeometry.leadingSize,
+    height: ChatBubbleGeometry.leadingSize,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: context.t.ink.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+    ),
+    child: child,
+  );
+}
+
+/// E4: "a_very_long_na…me.pdf" keeps the extension in view.
+String middleEllipsis(String s, int max) {
+  if (s.length <= max || max < 5) return s;
+  final tail = (max - 1) ~/ 2;
+  final head = max - 1 - tail;
+  return '${s.substring(0, head)}…${s.substring(s.length - tail)}';
 }

@@ -1145,9 +1145,10 @@ class _GroupConversationPreview extends ConsumerWidget {
               '$prefix:',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              // Chat calm D3: grey, not marigold.
               style: style.copyWith(
-                color: context.t.accent,
-                fontWeight: FontWeight.w700,
+                color: context.t.inkSoft,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

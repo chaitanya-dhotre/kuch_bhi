@@ -31,12 +31,19 @@ and reactions); `DENSITY` medium (airy cards, chat list scannable).
 | inkFaint | `#9C9284` | `#9C9284` | placeholder/meta |
 | line | `#E4DDD1` | `#3B362F` | borders/dividers |
 | accent | `#EFA00B` | `#EFA00B` (same) | Marigold — the ONLY chrome accent |
-| accentPressed | `#D98F08` | `#D98F08` | pressed accent |
+| accentPressed | `#CC8808` (primary/600) | same | pressed accent (was `#D98F08`, chat calm D1) |
 | accentSoft | `#FFF3DC` | `#3A2E14` | accent-tinted surfaces/banners |
 | onAccent | `#2A2520` | `#21260F` | text on accent |
+| bubbleMine | `#FFE9CF` (primary/100) | `#492F06` (primary/900) | own chat bubble; text on it is `ink` (chat calm D2) |
+| accentText | `#744C01` (primary/800) | `#FEBF67` (primary/300) | marigold TEXT and icons on bg/surface (chat calm D2) |
 | success | `#0E9F6E` | same | positive status |
 | error | `#E5484D` | same | errors/destructive |
 | info | `#4A6FA5` | same | informational |
+
+Primary shade card (chat calm D1, seed = 500; the primitive layer under the
+roles above, `WarmPopTokens.primary50…900`, never read by screens):
+50 `#FEF5EA` · 100 `#FFE9CF` · 200 `#FFD59E` · 300 `#FEBF67` · 400 `#F9AC33` ·
+**500 `#EFA00B`** · 600 `#CC8808` · 700 `#A56D01` · 800 `#744C01` · 900 `#492F06`.
 
 Mascot palette (constant both themes): body `#C6894F`, shade `#B27A42`,
 snout `#8B5E3E`, nostril `#5C3B28`, face `#3A2E22`, key-gold `#E8A21D`.
@@ -49,7 +56,13 @@ snout `#8B5E3E`, nostril `#5C3B28`, face `#3A2E22`, key-gold `#E8A21D`.
 - C3: Screens/components NEVER hardcode color — `context.t.*` tokens only
   (grep gate). Web/spec mockups use the CSS custom properties above.
 - C4: Contrast pairs are part of the token contract: `onAccent` on `accent`,
-  `ink` on `bg`/`surface`, both themes. Body ≥4.5:1, large text ≥3:1.
+  `ink` on `bg`/`surface`/`bubbleMine`, `inkSoft` on `bg`, `accentText` on
+  `bg`/`surface`, both themes. Body ≥4.5:1, large text ≥3:1 (gate:
+  `test/chat/chat_calm_test.dart` gate 7).
+- C5 (chat calm D2): **solid** accent only on primary actions — send/mic,
+  new-chat, primary button, unread badge, voice play disc, playback progress,
+  focus ring. Bubble fills, borders on own media, Home row times and sender
+  prefixes are never marigold. Marigold text uses `accentText`.
 
 ## 3. Type scale
 
@@ -73,8 +86,12 @@ sizes need a foundation amendment.
 
 - Space (4-base): 4, 8, 12, 16, 20, 24, 32, 40, 48.
 - Radius: sm 10, md 16, lg 20, xl 24, pill 999.
-  Chat bubble 18 with **6px tail corner** (board-approved): them =
-  bottom-left 6, me = bottom-right 6.
+  Chat bubble 18 (chat calm B1): on the sender's side the bottom corner is
+  always 6 and the top corner is 6 unless the bubble starts a run; the far
+  side is always 18. Inner radii 10 or pill (C7).
+- Chat sizing (chat calm A): text max `min(W×0.78, 420)`; attachments
+  `clamp(W×0.66, 240, 340)`; photo/video height `width ÷ aspect` clamped to
+  0.56–1.25 × width; gaps 2 inside a run, 12 before a new run.
 - Elevation: warm-tinted soft shadow `rgba(52,42,28,.10)` light /
   `rgba(0,0,0,.35)` dark; **max 2 shadow layers**; no blur/backdrop filters
   (frame budget, W3).
@@ -98,7 +115,7 @@ page but timed from these tokens.
 
 | State | Language | Rule |
 |---|---|---|
-| loading | shape-matching **skeleton** (`Skeleton`, shimmer ≤1.4s) | skeleton mirrors final layout; never a lone circular spinner for content that has a shape |
+| loading | shape-matching **skeleton** (`Skeleton` in a `SkeletonGroup`, R11) | skeleton mirrors final layout; one breath (opacity 1.0↔0.55, 1600 ms, back and forth) per group; appears after 300 ms; content fades in over 150 ms; no moving highlight; never a lone circular spinner for content that has a shape |
 | empty | `EmptyState(mascot:, title:, action:)` | mascot + title + subtitle + one primary action; mascot never inside bubbles/behind text |
 | error | `StatusBanner` / inline error + retry | contextual, not toast-only for loadable content |
 | terminal decrypt | lock icon + "Can't decrypt" | NEVER skeleton bars for `key_missing`/`failed` (loading-UX law, a70f020) |

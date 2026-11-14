@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../infrastructure/services/link_preview_service.dart';
+import 'expiry_badge.dart';
 
 /// Shows a URL preview card below message text.
 class LinkPreviewCard extends ConsumerWidget {
@@ -35,25 +36,19 @@ class LinkPreviewCard extends ConsumerWidget {
           uri ?? Uri.parse(url),
           mode: LaunchMode.externalApplication,
         ),
+        // E6: one surface2 tile, width A2, no second border.
         child: Container(
+          key: const ValueKey('link-preview-card'),
           margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.all(8),
+          width: ChatBubbleGeometry.attachmentWidthOf(context),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: context.t.surface,
-            border: Border.all(color: context.t.line),
+            color: context.t.surface2,
             borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
           ),
           child: Row(
             children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: context.t.surface2,
-                  borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
-                ),
-                child: Icon(Icons.link, color: context.t.inkFaint, size: 24),
-              ),
+              Icon(Icons.link, color: context.t.inkSoft, size: 24),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -66,19 +61,19 @@ class LinkPreviewCard extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: context.t.ink,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        height: 22 / 15,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 4),
                     Text(
                       domain,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: context.t.info,
-                        fontSize: 10.5,
-                        decoration: TextDecoration.underline,
+                        color: context.t.inkSoft,
+                        fontSize: 13,
+                        height: 18 / 13,
                       ),
                     ),
                   ],

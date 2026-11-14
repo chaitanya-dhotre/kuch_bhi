@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import 'expiry_badge.dart' show ChatBubbleGeometry;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_strings.dart';
@@ -55,8 +57,10 @@ class MessageBodyText extends ConsumerStatefulWidget {
   TextStyle _slotStyle(BuildContext context) {
     final t = context.t;
     return switch (styleContext) {
-      'bubble.mine' => TextStyle(color: t.onAccent, fontSize: 15),
-      'bubble' => TextStyle(color: t.ink, fontSize: 15),
+      // Chat calm D2: ink on the own tint too (never onAccent). 15/20 keeps
+      // a one-line bubble 38 dp tall with the 9 dp padding (B2).
+      'bubble.mine' ||
+      'bubble' => TextStyle(color: t.ink, fontSize: 15, height: 20 / 15),
       'emoji' => const TextStyle(fontSize: 40),
       'system' => TextStyle(
         fontSize: 12,
@@ -450,6 +454,22 @@ class _BodyPlaceholderState extends State<_BodyPlaceholder> {
       );
     }
 
+    // Chat calm F: in a bubble the bubble itself is the placeholder (it
+    // breathes); the body only holds the size the text will take, so
+    // nothing jumps when it lands.
+    if (widget.skeletonShell) {
+      return KeyedSubtree(
+        key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
+        child: SizedBox.fromSize(
+          size: estimateBubbleTextSize(
+            context,
+            widget.style,
+            widget.ciphertextLength,
+          ),
+        ),
+      );
+    }
+
     // Keep the 150ms grace, but paint bars during it so a text bubble is
     // never an empty painted chrome. The grace only raises bar contrast.
     final barAlpha = _showSkeleton ? 0.18 : 0.10;
@@ -474,25 +494,36 @@ class _BodyPlaceholderState extends State<_BodyPlaceholder> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: bars,
     );
-    if (!widget.skeletonShell) {
-      return KeyedSubtree(
-        key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
-        child: skeletonBody,
-      );
-    }
-
-    return Container(
+    return KeyedSubtree(
       key: ValueKey('body-skeleton-${widget.ciphertextLength}'),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: widget.styleContext == 'bubble.mine'
-            ? t.accent.withValues(alpha: 0.18)
-            : t.surface2,
-        borderRadius: BorderRadius.circular(WarmPopTokens.radiusBubble),
-      ),
       child: skeletonBody,
     );
   }
+}
+
+/// The size a text body of [ciphertextLength] will take in a bubble: the
+/// ciphertext is base64 of the UTF-8 text + a 16-byte tag, so the text is
+/// about `len × 3/4 − 16` characters; laid out in [style] at the bubble's
+/// text width (A1 less 12 + 12 padding). Typical English letter widths.
+Size estimateBubbleTextSize(
+  BuildContext context,
+  TextStyle style,
+  int ciphertextLength,
+) {
+  final chars = ciphertextLength <= 0
+      ? 12
+      : ((ciphertextLength * 3) ~/ 4 - 16).clamp(1, 2000);
+  const sample = 'the quick brown fox jumps over a lazy dog ';
+  final text = (sample * (chars ~/ sample.length + 1)).substring(0, chars);
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: 12,
+  )..layout(maxWidth: ChatBubbleGeometry.maxWidth(context) - 24);
+  final size = painter.size;
+  painter.dispose();
+  return size;
 }
 
 _PlaceholderMetrics _placeholderMetricsFor(

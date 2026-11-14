@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../voice_body.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -595,7 +596,10 @@ class _MessageInputState extends ConsumerState<MessageInput>
             mediaType: 'voice',
             mediaFile: file,
             durationSeconds: _durationSeconds,
-            durationText: _previewDuration,
+            // D-3 A: the 36 levels ride in the encrypted body.
+            durationText: _previewDuration == null
+                ? null
+                : voiceBodyWithLevels(_previewDuration!, _levels),
           );
       if (_isDraft)
         await deleteVoiceDraft(widget.conversationId, _voiceDraftDir);

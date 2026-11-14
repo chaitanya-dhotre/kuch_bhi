@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../voice_body.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/decrypt/body_cache.dart';
@@ -83,7 +84,9 @@ class ReplyQuote extends ConsumerWidget {
     final String? preview = switch (msg.type) {
       'image' => kMediaRowPhotoLabel,
       'video' => kMediaRowVideoLabel,
-      'voice' => body?.startsWith('🎤') == true ? body : kPreviewVoiceLabel,
+      'voice' => body?.startsWith('🎤') == true
+          ? voiceBodyText(body)
+          : kPreviewVoiceLabel,
       'document' => body?.isNotEmpty == true ? body : kMediaRowDocumentLabel,
       'sticker' => 'Sticker',
       _ =>
@@ -181,7 +184,8 @@ class ReplyQuote extends ConsumerWidget {
     final bg = context.t.surface2;
 
     // ── Text colours ────────────────────────────────────────────
-    final nameColor = context.t.accent;
+    // Chat calm D2: marigold text is accentText (readable in both themes).
+    final nameColor = context.t.accentText;
     final previewColor = context.t.ink.withValues(alpha: 0.80);
     final iconColor = context.t.inkSoft;
 
@@ -213,7 +217,7 @@ class ReplyQuote extends ConsumerWidget {
           final origBody = original == null
               ? null
               : bodyCache.get(original.localId);
-          final dur = _stripEmoji(origBody ?? '');
+          final dur = _stripEmoji(voiceBodyText(origBody));
           previewLine = _line(
             dur.isNotEmpty && dur != kMediaRowVoiceLabel
                 ? voiceMessageRowCopy(dur)

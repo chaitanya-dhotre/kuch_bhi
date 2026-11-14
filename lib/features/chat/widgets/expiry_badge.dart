@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -38,63 +40,81 @@ String? viewerExpiryLabel(DateTime? expiresAt, {DateTime? now}) {
   return 'Expires in $days ${days == 1 ? 'day' : 'days'}';
 }
 
-/// Shared geometry for every non-system chat message surface.
-///
-/// Keeping the frame here prevents each media type from inventing its own
-/// margins, width cap, radius, shadow, and metadata rhythm.
+/// Shared geometry for every non-system chat message surface (chat calm
+/// §A–§C). `W` is the screen width in dp.
 class ChatBubbleGeometry {
   ChatBubbleGeometry._();
 
-  static const double maxWidthFactor = 0.84;
+  /// A7: the bubble's own side; the far side is what A1/A2 leave.
   static const double nearMargin = 12;
-  static const double farMargin = 64;
-  static const double verticalMargin = 2;
-  static const double mediaMaxWidth = 210;
-  static const double timestampFontSize = 10.5;
-  static const double metadataGap = 2;
+
+  /// C1 / C2: between bubbles of one run, and before a new run.
+  static const double runGap = 2;
+  static const double newRunGap = 12;
+
+  /// B2: the time line sits this far under a run's last bubble.
+  static const double metaGap = 4;
+
+  /// B5: the time line's type, 11/14.
+  static const double timestampFontSize = 11;
+  static const double timestampLineHeight = 14 / 11;
+
+  /// C4: text bubbles. C5: voice and document bubbles.
   static const EdgeInsets contentPadding = EdgeInsets.symmetric(
     horizontal: 12,
-    vertical: 8,
+    vertical: 9,
   );
+  static const EdgeInsets attachmentPadding = EdgeInsets.all(10);
+
+  /// C6: the leading disc or tile in voice and document bubbles.
+  static const double leadingSize = 40;
+
+  /// C9: the group sender disc, and the slot it takes beside the bubble.
+  static const double senderDisc = 28;
+  static const double senderSlot = nearMargin + senderDisc;
+
+  /// A1: text bubble max width.
+  static double textMaxWidth(double w) => math.min(w * 0.78, 420);
+
+  /// A2: photo, video, album, voice, document, link card.
+  static double attachmentWidth(double w) =>
+      (w * 0.66).clamp(240.0, 340.0).toDouble();
+
+  /// A3: photo and video height for [aspect] = width / height.
+  static double mediaHeight(double width, double aspect) =>
+      (width / (aspect > 0 ? aspect : 4 / 3))
+          .clamp(0.56 * width, 1.25 * width)
+          .toDouble();
+
+  /// A5: album tile height.
+  static double albumTileHeight(double width) => 0.72 * width;
 
   static double maxWidth(BuildContext context) =>
-      MediaQuery.sizeOf(context).width * maxWidthFactor;
+      textMaxWidth(MediaQuery.sizeOf(context).width);
+
+  static double attachmentWidthOf(BuildContext context) =>
+      attachmentWidth(MediaQuery.sizeOf(context).width);
 
   static EdgeInsets margin({required bool isMine}) => EdgeInsets.only(
-    left: isMine ? farMargin : nearMargin,
-    right: isMine ? nearMargin : farMargin,
-    top: verticalMargin,
-    bottom: verticalMargin,
+    left: isMine ? 0 : nearMargin,
+    right: isMine ? nearMargin : 0,
   );
 
-  static BorderRadius radius({required bool isMine, required bool runEnd}) {
-    final tail = const Radius.circular(WarmPopTokens.radiusBubbleTail);
-    final full = const Radius.circular(WarmPopTokens.radiusBubble);
+  /// B1: radius 18; on the sender's side the bottom corner is always 6 and
+  /// the top is 6 unless the bubble starts a run. Far side always 18.
+  static BorderRadius radius({required bool isMine, required bool runStart}) {
+    const tail = Radius.circular(WarmPopTokens.radiusBubbleTail);
+    const full = Radius.circular(WarmPopTokens.radiusBubble);
+    final top = runStart ? full : tail;
     return BorderRadius.only(
-      topLeft: full,
-      topRight: full,
-      bottomLeft: !isMine && runEnd ? tail : full,
-      bottomRight: isMine && runEnd ? tail : full,
+      topLeft: isMine ? full : top,
+      topRight: isMine ? top : full,
+      bottomLeft: isMine ? full : tail,
+      bottomRight: isMine ? tail : full,
     );
-  }
-
-  static List<BoxShadow> shadow(
-    BuildContext context, {
-    required bool isMine,
-    bool enabled = true,
-  }) {
-    if (!enabled || !isMine) return const [];
-    return [
-      BoxShadow(
-        color: context.t.shadow,
-        blurRadius: 4,
-        offset: const Offset(0, 1),
-      ),
-    ];
   }
 }
 
-/// The single outer frame used by text, emoji, media, voice, and documents.
 /// K2 (mascot spec §K2): while on, every bubble shows its time and ticks,
 /// not only a run's last one. Only shows (V2): nothing is sent or saved.
 class ChatInfoMode extends InheritedWidget {
@@ -109,116 +129,68 @@ class ChatInfoMode extends InheritedWidget {
   bool updateShouldNotify(ChatInfoMode old) => on != old.on;
 }
 
+/// The single outer frame used by text, media, voice, and documents. It
+/// holds only content: the time lives on the line under the run (B2).
 class ChatBubbleFrame extends StatelessWidget {
   const ChatBubbleFrame({
     super.key,
     required this.isMine,
-    required this.runEnd,
+    this.runStart = true,
     required this.child,
     this.chrome = true,
     this.padding = ChatBubbleGeometry.contentPadding,
-    this.fillWidth = false,
-    this.showShadow = true,
-    this.showTimestamp = false,
-    this.timestampOverlay = true,
-    this.timestampPadding = EdgeInsets.zero,
-    this.createdAt,
-    this.status,
+    this.width,
     this.background,
     this.border,
   });
 
   final bool isMine;
-  final bool runEnd;
+  final bool runStart;
   final Widget child;
   final bool chrome;
   final EdgeInsets? padding;
-  final bool fillWidth;
-  final bool showShadow;
-  final bool showTimestamp;
-  final bool timestampOverlay;
-  final EdgeInsets timestampPadding;
-  final DateTime? createdAt;
-  final String? status;
+
+  /// A fixed width (A2 attachments); null = shrink-wrap up to A1.
+  final double? width;
   final Color? background;
+
+  /// Null = the default: a 1 dp line on their bubble in light mode (D-5).
   final Border? border;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final bubbleRadius = ChatBubbleGeometry.radius(
       isMine: isMine,
-      runEnd: runEnd,
+      runStart: runStart,
     );
     Widget content = child;
-    final hasTimestamp =
-        showTimestamp &&
-        (runEnd || ChatInfoMode.of(context)) &&
-        (createdAt != null || status != null);
-    if (hasTimestamp && !timestampOverlay) {
-      Widget timestamp = Align(
-        alignment: Alignment.centerRight,
-        child: ChatBubbleTimestamp(
-          isMine: isMine,
-          createdAt: createdAt,
-          status: status,
-        ),
-      );
-      if (timestampPadding != EdgeInsets.zero) {
-        timestamp = Padding(padding: timestampPadding, child: timestamp);
-      }
-      content = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          content,
-          const SizedBox(height: ChatBubbleGeometry.metadataGap),
-          timestamp,
-        ],
-      );
-    }
     if (padding != null) content = Padding(padding: padding!, child: content);
-    if (fillWidth) content = SizedBox(width: double.infinity, child: content);
-    if (hasTimestamp && timestampOverlay) {
-      content = Stack(
-        clipBehavior: Clip.none,
-        children: [
-          content,
-          Positioned(
-            right: 8,
-            bottom: 6,
-            child: ChatBubbleTimestamp(
-              isMine: isMine,
-              createdAt: createdAt,
-              status: status,
-              overlay: true,
-            ),
-          ),
-        ],
-      );
-    }
+    if (width != null) content = SizedBox(width: width, child: content);
     if (chrome) {
       content = ClipRRect(borderRadius: bubbleRadius, child: content);
     }
+    final light = Theme.of(context).brightness == Brightness.light;
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: ChatBubbleGeometry.margin(isMine: isMine),
         constraints: BoxConstraints(
-          maxWidth: ChatBubbleGeometry.maxWidth(context),
+          maxWidth: math.max(ChatBubbleGeometry.maxWidth(context), width ?? 0),
         ),
+        foregroundDecoration: chrome
+            ? BoxDecoration(
+                border:
+                    border ??
+                    (!isMine && light ? Border.all(color: t.line) : null),
+                borderRadius: bubbleRadius,
+              )
+            : null,
         decoration: chrome
             ? BoxDecoration(
-                color:
-                    background ??
-                    (isMine ? context.t.accent : context.t.surface),
-                border: border,
+                color: background ?? (isMine ? t.bubbleMine : t.surface),
                 borderRadius: bubbleRadius,
-                boxShadow: ChatBubbleGeometry.shadow(
-                  context,
-                  isMine: isMine,
-                  enabled: showShadow,
-                ),
               )
             : null,
         child: content,
@@ -227,50 +199,49 @@ class ChatBubbleFrame extends StatelessWidget {
   }
 }
 
-/// Canonical timestamp/tick row. Media can opt into the same row in an
-/// image/video overlay while text-like bubbles keep it on the bubble surface.
+/// B2/B4: the quiet line under a run's last bubble: time, ticks on own
+/// runs, a star when starred. 11/14 inkSoft; a failed send shows its ⚠ tick.
 class ChatBubbleTimestamp extends StatelessWidget {
   const ChatBubbleTimestamp({
     super.key,
     required this.isMine,
     this.createdAt,
     this.status,
-    this.overlay = false,
+    this.starred = false,
   });
 
   final bool isMine;
   final DateTime? createdAt;
   final String? status;
-  final bool overlay;
+  final bool starred;
 
   @override
   Widget build(BuildContext context) {
-    final color = overlay
-        ? Colors.white.withValues(alpha: 0.66)
-        : isMine
-        ? context.t.onAccent.withValues(alpha: 0.66)
-        : context.t.inkFaint.withValues(alpha: 0.66);
-    final row = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (createdAt != null)
-          Text(
-            DateFormat('HH:mm').format(createdAt!.toLocal()),
-            style: TextStyle(
-              fontSize: ChatBubbleGeometry.timestampFontSize,
-              color: color,
-            ),
-          ),
-        if (isMine && status != null) ...[
+    final t = context.t;
+    return ExcludeSemantics(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (starred) ...[
+            Icon(Icons.star_rounded, size: 12, color: t.inkSoft),
+            const SizedBox(width: 2),
+          ],
           if (createdAt != null)
-            const SizedBox(width: ChatBubbleGeometry.metadataGap),
-          DeliveryTick(status: status!, size: 12),
+            Text(
+              DateFormat('HH:mm').format(createdAt!.toLocal()),
+              style: TextStyle(
+                fontSize: ChatBubbleGeometry.timestampFontSize,
+                height: ChatBubbleGeometry.timestampLineHeight,
+                color: t.inkSoft,
+              ),
+            ),
+          if (isMine && status != null) ...[
+            if (createdAt != null) const SizedBox(width: 3),
+            DeliveryTick(status: status!, size: 13),
+          ],
         ],
-      ],
+      ),
     );
-
-    if (!overlay) return ExcludeSemantics(child: row);
-    return MediaOverlayPill(child: ExcludeSemantics(child: row));
   }
 }
 
@@ -391,7 +362,7 @@ class ExpiredPlaceholder extends StatelessWidget {
   /// A left-aligned row, for full-width voice and document bubbles.
   final bool inline;
 
-  /// Ink for the bubble it sits on (the own amber bubble needs onAccent).
+  /// Ink override; null = inkSoft (ink on the tint, chat calm E7).
   final Color? ink;
 
   @override
@@ -399,8 +370,8 @@ class ExpiredPlaceholder extends StatelessWidget {
     final t = context.t;
     final dimmedInk = ink ?? t.inkSoft.withValues(alpha: 0.5);
     if (inline) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      return SizedBox(
+        height: ChatBubbleGeometry.leadingSize,
         child: Row(
           children: [
             Icon(glyph, color: ink ?? t.inkSoft, size: 20),

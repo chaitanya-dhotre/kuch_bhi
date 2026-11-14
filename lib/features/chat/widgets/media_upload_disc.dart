@@ -54,8 +54,12 @@ class MediaUploadDisc extends StatelessWidget {
                 Positioned.fill(
                   child: MediaDisc(
                     icon: icon,
-                    background: size == 30 ? context.t.accent : null,
-                    foreground: size == 30 ? context.t.onAccent : null,
+                    // E7: the inline disc in voice and document rows is
+                    // ink on the bubble, never marigold.
+                    background: size <= 40
+                        ? context.t.ink.withValues(alpha: 0.08)
+                        : null,
+                    foreground: size <= 40 ? context.t.ink : null,
                     iconSize: size * .52,
                   ),
                 ),

@@ -84,7 +84,8 @@ void main() {
     },
   );
 
-  testWidgets('ghost add opens the full 32-emoji picker', (tester) async {
+  // Chat calm C8: the always-visible "+" chip is gone (long-press adds).
+  testWidgets('no ghost add chip next to the reactions', (tester) async {
     final repo = _ReactionRepository([
       const ReactionGroup(emoji: '👍', count: 1, isMine: false),
     ]);
@@ -93,23 +94,9 @@ void main() {
     await tester.pumpWidget(_host(repo, online: true));
     await tester.pump();
 
-    final add = find.byKey(const Key('reaction-add-m1'));
-    expect(add, findsOneWidget);
-    await tester.tap(add);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('reaction-picker')), findsOneWidget);
-    expect(find.byKey(const Key('reaction-picker-👍')), findsOneWidget);
-    await tester.drag(
-      find.byKey(const Key('reaction-picker')),
-      const Offset(0, -400),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('reaction-picker-🫠')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('reaction-picker-🫠')));
-    await tester.pumpAndSettle();
-    expect(repo.added, [('m1', '🫠')]);
+    expect(find.text('👍 1'), findsOneWidget);
+    expect(find.byKey(const Key('reaction-add-m1')), findsNothing);
+    expect(find.text('＋'), findsNothing);
   });
 
   testWidgets('reaction controls stay live offline (queued), no hint', (

@@ -6,9 +6,22 @@ import 'package:flutter/material.dart';
 class WarmPopTokens {
   WarmPopTokens._();
 
+  // Primary shade card (chat calm D1, seed = 500). The primitive layer
+  // under the role names below; screens read `context.t.*`, never these.
+  static const primary50 = Color(0xFFFEF5EA);
+  static const primary100 = Color(0xFFFFE9CF);
+  static const primary200 = Color(0xFFFFD59E);
+  static const primary300 = Color(0xFFFEBF67);
+  static const primary400 = Color(0xFFF9AC33);
+  static const primary500 = Color(0xFFEFA00B);
+  static const primary600 = Color(0xFFCC8808);
+  static const primary700 = Color(0xFFA56D01);
+  static const primary800 = Color(0xFF744C01);
+  static const primary900 = Color(0xFF492F06);
+
   // Brand
-  static const accent = Color(0xFFEFA00B);
-  static const accentPressed = Color(0xFFD98F08);
+  static const accent = primary500;
+  static const accentPressed = primary600;
   static const onAccentLight = Color(0xFF2A2520);
   static const onAccentDark = Color(0xFF21260F);
 
@@ -114,7 +127,16 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     required this.error,
     required this.info,
     required this.shadow,
+    required this.bubbleMine,
+    required this.accentText,
   });
+
+  /// D2: the own bubble's fill (a tint, never the solid accent). Text on it
+  /// is [ink].
+  final Color bubbleMine;
+
+  /// D2: marigold text and links on surfaces (800 light, 300 dark).
+  final Color accentText;
 
   final Color bg, surface, surface2, ink, inkSoft, inkFaint, line, accent,
       accentPressed, accentSoft, onAccent, success, error, info;
@@ -139,6 +161,8 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     error: WarmPopTokens.error,
     info: WarmPopTokens.info,
     shadow: WarmPopTokens.shadowLight,
+    bubbleMine: WarmPopTokens.primary100,
+    accentText: WarmPopTokens.primary800,
   );
 
   static const dark = ColorTokens(
@@ -157,6 +181,8 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     error: WarmPopTokens.error,
     info: WarmPopTokens.info,
     shadow: WarmPopTokens.shadowDark,
+    bubbleMine: WarmPopTokens.primary900,
+    accentText: WarmPopTokens.primary300,
   );
 
   @override
@@ -176,6 +202,8 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
     Color? error,
     Color? info,
     Color? shadow,
+    Color? bubbleMine,
+    Color? accentText,
   }) =>
       ColorTokens(
         bg: bg ?? this.bg,
@@ -193,6 +221,8 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
         error: error ?? this.error,
         info: info ?? this.info,
         shadow: shadow ?? this.shadow,
+        bubbleMine: bubbleMine ?? this.bubbleMine,
+        accentText: accentText ?? this.accentText,
       );
 
   @override
@@ -214,6 +244,8 @@ class ColorTokens extends ThemeExtension<ColorTokens> {
       error: Color.lerp(error, other.error, t)!,
       info: Color.lerp(info, other.info, t)!,
       shadow: Color.lerp(shadow, other.shadow, t)!,
+      bubbleMine: Color.lerp(bubbleMine, other.bubbleMine, t)!,
+      accentText: Color.lerp(accentText, other.accentText, t)!,
     );
   }
 }

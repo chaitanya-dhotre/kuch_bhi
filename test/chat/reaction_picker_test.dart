@@ -90,7 +90,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('the message menu ＋ opens the same picker as the bubble chip',
+  testWidgets('the message menu ＋ opens the picker (C8: no bubble chip)',
       (tester) async {
     final repo = _Repo();
     final message = Message(
@@ -135,10 +135,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(repo.added, [('srv1', '🎉')]);
     expect(find.byKey(const Key('message-context-menu')), findsNothing);
-
-    await tester.tap(find.byKey(const Key('reaction-add-srv1')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('reaction-picker')), findsOneWidget);
-    expect(find.text('Add a reaction'), findsOneWidget);
+    // Chat calm C8: long-press is the only way in; no "+" chip on the bubble.
+    expect(find.byKey(const Key('reaction-add-srv1')), findsNothing);
   });
 }

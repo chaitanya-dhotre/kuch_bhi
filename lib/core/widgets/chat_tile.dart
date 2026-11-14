@@ -104,7 +104,7 @@ class ChatTile extends StatelessWidget {
                             shape: BoxShape.circle,
                             border: Border.all(color: t.surface, width: 2),
                           ),
-                          child: Icon(Icons.group, size: 9, color: t.accent),
+                          child: Icon(Icons.group, size: 9, color: t.inkSoft),
                         ),
                       )
                     else if (isOnline == true)
@@ -149,7 +149,8 @@ class ChatTile extends StatelessWidget {
                           fontWeight: unread
                               ? FontWeight.w700
                               : FontWeight.w400,
-                          color: unread ? t.accent : t.inkFaint,
+                          // Chat calm D3: grey; marigold text only when unread.
+                          color: unread ? t.accentText : t.inkSoft,
                         ),
                       ),
                   ],

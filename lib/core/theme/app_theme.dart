@@ -27,6 +27,8 @@ ThemeData warmPopDark({bool amoled = false, String? fontFamily}) =>
       error: WarmPopTokens.error,
       info: WarmPopTokens.info,
       shadow: WarmPopTokens.shadowAmoled,
+      bubbleMine: WarmPopTokens.primary900,
+      accentText: WarmPopTokens.primary300,
     ) : ColorTokens.dark, Brightness.dark, fontFamily);
 
 ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {

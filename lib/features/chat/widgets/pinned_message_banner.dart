@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../voice_body.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/message.dart';
@@ -42,8 +43,9 @@ class _PinnedMessageBannerState extends ConsumerState<PinnedMessageBanner> {
       case 'video':
         return body.isNotEmpty ? '🎬 Video · $body' : kPreviewVideoLabel;
       case 'voice':
-        return body.isNotEmpty && body != kMediaRowVoiceLabel
-            ? '🎤 Voice message · $body'
+        final dur = voiceBodyText(body);
+        return dur.isNotEmpty && dur != kMediaRowVoiceLabel
+            ? '🎤 Voice message · $dur'
             : kPreviewVoiceLabel;
       case 'document':
         return body.isNotEmpty ? '📎 $body' : kPreviewDocumentLabel;

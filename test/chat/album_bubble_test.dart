@@ -99,25 +99,30 @@ void main() {
   });
 
   for (final n in [2, 20]) {
-    testWidgets('$n items: tiles 180 high, the next tile peeks', (tester) async {
+    // Chat calm A5: width A2 (340 at the 800 dp test view), tiles fill
+    // 0.72 × width less the 4 dp padding top and bottom.
+    testWidgets('$n items: A5 tiles, the next tile peeks', (tester) async {
       await _pump(
         tester,
         AlbumBubble(rows: [for (var i = 0; i < n; i++) _row(i)], isMine: false),
       );
       final list = tester.getRect(find.byType(ListView));
-      expect(list.width, ChatBubbleGeometry.mediaMaxWidth);
+      final width = ChatBubbleGeometry.attachmentWidth(800);
+      final tileHeight = ChatBubbleGeometry.albumTileHeight(width) - 8;
+      expect(list.width, width);
       final tiles = find.descendant(
         of: find.byType(ListView),
         matching: find.byType(ClipRRect),
       );
       final first = tester.getRect(tiles.first);
-      expect(first.height, AlbumBubble.tileHeight);
-      expect(first.width, 135, reason: '180 × 3/4');
+      expect(first.height, closeTo(tileHeight, 0.01));
+      expect(first.width, closeTo(tileHeight * 3 / 4, 0.01));
       final second = tester.getRect(tiles.at(1));
       expect(second.left, lessThan(list.right - 40 + 1),
           reason: 'at least 40dp of the next tile shows');
       expect(find.text('$n'), findsOneWidget, reason: 'count pill');
-      expect(find.byType(ChatBubbleTimestamp), findsOneWidget);
+      // B2: the time is on the line under the run, not in the album.
+      expect(find.byType(ChatBubbleTimestamp), findsNothing);
     });
   }
 
@@ -135,7 +140,7 @@ void main() {
       matching: find.byType(ClipRRect),
     );
     expect(tester.getRect(tiles.at(0)).width,
-        ChatBubbleGeometry.mediaMaxWidth - 40);
+        ChatBubbleGeometry.attachmentWidth(800) - 40);
     expect(tester.getRect(tiles.at(1)).width, 100);
   });
 
@@ -234,10 +239,21 @@ void main() {
       ],
     );
     expect(find.byType(MediaUploadDisc), findsOneWidget);
-    final ts = tester.widget<ChatBubbleTimestamp>(
-      find.byType(ChatBubbleTimestamp),
+    // B2: the run's time line reads the album's ticks from albumStatus.
+    expect(
+      albumStatus([
+        (mediaId: 'a', uploadLocalId: null, status: 'read'),
+        (mediaId: 'b', uploadLocalId: 'b', status: 'pending'),
+      ]),
+      'pending',
     );
-    expect(ts.status, 'pending');
+    expect(
+      albumStatus([
+        (mediaId: 'a', uploadLocalId: null, status: 'read'),
+        (mediaId: 'b', uploadLocalId: null, status: 'delivered'),
+      ]),
+      'delivered',
+    );
   });
 
   testWidgets('tile semantics: "Photo 1 of 3" / "Video 2 of 3" + its length',
