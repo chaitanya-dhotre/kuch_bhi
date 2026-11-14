@@ -258,13 +258,19 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   /// Looks up a locally-cached system message by exact body (used to guard
   /// against duplicate "X joined the group" bubbles). Plain loop — no
   /// package:collection dependency in this DAO.
+  /// [since]: only rows from then on — a re-joiner's first-stint
+  /// "X joined the group" must not suppress the new one (rejoin spec).
   Future<MessagesTableData?> findSystemMessage(
-      String conversationId, String senderId, String body) async {
+      String conversationId, String senderId, String body,
+      {DateTime? since}) async {
     final rows = await (select(messagesTable)
           ..where((t) =>
               t.conversationId.equals(conversationId) &
               t.senderId.equals(senderId) &
-              t.type.equals('system'))
+              t.type.equals('system') &
+              (since == null
+                  ? const Constant(true)
+                  : t.createdAt.isBiggerOrEqualValue(since)))
           ..limit(50))
         .get();
     for (final m in rows) {

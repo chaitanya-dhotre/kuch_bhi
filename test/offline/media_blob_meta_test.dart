@@ -72,7 +72,7 @@ MediaBlobStore _store(CharHarness h, Directory parent) {
     messages: h.db.messagesDao,
     pbClient: h.pbClient,
     encryption: h.encryption,
-    resolveKey: (_) async => fixtureGroupKey,
+    resolveKey: (_) async => [fixtureGroupKey],
     epoch: () => 0,
     cacheDir: () async => parent,
     httpClient: _server(),

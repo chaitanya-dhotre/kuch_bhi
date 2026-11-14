@@ -147,7 +147,8 @@ class MessageRepositoryImpl implements MessageRepository {
       messages: db.messagesDao,
       pbClient: pbClient,
       encryption: encryption,
-      resolveKey: (convId) async => _getConvKey(convId, await _myId()),
+      resolveKey: (convId) async =>
+          _getConvKeyCandidates(convId, await _myId()),
       // Spec §11 (fix I1): live session epoch — same counter the repo's
       // own write guards read (logout/account switch bumps it).
       epoch: () => _sessionEpoch,
@@ -3871,10 +3872,14 @@ class MessageRepositoryImpl implements MessageRepository {
         await encryption.getOrFetchGroupKey(convId, myId);
         final myName = await _userName(myId);
         final body = '$myName joined the group';
+        final me = (await db.conversationsDao.getAllMembersForConversation(
+          convId,
+        )).where((m) => m.userId == myId).firstOrNull;
         final already = await db.messagesDao.findSystemMessage(
           convId,
           myId,
           body,
+          since: me?.joinedAt,
         );
         if (already == null) {
           await _emitSystemMessage(convId, body, actorUserId: myId);
@@ -4263,11 +4268,11 @@ class MessageRepositoryImpl implements MessageRepository {
     final rec = await _pb
         .collection('conversation_members')
         .getFirstListItem('conversation_id="$conversationId"&&user_id="$myId"');
-    await _pb.collection('conversation_members').delete(rec.id);
 
-    // Emit after membership deletion but before key-cache cleanup/rotation.
-    // The old key is still available locally, and a failed membership delete
-    // can no longer produce a false "left" event.
+    // Emit BEFORE the delete: the messages create rule needs a current
+    // member, so a post after it was refused and no one saw "left". The row
+    // lookup above just succeeded, so a false "left" needs the delete alone
+    // to fail right after — rare, and it rethrows to the caller.
     try {
       final myName = await _userName(myId);
       await _emitSystemMessage(
@@ -4278,6 +4283,7 @@ class MessageRepositoryImpl implements MessageRepository {
     } catch (e) {
       debugPrint('[Group] leaveGroup system message emit failed: $e');
     }
+    await _pb.collection('conversation_members').delete(rec.id);
 
     // Retain older versioned keys for authorized historical messages, but
     // drop the active key locally before persisting the left state.

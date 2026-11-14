@@ -100,7 +100,7 @@ void main() {
       messages: h.db.messagesDao,
       pbClient: h.pbClient,
       encryption: h.encryption,
-      resolveKey: (_) async => fixtureGroupKey,
+      resolveKey: (_) async => [fixtureGroupKey],
       epoch: () => 0,
       cacheDir: () async => cacheDir,
       httpClient: offlineClient,

@@ -10,9 +10,32 @@ void main() {
   final before = DateTime(2026, 10, 1);
   final after = DateTime(2026, 10, 3, 9, 0);
 
-  test('pre-join rows are hidden', () {
-    expect(isGroupRowVisible(createdAt: before, memberJoinedAt: join,
-        decryptState: 'ready', type: 'text'), isFalse);
+  // Rejoin spec H1 (gate 1): before the current join, the keys decide.
+  test('pre-join rows that open are visible (re-joiner first stint)', () {
+    for (final (state, type) in [
+      ('ready', 'text'),
+      ('ready', 'system'),
+      ('ready', 'image'),
+      ('device_sealed', 'text'),
+    ]) {
+      expect(
+          isGroupRowVisible(createdAt: before, memberJoinedAt: join,
+              decryptState: state, type: type),
+          isTrue,
+          reason: '$state $type');
+    }
+  });
+
+  test('pre-join rows that do not open are hidden, media included', () {
+    for (final state in ['key_missing', 'pending', 'failed']) {
+      for (final type in ['text', 'system', 'image']) {
+        expect(
+            isGroupRowVisible(createdAt: before, memberJoinedAt: join,
+                decryptState: state, type: type),
+            isFalse,
+            reason: '$state $type');
+      }
+    }
   });
 
   test('post-join decryptable text is visible', () {

@@ -25,6 +25,7 @@ import 'package:kuch_bhi/core/constants/app_constants.dart';
 import 'package:kuch_bhi/data/local/database/app_database.dart';
 import 'package:kuch_bhi/data/local/database/tables/media_blob_table.dart';
 import 'package:kuch_bhi/infrastructure/media/media_blob_store.dart';
+import 'package:kuch_bhi/services/encryption_service.dart';
 
 import 'char_harness.dart';
 
@@ -131,21 +132,35 @@ MediaBlobStore _store(
   CharHarness h, {
   required http.Client client,
   required Future<Directory> Function() cacheDir,
-  Future<List<int>> Function(String convId)? resolveKey,
+  Future<List<List<int>>> Function(String convId)? resolveKey,
   int Function()? epoch,
+  EncryptionService? encryption,
 }) {
   final store = MediaBlobStore(
     dao: h.db.mediaBlobDao,
     messages: h.db.messagesDao,
     pbClient: h.pbClient,
-    encryption: h.encryption,
-    resolveKey: resolveKey ?? (_) async => fixtureGroupKey,
+    encryption: encryption ?? h.encryption,
+    resolveKey: resolveKey ?? (_) async => [fixtureGroupKey],
     epoch: epoch ?? (() => 0),
     cacheDir: cacheDir,
     httpClient: client,
   );
   addTearDown(store.dispose);
   return store;
+}
+
+/// Counts blob decrypt attempts (rejoin spec gate 4: newest key = 1 try).
+class _CountingEncryption extends EncryptionService {
+  _CountingEncryption(super.storage, super.pbClient);
+  int decrypts = 0;
+
+  @override
+  Future<List<int>?> decryptBytes(
+      List<int> bytes, String iv, List<int> keyBytes) {
+    decrypts++;
+    return super.decryptBytes(bytes, iv, keyBytes);
+  }
 }
 
 Future<Directory> _tempParent(String tag) async {
@@ -470,7 +485,7 @@ void main() {
       h,
       client: mock,
       cacheDir: () async => parent,
-      resolveKey: (_) async => fixtureGroupKey,
+      resolveKey: (_) async => [fixtureGroupKey],
     );
 
     expect(await store.requestBlob('dead1_f', 'test'), isNull);
@@ -534,7 +549,7 @@ void main() {
       h,
       client: mock,
       cacheDir: () async => parent,
-      resolveKey: (_) async => fixtureGroupKey,
+      resolveKey: (_) async => [fixtureGroupKey],
     );
 
     final result = await store.requestBlob('mag1_f', 'test');
@@ -631,5 +646,70 @@ void main() {
         reason: 'evict file delete dropped after the bump');
     expect((await h.db.mediaBlobDao.byId('ev1_f'))!.state, BlobState.ready,
         reason: 'evicted state write dropped after the bump');
+  });
+  // Rejoin spec H2 (gate 4): the download tries every candidate key,
+  // newest first, and fails with `decrypt` only when none opens.
+  test('H2: blob decrypts with an older candidate key, newest in one try',
+      () async {
+    final parent = await _tempParent('h2');
+    final newest = List<int>.generate(32, (i) => 100 + i);
+    final other = List<int>.generate(32, (i) => 200 + i);
+
+    final h0 = charHarness();
+    addTearDown(h0.close);
+    final clear = utf8.encode('h2-clear-fixture');
+    // serverId → the key its blob was encrypted with.
+    final encs = {
+      'old1': await h0.encryption.encryptBytes(clear, fixtureGroupKey),
+      'none1': await h0.encryption.encryptBytes(clear, other),
+      'new1': await h0.encryption.encryptBytes(clear, newest),
+    };
+
+    final mock = MockClient((req) async {
+      final id = encs.keys.firstWhere((k) => req.url.toString().contains(k),
+          orElse: () => '');
+      if (id.isEmpty) return http.Response('{}', 404);
+      if (req.url.path.contains('/api/collections/')) {
+        return _recordList(_mediaRecord(
+            id: 'mrec_$id',
+            messageId: id,
+            file: '$id.bin.enc',
+            fileIv: encs[id]!.iv));
+      }
+      if (req.url.path.contains('/api/files/')) {
+        return http.Response.bytes(base64Decode(encs[id]!.ciphertext), 200);
+      }
+      return http.Response('{}', 404);
+    });
+
+    final h = charHarness(clientFactory: () => mock);
+    addTearDown(h.close);
+    for (final id in encs.keys) {
+      await _seedMessage(h.db, serverId: id);
+      await _seedBlob(h.db, blobId: '${id}_f');
+    }
+    final enc = _CountingEncryption(h.storage, h.pbClient);
+    final store = _store(
+      h,
+      client: mock,
+      cacheDir: () async => parent,
+      resolveKey: (_) async => [newest, fixtureGroupKey],
+      encryption: enc,
+    );
+
+    expect(await store.requestBlob('old1_f', 'test'), isNotNull);
+    final old = await h.db.mediaBlobDao.byId('old1_f');
+    expect(old!.state, BlobState.ready);
+    expect(await File(old.localPath!).readAsBytes(), equals(clear));
+
+    expect(await store.requestBlob('none1_f', 'test'), isNull);
+    final none = await h.db.mediaBlobDao.byId('none1_f');
+    expect(none!.state, BlobState.failed);
+    expect(none.errorClass, 'decrypt');
+
+    enc.decrypts = 0;
+    expect(await store.requestBlob('new1_f', 'test'), isNotNull);
+    expect((await h.db.mediaBlobDao.byId('new1_f'))!.state, BlobState.ready);
+    expect(enc.decrypts, 1, reason: 'newest key opens on the first try');
   });
 }

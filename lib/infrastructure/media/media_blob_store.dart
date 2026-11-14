@@ -103,7 +103,7 @@ class MediaBlobStore {
     required this.messages,
     required this.pbClient,
     required this.encryption,
-    required Future<List<int>> Function(String conversationId) resolveKey,
+    required Future<List<List<int>>> Function(String conversationId) resolveKey,
     required int Function() epoch,
     Future<Directory> Function()? cacheDir,
     http.Client? httpClient,
@@ -128,7 +128,8 @@ class MediaBlobStore {
   final MessagesDao messages;
   final PocketBaseClient pbClient;
   final EncryptionService encryption;
-  final Future<List<int>> Function(String conversationId) _resolveKey;
+  /// Candidate keys, newest first (a DM returns its one key).
+  final Future<List<List<int>>> Function(String conversationId) _resolveKey;
 
   /// Session-epoch seam (spec §11): the repo's live `_sessionEpoch`
   /// counter; bumped on every auth identity change / logout. Tests inject
@@ -374,9 +375,13 @@ class MediaBlobStore {
             await _deleteQuietly(epochAtStart, part);
             return null;
           }
-          final convKey = await _resolveKey(msg.conversationId);
-          final dec =
-              await encryption.decryptBytes(resp.bodyBytes, iv, convKey);
+          // Rejoin spec H2: a blob sent under an older group key version
+          // opens with that version; a wrong key costs one failed GCM tag.
+          List<int>? dec;
+          for (final key in await _resolveKey(msg.conversationId)) {
+            dec = await encryption.decryptBytes(resp.bodyBytes, iv, key);
+            if (dec != null) break;
+          }
           if (dec == null) {
             // MOVED diagnostic (record.id → record.id, same message).
             debugPrint(
