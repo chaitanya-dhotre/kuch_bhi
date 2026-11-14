@@ -62,6 +62,7 @@ class _Sync extends FakeMessageRepository {
   @override
   Future<void> syncAllHistory({
     void Function(HistorySyncProgress)? onProgress,
+    ConnectivitySignal? net,
   }) async {
     syncs++;
   }

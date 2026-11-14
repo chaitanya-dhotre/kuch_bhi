@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
+import '../../infrastructure/offline/connectivity_signal.dart';
 import '../../services/media_upload_service.dart' show LocalMediaFile;
 import '../entities/conversation.dart';
 import '../entities/group_invite.dart';
@@ -156,7 +157,15 @@ abstract class MessageRepository {
   /// After a reinstall + key restore, re-downloads and decrypts the full
   /// message history for every conversation the user belongs to. Safe to call
   /// multiple times (idempotent via serverId dedup).
-  Future<void> syncAllHistory({void Function(HistorySyncProgress)? onProgress});
+  ///
+  /// With [net] (restore rev 2 R1), a chat that fails on the network is kept
+  /// for later: offline, the sync reports [HistorySyncPhase.waitingForNetwork]
+  /// and carries on when [net] says online; online, it gets 2 retry rounds at
+  /// the end. Without it, a failed chat is logged and skipped.
+  Future<void> syncAllHistory({
+    void Function(HistorySyncProgress)? onProgress,
+    ConnectivitySignal? net,
+  });
 
   /// Search decrypted messages within a conversation.
   Future<List<Message>> searchMessages(String conversationId, String query);
@@ -274,6 +283,7 @@ class HistorySyncProgress {
     this.conversationCount,
     this.messageCurrent,
     this.messageTotal,
+    this.chatsLeft,
   });
 
   /// High-level phase label — keys the UI to a friendly message and icon.
@@ -292,6 +302,9 @@ class HistorySyncProgress {
 
   /// For the download phase: total message count across the conversation.
   final int? messageTotal;
+
+  /// For [HistorySyncPhase.waitingForNetwork]: chats not downloaded yet.
+  final int? chatsLeft;
 }
 
 enum HistorySyncPhase {
@@ -303,6 +316,9 @@ enum HistorySyncPhase {
 
   /// Running per-conv sync of delete-for-me + starred messages.
   finalisingConversation,
+
+  /// Offline mid-sync: paused until the connection is back (restore rev 2 R1).
+  waitingForNetwork,
 
   /// All conversations done.
   complete,

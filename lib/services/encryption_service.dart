@@ -26,6 +26,12 @@ class MissingKeyException implements Exception {
   String toString() => 'MissingKeyException: $message';
 }
 
+/// The server answered and no group-key version opened for this device key
+/// pair. Retrying cannot help until a new version arrives (G1).
+class NoGroupKeyException extends MissingKeyException {
+  const NoGroupKeyException(super.message);
+}
+
 /// [EncryptionService.restorePrivateKey]'s outcome. Offline is a throw.
 enum RestoreResult { restored, restoredLegacy, wrongSecret, noBackup, unsupported }
 
@@ -35,6 +41,18 @@ enum BackupKind { none, legacy, current }
 
 /// K3: the backup writer refused, because the device key isn't the public
 /// key the account publishes.
+/// One network walk of a group's `group_keys` rows (restore rev 2 R4): what
+/// every caller sharing it needs for its own `requireCurrent` check and merge.
+class _GroupKeyWalk {
+  _GroupKeyWalk(this.newestVersion, this.newestKey, this.candidates);
+
+  final int? newestVersion;
+  final List<int>? newestKey;
+
+  /// Opened keys, newest version first, keyed by base64.
+  final Map<String, List<int>> candidates;
+}
+
 class KeyMismatchException implements Exception {
   const KeyMismatchException();
 }
@@ -358,27 +376,6 @@ class EncryptionService {
     return '${result.iv}:${result.ciphertext}';
   }
 
-  /// Decrypts an encrypted group key string ('ivBase64:ciphertextBase64').
-  /// [adminPublicKeyBase64] is the public key of the user who encrypted it.
-  Future<List<int>> decryptGroupKey(
-    String encryptedKey,
-    String adminPublicKeyBase64,
-    String conversationId,
-  ) async {
-    final parts = encryptedKey.split(':');
-    final iv = parts[0];
-    final ciphertext = parts[1];
-    final transportKey = await getOrDeriveConversationKey(
-      conversationId + '_gk',
-      adminPublicKeyBase64,
-    );
-    final result = await decryptMessage(ciphertext, iv, transportKey);
-    if (result == null) {
-      throw Exception('Failed to decrypt group key');
-    }
-    return base64.decode(result);
-  }
-
   /// Returns the current AES group key for [conversationId].
   /// Uses the newest server version when reachable; cached versioned keys are
   /// a transport-failure fallback only.
@@ -473,6 +470,49 @@ class EncryptionService {
     (_memGroupKeys[conversationId] ??= {})[slot] = value;
   }
 
+  /// G3: write-through that skips the storage write when memory already
+  /// holds [value] (every revalidation used to rewrite every good version).
+  Future<void> _putSlotIfChanged(
+    String conversationId,
+    String slot,
+    String value,
+  ) async {
+    if (_memGroupKeys[conversationId]?[slot] == value) return;
+    await _storage.write(
+      key: slot.isEmpty
+          ? 'group_key_$conversationId'
+          : 'group_key_${conversationId}_$slot',
+      value: value,
+    );
+    _memPut(conversationId, slot, value);
+  }
+
+  /// G5: only what the walk reads.
+  static const groupKeyFields =
+      'key_version,encrypted_key,expand.encrypted_by_user_id.public_key';
+
+  /// G2 test seam: decrypt isolate hops spent by group-key walks.
+  @visibleForTesting
+  int groupKeyHops = 0;
+
+  /// Network walks started (one `group_keys` request each). The history
+  /// sync reads the delta for its per-chat request count (restore rev 2 R5).
+  int groupKeyWalks = 0;
+
+  /// R4 (D4): background refreshes skip a group walked this recently.
+  static const groupKeyFreshFor = Duration(seconds: 60);
+
+  /// R4 test seam: the clock the freshness window reads.
+  @visibleForTesting
+  DateTime Function() now = DateTime.now;
+
+  /// R4: the walk running per group; later callers await it (single-flight).
+  final Map<String, Future<_GroupKeyWalk>> _groupKeyWalksInFlight = {};
+  final Map<String, int> _groupKeyWalkJoins = {};
+
+  /// R4: when each group's last walk opened a key. Cleared with key memory.
+  final Map<String, DateTime> _groupKeyWalkedAt = {};
+
   Future<Map<String, String>> _slotsOf(String conversationId) async {
     await _ensureGroupKeyMemLoaded();
     return _memGroupKeys[conversationId] ?? const <String, String>{};
@@ -501,6 +541,11 @@ class EncryptionService {
   /// Failures are swallowed (offline is the normal case); success flows
   /// through the network path below, which fires [onGroupKeysRefreshed].
   void _scheduleGroupKeyRefresh(String conversationId, String myId) {
+    // R4 (D4): a walk that succeeded moments ago already holds the answer.
+    final walkedAt = _groupKeyWalkedAt[conversationId];
+    if (walkedAt != null && now().difference(walkedAt) < groupKeyFreshFor) {
+      return;
+    }
     if (!_groupKeyRefreshInFlight.add(conversationId)) return;
     unawaited(() async {
       try {
@@ -642,69 +687,23 @@ class EncryptionService {
     }
 
     try {
-      // Do not cap this at 200. A long-lived group can have more rotations
-      // than one page; truncation silently loses oldest decrypt keys.
-      final list = await _pb
-          .collection('group_keys')
-          .getFullList(
-            filter: 'conversation_id="$conversationId"&&user_id="$myId"',
-            sort: '-key_version',
-            expand: 'encrypted_by_user_id',
-          );
-      final serverCandidates = <String, List<int>>{};
-      final newestVersion = list.isEmpty
-          ? null
-          : list.first.getIntValue('key_version');
-      List<int>? newestKey;
-      var cachedCurrent = false;
-      for (final record in list) {
-        final admin = record.expand['encrypted_by_user_id']?.firstOrNull;
-        final adminPubKey = admin?.getStringValue('public_key') ?? '';
-        if (adminPubKey.isEmpty) continue;
-        try {
-          final key = await decryptGroupKey(
-            record.getStringValue('encrypted_key'),
-            adminPubKey,
-            conversationId,
-          );
-          if (key.length == 32) {
-            final encoded = base64.encode(key);
-            serverCandidates.putIfAbsent(encoded, () => key);
-            final version = record.getIntValue('key_version');
-            if (version == newestVersion && newestKey == null) {
-              newestKey = key;
-            }
-            await _storage.write(
-              key: 'group_key_${conversationId}_$version',
-              value: encoded,
-            );
-            _memPut(conversationId, '$version', encoded);
-            if (!cachedCurrent) {
-              await _storage.write(
-                key: 'group_key_$conversationId',
-                value: encoded,
-              );
-              _memPut(conversationId, '', encoded);
-              cachedCurrent = true;
-            }
-          }
-        } catch (e) {
-          debugPrint('[Enc] Skipping undecryptable group key version: $e');
-        }
+      // G4: every version would fail without the device key pair (restore
+      // pending), so do not spend a request and per-row reads on it. Only
+      // with no cache: a cache keeps today's offline fallback below.
+      if (cachedCandidates.isEmpty && await _readKeyPair() == null) {
+        throw const MissingKeyException('no device key pair (restore pending)');
       }
-      if (requireCurrent && newestVersion != null && newestKey == null) {
+      // R4: shared request, unwrap and slot writes; the checks below are
+      // this caller's own (send keeps requireCurrent, G-B3).
+      final walk = await _sharedGroupKeyWalk(conversationId, myId);
+      final newestVersion = walk.newestVersion;
+      if (requireCurrent && newestVersion != null && walk.newestKey == null) {
         throw MissingKeyException(
           'current group key version $newestVersion is unavailable',
         );
       }
+      final serverCandidates = walk.candidates;
       if (serverCandidates.isNotEmpty) {
-        // The server list is sorted by key_version descending.
-        final newestEncoded = base64.encode(serverCandidates.values.first);
-        await _storage.write(
-          key: 'group_key_$conversationId',
-          value: newestEncoded,
-        );
-        _memPut(conversationId, '', newestEncoded);
         final merged = <String, List<int>>{};
         merged.addAll(serverCandidates);
         for (final entry in cachedCandidates.entries) {
@@ -720,7 +719,7 @@ class EncryptionService {
       }
       // A successful empty/undecryptable server response is not an offline
       // condition. Do not silently send under a stale cached key.
-      throw MissingKeyException('no decryptable group key for $conversationId');
+      throw NoGroupKeyException('no decryptable group key for $conversationId');
     } catch (e) {
       if (e is MissingKeyException) rethrow;
       if (cachedCandidates.isEmpty) rethrow;
@@ -731,6 +730,115 @@ class EncryptionService {
       throw MissingKeyException('group key unavailable for $conversationId');
     }
     return cachedCandidates.values.toList();
+  }
+
+  /// R4: one network walk per group at a time; a caller arriving mid-walk
+  /// awaits the same one.
+  Future<_GroupKeyWalk> _sharedGroupKeyWalk(String conversationId, String myId) {
+    final running = _groupKeyWalksInFlight[conversationId];
+    if (running != null) {
+      _groupKeyWalkJoins[conversationId] =
+          (_groupKeyWalkJoins[conversationId] ?? 0) + 1;
+      return running;
+    }
+    _groupKeyWalkJoins[conversationId] = 0;
+    final walk = _walkGroupKeys(conversationId, myId)
+        // Block body: returning the removed Future would make the walk wait
+        // on itself.
+        .whenComplete(() {
+          _groupKeyWalksInFlight.remove(conversationId);
+        });
+    return _groupKeyWalksInFlight[conversationId] = walk;
+  }
+
+  Future<_GroupKeyWalk> _walkGroupKeys(
+    String conversationId,
+    String myId,
+  ) async {
+    groupKeyWalks++;
+    final watch = Stopwatch()..start();
+    // Do not cap this at 200. A long-lived group can have more rotations
+    // than one page; truncation silently loses oldest decrypt keys.
+    final list = await _pb
+        .collection('group_keys')
+        .getFullList(
+          filter: 'conversation_id="$conversationId"&&user_id="$myId"',
+          sort: '-key_version',
+          expand: 'encrypted_by_user_id',
+          fields: groupKeyFields,
+        );
+    // G2: one transport key and one isolate hop per wrapper public key.
+    // Item ids are list indexes (`fields` leaves the record id out).
+    final byWrapper = <String, List<Map<String, String>>>{};
+    for (var i = 0; i < list.length; i++) {
+      final record = list[i];
+      final admin = record.expand['encrypted_by_user_id']?.firstOrNull;
+      final adminPubKey = admin?.getStringValue('public_key') ?? '';
+      if (adminPubKey.isEmpty) continue;
+      final parts = record.getStringValue('encrypted_key').split(':');
+      if (parts.length != 2) continue;
+      (byWrapper[adminPubKey] ??= []).add(
+        {'id': '$i', 'iv': parts[0], 'ciphertext': parts[1]},
+      );
+    }
+    final opened = <String, String?>{};
+    var hops = 0;
+    for (final entry in byWrapper.entries) {
+      try {
+        final transportKey = await getOrDeriveConversationKey(
+          '${conversationId}_gk',
+          entry.key,
+        );
+        hops++;
+        groupKeyHops++;
+        opened.addAll(await decryptBatch(transportKey, entry.value));
+      } catch (e) {
+        debugPrint('[Enc] Skipping undecryptable group key wrapper: $e');
+      }
+    }
+    final serverCandidates = <String, List<int>>{};
+    final newestVersion = list.isEmpty
+        ? null
+        : list.first.getIntValue('key_version');
+    List<int>? newestKey;
+    var cachedCurrent = false;
+    var openedCount = 0;
+    // Server order (newest version first), as before G2.
+    for (var i = 0; i < list.length; i++) {
+      final plain = opened['$i'];
+      if (plain == null) continue;
+      final List<int> key;
+      try {
+        key = base64.decode(plain);
+      } catch (_) {
+        continue;
+      }
+      if (key.length != 32) continue;
+      openedCount++;
+      final encoded = base64.encode(key);
+      serverCandidates.putIfAbsent(encoded, () => key);
+      final version = list[i].getIntValue('key_version');
+      if (version == newestVersion && newestKey == null) {
+        newestKey = key;
+      }
+      await _putSlotIfChanged(conversationId, '$version', encoded);
+      if (!cachedCurrent) {
+        await _putSlotIfChanged(conversationId, '', encoded);
+        cachedCurrent = true;
+      }
+    }
+    if (serverCandidates.isNotEmpty) {
+      // The server list is sorted by key_version descending.
+      final newestEncoded = base64.encode(serverCandidates.values.first);
+      await _putSlotIfChanged(conversationId, '', newestEncoded);
+      _groupKeyWalkedAt[conversationId] = now();
+    }
+    debugPrint(
+      '[Enc] group keys versions=${list.length} opened=$openedCount '
+      'hops=$hops joined=${_groupKeyWalkJoins[conversationId] ?? 0} '
+      'ms=${watch.elapsedMilliseconds}',
+    );
+    return _GroupKeyWalk(newestVersion, newestKey, serverCandidates);
   }
 
   // ── Public group-key slot writers (C write-through API) ────────
@@ -799,6 +907,7 @@ class EncryptionService {
   /// account switch) and from the in-service key wipes below. A load
   /// already in flight is discarded via the generation counter.
   void clearAllGroupKeyCache() {
+    _groupKeyWalkedAt.clear();
     _memGen++;
     _memLoad = null;
     _memGroupKeys = {};

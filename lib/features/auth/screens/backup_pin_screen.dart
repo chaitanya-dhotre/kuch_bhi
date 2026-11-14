@@ -41,6 +41,7 @@ enum RestorePhase {
   fetchingConvs, // Re-downloading the conversation list
   downloadingMsgs, // Paging through all messages across conversations
   decrypting, // AES-GCM decrypt of every message ciphertext
+  waitingForNetwork, // Offline mid-download; carries on when back (R1)
   ready, // All done, transitioning to home
 }
 
@@ -60,6 +61,8 @@ extension _RestorePhaseCopy on RestorePhase {
         return 'Downloading messages…';
       case RestorePhase.decrypting:
         return 'Decrypting your messages…';
+      case RestorePhase.waitingForNetwork:
+        return "You're offline.";
       case RestorePhase.ready:
         return 'Almost there…';
     }
@@ -145,7 +148,12 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
   int _convTotal = 0;
   int _msgCurrent = 0;
   int _msgTotal = 0;
+  int _chatsLeft = 0;
   DateTime? _restoreStartedAt;
+  // History-sync S4: download progress paints at most every 100 ms; the
+  // latest event waits in [_pendingProgress] until the timer fires.
+  Timer? _progressTimer;
+  HistorySyncProgress? _pendingProgress;
 
   final _restoreInput = TextEditingController();
   final _restoreFocus = FocusNode();
@@ -170,6 +178,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
 
   @override
   void dispose() {
+    _progressTimer?.cancel();
     _restoreInput.dispose();
     _restoreFocus.dispose();
     _checkInput.dispose();
@@ -369,6 +378,30 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
 
   /// The restore continuation: re-download + decrypt the full history now
   /// that the private key is restored (~1-3 min), then Home.
+  void _applyProgress(HistorySyncProgress p) {
+    setState(() {
+      _restorePhase = RestorePhase.downloadingMsgs;
+      _convIndex = p.conversationIndex ?? _convIndex;
+      _convTotal = p.conversationCount ?? _convTotal;
+      _msgCurrent = p.messageCurrent ?? _msgCurrent;
+      _msgTotal = p.messageTotal ?? _msgTotal;
+      // Once we start downloading, the next phase is
+      // decrypting — flip to it for visual variety so the
+      // user sees movement.
+      if (_msgTotal > 0 &&
+          _msgCurrent / _msgTotal >= 0.2 &&
+          _restorePhase != RestorePhase.decrypting) {
+        _restorePhase = RestorePhase.decrypting;
+      }
+    });
+    _progressTimer = Timer(const Duration(milliseconds: 100), () {
+      _progressTimer = null;
+      final next = _pendingProgress;
+      _pendingProgress = null;
+      if (next != null && mounted) _applyProgress(next);
+    });
+  }
+
   Future<void> _restoreHistory() async {
     // `ref` dies with the screen; the sync and its router re-check do not.
     final container = ProviderScope.containerOf(context, listen: false);
@@ -382,6 +415,7 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
       await ref
           .read(messageRepositoryProvider)
           .syncAllHistory(
+            net: ref.read(connectivitySignalProvider),
             onProgress: (p) {
               // The sync outlives the screen if a redirect or back pops it.
               if (!mounted) return;
@@ -392,26 +426,29 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
                   }
                   break;
                 case HistorySyncPhase.downloadingMessages:
-                  setState(() {
-                    _restorePhase = RestorePhase.downloadingMsgs;
-                    _convIndex = p.conversationIndex ?? _convIndex;
-                    _convTotal = p.conversationCount ?? _convTotal;
-                    _msgCurrent = p.messageCurrent ?? _msgCurrent;
-                    _msgTotal = p.messageTotal ?? _msgTotal;
-                    // Once we start downloading, the next phase is
-                    // decrypting — flip to it for visual variety so the
-                    // user sees movement.
-                    if (_msgTotal > 0 &&
-                        _msgCurrent / _msgTotal >= 0.2 &&
-                        _restorePhase != RestorePhase.decrypting) {
-                      _restorePhase = RestorePhase.decrypting;
-                    }
-                  });
+                  if (_progressTimer != null) {
+                    _pendingProgress = p;
+                  } else {
+                    _applyProgress(p);
+                  }
                   break;
                 case HistorySyncPhase.finalisingConversation:
                   // Keep showing "decrypting…" until all conversations done.
                   break;
+                case HistorySyncPhase.waitingForNetwork:
+                  // A queued download paint must not overwrite the pause.
+                  _progressTimer?.cancel();
+                  _progressTimer = null;
+                  _pendingProgress = null;
+                  setState(() {
+                    _restorePhase = RestorePhase.waitingForNetwork;
+                    _chatsLeft = p.chatsLeft ?? 0;
+                  });
+                  break;
                 case HistorySyncPhase.complete:
+                  _progressTimer?.cancel();
+                  _progressTimer = null;
+                  _pendingProgress = null;
                   setState(() => _restorePhase = RestorePhase.ready);
                   break;
               }
@@ -531,6 +568,15 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
               convTotal: _convTotal,
               msgCurrent: _msgCurrent,
               msgTotal: _msgTotal,
+              chatsLeft: _chatsLeft,
+              // R1 (D8): Home now; the sync carries on without the screen.
+              // The router still holds needsRestore from before the key came
+              // back and would send Home straight back here (device run
+              // 2026-11-14), so re-check it first, as the sync's end does.
+              onFinishLater: () {
+                ref.invalidate(encryptionSyncProvider);
+                context.go(AppRoutes.home);
+              },
             ),
           ),
       ],
@@ -838,6 +884,8 @@ class _RestoreOverlay extends StatefulWidget {
     required this.convTotal,
     required this.msgCurrent,
     required this.msgTotal,
+    this.chatsLeft = 0,
+    this.onFinishLater,
   });
 
   /// J1: restore gets the progress view; saving a backup (setup, change,
@@ -849,6 +897,10 @@ class _RestoreOverlay extends StatefulWidget {
   final int convTotal;
   final int msgCurrent;
   final int msgTotal;
+
+  /// R1: chats not downloaded yet, while offline.
+  final int chatsLeft;
+  final VoidCallback? onFinishLater;
 
   @override
   State<_RestoreOverlay> createState() => _RestoreOverlayState();
@@ -870,9 +922,19 @@ class _RestoreOverlay extends StatefulWidget {
   }
   return (
     CapyPose.vault,
-    phase == RestorePhase.ready ? CapyMood.happy : CapyMood.active,
+    switch (phase) {
+      RestorePhase.ready => CapyMood.happy,
+      RestorePhase.waitingForNetwork => CapyMood.sleepy, // R1
+      _ => CapyMood.active,
+    },
   );
 }
+
+/// R1: the restore card's line while offline.
+@visibleForTesting
+String offlineRestoreLine(int chatsLeft) =>
+    "You're offline. $chatsLeft ${chatsLeft == 1 ? 'chat' : 'chats'} left. "
+    "We'll carry on when you're back.";
 
 bool _checkingKey(RestorePhase p) =>
     p == RestorePhase.idle || p == RestorePhase.deriving;
@@ -1006,6 +1068,8 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
         return Icons.cloud_download_outlined;
       case RestorePhase.decrypting:
         return Icons.lock_reset_outlined;
+      case RestorePhase.waitingForNetwork:
+        return Icons.wifi_off_outlined;
       case RestorePhase.ready:
         return Icons.check_circle_outline;
       case RestorePhase.idle:
@@ -1039,6 +1103,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
   Widget _buildRestore(BuildContext context) {
     final t = context.t;
     final ready = widget.phase == RestorePhase.ready;
+    final offline = widget.phase == RestorePhase.waitingForNetwork;
     final phase = widget.phase == RestorePhase.idle
         ? RestorePhase.deriving
         : widget.phase;
@@ -1118,7 +1183,15 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                     ),
                     if (!ready) ...[
                       const SizedBox(height: 4),
-                      Text(phase.message, style: small),
+                      Semantics(
+                        liveRegion: offline,
+                        child: Text(
+                          offline
+                              ? offlineRestoreLine(widget.chatsLeft)
+                              : phase.message,
+                          style: small,
+                        ),
+                      ),
                     ],
                     const SizedBox(height: 12),
                     // J6: no total yet = "In progress". A progress bar's own
@@ -1163,7 +1236,16 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                         ),
                       ),
                     ],
-                    if (!ready) ...[
+                    if (offline && widget.onFinishLater != null) ...[
+                      const SizedBox(height: 4),
+                      Center(
+                        child: AppButton(
+                          variant: AppButtonVariant.text,
+                          onPressed: widget.onFinishLater,
+                          child: const Text('Finish later'),
+                        ),
+                      ),
+                    ] else if (!ready) ...[
                       const SizedBox(height: 8),
                       Text('Keep the app open. This takes a minute or two.',
                           style: small),

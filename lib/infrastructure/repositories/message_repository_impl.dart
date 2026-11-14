@@ -39,6 +39,7 @@ import '../../domain/entities/user.dart';
 import '../../domain/repositories/message_repository.dart';
 import '../../features/chat/providers/chat_provider.dart' show ReactionGroup;
 import '../../features/stickers/stickers.dart' show stickerBody;
+import '../offline/connectivity_signal.dart';
 import '../offline/outbox_worker.dart';
 import '../media/media_blob_store.dart';
 import '../ingest/ingest_batch.dart';
@@ -68,6 +69,47 @@ bool isDuplicateIdError(ClientException error) {
   final fieldError = data['id'];
   if (fieldError is! Map) return false;
   return fieldError['code'] == 'validation_not_unique';
+}
+
+/// The tick rule, in one place (history-sync spec S1): `read` when every id
+/// in [required] has read the message, else `delivered` when every one has
+/// it, else `sent`. [required] is the chat's members minus the sender; when
+/// it is empty (nobody else left, or the member list failed) the receipts
+/// present stand in for it (spec D1).
+String senderStatusFor(Iterable<RecordModel> receipts, Set<String> required) {
+  final ids = required.isNotEmpty
+      ? required
+      : {for (final r in receipts) r.getStringValue('recipient_id')}
+          .difference(const {''});
+  if (ids.isEmpty) return 'sent';
+  bool everyone(String field) => ids.every((id) => receipts.any((r) =>
+      r.getStringValue('recipient_id') == id &&
+      r.getStringValue(field).isNotEmpty));
+  if (everyone('read_at')) return 'read';
+  if (everyone('delivered_at')) return 'delivered';
+  return 'sent';
+}
+
+/// One chat's tick inputs, fetched once (history-sync spec S1).
+class _TickIndex {
+  _TickIndex(this.byMessage, this.required, this.requests);
+
+  /// Receipts grouped by message id; null when the list failed, and then
+  /// every status falls back to `sent` (spec H5).
+  final Map<String, List<RecordModel>>? byMessage;
+
+  /// Chat members minus me (I am the sender of every row this is used for).
+  final Set<String> required;
+
+  /// Server requests the index took, for the `[Sync]` timing line.
+  final int requests;
+
+  List<RecordModel> receiptsOf(String messageId) =>
+      byMessage?[messageId] ?? const [];
+
+  String statusFor(String messageId) => byMessage == null
+      ? 'sent'
+      : senderStatusFor(receiptsOf(messageId), required);
 }
 
 class MessageRepositoryImpl implements MessageRepository {
@@ -882,7 +924,7 @@ class MessageRepositoryImpl implements MessageRepository {
   /// back to the candidates path's own network hydrate.
   bool _prefetchKeysInFlight = false;
   Future<void> prefetchGroupKeys() async {
-    if (_prefetchKeysInFlight) return;
+    if (_prefetchKeysInFlight || _historySyncRunning) return;
     _prefetchKeysInFlight = true;
     try {
       final myId = await _myId();
@@ -3308,13 +3350,23 @@ class MessageRepositoryImpl implements MessageRepository {
     }
   }
 
+  /// R1: the pause between retry rounds for chats left while online.
+  @visibleForTesting
+  Duration historyRetryGap = const Duration(seconds: 15);
+
+  /// R4 (D5): while true the sync walks every group itself, so the
+  /// group-key prefetch stays out of its way.
+  bool _historySyncRunning = false;
+
   @override
   Future<void> syncAllHistory({
     void Function(HistorySyncProgress)? onProgress,
+    ConnectivitySignal? net,
   }) async {
     final myId = await _myId();
     if (myId.isEmpty) return;
     debugPrint('[Sync] Full history sync starting for $myId');
+    _historySyncRunning = true;
     try {
       // Ensure conversations + members are cached first.
       onProgress?.call(
@@ -3325,59 +3377,56 @@ class MessageRepositoryImpl implements MessageRepository {
       await _syncConversations(myId);
       final convs = await db.conversationsDao.watchAllConversations().first;
       final convTotal = convs.length;
-      for (var i = 0; i < convs.length; i++) {
+      final totalWatch = Stopwatch()..start();
+      final waitWatch = Stopwatch();
+      var totalMsgs = 0;
+      var totalRequests = 0;
+      var rounds = 0;
+
+      // One chat. True when it is LEFT (R1): a network failure or the
+      // server's rate limit, kept for later. Anything else is skipped.
+      Future<bool> runChat(int i) async {
         final conv = convs[i];
-        // Find the message count up-front so we can show "downloading X of Y".
-        final headRes = await _pb
-            .collection('messages')
-            .getList(
-              filter:
-                  'conversation_id="${conv.id}"&&is_deleted_for_everyone=false',
-              page: 1,
-              perPage: 1,
-            );
-        final msgTotal = headRes.totalItems;
+        final chatWatch = Stopwatch()..start();
+        final walksBefore = encryption.groupKeyWalks;
         try {
-          List<List<int>> keys = const [];
-          // Retry key derivation a few times — during reinstall restore the
-          // peer's public key fetch can transiently fail on a flaky network,
-          // and skipping it would leave the whole conversation blank.
-          for (var attempt = 0; attempt < 3 && keys.isEmpty; attempt++) {
-            try {
-              keys = await _getConvKeyCandidates(conv.id, myId);
-            } on MissingKeyException {
-              if (attempt < 2) {
-                await Future.delayed(
-                  Duration(milliseconds: 400 * (attempt + 1)),
-                );
-              }
-            }
-          }
+          // R5: key, receipts and page 1 at once; the tick members come
+          // from the rows the conversations pass just wrote.
+          final members = await _localRecipients(conv.id, myId);
+          final keysF = _historyKeys(conv.id, myId);
+          final ticksF = _tickIndex(conv.id, myId, members: members);
+          final firstF = _historyPage(conv.id, 1);
+          await Future.wait<Object?>([keysF, ticksF, firstF]);
+          final keys = await keysF;
+          final ticks = await ticksF;
+          var res = await firstF;
           if (keys.isEmpty) {
+            // The key step wraps a network error as a missing key.
+            if (net != null && !net.isOnline) return true;
             debugPrint(
               '[Sync] conv ${conv.id}: no key after retries, '
               'messages will re-decrypt once key is available',
             );
           }
-          // Page through the ENTIRE conversation history.
+          // Page through the ENTIRE conversation history. S4: page 1's
+          // total is the "X of Y" count; later pages skip counting.
           var page = 1;
           var downloaded = 0;
-          while (true) {
-            final res = await _pb
-                .collection('messages')
-                .getList(
-                  filter:
-                      'conversation_id="${conv.id}"&&is_deleted_for_everyone=false',
-                  sort: '-created',
-                  page: page,
-                  perPage: 200,
-                );
-            if (res.items.isEmpty) break;
+          final msgTotal = res.totalItems;
+          var requests = ticks.requests + 1;
+          while (res.items.isNotEmpty) {
             // Cache every row even when key is null — _cacheMsg stores the
-            // ciphertext and a later chat-open re-decrypts. Never drop history.
-            // Task 7: null key passes through so rows land key_missing.
+            // ciphertext and a later chat-open re-decrypts. Never drop
+            // history. Task 7: null key passes through so rows land
+            // key_missing.
             for (final r in await _withoutRunOut(res.items, myId)) {
-              await _cacheMsg(r, myId, keys.firstOrNull, keyCandidates: keys);
+              await _cacheMsg(
+                r,
+                myId,
+                keys.firstOrNull,
+                keyCandidates: keys,
+                ticks: ticks,
+              );
               downloaded++;
               if (msgTotal > 0) {
                 onProgress?.call(
@@ -3391,9 +3440,21 @@ class MessageRepositoryImpl implements MessageRepository {
                 );
               }
             }
-            if (page >= res.totalPages) break;
+            if (res.items.length < 200) break;
             page++;
+            res = await _historyPage(conv.id, page);
+            requests++;
           }
+          // shortcut: counts every group walk started meanwhile, not only
+          // this chat's; exact while the sync is the only walker (R4).
+          requests += encryption.groupKeyWalks - walksBefore;
+          // No content, no ids: key, receipts and page requests.
+          debugPrint(
+            '[Sync] chat ${i + 1}/$convTotal msgs=$downloaded '
+            'requests=$requests ms=${chatWatch.elapsedMilliseconds}',
+          );
+          totalMsgs += downloaded;
+          totalRequests += requests;
           onProgress?.call(
             HistorySyncProgress(
               phase: HistorySyncPhase.finalisingConversation,
@@ -3401,20 +3462,122 @@ class MessageRepositoryImpl implements MessageRepository {
               conversationCount: convTotal,
             ),
           );
-          await _syncDeletedForMe(conv.id);
-          await _syncStarredMessages(conv.id);
+          return false;
         } catch (e) {
           debugPrint('[Sync] conversation ${conv.id} failed: $e');
+          return e is ClientException &&
+              (e.statusCode == 0 || e.statusCode == 429);
         }
       }
+
+      // R1: runs [order]; returns the chats left while online. Offline, it
+      // waits for the connection and runs the same chat again.
+      Future<List<int>> pass(List<int> order) async {
+        final still = <int>[];
+        for (var k = 0; k < order.length; k++) {
+          final i = order[k];
+          if (!await runChat(i)) continue;
+          if (net == null || net.isOnline) {
+            still.add(i);
+            continue;
+          }
+          final chatsLeft = still.length + order.length - k;
+          // D8: if the app closes now, these load when each chat is opened.
+          debugPrint('[Sync] offline: $chatsLeft chats left, waiting');
+          onProgress?.call(
+            HistorySyncProgress(
+              phase: HistorySyncPhase.waitingForNetwork,
+              conversationCount: convTotal,
+              chatsLeft: chatsLeft,
+            ),
+          );
+          waitWatch.start();
+          if (!net.isOnline) await net.changes.firstWhere((online) => online);
+          waitWatch.stop();
+          onProgress?.call(
+            HistorySyncProgress(
+              phase: HistorySyncPhase.downloadingMessages,
+              conversationIndex: i + 1,
+              conversationCount: convTotal,
+              messageCurrent: 0,
+              messageTotal: 0,
+            ),
+          );
+          k--; // the left chat first, then the rest
+        }
+        return still;
+      }
+
+      var left = await pass([for (var i = 0; i < convTotal; i++) i]);
+      while (net != null && left.isNotEmpty && rounds < 2) {
+        waitWatch.start();
+        await Future<void>.delayed(historyRetryGap);
+        waitWatch.stop();
+        rounds++;
+        left = await pass(left);
+      }
+      if (left.isNotEmpty) {
+        debugPrint(
+          '[Sync] ${left.length} chats still left; they load when opened',
+        );
+      }
+      // R5: deleted-for-me and starred once for the whole account.
+      await _syncDeletedForMeUser(myId);
+      await _syncStarredMessagesUser(myId);
+      totalRequests += 2;
       onProgress?.call(
         const HistorySyncProgress(phase: HistorySyncPhase.complete),
       );
-      debugPrint('[Sync] Full history sync complete');
+      debugPrint(
+        '[Sync] total chats=$convTotal msgs=$totalMsgs '
+        'requests=$totalRequests '
+        'ms=${totalWatch.elapsedMilliseconds - waitWatch.elapsedMilliseconds} '
+        'left=${left.length} rounds=$rounds '
+        'waitedMs=${waitWatch.elapsedMilliseconds}',
+      );
     } catch (e) {
       debugPrint('[Sync] Full history sync error: $e');
+    } finally {
+      _historySyncRunning = false;
     }
   }
+
+  /// One history page of [convId], newest first (200 rows).
+  Future<ResultList<RecordModel>> _historyPage(String convId, int page) =>
+      _pb.collection('messages').getList(
+            filter: 'conversation_id="$convId"&&is_deleted_for_everyone=false',
+            sort: '-created',
+            page: page,
+            perPage: 200,
+            skipTotal: page > 1,
+          );
+
+  /// The history sync's key step. Empty when no key opened.
+  Future<List<List<int>>> _historyKeys(String convId, String myId) async {
+    List<List<int>> keys = const [];
+    // Retry key derivation a few times — during reinstall restore the
+    // peer's public key fetch can transiently fail on a flaky network,
+    // and skipping it would leave the whole conversation blank.
+    for (var attempt = 0; attempt < 3 && keys.isEmpty; attempt++) {
+      try {
+        keys = await _getConvKeyCandidates(convId, myId);
+      } on NoGroupKeyException {
+        break; // G1: the server answered; a retry cannot open more
+      } on MissingKeyException {
+        if (attempt < 2) {
+          await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+        }
+      }
+    }
+    return keys;
+  }
+
+  /// R5: every member of [convId] but me, from local rows (`left` excluded).
+  Future<Set<String>> _localRecipients(String convId, String myId) async =>
+      (await db.conversationsDao.getMembersForConversation(convId))
+          .map((m) => m.userId)
+          .where((u) => u.isNotEmpty && u != myId)
+          .toSet();
 
   @override
   Future<List<Message>> searchMessages(
@@ -3885,6 +4048,7 @@ class MessageRepositoryImpl implements MessageRepository {
       _rotations.run(convId, () => _rotateGroupKeyNow(convId, myId));
 
   Future<void> _rotateGroupKeyNow(String convId, String myId) async {
+    final rotateWatch = Stopwatch()..start();
     // Version allocation is not a server transaction. If another admin wins
     // the same max+1 race, never overwrite its row with ciphertext for a
     // different random key. Retry at the next version instead.
@@ -3974,6 +4138,11 @@ class MessageRepositoryImpl implements MessageRepository {
       await encryption.saveGroupKey(convId, newKey);
       await encryption.saveGroupKey(convId, newKey, version: newVersion);
       await storage.write(key: 'contact_key_${convId}_gk', value: '');
+      // R3: no ids.
+      debugPrint(
+        '[Group] rotated v$newVersion members=${memberRecs.length} '
+        'ms=${rotateWatch.elapsedMilliseconds}',
+      );
       return;
     }
     throw StateError('Group-key rotation conflicted repeatedly: $convId');
@@ -4663,6 +4832,7 @@ class MessageRepositoryImpl implements MessageRepository {
     }
 
     final companions = <MessagesTableCompanion>[];
+    _TickIndex? ticks;
     for (final r in records) {
       final e = existingById[r.id];
       final body = decrypted[r.id];
@@ -4676,7 +4846,9 @@ class MessageRepositoryImpl implements MessageRepository {
       String? forced;
       final isMine = r.getStringValue('sender_id') == myId;
       if (isMine && (e == null || e.status.isEmpty)) {
-        forced = await _computeSenderStatus(r.id);
+        // S1: one index for the whole batch, fetched only when needed.
+        ticks ??= await _tickIndex(r.getStringValue('conversation_id'), myId);
+        forced = ticks.statusFor(r.id);
       }
 
       companions.add(
@@ -4988,12 +5160,21 @@ class MessageRepositoryImpl implements MessageRepository {
   ) async {
     try {
       final rows = await db.messagesDao.watchMessages(conversationId).first;
+      // S1: one index for the chat, not 2 requests per unread own row.
+      _TickIndex? ticks;
       for (final row in rows) {
         if (row.senderId != myId) continue;
         final sid = row.serverId;
         if (sid == null || sid.isEmpty) continue;
         if (row.status == 'read') continue; // already terminal
-        await _updateMsgReceiptStatus(row.localId, sid);
+        ticks ??= await _tickIndex(conversationId, myId);
+        if (ticks.byMessage == null) return; // unknown: write nothing (H5)
+        await _applyReceiptStatus(
+          row.localId,
+          sid,
+          ticks.receiptsOf(sid),
+          ticks.required,
+        );
       }
     } catch (e) {
       debugPrint('[Receipt] reconcile: $e');
@@ -5273,12 +5454,15 @@ class MessageRepositoryImpl implements MessageRepository {
     List<int>? key, {
     IngestSource source = IngestSource.fetch,
     List<List<int>>? keyCandidates,
+    _TickIndex? ticks,
   }) {
     final pending = _cacheInFlight[r.id];
     // Swallow the previous op's error so the chain always continues.
     final next = (pending ?? Future.value())
         .catchError((_) {})
-        .then((_) => _cacheMsgInner(r, myId, key, source, keyCandidates));
+        .then(
+          (_) => _cacheMsgInner(r, myId, key, source, keyCandidates, ticks),
+        );
     _cacheInFlight[r.id] = next.whenComplete(() {
       if (identical(_cacheInFlight[r.id], next)) _cacheInFlight.remove(r.id);
     });
@@ -5290,8 +5474,9 @@ class MessageRepositoryImpl implements MessageRepository {
     String myId,
     List<int>? key,
     IngestSource source,
-    List<List<int>>? keyCandidates,
-  ) async {
+    List<List<int>>? keyCandidates, [
+    _TickIndex? ticks,
+  ]) async {
     final epoch = _sessionEpoch;
     // Note: isDeletedForEveryone is already synchronized automatically on fresh install
     // since is_deleted_for_everyone is fetched directly from the PocketBase messages collection schema.
@@ -5342,10 +5527,11 @@ class MessageRepositoryImpl implements MessageRepository {
     // For my own messages: keep any existing (locally-known) status, but on a
     // fresh install (existing == null) — or when a prior cache left the status
     // empty — compute the real status from receipts instead of blindly
-    // resetting to 'sent'.
+    // resetting to 'sent'. History sync passes the chat's [ticks]; single
+    // records (SSE) still look up their own.
     String? forcedStatus;
     if (isMine && (existing == null || (existing.status.isEmpty))) {
-      forcedStatus = await _computeSenderStatus(r.id);
+      forcedStatus = ticks?.statusFor(r.id) ?? await _computeSenderStatus(r);
     }
 
     if (!sessionStillValid(
@@ -5723,60 +5909,73 @@ class MessageRepositoryImpl implements MessageRepository {
     debugPrint('[SysMsg] local-only emit → "$body" in $convId');
   }
 
-  /// Computes a sender's message status ('sent'/'delivered'/'read') from the
-  /// current receipts. Used when re-caching own messages after a reinstall.
-  /// Strict semantics (see [_updateMsgReceiptStatus]) — every non-sender
-  /// member of the conversation must have the matching timestamp.
-  Future<String> _computeSenderStatus(String serverId) async {
+  /// One receipts list and one member list for a whole chat (history-sync
+  /// spec S1), instead of 2–3 requests per own message.
+  /// [members] (restore rev 2 R5): the history sync's local member set,
+  /// which skips the member request.
+  Future<_TickIndex> _tickIndex(
+    String convId,
+    String myId, {
+    Set<String>? members,
+  }) async {
+    Map<String, List<RecordModel>>? byMessage;
+    var requests = 0;
+    try {
+      final rs = await _pb
+          .collection('message_receipts')
+          .getFullList(
+            filter: 'conversation_id="$convId" && recipient_id!="$myId"',
+            batch: 500,
+            fields: 'message_id,recipient_id,delivered_at,read_at,updated',
+          );
+      requests += rs.length ~/ 500 + 1;
+      byMessage = {};
+      for (final r in rs) {
+        (byMessage[r.getStringValue('message_id')] ??= []).add(r);
+      }
+    } catch (e) {
+      requests++;
+      debugPrint('[Receipt] tick index failed: $e');
+    }
+    if (members != null) return _TickIndex(byMessage, members, requests);
+    final required = await _requiredRecipients(convId, myId);
+    return _TickIndex(byMessage, required, requests + 1);
+  }
+
+  /// Every member of [convId] but [senderId], from the live member list
+  /// (present receipts miss members whose receipt was never created, during
+  /// add/remove windows). Empty when the list fails: [senderStatusFor] then
+  /// falls back to the receipts present.
+  Future<Set<String>> _requiredRecipients(
+    String convId,
+    String senderId,
+  ) async {
+    try {
+      final members = await _pb
+          .collection('conversation_members')
+          .getFullList(filter: 'conversation_id="$convId"', batch: 200);
+      return members
+          .map((m) => m.getStringValue('user_id'))
+          .where((uid) => uid.isNotEmpty && uid != senderId)
+          .toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// A single own record's status, for callers with no chat index (SSE).
+  /// The chat and sender come from the record in hand.
+  Future<String> _computeSenderStatus(RecordModel r) async {
     try {
       final res = await _pb
           .collection('message_receipts')
-          .getFullList(filter: 'message_id="$serverId"', batch: 200);
+          .getFullList(filter: 'message_id="${r.id}"', batch: 200);
       if (res.isEmpty) return 'sent';
-
-      // Identify the conversation + sender so we can requery the live member
-      // list (the present-receipts list isn't reliable during member
-      // add/remove windows).
-      String? convId;
-      String? senderId;
-      try {
-        final msg = await _pb.collection('messages').getOne(serverId);
-        convId = msg.getStringValue('conversation_id');
-        senderId = msg.getStringValue('sender_id');
-      } catch (_) {}
-
-      Set<String> required = res
-          .map((r) => r.getStringValue('recipient_id'))
-          .where((uid) => uid.isNotEmpty)
-          .toSet();
-      if (convId != null) {
-        try {
-          final members = await _pb
-              .collection('conversation_members')
-              .getFullList(filter: 'conversation_id="$convId"', batch: 200);
-          required = members
-              .map((m) => m.getStringValue('user_id'))
-              .where((uid) => uid.isNotEmpty && uid != senderId)
-              .toSet();
-          if (required.isEmpty)
-            required = {
-              '__none__',
-            }; // Direct conv: no other members → tick immediately
-        } catch (_) {}
-      }
-
-      final deliveredIds = res
-          .where((r) => r.getStringValue('delivered_at').isNotEmpty)
-          .map((r) => r.getStringValue('recipient_id'))
-          .toSet();
-      final readIds = res
-          .where((r) => r.getStringValue('read_at').isNotEmpty)
-          .map((r) => r.getStringValue('recipient_id'))
-          .toSet();
-
-      if (required.every(readIds.contains)) return 'read';
-      if (required.every(deliveredIds.contains)) return 'delivered';
-      return 'sent';
+      final required = await _requiredRecipients(
+        r.getStringValue('conversation_id'),
+        r.getStringValue('sender_id'),
+      );
+      return senderStatusFor(res, required);
     } catch (_) {
       return 'sent';
     }
@@ -5792,95 +5991,61 @@ class MessageRepositoryImpl implements MessageRepository {
         debugPrint('[Receipt] No receipts found for message: $serverId');
         return;
       }
-
-      // Strict WhatsApp-style semantics: delivered/read is ticked ONLY when
-      // EVERY non-sender member of the conversation has the matching
-      // timestamp. The naive `items.every(...)` over present receipts
-      // misses members whose receipt was never created (race during member
-      // add/remove windows) — that was letting "delivered" tick as soon as
-      // even one recipient filled it in. We cross-check against the live
-      // conversation_members list from the server.
       // The local row, not the server's: an expired record is hidden from
       // every client, and this must still run for it.
       final local = await db.messagesDao.getMessageByLocalId(localId);
       final convId = local?.conversationId;
       final senderId = local?.senderId;
-
-      Set<String> requiredRecipientIds = {};
-      if (convId != null && senderId != null) {
-        try {
-          final members = await _pb
-              .collection('conversation_members')
-              .getFullList(filter: 'conversation_id="$convId"', batch: 200);
-          requiredRecipientIds = members
-              .map((m) => m.getStringValue('user_id'))
-              .where((uid) => uid.isNotEmpty && uid != senderId)
-              .toSet();
-        } catch (_) {}
-      }
-      // Fall back to the present receipts when the cross-check can't run
-      // (server unreachable, message row missing — shouldn't regress tick).
-      if (requiredRecipientIds.isEmpty) {
-        requiredRecipientIds = items
-            .map((r) => r.getStringValue('recipient_id'))
-            .where((uid) => uid.isNotEmpty)
-            .toSet();
-      }
-
-      final deliveredIds = items
-          .where((r) => r.getStringValue('delivered_at').isNotEmpty)
-          .map((r) => r.getStringValue('recipient_id'))
-          .toSet();
-      final readIds = items
-          .where((r) => r.getStringValue('read_at').isNotEmpty)
-          .map((r) => r.getStringValue('recipient_id'))
-          .toSet();
-
-      final allDelivered = requiredRecipientIds.every(deliveredIds.contains);
-      final allRead = requiredRecipientIds.every(readIds.contains);
-
-      final computed = allRead
-          ? 'read'
-          : allDelivered
-          ? 'delivered'
-          : 'sent';
-
-      // Never regress a stronger status (read > delivered > sent) — receipt
-      // events can arrive out of order.
-      const rank = {'sent': 0, 'delivered': 1, 'read': 2};
-      final current = await db.messagesDao.getMessageByServerId(serverId);
-      final currentStatus = current?.status ?? 'sent';
-      if ((rank[computed] ?? 0) < (rank[currentStatus] ?? 0)) {
-        debugPrint('[Receipt] Skipping regression $currentStatus -> $computed');
-        return;
-      }
-      // Same value: the write would only re-emit the whole list (13.2).
-      if (computed == current?.status) return;
-
-      debugPrint(
-        '[Receipt] Updating local message status to: $computed '
-        '(deliveredIds=${deliveredIds.length}/${requiredRecipientIds.length}, '
-        'readIds=${readIds.length}/${requiredRecipientIds.length})',
-      );
-      // `updated` is server time; `read_at` is the reader's device clock.
-      final reads = items
-          .where((r) => r.getStringValue('read_at').isNotEmpty)
-          .map((r) => DateTime.tryParse(r.getStringValue('updated')))
-          .nonNulls
-          .toList()
-        ..sort();
-      // One transaction: 'read' is terminal for reconcile, so a kill between
-      // the two writes would leave my copy's clock unstarted for good.
-      await db.transaction(() async {
-        await db.messagesDao.updateMessageStatus(localId, computed);
-        // Spec B6: everyone has read it, so my copy counts from the last read.
-        if (allRead && reads.isNotEmpty) {
-          await db.messagesDao.startClockOnRow(localId, reads.last);
-        }
-      });
+      final required = convId != null && senderId != null
+          ? await _requiredRecipients(convId, senderId)
+          : <String>{};
+      await _applyReceiptStatus(localId, serverId, items, required);
     } catch (e) {
       debugPrint('[Receipt] ERROR in statusUpdate: $e');
     }
+  }
+
+  /// The tick write rules, shared by the per-message update and the chat
+  /// reconcile. Strict WhatsApp-style: delivered/read only when EVERY
+  /// non-sender member has it ([senderStatusFor]).
+  Future<void> _applyReceiptStatus(
+    String localId,
+    String serverId,
+    List<RecordModel> items,
+    Set<String> required,
+  ) async {
+    if (items.isEmpty) return;
+    final computed = senderStatusFor(items, required);
+
+    // Never regress a stronger status (read > delivered > sent) — receipt
+    // events can arrive out of order.
+    const rank = {'sent': 0, 'delivered': 1, 'read': 2};
+    final current = await db.messagesDao.getMessageByServerId(serverId);
+    final currentStatus = current?.status ?? 'sent';
+    if ((rank[computed] ?? 0) < (rank[currentStatus] ?? 0)) {
+      debugPrint('[Receipt] Skipping regression $currentStatus -> $computed');
+      return;
+    }
+    // Same value: the write would only re-emit the whole list (13.2).
+    if (computed == current?.status) return;
+
+    debugPrint('[Receipt] Updating local message status to: $computed');
+    // `updated` is server time; `read_at` is the reader's device clock.
+    final reads = items
+        .where((r) => r.getStringValue('read_at').isNotEmpty)
+        .map((r) => DateTime.tryParse(r.getStringValue('updated')))
+        .nonNulls
+        .toList()
+      ..sort();
+    // One transaction: 'read' is terminal for reconcile, so a kill between
+    // the two writes would leave my copy's clock unstarted for good.
+    await db.transaction(() async {
+      await db.messagesDao.updateMessageStatus(localId, computed);
+      // Spec B6: everyone has read it, so my copy counts from the last read.
+      if (computed == 'read' && reads.isNotEmpty) {
+        await db.messagesDao.startClockOnRow(localId, reads.last);
+      }
+    });
   }
 
   /// Marks a message delivered for the current user (the recipient).
@@ -6174,6 +6339,8 @@ class MessageRepositoryImpl implements MessageRepository {
     if (conv?.type == 'group') {
       try {
         return await encryption.getOrFetchGroupKeyCandidates(convId, myId);
+      } on MissingKeyException {
+        rethrow; // G1: keep NoGroupKeyException visible to the sync loop
       } catch (e) {
         throw MissingKeyException('group key unavailable for $convId: $e');
       }
@@ -6191,20 +6358,93 @@ class MessageRepositoryImpl implements MessageRepository {
     await _syncConversations(myId);
   }
 
-  Future<void> _syncConversations(String myId) async {
+  /// R2: the pass running now, and the callers that arrived during it.
+  Future<void>? _convPass;
+  Completer<void>? _convRerun;
+  var _convQueued = 0;
+
+  /// R2 (D2 A): conversations per `||` member request; 40 ids keep the
+  /// filter far under PocketBase's 3500-character cap (0.37.5,
+  /// tools/search/provider.go `MaxFilterLength`).
+  static const _membersPerRequest = 40;
+
+  /// Single-flight (R2): a call during a pass waits; every such call is
+  /// folded into exactly one more pass after it.
+  Future<void> _syncConversations(String myId) {
+    if (_convPass == null) return _convPass = _convPasses(myId);
+    _convQueued++;
+    return (_convRerun ??= Completer<void>()).future;
+  }
+
+  Future<void> _convPasses(String myId) async {
+    Completer<void>? folded; // callers this pass answers
+    var queued = 0;
+    try {
+      while (true) {
+        try {
+          await _syncConversationsPass(myId, queued);
+        } finally {
+          folded?.complete();
+        }
+        folded = _convRerun;
+        if (folded == null) return;
+        _convRerun = null;
+        queued = _convQueued;
+        _convQueued = 0;
+        myId = await _myId(); // the account may have changed meanwhile
+        if (myId.isEmpty) {
+          folded.complete();
+          return;
+        }
+      }
+    } finally {
+      _convPass = null;
+    }
+  }
+
+  Future<void> _syncConversationsPass(String myId, int queued) async {
     final epoch = _sessionEpoch;
+    final watch = Stopwatch()..start();
     // Membership rows and join timestamps are the authorization boundary for
     // group history. Never reuse a cutoff across a server reconciliation.
     _cutoffCache.clear();
     try {
+      // getFullList: an account in more than 30 chats gets them all (R2).
       final res = await _pb
           .collection('conversation_members')
-          .getList(
+          .getFullList(
             filter: 'user_id="$myId"',
             expand: 'conversation_id',
             sort: '-created',
           );
-      for (final m in res.items) {
+      var requests = res.length ~/ 500 + 1;
+      // R2: every other member of every conversation, 40 conversations per
+      // request, grouped in memory.
+      final convIds = res
+          .map((m) => m.expand['conversation_id']?.firstOrNull?.id)
+          .whereType<String>()
+          .toSet()
+          .toList();
+      final othersByConv = <String, List<RecordModel>>{};
+      var memberCount = 0;
+      for (var k = 0; k < convIds.length; k += _membersPerRequest) {
+        final ids = convIds.skip(k).take(_membersPerRequest);
+        final rows = await _pb
+            .collection('conversation_members')
+            .getFullList(
+              filter:
+                  '(${ids.map((id) => 'conversation_id="$id"').join('||')})'
+                  '&&user_id!="$myId"',
+              expand: 'user_id',
+              batch: 500,
+            );
+        requests += rows.length ~/ 500 + 1;
+        memberCount += rows.length;
+        for (final om in rows) {
+          (othersByConv[om.getStringValue('conversation_id')] ??= []).add(om);
+        }
+      }
+      for (final m in res) {
         // Review C1: this loop spans many round-trips — bail the moment the
         // session ends, or the wiped DB refills with the old account's
         // conversations/members/users.
@@ -6229,6 +6469,12 @@ class MessageRepositoryImpl implements MessageRepository {
         final existingConv = await db.conversationsDao.getConversationById(
           conv.id,
         );
+        // R3: read before this pass writes any row. Empty = first sight of
+        // the conversation (fresh install, group just joined).
+        final localMemberIds =
+            (await db.conversationsDao.getAllMembersForConversation(
+              conv.id,
+            )).map((lm) => lm.userId).toSet();
         final serverAtStr = conv.getStringValue('last_message_at');
         final serverAt = serverAtStr.isEmpty
             ? null
@@ -6280,29 +6526,22 @@ class MessageRepositoryImpl implements MessageRepository {
                 DateTime.now(),
           ),
         );
-        // getFullList (not getList's 30 cap) so large groups sync fully.
-        final others = await _pb
-            .collection('conversation_members')
-            .getFullList(
-              filter: 'conversation_id="${conv.id}"&&user_id!="$myId"',
-              expand: 'user_id',
-              batch: 200,
-            );
+        // No rows in the answer = an empty member list, as before R2.
+        final others = othersByConv[conv.id] ?? const <RecordModel>[];
         final serverMemberIds = <String>{myId};
         // Join-triggered rotate, sync-discovery variant: if the SSE create
         // event was missed (offline admin), a member row that is NEW to this
         // device is discovered here. Must run BEFORE the upsert below makes
         // the row exist locally — same-map debounce collapses the duplicate
-        // scheduling when the SSE handler fired moments earlier.
-        final localMemberIds =
-            (await db.conversationsDao.getAllMembersForConversation(
-              conv.id,
-            )).map((lm) => lm.userId).toSet();
+        // scheduling when the SSE handler fired moments earlier. R3 (D3):
+        // never on first sight — every member looks new then, and the admin
+        // list is partial.
         for (final om in others) {
           serverMemberIds.add(om.getStringValue('user_id'));
           final u = om.expand['user_id']?.firstOrNull;
           if (u != null) await _cacheUserRecord(u);
-          if (!localMemberIds.contains(om.getStringValue('user_id'))) {
+          if (localMemberIds.isNotEmpty &&
+              !localMemberIds.contains(om.getStringValue('user_id'))) {
             await _maybeScheduleRotate(conv.id, om.getStringValue('user_id'));
           }
           await db.conversationsDao.upsertMember(
@@ -6347,10 +6586,12 @@ class MessageRepositoryImpl implements MessageRepository {
         });
       }
 
-      final activeConvIds = res.items
-          .map((m) => m.expand['conversation_id']?.firstOrNull?.id)
-          .whereType<String>()
-          .toSet();
+      final activeConvIds = convIds.toSet();
+      // No ids (R2 step 4).
+      debugPrint(
+        '[Conv] sync chats=${convIds.length} members=$memberCount '
+        'requests=$requests ms=${watch.elapsedMilliseconds} queued=$queued',
+      );
 
       final localMembers = await db.conversationsDao.getMembershipsOfUser(myId);
       for (final lm in localMembers) {

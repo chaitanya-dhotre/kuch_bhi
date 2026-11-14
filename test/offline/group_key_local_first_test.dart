@@ -267,6 +267,7 @@ void main() {
     final h = charHarness(clientFactory: () => keyClient(feed));
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: false);
+    await h.encryption.getPublicKeyBase64(); // G4: no walk without a key pair
 
     final repo = buildRepo(h);
     final ok = await repo.hasUsableKey('g1');

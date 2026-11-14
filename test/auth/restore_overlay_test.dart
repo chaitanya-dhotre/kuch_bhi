@@ -6,11 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
 import 'package:kuch_bhi/domain/repositories/message_repository.dart';
+import 'package:kuch_bhi/features/auth/providers/encryption_sync_provider.dart';
 import 'package:kuch_bhi/features/auth/screens/backup_pin_screen.dart';
 import 'package:kuch_bhi/features/mascot/capy.dart';
 import 'package:kuch_bhi/features/settings/providers/font_provider.dart';
 import 'package:kuch_bhi/features/settings/providers/notification_status_provider.dart';
 import 'package:kuch_bhi/features/settings/providers/theme_provider.dart';
+import 'package:kuch_bhi/infrastructure/offline/connectivity_signal.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
 import 'package:kuch_bhi/services/encryption_service.dart';
 
@@ -35,10 +37,13 @@ class _Enc implements EncryptionService {
 class _Sync extends FakeMessageRepository {
   void Function(HistorySyncProgress)? progress;
   final done = Completer<void>();
+  ConnectivitySignal? net;
   @override
   Future<void> syncAllHistory(
-      {void Function(HistorySyncProgress)? onProgress}) {
+      {void Function(HistorySyncProgress)? onProgress,
+      ConnectivitySignal? net}) {
     progress = onProgress;
+    this.net = net;
     return done.future;
   }
 }
@@ -58,7 +63,8 @@ class _Font implements FontController {
 
 Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
     {bool narrow = false, bool reduceMotion = false,
-    Completer<void>? keyGate}) async {
+    Completer<void>? keyGate,
+    bool gateHome = false}) async {
   if (narrow) {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
@@ -66,7 +72,22 @@ Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
   }
   final sync = _Sync();
   final theme = _Theme();
-  final router = GoRouter(routes: [
+  var syncChecks = 0;
+  // gateHome: the real SyncRouteGate rule that matters here — a settled
+  // needsRestore sends /home back to the restore screen.
+  final router = GoRouter(
+      redirect: !gateHome
+          ? null
+          : (context, state) {
+              final s = ProviderScope.containerOf(context)
+                  .read(encryptionSyncProvider);
+              return state.matchedLocation == '/home' &&
+                      !s.isLoading &&
+                      s.valueOrNull == EncryptionSyncStatus.needsRestore
+                  ? '/'
+                  : null;
+            },
+      routes: [
     GoRoute(
         path: '/',
         builder: (_, __) => const BackupPinScreen(mode: BackupPinMode.restore)),
@@ -76,6 +97,11 @@ Future<(_Sync, _Theme)> _startRestore(WidgetTester tester,
     overrides: [
       encryptionServiceProvider.overrideWithValue(_Enc(keyGate)),
       messageRepositoryProvider.overrideWithValue(sync),
+      // Checked once before the restore (needsRestore), then keyOk.
+      if (gateHome)
+        encryptionSyncProvider.overrideWith((ref) async => syncChecks++ == 0
+            ? EncryptionSyncStatus.needsRestore
+            : EncryptionSyncStatus.keyOk),
       themeModeProvider.overrideWith((ref) => Stream.value(AppThemeMode.system)),
       themeControllerProvider.overrideWithValue(theme),
       fontFamilyProvider.overrideWith((ref) => Stream.value(AppFont.system)),
@@ -232,6 +258,61 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // Restore rev 2 gate 5 (R1): offline line + Finish later; Home while the
+  // sync still waits; the sync then completes without the disposed screen.
+  testWidgets('rev2 gate 5: offline pause shows the line and Finish later',
+      (tester) async {
+    final (sync, _) = await _startRestore(tester, gateHome: true);
+    expect(sync.net, isNotNull, reason: 'the screen passes the signal');
+    sync.progress!(_p);
+    await tester.pump();
+    sync.progress!(const HistorySyncProgress(
+        phase: HistorySyncPhase.waitingForNetwork, chatsLeft: 3));
+    // A download paint queued by the throttle must not undo the pause.
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text(offlineRestoreLine(3)), findsOneWidget);
+    expect(offlineRestoreLine(3),
+        "You're offline. 3 chats left. We'll carry on when you're back.");
+    expect(offlineRestoreLine(1), contains('1 chat left.'));
+    final capy = tester.widget<Capy>(find.byType(Capy));
+    expect(capy.mood, CapyMood.sleepy);
+    expect(capy.pose, CapyPose.vault);
+
+    await tester.ensureVisible(find.text('Finish later'));
+    await tester.tap(find.text('Finish later'));
+    await tester.pumpAndSettle();
+    expect(find.text('page:/home'), findsOneWidget);
+    expect(sync.done.isCompleted, isFalse, reason: 'the sync carries on');
+
+    sync.progress!(_p);
+    sync.progress!(const HistorySyncProgress(phase: HistorySyncPhase.complete));
+    sync.done.complete();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.text('page:/home'), findsOneWidget);
+  });
+
+  testWidgets('rev2 gate 5: back online, the download label returns',
+      (tester) async {
+    final (sync, _) = await _startRestore(tester);
+    sync.progress!(const HistorySyncProgress(
+        phase: HistorySyncPhase.waitingForNetwork, chatsLeft: 2));
+    await tester.pump();
+    expect(find.text('Finish later'), findsOneWidget);
+    sync.progress!(const HistorySyncProgress(
+        phase: HistorySyncPhase.downloadingMessages,
+        conversationIndex: 4,
+        conversationCount: 5,
+        messageCurrent: 0,
+        messageTotal: 0));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('Finish later'), findsNothing);
+    expect(find.text('Downloading messages…'), findsOneWidget);
+    expect(find.text('4 of 5 chats'), findsOneWidget);
+    sync.done.complete();
+    await tester.pumpAndSettle();
+  });
+
   test('restoreCapy: guard + focused while checking, happy toss, then the '
       'vault: active, happy when ready', () {
     for (final p in [RestorePhase.idle, RestorePhase.deriving]) {
@@ -290,7 +371,10 @@ void main() {
     sync.progress!(_at(4, 1200));
     sync.progress!(_at(5, 1500));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 1600));
+    // History-sync S4: the second event paints 100 ms later; give it its
+    // frame (a phone draws every 16 ms, one long pump draws only at the end).
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 1500));
     expect(rig.fired, ['tossKey', 'envelope', 'envelope'],
         reason: 'a pace, never a backlog');
     await tester.pump(const Duration(milliseconds: 3200));
@@ -378,6 +462,34 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1500));
     expect(find.text('Unlocking your chats'), findsOneWidget);
     handle.dispose();
+    sync.done.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('history-sync S4: 1,000 progress events in 1 s repaint at most '
+      '11 times; complete applies at once', (tester) async {
+    final (sync, _) = await _startRestore(tester);
+    String label() => tester
+        .widget<Text>(find.textContaining('chats ·'))
+        .data!;
+    final shown = <String>[];
+    for (var k = 1; k <= 1000; k++) {
+      // Total kept large so the 20 % "decrypting" flip never fires.
+      sync.progress!(HistorySyncProgress(
+        phase: HistorySyncPhase.downloadingMessages,
+        conversationIndex: 1,
+        conversationCount: 2,
+        messageCurrent: k,
+        messageTotal: 100000,
+      ));
+      await tester.pump(const Duration(milliseconds: 1));
+      if (shown.isEmpty || shown.last != label()) shown.add(label());
+    }
+    expect(shown.length, lessThanOrEqualTo(11));
+    expect(shown.first, contains('1 of 100,000'), reason: 'first one at once');
+    sync.progress!(const HistorySyncProgress(phase: HistorySyncPhase.complete));
+    await tester.pump();
+    expect(find.text('Your chats are ready'), findsOneWidget);
     sync.done.complete();
     await tester.pumpAndSettle();
   });

@@ -82,12 +82,19 @@ class FakeSecureStorage implements SecureStorageService {
 
   int readAllCalls = 0;
 
+  /// Keys written through [write] / [saveContactEncryptionKey] (not [put]).
+  final writes = <String>[];
+
+  /// Transport-key cache reads ([getContactEncryptionKey]).
+  int contactKeyReads = 0;
+
   @override
   Future<String?> read({required String key}) async =>
       _overrides.containsKey(key) ? _overrides[key] : secrets[key];
 
   @override
   Future<void> write({required String key, required String value}) async {
+    writes.add(key);
     _overrides[key] = value;
   }
 
@@ -178,11 +185,14 @@ class FakeSecureStorage implements SecureStorageService {
   // group_key_local_first_test drives encryptGroupKeyForMember).
   @override
   Future<void> saveContactEncryptionKey(String contactOrConvId, String keyB64) async {
+    writes.add('contact_enc_$contactOrConvId');
     put('contact_enc_$contactOrConvId', keyB64);
   }
   @override
-  Future<String?> getContactEncryptionKey(String contactOrConvId) =>
-      read(key: 'contact_enc_$contactOrConvId');
+  Future<String?> getContactEncryptionKey(String contactOrConvId) {
+    contactKeyReads++;
+    return read(key: 'contact_enc_$contactOrConvId');
+  }
 
   @override
   dynamic noSuchMethod(Invocation i) => throw UnimplementedError(
