@@ -210,6 +210,10 @@ class EncryptionService {
 
   // ── Key pair ──────────────────────────────────────────────────
 
+  /// False while a restore is pending (no device key pair yet). Read-only.
+  Future<bool> hasDeviceKeyPair() async =>
+      await _storage.getPrivateKey() != null;
+
   /// The stored device key pair, or null. Read-only: decrypt/derive paths use
   /// this, because a key created during sign-in sync hides the Backup PIN
   /// restore (K1). Only first-time setup (getPublicKeyBase64) may create one.

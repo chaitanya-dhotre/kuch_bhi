@@ -130,6 +130,14 @@ MockClient resyncClient(ResyncFeed feed) => MockClient((req) async {
       return http.Response('{"message":"unhandled"}', 404);
     });
 
+/// A signed-in phone with its key pair (a resume without one only reconnects:
+/// restore-resume-overlap O1).
+Future<CharHarness> keyedHarness(ResyncFeed feed) async {
+  final h = charHarness(clientFactory: () => resyncClient(feed));
+  await h.encryption.getPublicKeyBase64();
+  return h;
+}
+
 Map<String, dynamic> msgRecord({
   required String id,
   required String conversationId,
@@ -161,7 +169,7 @@ void main() {
         await pre.encryption.encryptMessage('old row', fixtureGroupKey);
 
     final feed = ResyncFeed();
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -202,7 +210,7 @@ void main() {
         await pre.encryption.encryptMessage('fresh row', fixtureGroupKey);
 
     final feed = ResyncFeed();
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -259,7 +267,7 @@ void main() {
     final enc = await pre.encryption.encryptMessage('old row', fixtureGroupKey);
 
     final feed = ResyncFeed();
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -301,7 +309,7 @@ void main() {
     final enc = await pre.encryption.encryptMessage('old row', fixtureGroupKey);
 
     final feed = ResyncFeed();
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -344,7 +352,7 @@ void main() {
     final enc = await pre.encryption.encryptMessage('star me', fixtureGroupKey);
 
     final feed = ResyncFeed()..starredIds.add('srv_star');
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -391,7 +399,7 @@ void main() {
     final enc = await pre.encryption.encryptMessage('gone', fixtureGroupKey);
 
     final feed = ResyncFeed()..deletedIds.add('srv_gone');
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -461,7 +469,7 @@ void main() {
         ),
     ];
 
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -500,7 +508,7 @@ void main() {
     final feed = ResyncFeed()
       ..starredIds.add('srv_s1')
       ..deletedIds.add('srv_d1');
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(
@@ -555,7 +563,7 @@ void main() {
         await pre.encryption.encryptMessage('tick me', fixtureGroupKey);
 
     final feed = ResyncFeed();
-    final h = charHarness(clientFactory: () => resyncClient(feed));
+    final h = await keyedHarness(feed);
     addTearDown(h.close);
     await seedConversationAndKey(h, withKey: true);
     await h.db.messagesDao.upsertMessage(MessagesTableCompanion.insert(

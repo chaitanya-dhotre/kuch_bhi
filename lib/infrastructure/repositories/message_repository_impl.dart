@@ -231,6 +231,7 @@ class MessageRepositoryImpl implements MessageRepository {
       _cutoffCache.clear(); // identity changed — group cutoffs are per-user
       _removalMissCounts.clear(); // and removal verdicts are per-user too
       _repairMissCounts.clear(); // and the repair give-up count is per-user
+      _owedChats.clear(); // O3: no catch-up for the previous user's chats
       // P8 (F1 fix): the device-local outbox key lives in a
       // session-scoped secure-storage slot, so the in-memory copy is
       // session-scoped too. Without this, the next keyless enqueue in the
@@ -3359,6 +3360,11 @@ class MessageRepositoryImpl implements MessageRepository {
   /// group-key prefetch stays out of its way.
   bool _historySyncRunning = false;
 
+  /// O3: chats this sync has fetched page 1 of. SSE does not replay, so a
+  /// resume deferred while the sync runs owes these one catch-up after it.
+  final _historyFetched = <String>{};
+  final _owedChats = <String>{};
+
   @override
   Future<void> syncAllHistory({
     void Function(HistorySyncProgress)? onProgress,
@@ -3368,6 +3374,7 @@ class MessageRepositoryImpl implements MessageRepository {
     if (myId.isEmpty) return;
     debugPrint('[Sync] Full history sync starting for $myId');
     _historySyncRunning = true;
+    _historyFetched.clear();
     try {
       // Ensure conversations + members are cached first.
       onProgress?.call(
@@ -3398,6 +3405,7 @@ class MessageRepositoryImpl implements MessageRepository {
           final ticksF = _tickIndex(conv.id, myId, members: members);
           final firstF = _historyPage(conv.id, 1);
           await Future.wait<Object?>([keysF, ticksF, firstF]);
+          _historyFetched.add(conv.id);
           final keys = await keysF;
           final ticks = await ticksF;
           var res = await firstF;
@@ -3540,6 +3548,15 @@ class MessageRepositoryImpl implements MessageRepository {
       debugPrint('[Sync] Full history sync error: $e');
     } finally {
       _historySyncRunning = false;
+      if (_owedChats.isNotEmpty) {
+        final owed = _owedChats.toList();
+        _owedChats.clear();
+        debugPrint('[Sync] owed catch-up chats=${owed.length}');
+        unawaited(_backfillTargets(owed).catchError((Object e) {
+          debugPrint('[Sync] owed catch-up: $e');
+          return true;
+        }));
+      }
     }
   }
 
@@ -4442,6 +4459,19 @@ class MessageRepositoryImpl implements MessageRepository {
       if (!light || bodyCache.length == 0) {
         unawaited(prewarmHomePreviews());
       }
+      // O1: during a restore the history sync fetches every chat itself, and
+      // with no key pair yet nothing fetched could be read. SSE is already
+      // reconnected above; only local work runs.
+      final deferred = _historySyncRunning
+          ? 'sync'
+          : (await encryption.hasDeviceKeyPair() ? null : 'nokey');
+      if (deferred != null) {
+        debugPrint('[Msg] resync deferred — reason=$deferred '
+            'path=${light ? 'light' : 'full'}');
+        if (deferred == 'sync') _owedChats.addAll(_historyFetched);
+        await _resumeLocalWork(myId);
+        return;
+      }
       await _syncConversations(myId);
 
       if (light) {
@@ -4456,7 +4486,7 @@ class MessageRepositoryImpl implements MessageRepository {
         // the only resume-path send recovery).
         final targets = await _deltaBackfillTargets(myId);
         debugPrint('[Msg] resync light — delta convs=${targets.length}');
-        await _backfillTargets(targets);
+        if (!await _backfillTargets(targets)) return _resumeLocalWork(myId);
         // C2 (review #72 accepted tradeoff, now closed): the per-conv
         // star/delete/receipt syncs inside _fetchAndCacheMessages only ran
         // for TARGET convs — quiet convs waited for chat-open or a ≥60s
@@ -4466,10 +4496,7 @@ class MessageRepositoryImpl implements MessageRepository {
         await _syncDeletedForMeUser(myId);
         await _syncStarredMessagesUser(myId);
         await _reconcileReceiptsUser(myId);
-        await retryPendingMessages();
-        for (final convId in _pendingJoinEmitConvIds.toList()) {
-          unawaited(_emitJoinedWhenKeyReady(convId, myId));
-        }
+        await _resumeLocalWork(myId);
         return;
       }
 
@@ -4485,19 +4512,12 @@ class MessageRepositoryImpl implements MessageRepository {
       // Most-recently-active first (the likely unread conv), fetched in
       // small parallel batches — the old serial loop made the badge land
       // 15-30s after open with a dozen conversations.
-      await _backfillTargets(targets);
+      if (!await _backfillTargets(targets)) return _resumeLocalWork(myId);
       // 2b. Rotate for members whose key distribution was missed while
       // every admin device was offline (spec D2) — AFTER the backfill so
       // rare key-gap work never delays the badge/messages above.
       await _reconcileGroupKeyGaps();
-      // 3. Flush anything that failed to send while backgrounded.
-      await retryPendingMessages();
-
-      // 4. Retry deferred join bubbles (accept happened while no admin
-      //    device was online to rotate the group key).
-      for (final convId in _pendingJoinEmitConvIds.toList()) {
-        unawaited(_emitJoinedWhenKeyReady(convId, myId));
-      }
+      await _resumeLocalWork(myId);
     } catch (e) {
       debugPrint('[Msg] resyncOnResume: $e');
     } finally {
@@ -4560,9 +4580,20 @@ class MessageRepositoryImpl implements MessageRepository {
     return targets;
   }
 
+  /// Resume work that fetches no history: flush sends that failed while
+  /// backgrounded, and retry deferred join bubbles (accept happened while no
+  /// admin device was online to rotate the group key).
+  Future<void> _resumeLocalWork(String myId) async {
+    await retryPendingMessages();
+    for (final convId in _pendingJoinEmitConvIds.toList()) {
+      unawaited(_emitJoinedWhenKeyReady(convId, myId));
+    }
+  }
+
   /// Shared per-conversation backfill: most-recently-active first, small
-  /// parallel batches (chunks of 3).
-  Future<void> _backfillTargets(List<String> targets) async {
+  /// parallel batches (chunks of 3). False when it stopped early because the
+  /// history sync started (O2): the sync fetches the rest itself.
+  Future<bool> _backfillTargets(List<String> targets) async {
     final recency = <String, DateTime>{};
     for (final cid in targets) {
       final c = await db.conversationsDao.getConversationById(cid);
@@ -4570,9 +4601,15 @@ class MessageRepositoryImpl implements MessageRepository {
     }
     targets.sort((a, b) => recency[b]!.compareTo(recency[a]!));
     for (var i = 0; i < targets.length; i += 3) {
+      if (_historySyncRunning) {
+        debugPrint('[Msg] resync backfill stopped — history sync, '
+            'left=${targets.length - i}');
+        return false;
+      }
       final chunk = targets.skip(i).take(3);
       await Future.wait(chunk.map((cid) => _fetchAndCacheMessages(cid)));
     }
+    return true;
   }
 
   /// Spec D2: after resume, find groups where some member has no current

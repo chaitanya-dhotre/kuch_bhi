@@ -2,6 +2,8 @@
 /// offline pause and retry rounds (R1), the conversations step in 2 requests
 /// (R2), no join rotation on first sight (R3), one key walk per group (R4),
 /// one round trip per chat (R5). Gate 5 is in test/auth/restore_overlay_test.
+/// Group "resume overlap": docs/design/pages/restore-resume-overlap.md
+/// gates 1–7 (O1–O3).
 library;
 
 import 'dart:async';
@@ -9,6 +11,7 @@ import 'dart:convert';
 import 'dart:io' show HttpDate;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -704,6 +707,186 @@ void main() {
       expect(server.log.indexOf(stars.single), greaterThan(lastPage));
       expect(deleted?.isDeletedForMe, isTrue);
       expect(starred?.isStarred, isTrue);
+    });
+  });
+
+  // docs/design/pages/restore-resume-overlap.md gates 1–7 (O1–O3).
+  group('resume overlap', () {
+    // The resume's per-chat fetch asks for 40 rows; the sync's pages for 200.
+    Iterable<_Req> resumeFetches(_Server s) => s
+        .on('messages')
+        .where((r) => r.req.url.queryParameters['perPage'] == '40');
+    Iterable<_Req> deltaQueries(_Server s) =>
+        s.on('messages').where((r) => r.filter.contains('created >='));
+    bool syncPage(http.Request req) =>
+        req.url.path.contains('/collections/messages/records') &&
+        req.url.queryParameters['perPage'] == '200';
+
+    List<String> captureLogs() {
+      // First binding init resets debugPrint; do it before overriding.
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final logs = <String>[];
+      final old = debugPrint;
+      debugPrint = (String? m, {int? wrapWidth}) => logs.add(m ?? '');
+      addTearDown(() => debugPrint = old);
+      return logs;
+    }
+
+    Future<void> until(bool Function() done) async {
+      while (!done()) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    test('gate 1: a resume while the sync runs makes no server catch-up',
+        () async {
+      final logs = captureLogs();
+      final server = _chats(3);
+      final h = await _fresh(server);
+      final repo = buildRepo(h);
+      final release = Completer<void>();
+      server.hook = (req) async {
+        if (syncPage(req)) await release.future;
+        return null;
+      };
+      final sync = repo.syncAllHistory();
+      await until(() => server.on('messages').isNotEmpty);
+      final before = server.log.length;
+
+      await repo.resyncOnResume(awayFor: const Duration(seconds: 5));
+      await repo.resyncOnResume();
+      expect(server.log.length, before, reason: 'no request from the resume');
+      expect(logs, contains('[Msg] resync deferred — reason=sync path=light'));
+      expect(logs, contains('[Msg] resync deferred — reason=sync path=full'));
+
+      release.complete();
+      await sync;
+      expect(resumeFetches(server), isEmpty);
+      expect(deltaQueries(server), isEmpty);
+    });
+
+    test('gate 2: no key pair (restore pending) → no request; nothing owed',
+        () async {
+      final logs = captureLogs();
+      final server = _chats(2);
+      final h = charHarness(clientFactory: () => server.client);
+      addTearDown(h.close);
+      await h.db.settingsDao.setSetting(AppSettingsKeys.currentUserId, _me);
+      final repo = buildRepo(h);
+
+      await repo.resyncOnResume(awayFor: const Duration(seconds: 5));
+      await repo.resyncOnResume();
+      expect(server.log, isEmpty);
+      expect(logs.where((l) => l.contains('reason=nokey')), hasLength(2));
+
+      server.publicKey = await h.encryption.getPublicKeyBase64(); // restored
+      await repo.syncAllHistory();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(resumeFetches(server), isEmpty, reason: 'nothing owed');
+      expect(logs.where((l) => l.contains('owed catch-up')), isEmpty);
+    });
+
+    test('gate 3: a running backfill stops at the next chunk when the sync '
+        'starts', () async {
+      final logs = captureLogs();
+      final server = _chats(9);
+      final h = await _fresh(server);
+      final repo = buildRepo(h);
+      await repo.syncAllHistory(); // memberships on the phone
+      server.log.clear();
+
+      final release = Completer<void>();
+      final releaseSync = Completer<void>();
+      server.hook = (req) async {
+        if (req.url.queryParameters['perPage'] == '40') await release.future;
+        if (syncPage(req)) await releaseSync.future;
+        return null;
+      };
+      final resume = repo.resyncOnResume(); // full path: all 9 chats
+      await until(() => resumeFetches(server).length == 3);
+      final sync = repo.syncAllHistory();
+      await until(() => server.on('messages').any((r) => syncPage(r.req)));
+      release.complete(); // chunk 1 ends while the sync still runs
+      await resume;
+      releaseSync.complete();
+      await sync;
+
+      expect(resumeFetches(server), hasLength(3), reason: 'chunk 1 only');
+      expect(logs, contains('[Msg] resync backfill stopped — history sync, '
+          'left=6'));
+    });
+
+    test('gate 4: chats finished before a mid-sync resume are fetched once '
+        'more after it; the rest are not', () async {
+      final logs = captureLogs();
+      final server = _chats(5);
+      final h = await _fresh(server);
+      final repo = buildRepo(h);
+      final release = Completer<void>();
+      server.hook = (req) async {
+        if (syncPage(req) && _convOf(req) == 'c2') await release.future;
+        return null;
+      };
+      final sync = repo.syncAllHistory();
+      await until(() => server.on('messages').any((r) => _convOf(r.req) == 'c2'));
+
+      await repo.resyncOnResume(awayFor: const Duration(seconds: 20));
+      server.messages['c0']!.insert(0, _msg('c0', -1)); // sent while away
+      release.complete();
+      await sync;
+      await until(() => resumeFetches(server).length == 2);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect({for (final r in resumeFetches(server)) _convOf(r.req)},
+          {'c0', 'c1'});
+      expect(resumeFetches(server), hasLength(2));
+      expect(await h.db.messagesDao.getMessageByServerId('c0_m-1'), isNotNull);
+      expect(logs, contains('[Sync] owed catch-up chats=2'));
+    });
+
+    test('gate 5: no resume during the sync → no fetch after it', () async {
+      final server = _chats(3);
+      final h = await _fresh(server);
+      await buildRepo(h).syncAllHistory();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(resumeFetches(server), isEmpty);
+    });
+
+    test('gate 6: after the sync ends a short resume runs the light path',
+        () async {
+      final logs = captureLogs();
+      final server = _chats(2);
+      final h = await _fresh(server);
+      final repo = buildRepo(h);
+      await repo.syncAllHistory();
+      server.hook = (req) =>
+          (req.url.queryParameters['filter'] ?? '').contains('created >=')
+              ? _page(req, const [])
+              : null;
+      await repo.resyncOnResume(awayFor: const Duration(seconds: 5));
+      expect(deltaQueries(server), hasLength(1));
+      expect(logs.where((l) => l.contains('resync deferred')), isEmpty);
+    });
+
+    test('gate 7: sign-out before the sync ends drops what is owed', () async {
+      final server = _chats(4);
+      final h = await _fresh(server);
+      final repo = buildRepo(h);
+      final release = Completer<void>();
+      server.hook = (req) async {
+        if (syncPage(req) && _convOf(req) == 'c2') await release.future;
+        return null;
+      };
+      final sync = repo.syncAllHistory();
+      await until(() => server.on('messages').any((r) => _convOf(r.req) == 'c2'));
+      await repo.resyncOnResume(awayFor: const Duration(seconds: 5));
+
+      h.pbClient.pb.authStore.clear(); // signed out
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      release.complete();
+      await sync;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(resumeFetches(server), isEmpty);
     });
   });
 }
