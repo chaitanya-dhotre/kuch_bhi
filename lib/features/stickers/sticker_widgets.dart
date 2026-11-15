@@ -28,6 +28,19 @@ class StickerImage extends StatelessWidget {
   );
 }
 
+/// Motion C1: decodes every sticker at chat size, so a sent sticker paints
+/// on its row's first frame and its flight from the composer has pixels.
+void precacheChatStickers(BuildContext context) {
+  final px = (kStickerChatSize * MediaQuery.devicePixelRatioOf(context))
+      .round();
+  for (final s in kStickers) {
+    precacheImage(
+      ResizeImage.resizeIfNeeded(px, null, AssetImage(s.asset)),
+      context,
+    );
+  }
+}
+
 /// The thumbnail for a sticker message in the reply quote, pinned banner and
 /// starred list; nothing for an unknown id or an undecrypted body.
 Widget stickerThumb(String? body, double size) {

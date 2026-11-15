@@ -98,18 +98,39 @@ sizes need a foundation amendment.
 
 ## 5. Motion
 
+Rewritten by the motion pass (`docs/design/pages/motion.md` §A, spec PASS
+2026-11-15). Source: `lib/core/theme/tokens.dart`; chat and core widgets
+take every duration and curve from here (L8 grep gate,
+`test/core/motion_tokens_test.dart`).
+
 | Token | Value | Use |
 |---|---|---|
-| fast | 150ms | pressed states, small fades |
-| base | 250ms | sheets, switches, implicit anims (ceiling) |
-| slow | 400ms | large enters, highlight fades |
-| emphasized | `Curves.emphasizedCubic` | enters |
-| spring | damping ≈0.8 | mascot + reaction pop only |
+| `motionPress` | 120 ms | pressed states, colour shifts |
+| `motionFast` | 150 ms | small fades, icon swaps, tick changes |
+| `motionEnter` | 200 ms | a bubble, a chip, a menu arriving |
+| `motionBase` | 250 ms | sheets, dialogs |
+| `motionPage` | 320 ms | page push, shared avatar |
+| `motionSlow` | 400 ms | highlight fades |
+| `curveEnter` | `Cubic(0.32, 0.72, 0, 1)` | anything arriving |
+| `curveExit` | `Cubic(0.55, 0, 1, 0.45)` | anything leaving (used flipped, so it accelerates away) |
+| `curveMove` | `Cubic(0.77, 0, 0.175, 1)` | moving or resizing in place |
+| `springSoft` | damping ratio 0.8 | reactions, badge, counts |
+| `springDrag` | damping ratio 1.0 | releasing a drag |
 
-Laws: all implicit animations ≤250ms (frame-drop rule). Reduced-motion:
-animations collapse to opacity or stop; mascot idles park. Jump-to-message
-highlight = accent-tinted flash decaying over `slow` (400ms) — spec'd per
-page but timed from these tokens.
+Derived: `motionPagePop` 240, `motionExit` 190, `motionSend` 300,
+`motionArrive` 180, `motionShake` 360. A screen-scrim token `scrim` = black
+45 % sits under sheets, dialogs and the bubble menu.
+
+Laws (motion.md): L1 frequency decides, nothing on screen at first paint
+animates in; L2 a press shows on the touch's frame; L3 exits are shorter
+and accelerate away; L4 transform and opacity only (exceptions: one new
+bubble's height, the send overlay, Home row slides); L5 one thing leads, at
+most 2 list items move; L6 input is never blocked, a new send snaps the last
+one to its end; L7 reduced motion = instant, except pages (150 ms fade) and
+sheets (no slide, 150 ms content fade); L8 tokens only. Shared widgets:
+`PressScale` (B1), `PopOnChange` / `FlashOnChange` / `ReorderSlide` /
+`ShakeOnChange` (`core/widgets/change_motion.dart`),
+`WarmPopPageTransitionsBuilder` (`core/theme/page_motion.dart`).
 
 ## 6. Shared state vocabulary (same meaning on every page)
 

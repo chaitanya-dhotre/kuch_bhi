@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 
 /// Warm Pop token system — the single source of truth (spec).
 /// Components read tokens; screens read components. Never hardcode colors
@@ -65,6 +66,8 @@ class WarmPopTokens {
   /// A faint light edge keeps the card readable on pure black, which is the
   /// same cue the ink-derived shadow used to give.
   static const shadowAmoled = Color(0x0AF3EDE3); // rgba(243,237,227,.04)
+  /// Motion B4 / C6: the scrim under sheets, dialogs and the bubble menu.
+  static const scrim = Color(0x73000000); // black 45 %
 
   /// The single card shadow layer (foundation §4: max 2 shadow layers).
   ///
@@ -103,10 +106,58 @@ class WarmPopTokens {
   static const radiusBubble = 18.0;
   static const radiusBubbleTail = 6.0;
 
-  // Motion
+  // Motion (motion spec §A; foundation §5). The only source of durations
+  // and curves for chat and core widgets (L8 grep gate).
+  static const motionPress = Duration(milliseconds: 120);
   static const motionFast = Duration(milliseconds: 150);
+  static const motionEnter = Duration(milliseconds: 200);
   static const motionBase = Duration(milliseconds: 250);
+  static const motionPage = Duration(milliseconds: 320);
   static const motionSlow = Duration(milliseconds: 400);
+
+  /// Derived from the tokens above (L3 exits at 75 %, C1 flight, C2 arrive).
+  static const motionPagePop = Duration(milliseconds: 240);
+  static const motionExit = Duration(milliseconds: 190);
+  static const motionSend = Duration(milliseconds: 300);
+  static const motionArrive = Duration(milliseconds: 180);
+  static const motionShake = Duration(milliseconds: 360);
+
+  static const curveEnter = Cubic(0.32, 0.72, 0, 1);
+  static const curveExit = Cubic(0.55, 0, 1, 0.45);
+  static const curveMove = Cubic(0.77, 0, 0.175, 1);
+
+  /// Ratio 0.8: ~1.5 % overshoot, settles in ~300 ms.
+  static final springSoft = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 400,
+    ratio: 0.8,
+  );
+
+  /// Critically damped: a released drag never wobbles.
+  static final springDrag = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 400,
+    ratio: 1,
+  );
+}
+
+/// L7: [d], or zero when the system asks for no animations.
+Duration motionOf(BuildContext context, Duration d) =>
+    MediaQuery.disableAnimationsOf(context) ? Duration.zero : d;
+
+/// Runs [c] from 0 to 1 on [spring]; jumps there under reduced motion.
+/// Ends exactly on 1 (the simulation stops within its tolerance).
+void springTo(
+  BuildContext context,
+  AnimationController c,
+  SpringDescription spring, {
+  double from = 0,
+}) {
+  if (MediaQuery.disableAnimationsOf(context)) {
+    c.value = 1;
+    return;
+  }
+  c.animateWith(SpringSimulation(spring, from, 1, 0)).then((_) => c.value = 1);
 }
 
 /// Theme-scoped colors. Components consume `context.t`.

@@ -8,6 +8,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/utils/recovery_key.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_field.dart';
+import '../../core/widgets/change_motion.dart';
 import '../../core/widgets/app_logo_tile.dart';
 import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/status_banner.dart';
@@ -41,6 +42,7 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
   bool _promptAttempted = false;
   bool _biometricAvailable = false;
   String? _fieldError;
+  int _wrongKey = 0; // E1: each wrong recovery key shakes the field once
   String? _cardError;
   Timer? _waitTicker;
   bool _navCanPop = false;
@@ -184,6 +186,7 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
           if (!mounted) return;
           setState(() {
             _checking = false;
+            _wrongKey++;
             _fieldError =
                 "That doesn't match your backup. Check for typos and try again.";
           });
@@ -391,7 +394,9 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
           style: TextStyle(fontSize: 15, height: 22 / 15, color: t.inkSoft),
         ),
         const SizedBox(height: 20),
-        TextField(
+        ShakeOnChange(
+          trigger: _wrongKey,
+          child: TextField(
           controller: _recoveryInput,
           decoration: decoration,
           obscureText: _obscured,
@@ -409,6 +414,7 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
               });
             }
           },
+        ),
         ),
         if (_cardError != null) ...[
           const SizedBox(height: 12),

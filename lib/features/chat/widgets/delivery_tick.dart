@@ -15,7 +15,8 @@ class DeliveryTick extends StatelessWidget {
     final t = context.t;
     final normalizedStatus = status == 'pending' ? 'queued' : status;
 
-    return switch (normalizedStatus) {
+    // Motion C4: a status change cross-fades over motionFast, no bounce.
+    final Widget icon = switch (normalizedStatus) {
       'sending' => BusySpinner(size: size, strokeWidth: 2, color: t.inkFaint),
       'sent' => Icon(Icons.check, size: size, color: t.inkSoft),
       'delivered' => Icon(
@@ -28,5 +29,9 @@ class DeliveryTick extends StatelessWidget {
       'queued' => Icon(Icons.schedule, size: size, color: t.inkFaint),
       _ => Icon(Icons.schedule, size: size, color: t.inkFaint),
     };
+    return AnimatedSwitcher(
+      duration: motionOf(context, WarmPopTokens.motionFast),
+      child: KeyedSubtree(key: ValueKey(normalizedStatus), child: icon),
+    );
   }
 }

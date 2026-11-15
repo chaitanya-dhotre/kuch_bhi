@@ -132,6 +132,9 @@ class ChatInfoMode extends InheritedWidget {
 /// The single outer frame used by text, media, voice, and documents. It
 /// holds only content: the time lives on the line under the run (B2).
 class ChatBubbleFrame extends StatelessWidget {
+  /// Motion C1: the [MetaData] tag on the bubble's own box.
+  static const box = #chatBubbleBox;
+
   const ChatBubbleFrame({
     super.key,
     required this.isMine,
@@ -174,26 +177,35 @@ class ChatBubbleFrame extends StatelessWidget {
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: ChatBubbleGeometry.margin(isMine: isMine),
-        constraints: BoxConstraints(
-          maxWidth: math.max(ChatBubbleGeometry.maxWidth(context), width ?? 0),
+      child: Padding(
+        padding: ChatBubbleGeometry.margin(isMine: isMine),
+        // Motion C1: marks the bubble's own box for the send flight.
+        child: MetaData(
+          metaData: ChatBubbleFrame.box,
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: math.max(
+                ChatBubbleGeometry.maxWidth(context),
+                width ?? 0,
+              ),
+            ),
+            foregroundDecoration: chrome
+                ? BoxDecoration(
+                    border:
+                        border ??
+                        (!isMine && light ? Border.all(color: t.line) : null),
+                    borderRadius: bubbleRadius,
+                  )
+                : null,
+            decoration: chrome
+                ? BoxDecoration(
+                    color: background ?? (isMine ? t.bubbleMine : t.surface),
+                    borderRadius: bubbleRadius,
+                  )
+                : null,
+            child: content,
+          ),
         ),
-        foregroundDecoration: chrome
-            ? BoxDecoration(
-                border:
-                    border ??
-                    (!isMine && light ? Border.all(color: t.line) : null),
-                borderRadius: bubbleRadius,
-              )
-            : null,
-        decoration: chrome
-            ? BoxDecoration(
-                color: background ?? (isMine ? t.bubbleMine : t.surface),
-                borderRadius: bubbleRadius,
-              )
-            : null,
-        child: content,
       ),
     );
   }

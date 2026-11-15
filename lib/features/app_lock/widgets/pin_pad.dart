@@ -1,9 +1,9 @@
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/change_motion.dart';
 
 class PinPad extends StatefulWidget {
   const PinPad({
@@ -31,9 +31,9 @@ class PinPad extends StatefulWidget {
   State<PinPad> createState() => _PinPadState();
 }
 
-class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
+class _PinPadState extends State<PinPad> {
   final _digits = StringBuffer();
-  late final AnimationController _shake;
+  int _wrong = 0; // E1: each wrong PIN shakes the dots once
   bool _busy = false;
   String? _spoken;
 
@@ -44,10 +44,6 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
   void initState() {
     super.initState();
     _spoken = widget.message;
-    _shake = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
   }
 
   @override
@@ -58,7 +54,6 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
-    _shake.dispose();
     super.dispose();
   }
 
@@ -97,9 +92,7 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
     if (!mounted || ok) return;
     _clear();
     HapticFeedback.vibrate();
-    if (!MediaQuery.of(context).disableAnimations) {
-      await _shake.forward(from: 0);
-    }
+    setState(() => _wrong++);
   }
 
   Widget _key({
@@ -187,7 +180,9 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
         Semantics(
           excludeSemantics: true,
           label: 'PIN, ${_digits.length} of 6 digits entered',
-          child: Row(
+          child: ShakeOnChange(
+            trigger: _wrong,
+            child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               for (var i = 0; i < 6; i++) ...[
@@ -206,6 +201,7 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
                 if (i != 5) const SizedBox(width: 14),
               ],
             ],
+          ),
           ),
         ),
         const SizedBox(height: 8),
@@ -233,13 +229,7 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
           ),
         ),
         const SizedBox(height: 4),
-        AnimatedBuilder(
-          animation: _shake,
-          builder: (context, child) {
-            final offset = math.sin(_shake.value * math.pi * 4) * 8;
-            return Transform.translate(offset: Offset(offset, 0), child: child);
-          },
-          child: SizedBox(
+        SizedBox(
             width: 72 * 3 + 16 * 2,
             child: GridView.count(
               crossAxisCount: 3,
@@ -267,7 +257,6 @@ class _PinPadState extends State<PinPad> with SingleTickerProviderStateMixin {
               ],
             ),
           ),
-        ),
       ],
     );
   }

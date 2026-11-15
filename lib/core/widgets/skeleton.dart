@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 import '../../core/theme/tokens.dart';
 
 /// R11 (chat calm §F): a placeholder appears only after this much loading.
-const kSkeletonDelay = Duration(milliseconds: 300);
+const kSkeletonDelay = Duration(milliseconds: 300); // motion-allow: Chat calm placeholder, kept
 
 /// R11: one breath, 1.0 ↔ 0.55 opacity, back and forth.
-const kSkeletonBreath = Duration(milliseconds: 1600);
+const kSkeletonBreath = Duration(milliseconds: 1600); // motion-allow: Chat calm placeholder, kept
 
 /// R11: one clock for every [Skeleton] inside it, so a loading layout
 /// breathes together. Its blocks stay invisible (but keep their size, so
@@ -118,7 +118,7 @@ class _WallClockBreath extends Animation<double>
     final ms = period.inMilliseconds;
     final t = (DateTime.now().millisecondsSinceEpoch % (2 * ms)) / ms;
     final x = t <= 1 ? t : 2 - t; // there and back
-    return 1.0 - 0.45 * Curves.easeInOut.transform(x);
+    return 1.0 - 0.45 * Curves.easeInOut.transform(x); // motion-allow: Chat calm placeholder, kept
   }
 }
 

@@ -188,9 +188,9 @@ void main() {
         final box = find
             .descendant(of: frames.at(i), matching: find.byType(Container))
             .first;
-        // The box includes the 12 dp A7 margin on the bubble's own side.
+        // The 12 dp A7 margin sits outside the box (motion C1 marks it).
         expect(
-          tester.getSize(box).width - ChatBubbleGeometry.nearMargin,
+          tester.getSize(box).width,
           closeTo(a2, 0.5),
           reason: 'bubble $i',
         );

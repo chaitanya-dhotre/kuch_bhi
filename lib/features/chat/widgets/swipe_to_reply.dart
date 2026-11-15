@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../core/utils/app_haptic.dart';
@@ -27,17 +28,10 @@ class _SwipeToReplyState extends State<SwipeToReply>
   static const _threshold = 72.0;
   static const _maxDrag   = 80.0;
 
-  late final AnimationController _snapCtrl;
-  late       Animation<double>   _snapAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _snapCtrl = AnimationController(
-      vsync:    this,
-      duration: const Duration(milliseconds: 180),
-    )..addListener(() => setState(() => _offset = _snapAnim.value));
-  }
+  // Motion C8: the release runs on springDrag (critically damped, no wobble).
+  late final AnimationController _snapCtrl = AnimationController.unbounded(
+    vsync: this,
+  )..addListener(() => setState(() => _offset = _snapCtrl.value.clamp(0, _maxDrag)));
 
   @override
   void dispose() {
@@ -46,6 +40,7 @@ class _SwipeToReplyState extends State<SwipeToReply>
   }
 
   void _onUpdate(DragUpdateDetails d) {
+    _snapCtrl.stop();
     // Only allow rightward swipe.
     final next = (_offset + d.delta.dx).clamp(0.0, _maxDrag);
     setState(() {
@@ -58,12 +53,21 @@ class _SwipeToReplyState extends State<SwipeToReply>
     });
   }
 
-  void _onEnd(DragEndDetails _) {
+  void _onEnd(DragEndDetails d) {
     _triggered = false;
-    _snapAnim = Tween<double>(begin: _offset, end: 0).animate(
-      CurvedAnimation(parent: _snapCtrl, curve: Curves.elasticOut),
+    if (MediaQuery.disableAnimationsOf(context)) {
+      setState(() => _offset = 0);
+      return;
+    }
+    _snapCtrl.value = _offset;
+    _snapCtrl.animateWith(
+      SpringSimulation(
+        WarmPopTokens.springDrag,
+        _offset,
+        0,
+        d.velocity.pixelsPerSecond.dx,
+      ),
     );
-    _snapCtrl.forward(from: 0);
   }
 
   @override

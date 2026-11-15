@@ -19,6 +19,7 @@ import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
+import '../../../core/widgets/press_scale.dart';
 import '../../../domain/entities/message.dart';
 import '../../../domain/repositories/message_repository.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
@@ -50,7 +51,13 @@ class MessageInput extends ConsumerStatefulWidget {
     this.canSendMessages = true,
     this.restrictionMessage,
     this.replySenderName,
+    this.onSendFlight,
   });
+
+  /// Motion C1: the text and the field's box on the frame of a text send,
+  /// called just before [onSend].
+  /// [text] is null for a voice note or a sticker.
+  final void Function(String? text, Rect field)? onSendFlight;
 
   /// May return the send's future; a throw restores the text with a toast.
   final FutureOr<void> Function(String) onSend;
@@ -118,6 +125,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
   final List<File> _albumTempFiles = [];
 
   final _focusNode = FocusNode();
+  final _fieldKey = GlobalKey();
 
   // ── Pulse animation ──────────────────────────────────────────
   late AnimationController _pulseCtrl;
@@ -153,12 +161,12 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
     _pulseCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 800), // motion-allow: recorder pulse
     );
     _pulseAnim = Tween<double>(
       begin: 0.7,
       end: 1.0,
-    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut)); // motion-allow: recorder pulse
 
     // 12.1 E1: a share handed to this chat runs once, after the first frame
     // or as soon as the picker hands it over.
@@ -226,10 +234,21 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   // ── Text send ────────────────────────────────────────────────
 
+  /// Motion C1: where the sent message starts its flight: the text field,
+  /// or the whole composer while the recorder or an upload row replaces it.
+  void _reportFlight(String? text) {
+    final box =
+        (_fieldKey.currentContext ?? context).findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize || !box.attached) return;
+    widget.onSendFlight?.call(text, box.localToGlobal(Offset.zero) & box.size);
+  }
+
   Future<void> _send() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
     final reply = ref.read(_reply);
+    _reportFlight(text);
+    appHaptic(HapticsType.light);
     // Called before the reply clears: the chat screen reads it inside onSend.
     final sending = Future.sync(() => widget.onSend(text));
     _ctrl.clear();
@@ -248,9 +267,15 @@ class _MessageInputState extends ConsumerState<MessageInput>
 
   // ── Sticker send (mascot §J3) ─────────────────────────────────
 
-  Future<void> _onStickersPressed() => showStickerSheet(
+  Future<void> _onStickersPressed() {
+    precacheChatStickers(context);
+    return _openStickerSheet();
+  }
+
+  Future<void> _openStickerSheet() => showStickerSheet(
     context,
     onSend: (sticker) async {
+      _reportFlight(null);
       final reply = ref.read(_reply);
       ref.read(_reply.notifier).state = null;
       try {
@@ -381,7 +406,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
           (_voiceState != _VoiceState.holding &&
               _voiceState != _VoiceState.locked))
         return;
-      final elapsed = base + Duration(milliseconds: timer.tick * 100);
+      final elapsed = base + Duration(milliseconds: timer.tick * 100); // motion-allow: recorder clock
       if (elapsed.inSeconds >= AppConstants.maxVoiceMessageSeconds) {
         _elapsed = const Duration(seconds: AppConstants.maxVoiceMessageSeconds);
         _timer?.cancel();
@@ -589,6 +614,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
     try {
       // Repository handles message creation first, then media upload
       // File cleanup happens in _uploadMediaMessage after upload completes
+      _reportFlight(null);
       await ref
           .read(sendMediaMessageProvider.notifier)
           .send(
@@ -746,7 +772,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
       // cover its row and its Cancel, so the draft waits its turn.
       _draftRetry?.cancel();
       _draftRetry = Timer(
-        const Duration(milliseconds: 500),
+        const Duration(milliseconds: 500), // motion-allow: recorder
         () => unawaited(_loadVoiceDraft()),
       );
       return;
@@ -1650,6 +1676,7 @@ class _MessageInputState extends ConsumerState<MessageInput>
             _DocUploadRow(onCancel: () => _cancelUpload('document'))
           else
             _NormalInputRow(
+              fieldKey: _fieldKey,
               ctrl: _ctrl,
               focusNode: _focusNode,
               hasText: _hasText,
@@ -1720,7 +1747,9 @@ class _ComposerAction extends StatelessWidget {
             onLongPressStart: onLongPressStart,
             onLongPressMoveUpdate: onLongPressMoveUpdate,
             onLongPressEnd: onLongPressEnd,
-            child: Center(
+            child: PressScale(
+              enabled: enabled,
+              child: Center(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: backgroundColor,
@@ -1747,6 +1776,7 @@ class _ComposerAction extends StatelessWidget {
                 ),
               ),
             ),
+            ),
           ),
         ),
       ),
@@ -1758,6 +1788,7 @@ class _ComposerAction extends StatelessWidget {
 
 class _NormalInputRow extends StatelessWidget {
   const _NormalInputRow({
+    required this.fieldKey,
     required this.ctrl,
     required this.focusNode,
     required this.hasText,
@@ -1771,6 +1802,7 @@ class _NormalInputRow extends StatelessWidget {
     required this.onMicLongPressStart,
   });
 
+  final GlobalKey fieldKey;
   final TextEditingController ctrl;
   final FocusNode focusNode;
   final bool hasText;
@@ -1809,6 +1841,7 @@ class _NormalInputRow extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Container(
+              key: fieldKey,
               constraints: const BoxConstraints(minHeight: 48),
               decoration: BoxDecoration(
                 color: context.t.surface2,

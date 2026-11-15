@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/tokens.dart';
+import 'press_scale.dart';
 
 enum AppButtonVariant { primary, secondary, text }
 
@@ -77,6 +78,7 @@ class AppButton extends StatelessWidget {
           child: content,
         ),
     };
-    return expanded ? SizedBox(width: double.infinity, child: button) : button;
+    final pressed = PressScale(enabled: enabled, child: button);
+    return expanded ? SizedBox(width: double.infinity, child: pressed) : pressed;
   }
 }

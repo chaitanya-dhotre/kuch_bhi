@@ -10,6 +10,7 @@ Future<T?> showAppSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool useRootNavigator = false,
+  Duration? exit,
 }) {
   return showModalBottomSheet<T>(
     context: context,
@@ -18,13 +19,36 @@ Future<T?> showAppSheet<T>({
     useSafeArea: true,
     showDragHandle: false,
     backgroundColor: context.t.surface,
-    // Decision 8: under reduced motion the sheet appears without the slide.
-    sheetAnimationStyle: MediaQuery.disableAnimationsOf(context)
-        ? AnimationStyle.noAnimation
-        : null,
-    builder: builder,
+    barrierColor: WarmPopTokens.scrim,
+    // Motion B4; L7: under reduced motion no slide, a 150 ms fade instead.
+    sheetAnimationStyle: sheetMotion(context, exit: exit),
+    builder: MediaQuery.disableAnimationsOf(context)
+        ? (ctx) => TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: WarmPopTokens.motionFast,
+            builder: (_, o, child) => FadeTransition(
+              opacity: AlwaysStoppedAnimation(o),
+              child: child,
+            ),
+            child: builder(ctx),
+          )
+        : builder,
   );
 }
+
+/// Motion B4: enter [WarmPopTokens.motionBase] on curveEnter, exit 190 ms
+/// on curveExit. Reduced motion: no slide (decision 8); the sheet's
+/// content fades in over 150 ms instead (L7).
+AnimationStyle sheetMotion(BuildContext context, {Duration? exit}) =>
+    MediaQuery.disableAnimationsOf(context)
+    ? AnimationStyle.noAnimation
+    : AnimationStyle(
+        duration: WarmPopTokens.motionBase,
+        reverseDuration: exit ?? WarmPopTokens.motionExit,
+        curve: WarmPopTokens.curveEnter,
+        // Flipped: the exit accelerates away in real time (L3).
+        reverseCurve: WarmPopTokens.curveExit.flipped,
+      );
 
 /// Registry R19: handle, optional title (+ action), optional header, then
 /// the body. Pass [children] (the chrome scrolls them) or [body] (a

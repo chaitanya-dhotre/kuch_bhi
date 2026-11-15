@@ -3079,6 +3079,16 @@ class MessageRepositoryImpl implements MessageRepository {
     });
     // Same emoji again = take it back (the old server-side toggle).
     if (existingId != null) return removeReaction(existingId);
+    // One reaction per person: the new one replaces any other of mine.
+    final others = await (db.select(db.reactionsTable)
+          ..where((r) =>
+              r.messageLocalId.equals(msg.localId) &
+              r.userId.equals(myId) &
+              r.id.equals(id).not()))
+        .get();
+    for (final r in others) {
+      await removeReaction(r.id);
+    }
     outboxWorker.kick();
   }
 

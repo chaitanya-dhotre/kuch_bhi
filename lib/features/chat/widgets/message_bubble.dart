@@ -399,8 +399,9 @@ class MessageBubble extends ConsumerWidget {
         ? mediaStatus
         : message.status;
 
-    final bubble = GestureDetector(
-      onLongPress: () => showMessageMenu(
+    final bubble = _LiftWhileMenu(
+      isMine: isMine,
+      open: () => showMessageMenu(
         context: context,
         ref: ref,
         message: cover,
@@ -579,6 +580,48 @@ class MessageBubble extends ConsumerWidget {
 /// Per-type optimistic media shell. It deliberately stays presentation-only:
 /// the real media widgets take over as soon as the server id is stamped.
 /// F: the final size, a flat block, no shimmer next to a spinner.
+/// Motion C6: a long-press lifts the bubble to 1.03 over motionFast while
+/// its menu is open.
+class _LiftWhileMenu extends StatefulWidget {
+  const _LiftWhileMenu({
+    required this.isMine,
+    required this.open,
+    required this.child,
+  });
+
+  final bool isMine;
+  final Future<void> Function() open;
+  final Widget child;
+
+  @override
+  State<_LiftWhileMenu> createState() => _LiftWhileMenuState();
+}
+
+class _LiftWhileMenuState extends State<_LiftWhileMenu> {
+  bool _lifted = false;
+
+  Future<void> _onLongPress() async {
+    setState(() => _lifted = true);
+    try {
+      await widget.open();
+    } finally {
+      if (mounted) setState(() => _lifted = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onLongPress: _onLongPress,
+    child: AnimatedScale(
+      scale: _lifted ? 1.03 : 1,
+      duration: motionOf(context, WarmPopTokens.motionFast),
+      curve: WarmPopTokens.curveEnter,
+      alignment: widget.isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: widget.child,
+    ),
+  );
+}
+
 class _OptimisticMediaPlaceholder extends StatelessWidget {
   const _OptimisticMediaPlaceholder({
     required this.type,

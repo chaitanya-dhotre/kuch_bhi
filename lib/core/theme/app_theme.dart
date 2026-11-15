@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'page_motion.dart';
 import 'tokens.dart';
 
 ThemeData warmPopLight({String? fontFamily}) =>
@@ -49,6 +50,7 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: c.bg,
+    pageTransitionsTheme: warmPopPageTransitions,
     extensions: [c],
     // P11: null = system font (default); 'PlusJakartaSans' when chosen (L2).
     fontFamily: fontFamily,
@@ -86,6 +88,7 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
           borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd)),
     ),
     dialogTheme: DialogThemeData(
+      barrierColor: WarmPopTokens.scrim,
       backgroundColor: c.surface,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(

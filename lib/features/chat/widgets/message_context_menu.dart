@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -88,7 +90,7 @@ class ConversationMenuAction {
   VoidCallback get invoke => callback;
 }
 
-void showMessageMenu({
+Future<void> showMessageMenu({
   required BuildContext context,
   required WidgetRef ref,
   required Message message,
@@ -98,9 +100,10 @@ void showMessageMenu({
   VoidCallback? onSelect,
 }) {
   appHaptic(HapticsType.medium);
-  showAppSheet<void>(
+  return showAppSheet<void>(
     context: context,
     useRootNavigator: true,
+    exit: WarmPopTokens.motionFast, // C6: the menu leaves in 150 ms
     builder: (_) => _ContextSheet(
       message: message,
       album: album,
@@ -110,6 +113,40 @@ void showMessageMenu({
       parentRef: ref,
     ),
   );
+}
+
+/// Motion C6: quick-reaction [index] follows the one before it by 30 ms
+/// (six at most), scaling up from 0.6 as it fades in with the sheet.
+class _Stagger extends StatelessWidget {
+  const _Stagger({
+    required this.index,
+    required this.route,
+    required this.child,
+  });
+
+  final int index;
+  final Animation<double> route;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    // 30 ms of the sheet's 250 ms enter per step; each runs 150 ms.
+    final start = (index.clamp(0, 5) * 30) / 250;
+    final curve = Interval(
+      start,
+      math.min(1, start + 150 / 250),
+      curve: WarmPopTokens.curveEnter,
+    );
+    // Transitions, not Opacity: at rest nothing extra is in the tree.
+    final v = route.drive(CurveTween(curve: curve));
+    return FadeTransition(
+      opacity: v,
+      child: ScaleTransition(
+        scale: v.drive(Tween(begin: 0.6, end: 1.0)),
+        child: child,
+      ),
+    );
+  }
 }
 
 /// Registry C4a — the shared action sheet.
@@ -350,7 +387,16 @@ class _ContextSheet extends ConsumerWidget {
               .toList()
         : const <Message>[];
 
-    return AppSheetChrome(
+    // C6: the menu grows from the bubble's side at 0.95 with the sheet.
+    final route = ModalRoute.of(context)?.animation ?? kAlwaysCompleteAnimation;
+    return AnimatedBuilder(
+      animation: route,
+      builder: (context, child) => Transform.scale(
+        scale: 0.95 + 0.05 * WarmPopTokens.curveEnter.transform(route.value),
+        alignment: isMine ? Alignment.bottomRight : Alignment.bottomLeft,
+        child: child,
+      ),
+      child: AppSheetChrome(
       key: const Key('message-context-menu'),
       handleKey: const Key('message-menu-handle'),
       header: Column(
@@ -395,8 +441,11 @@ class _ContextSheet extends ConsumerWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final emoji in kQuickReactions)
-                _reactionCircle(
+              for (final (i, emoji) in kQuickReactions.indexed)
+                _Stagger(
+                  index: i,
+                  route: route,
+                  child: _reactionCircle(
                   context,
                   key: ValueKey('message-menu-reaction-$emoji'),
                   label: emoji,
@@ -414,6 +463,7 @@ class _ContextSheet extends ConsumerWidget {
                     textScaler: TextScaler.noScaling,
                     style: const TextStyle(fontSize: 22),
                   ),
+                ),
                 ),
               _reactionPickerButton(
                 context,
@@ -576,6 +626,7 @@ class _ContextSheet extends ConsumerWidget {
             key: const Key('message-menu-cancel-sending'),
           ),
       ],
+      ),
     );
   }
 

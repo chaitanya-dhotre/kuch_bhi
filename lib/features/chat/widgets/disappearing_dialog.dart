@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../infrastructure/repositories/message_repository_impl.dart';
@@ -37,6 +38,7 @@ Future<void> showDisappearingDialog(
   var selectedDuration = row?.disappearingDuration ?? 0;
   await showDialog<void>(
     context: context,
+    animationStyle: dialogMotion(context),
     builder: (_) => StatefulBuilder(
       builder: (dialogContext, setDialogState) => AlertDialog(
         title: const Text('Disappearing Messages'),

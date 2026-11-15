@@ -209,7 +209,8 @@ void main() {
         sizeOf[s]!.$1 / sizeOf[s]!.$2,
     ];
     const contentWidth = 400.0;
-    const contentOffset = 100.0;
+    // The push is still on its first frame: motion B2 starts 24 dp right.
+    const contentOffset = 24.0;
     const contentTop = 78.0;
     final expected = albumLayout(aspects, contentWidth);
     expect(ctx.rows, hasLength(5));

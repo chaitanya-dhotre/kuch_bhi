@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_sheet.dart';
+import '../../../core/widgets/press_scale.dart';
+import '../../../core/utils/app_haptic.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/status_banner.dart';
 import '../../../data/local/database/app_database.dart';
@@ -40,30 +42,163 @@ class ReactionBar extends ConsumerWidget {
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
       data: (groups) {
-        if (groups.isEmpty) return const SizedBox.shrink();
-        // C8: on the sender's side, 4 in from the bubble's corner; the
-        // caller lifts the row 8 dp onto the bubble's lower edge. No "+"
-        // chip: long-press adds a reaction.
-        return Padding(
-          padding: EdgeInsets.only(left: isMine ? 0 : 16, right: isMine ? 16 : 0),
-          child: Wrap(
-            spacing: 4,
-            runSpacing: 4,
-            alignment: isMine ? WrapAlignment.end : WrapAlignment.start,
-            children: [
-              ...groups.map(
-                (g) => _ReactionChip(
-                  group: g,
-                  messageServerId: messageServerId,
-                  isMine: isMine,
-                ),
-              ),
-            ],
-          ),
+        return _ReactionRow(
+          groups: groups,
+          messageServerId: messageServerId,
+          isMine: isMine,
         );
       },
     );
   }
+}
+
+/// Motion C5: chips already there at first paint stay still; a new one
+/// pops in on springSoft, a removed one shrinks to 0.8 and fades (120 ms).
+class _ReactionRow extends StatefulWidget {
+  const _ReactionRow({
+    required this.groups,
+    required this.messageServerId,
+    required this.isMine,
+  });
+
+  final List<ReactionGroup> groups;
+  final String messageServerId;
+  final bool isMine;
+
+  @override
+  State<_ReactionRow> createState() => _ReactionRowState();
+}
+
+class _ReactionRowState extends State<_ReactionRow> {
+  Set<String>? _seen;
+  List<ReactionGroup> _last = const [];
+  final Map<String, ReactionGroup> _leaving = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = widget.groups;
+    final now = {for (final g in groups) g.emoji};
+    final firstPaint = _seen == null;
+    final seen = _seen ??= {...now};
+    for (final g in _last) {
+      if (!now.contains(g.emoji)) _leaving[g.emoji] = g;
+    }
+    _leaving.removeWhere((emoji, _) => now.contains(emoji));
+    _last = groups;
+    if (groups.isEmpty && _leaving.isEmpty) return const SizedBox.shrink();
+    Widget chip(ReactionGroup g, {bool leaving = false}) => _ChipMotion(
+      key: ValueKey(g.emoji),
+      popIn: !firstPaint && seen.add(g.emoji),
+      leaving: leaving,
+      onGone: () {
+        seen.remove(g.emoji);
+        if (mounted) setState(() => _leaving.remove(g.emoji));
+      },
+      child: _ReactionChip(
+        group: g,
+        messageServerId: widget.messageServerId,
+        isMine: widget.isMine,
+      ),
+    );
+    // C8: on the sender's side, 4 in from the bubble's corner; the
+    // caller lifts the row 8 dp onto the bubble's lower edge. No "+"
+    // chip: long-press adds a reaction.
+    return Padding(
+      padding: EdgeInsets.only(
+        left: widget.isMine ? 0 : 16,
+        right: widget.isMine ? 16 : 0,
+      ),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        alignment: widget.isMine ? WrapAlignment.end : WrapAlignment.start,
+        children: [
+          for (final g in groups) chip(g),
+          for (final g in _leaving.values) chip(g, leaving: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChipMotion extends StatefulWidget {
+  const _ChipMotion({
+    super.key,
+    required this.popIn,
+    required this.leaving,
+    required this.onGone,
+    required this.child,
+  });
+
+  final bool popIn;
+  final bool leaving;
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_ChipMotion> createState() => _ChipMotionState();
+}
+
+class _ChipMotionState extends State<_ChipMotion>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    value: widget.popIn ? 0 : 1,
+    reverseDuration: WarmPopTokens.motionPress,
+  );
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    if (widget.popIn) springTo(context, _c, WarmPopTokens.springSoft);
+    if (widget.leaving) _leave();
+  }
+
+  @override
+  void didUpdateWidget(_ChipMotion old) {
+    super.didUpdateWidget(old);
+    if (widget.leaving && !old.leaving) _leave();
+  }
+
+  void _leave() {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => widget.onGone());
+      return;
+    }
+    _c.reverse(from: 1).whenComplete(() {
+      if (mounted) widget.onGone();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    ignoring: widget.leaving,
+    child: Builder(
+      builder: (context) {
+        final eased = widget.leaving
+            ? _c.drive(CurveTween(curve: WarmPopTokens.curveExit.flipped))
+            : _c.view;
+        return FadeTransition(
+          opacity: eased,
+          child: ScaleTransition(
+            scale: eased.drive(
+              Tween(begin: widget.leaving ? 0.8 : 0.6, end: 1.0),
+            ),
+            child: widget.child,
+          ),
+        );
+      },
+    ),
+  );
 }
 
 class _ReactionChip extends ConsumerWidget {
@@ -92,6 +227,7 @@ class _ReactionChip extends ConsumerWidget {
         if (group.isMine && group.reactionId != null) {
           await repo.removeReaction(group.reactionId!);
         } else {
+          appHaptic(HapticsType.light); // C5
           await repo.addReaction(messageServerId, group.emoji);
         }
       },
@@ -99,17 +235,20 @@ class _ReactionChip extends ConsumerWidget {
       child: Semantics(
         button: true,
         label: '${group.emoji} reaction, ${group.count}',
-        child: Container(
+        child: PressScale(
+          child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(WarmPopTokens.radiusPill),
             border: Border.all(color: border, width: 1.5),
           ),
-          child: Text(
-            '${group.emoji} ${group.count}',
+          child: _CountRoll(
+            emoji: group.emoji,
+            count: group.count,
             style: TextStyle(fontSize: 13, height: 18 / 13, color: t.ink),
           ),
+        ),
         ),
       ),
     );
@@ -124,6 +263,89 @@ class _ReactionChip extends ConsumerWidget {
         messageServerId: messageServerId,
         group: group,
       ),
+    );
+  }
+}
+
+/// Motion C5: a count change slides the number 6 dp up (more) or down
+/// (fewer) while it cross-fades, over motionFast. At rest: one plain Text.
+class _CountRoll extends StatefulWidget {
+  const _CountRoll({
+    required this.emoji,
+    required this.count,
+    required this.style,
+  });
+
+  final String emoji;
+  final int count;
+  final TextStyle style;
+
+  @override
+  State<_CountRoll> createState() => _CountRollState();
+}
+
+class _CountRollState extends State<_CountRoll>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: WarmPopTokens.motionFast,
+    value: 1,
+  );
+  int? _old;
+
+  @override
+  void didUpdateWidget(_CountRoll old) {
+    super.didUpdateWidget(old);
+    if (old.count == widget.count) return;
+    if (MediaQuery.disableAnimationsOf(context)) return;
+    _old = old.count;
+    _c.forward(from: 0).whenComplete(() {
+      if (mounted) setState(() => _old = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final old = _old;
+    if (old == null || !_c.isAnimating) {
+      return Text('${widget.emoji} ${widget.count}', style: widget.style);
+    }
+    final dir = widget.count > old ? -1.0 : 1.0; // more: the number rises
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final v = WarmPopTokens.curveEnter.transform(_c.value);
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('${widget.emoji} ', style: widget.style),
+            Stack(
+              children: [
+                Opacity(
+                  opacity: 1 - v,
+                  child: Transform.translate(
+                    offset: Offset(0, 6 * dir * v),
+                    child: Text('$old', style: widget.style),
+                  ),
+                ),
+                Opacity(
+                  opacity: v,
+                  child: Transform.translate(
+                    offset: Offset(0, -6 * dir * (1 - v)),
+                    child: Text('${widget.count}', style: widget.style),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 }

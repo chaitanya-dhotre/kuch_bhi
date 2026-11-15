@@ -12,6 +12,7 @@ import '../../../core/decrypt/body_cache.dart';
 import '../../../core/utils/app_haptic.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/change_motion.dart';
 import '../../../data/local/database/app_database.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../domain/entities/message.dart';
@@ -24,6 +25,7 @@ import '../providers/message_body_provider.dart';
 import '../chat_run_grouping.dart';
 import '../message_offline_policy.dart';
 import 'album_screen.dart';
+import '../widgets/bubble_entrance.dart';
 import '../widgets/disappearing_dialog.dart';
 import '../widgets/expiry_badge.dart' show ChatBubbleGeometry, ChatInfoMode;
 import '../widgets/message_bubble.dart';
@@ -67,7 +69,11 @@ class _MsgItem extends _ChatItem {
     required this.runEnd,
     this.streakStart = true,
     this.album,
+    this.leaving = false,
   });
+
+  /// C10: a just-deleted row drawn once more while it closes.
+  final bool leaving;
 
   /// For an album, its earliest row (place and time).
   final Message msg;
@@ -112,7 +118,7 @@ typedef ConversationBodyResolver = Future<String?> Function(String messageId);
 class ConversationSearchController {
   ConversationSearchController({
     required this.resolveBody,
-    this.debounce = const Duration(milliseconds: 200),
+    this.debounce = const Duration(milliseconds: 200), // motion-allow: search debounce, not motion
   });
 
   /// Provider read seam — production: `(id) => ref.read(messageBodyProvider(id).future)`.
@@ -251,6 +257,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   final Map<String, String> _senderNameCache = {};
 
+  // Motion C1–C3 (entrances once per id), C7 (count while scrolled up) and
+  // C10 (rows that just left, with their old slot and a safety timer).
+  final _entrances = ChatEntrances();
+  int _newBelow = 0;
+  List<_MsgItem> _lastMsgItems = const [];
+  final Map<String, (_MsgItem, int)> _leaving = {};
+  final Map<String, Timer> _leaveTimers = {};
+  bool get _atBottom => !_scrollCtrl.hasClients || _scrollCtrl.offset < 40;
+
   ProviderSubscription<AsyncValue<List<Message>>>? _markReadSub;
 
   /// T9 in-conversation search: 200ms debounce + per-keystroke cancel;
@@ -343,6 +358,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _searchSlowTimer?.cancel();
     _flashTimer?.cancel();
     _autoScroll?.cancel();
+    _entrances.dispose();
+    for (final t in _leaveTimers.values) {
+      t.cancel();
+    }
     _markReadSub?.close();
     _markReadDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -376,7 +395,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final position = _scrollCtrl.position;
     final awayFromLatest = position.pixels > position.viewportDimension;
     if (awayFromLatest != _showScrollToLatest && mounted) {
-      setState(() => _showScrollToLatest = awayFromLatest);
+      setState(() {
+        _showScrollToLatest = awayFromLatest;
+        if (!awayFromLatest) _newBelow = 0;
+      });
     }
     // A failed page waits for Retry instead of refetching on every scroll tick.
     if (position.pixels >= position.maxScrollExtent - 200 &&
@@ -433,9 +455,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         items.add(_DateItem(msg.createdAt));
       }
     }
+    _trackLeaving(items);
     if (_historyExhausted) items.add(_HistoryEndItem());
     _items = items;
     return items;
+  }
+
+  /// C10: one or two rows gone since the last build (not the oldest one,
+  /// which a window trim drops) are drawn once more in their old slot while
+  /// they close. More at once (a multi-delete) just go (L5).
+  void _trackLeaving(List<_ChatItem> items) {
+    final now = [for (final i in items) if (i is _MsgItem) i];
+    final ids = {for (final m in now) m.msg.localId};
+    final gone = <(_MsgItem, int)>[
+      for (var i = 0; i < _lastMsgItems.length - 1; i++)
+        if (!ids.contains(_lastMsgItems[i].msg.localId) &&
+            !_leaving.containsKey(_lastMsgItems[i].msg.localId))
+          (_lastMsgItems[i], i),
+    ];
+    final vanishedOldest = _lastMsgItems.isNotEmpty &&
+        !ids.contains(_lastMsgItems.last.msg.localId);
+    _lastMsgItems = now;
+    if (now.isNotEmpty && gone.isNotEmpty && gone.length <= 2 && !vanishedOldest) {
+      for (final (item, slot) in gone) {
+        final id = item.msg.localId;
+        _leaving[id] = (
+          _MsgItem(
+            item.msg,
+            item.key,
+            runStart: item.runStart,
+            runEnd: item.runEnd,
+            streakStart: item.streakStart,
+            album: item.album,
+            leaving: true,
+          ),
+          slot,
+        );
+        // A row never built (off screen) never reports back.
+        _leaveTimers[id] = Timer(WarmPopTokens.motionSlow, () => _dropLeaving(id));
+      }
+    }
+    for (final (ghost, slot) in _leaving.values) {
+      if (ids.contains(ghost.msg.localId)) continue;
+      // Slot counts message rows; date rows sit between them.
+      var at = 0, seen = 0;
+      while (at < items.length && seen < slot) {
+        if (items[at] is _MsgItem) seen++;
+        at++;
+      }
+      items.insert(at, ghost);
+    }
+  }
+
+  void _dropLeaving(String id) {
+    _leaveTimers.remove(id)?.cancel();
+    if (_leaving.remove(id) != null && mounted) setState(() {});
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
@@ -457,7 +531,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         // shows it stays until an answer, so typing never flashes the list.
         _searchSlowTimer?.cancel();
         _searchSlowTimer = Timer(
-          _search.debounce + const Duration(milliseconds: 300),
+          _search.debounce + const Duration(milliseconds: 300), // motion-allow: search grace, not motion
           () {
             if (mounted && _searchPending) setState(() => _searchSlow = true);
           },
@@ -520,7 +594,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _scrollToFlatIndex(int flatIndex) async {
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
-        : const Duration(milliseconds: 300);
+        : WarmPopTokens.motionBase;
     for (var attempt = 0; attempt < 30; attempt++) {
       if (!mounted || !_scrollCtrl.hasClients) return;
       if (flatIndex >= _items.length) return;
@@ -531,7 +605,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           ctx,
           alignment: 0.5,
           duration: duration,
-          curve: Curves.easeInOut,
+          curve: WarmPopTokens.curveMove,
         );
         return;
       }
@@ -680,7 +754,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _dragPointer = d.globalPosition;
     _applyRange(id!);
     _autoScroll = Timer.periodic(
-      const Duration(milliseconds: 16),
+      const Duration(milliseconds: 16), // motion-allow: autoscroll tick
       (_) => _autoScrollTick(),
     );
   }
@@ -859,6 +933,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final activeReply = ref.watch(replyProvider(_cid));
     final isOnline = ref.watch(isOnlineProvider).value ?? true;
     final messages = messagesAsync.asData?.value ?? [];
+    if (messagesAsync.hasValue) {
+      _newBelow += _entrances.observe(
+        messages,
+        myId: myId,
+        atBottom: _atBottom,
+      );
+    }
     final items = _buildItems(messages);
 
     // ── Group-specific reactive state ─────────────────────────
@@ -1040,7 +1121,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
                               final row = KeyedSubtree(
                                 key: msgItem.key,
-                                child: _HighlightWrapper(
+                                child: BubbleEntrance(
+                                  motion: _entrances.take(msg.localId),
+                                  flight: _entrances.takeFlight(msg.localId),
+                                  snap: _entrances.snap,
+                                  leaving: msgItem.leaving,
+                                  onLeft: () => _dropLeaving(msg.localId),
+                                  child: _HighlightWrapper(
                                   active: isMatch,
                                   current: isCurrent,
                                   flash: msgItem.rows.any(
@@ -1124,10 +1211,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         : null,
                                   ),
                                 ),
+                                ),
                               );
                               // B5: system rows carry no tag, so taps and
                               // ranges skip them.
-                              return msg.type == 'system'
+                              return msg.type == 'system' || msgItem.leaving
                                   ? row
                                   : MetaData(
                                       metaData: _RowTag(msg.localId),
@@ -1139,21 +1227,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     ),
                   ),
                   ),
-                  if (!_searchActive && _showScrollToLatest)
-                    Positioned(
-                      right: 12,
-                      bottom: 12,
+                  // C7: fades and scales in; hidden, it takes no taps.
+                  Positioned(
+                    right: 12,
+                    bottom: 12,
+                    child: IgnorePointer(
+                      ignoring: _searchActive || !_showScrollToLatest,
+                      child: AnimatedOpacity(
+                        opacity: !_searchActive && _showScrollToLatest ? 1 : 0,
+                        duration: motionOf(context, WarmPopTokens.motionFast),
+                        curve: WarmPopTokens.curveEnter,
+                        child: AnimatedScale(
+                          scale: !_searchActive && _showScrollToLatest ? 1 : 0.9,
+                          duration: motionOf(context, WarmPopTokens.motionFast),
+                          curve: WarmPopTokens.curveEnter,
                       child: _ScrollLatestButton(
-                        unreadCount: conv.unreadCount,
+                        unreadCount: _newBelow > 0 ? _newBelow : conv.unreadCount,
                         onPressed: () {
                           _scrollCtrl.animateTo(
                             0,
                             duration: WarmPopTokens.motionBase,
-                            curve: Curves.easeOut,
+                            curve: WarmPopTokens.curveMove,
                           );
                         },
                       ),
+                        ),
+                      ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -1172,6 +1273,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           ? (_senderNameCache[activeReply.senderId] ?? 'them')
                           : conv.displayName),
                 onTyping: () => _pres.onTyping(_cid),
+                // C1: a short text, a voice note or a sticker grows from the
+                // composer; text over 4 lines rises.
+                onSendFlight: (text, from) {
+                  if (text == null) {
+                    return _entrances.sending(SendFlight(null, from));
+                  }
+                  final lines =
+                      (TextPainter(
+                              text: TextSpan(
+                                text: text,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  height: 20 / 15,
+                                ),
+                              ),
+                              textDirection: Directionality.of(context),
+                              textScaler: MediaQuery.textScalerOf(context),
+                            )..layout(
+                              maxWidth: ChatBubbleGeometry.maxWidth(context) - 24,
+                            ))
+                          .computeLineMetrics()
+                          .length;
+                  _entrances.sending(lines <= 4 ? SendFlight(text, from) : null);
+                },
                 onSend: (text) {
                   final reply = ref.read(replyProvider(_cid));
                   // P7 (spec §3): the reply PREVIEW is no longer computed
@@ -1221,21 +1346,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 onTap: () => _openConversationInfo(conv),
                 child: Row(
                   children: [
-                    if (!conv.isGroup)
-                      AppAvatar(
+                    // B3: the same disc as the Home row (colour, initials),
+                    // so the flight between them has nothing to jump.
+                    ChatHero(
+                      tag: chatAvatarHeroTag(_cid),
+                      child: !conv.isGroup
+                      ? AppAvatar(
                         radius: 18,
-                        accentSoft: true,
                         url: conv.avatarUrl,
-                        initials: initialsOf(conv.displayName),
+                        initials: nameInitials(conv.displayName),
                       )
-                    else
-                      Stack(
+                      : Stack(
                         children: [
                           AppAvatar(
                             radius: 18,
-                            accentSoft: true,
                             url: conv.iconUrl,
-                            initials: initialsOf(conv.displayName),
+                            initials: nameInitials(conv.displayName),
                           ),
                           Positioned(
                             bottom: 0,
@@ -1255,20 +1381,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           ),
                         ],
                       ),
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            conv.displayName,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: context.t.ink,
+                          ChatHero(
+                            tag: chatNameHeroTag(_cid),
+                            child: Text(
+                              conv.displayName,
+                              maxLines: 1,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: context.t.ink,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
                           if (conv.isGroup)
                             Text(
@@ -1718,7 +1849,7 @@ class _ChatEmptyFadeState extends State<_ChatEmptyFade>
     with SingleTickerProviderStateMixin {
   late final AnimationController _fade = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 400),
+    duration: WarmPopTokens.motionSlow,
     value: widget.empty ? 1 : 0,
   );
 
@@ -1728,7 +1859,7 @@ class _ChatEmptyFadeState extends State<_ChatEmptyFade>
     if (old.empty && !widget.empty) {
       _fade.duration = MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
-          : const Duration(milliseconds: 400);
+          : WarmPopTokens.motionSlow;
       _fade.reverse(from: 1);
     } else if (widget.empty) {
       _fade.value = 1;
@@ -1932,7 +2063,7 @@ class _TypingDotsState extends State<_TypingDots>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1200),
+    duration: const Duration(milliseconds: 1200), // motion-allow: typing dots loop, out of scope
   )..repeat();
 
   @override
@@ -2013,7 +2144,9 @@ class _ScrollLatestButton extends StatelessWidget {
           Positioned(
             right: -2,
             top: -2,
-            child: Container(
+            child: PopOnChange(
+              value: unreadCount,
+              child: Container(
               constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
               padding: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(
@@ -2030,6 +2163,7 @@ class _ScrollLatestButton extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
               ),
+            ),
             ),
           ),
       ],
@@ -2132,10 +2266,10 @@ class _HighlightWrapperState extends State<_HighlightWrapper>
           MediaQuery.maybeOf(context)?.disableAnimations ?? false;
       _flashController
         ..duration = reduceMotion
-            ? const Duration(milliseconds: 200)
+            ? WarmPopTokens.motionEnter
             : WarmPopTokens.motionSlow
         ..value = 1
-        ..animateTo(0, curve: Curves.easeOut);
+        ..animateTo(0, curve: WarmPopTokens.curveEnter);
     }
   }
 

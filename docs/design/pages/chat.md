@@ -112,8 +112,10 @@ status is also recorded in `chat-work-log.md`.
 - [x] **F2 MUST** Tap chip = toggle own reaction; long-press chip = detail sheet (was tap=sheet only).
 - [x] ~~**F3 MUST** Ghost ＋ chip when ≥1 reaction exists~~ **Removed (chat calm C8,
   2026-11-14):** long-press → message menu ＋ is the way to add a reaction.
-- [ ] **F4 SHOULD** Count-change pop: scale 1→1.12→1 (250ms spring); instant under reduced-motion.
-  **Deferred:** reaction count pop animation is not implemented.
+- [x] **F4 SHOULD** ~~Count-change pop: scale 1→1.12→1~~ **Replaced by motion C5
+  (2026-11-15):** a new chip pops from 0.6 on springSoft, a count change slides the number 6 dp
+  with a cross-fade (motionFast), a removed chip shrinks to 0.8 and fades (120 ms); light haptic
+  on add. Instant under reduced motion. `reaction_bar.dart`, gate 6 in `test/chat/motion_test.dart`.
 - [x] **F5 MUST** Detail sheet: real avatars (was generic glyph), own row "Remove" in error color.
 
 ## G. Tick legend (S10)
@@ -261,6 +263,12 @@ status is also recorded in `chat-work-log.md`.
   **F8b fixed (review pass 5, 2026-10-21):** `_OptimisticSkeletonBox` now returns a static token
   surface under `disableAnimations`; normal motion retains `Shimmer.fromColors`. Covered for
   optimistic image/video/voice placeholders. F4 pop remains accepted deferred.
+- [x] **Q6 MUST** (motion pass, 2026-11-15, `motion.md` §C) Send: a short text grows out of the
+  composer field into its bubble (300 ms, curveMove, overlay); long text, media, voice, stickers and
+  scrolled-up sends rise 12 dp. Arrive: 8 dp from the bottom-left, 180 ms, only at the bottom.
+  History never animates (keyed by message id). Ticks cross-fade; long-press lifts the bubble to
+  1.03 and grows the menu at 0.95 with a 30 ms emoji stagger; jump button fades/scales and its
+  count pops; swipe releases on springDrag; voice icon cross-fades; a deleted row closes in 190 ms.
 - [x] **Q5 MUST** font_scale 1.3 capture: no clipped app bar / ticks / chips.
 
   **Verified 2026-10-20:** `captures/chat-redmi-font-1.3.png` — post-floating-shell recapture on

@@ -48,7 +48,7 @@ final Provider<DecryptPass> decryptPassProvider = Provider<DecryptPass>((ref) {
 class BodyCoalescer {
   BodyCoalescer(
     this._runFor, {
-    this.window = const Duration(milliseconds: 50),
+    this.window = const Duration(milliseconds: 50), // motion-allow: batch window, not motion
   });
 
   final Future<void> Function(List<String> messageIds) _runFor;

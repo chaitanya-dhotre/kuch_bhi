@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens: 00-foundation.md §2 + chat-calm D1 + motion.md A. */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--line:#E4DDD1;--accent:#EFA00B;--onAccent:#2A2520;--mine:#FFE9CF;--flash:#FEF5EA;
+--enter:cubic-bezier(.32,.72,0,1);--exit:cubic-bezier(.55,0,1,.45);--move:cubic-bezier(.77,0,.175,1);--spring:cubic-bezier(.3,1.25,.5,1)}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--line:#3B362F;--mine:#492F06;--flash:#3A2E14}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 "Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:900px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.band .n{font-weight:800;color:#744C01}
+.note{background:#FEF5EA;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px;max-width:900px}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+button.go{font:inherit;font-weight:600;font-size:12.5px;border:1px solid #E4DDD1;background:#F7F2EA;border-radius:999px;padding:5px 14px;cursor:pointer;margin:8px 6px 0 0;min-height:32px}
+button.go:active{transform:scale(.96)}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #E4DDD1;padding:6px 9px;text-align:left}th{background:#F7F2EA;font-size:12px}
+.tblwrap{overflow-x:auto}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+
+.ph{width:280px;max-width:100%;height:330px;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid var(--line);overflow:hidden;position:relative;font-family:Roboto,-apple-system,"Segoe UI",sans-serif;font-size:12px;line-height:17px}
+.list{position:absolute;left:0;right:0;bottom:52px;display:flex;flex-direction:column;justify-content:flex-end;padding:0 10px}
+.m{display:flex;margin:1px 0}.m.me{justify-content:flex-end}.m.gap{margin-top:10px}
+.b{max-width:200px;padding:7px 10px;border-radius:14px;background:var(--surface);border:1px solid var(--line);position:relative}
+.dark .b{border-color:transparent}
+.me .b{background:var(--mine);border-color:transparent}
+.meta{font-size:9px;color:var(--inkSoft);margin:3px 2px 0;text-align:right}
+.comp{position:absolute;left:10px;right:10px;bottom:10px;display:flex;gap:8px;align-items:center}
+.comp div{flex:1;height:34px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--inkSoft);padding:8px 14px}
+.comp i{width:34px;height:34px;border-radius:50%;background:var(--accent);transition:transform .12s}
+.comp i.dn{transform:scale(.96)}
+
+/* C1 send, C2 arrive */
+.wrapH{display:grid;grid-template-rows:0fr}
+.wrapH>div{overflow:hidden;min-height:0}
+.wrapH.on{grid-template-rows:1fr;transition:grid-template-rows .2s var(--enter)}
+.wrapH .b{opacity:0;transform:translateY(12px) scale(.96);transform-origin:100% 100%}
+.wrapH.on .b{opacity:1;transform:none;transition:transform .2s var(--enter),opacity .2s var(--enter)}
+.wrapH.in .b{transform:translateY(8px) scale(.96);transform-origin:0 100%}
+.wrapH.in.on .b{transform:none;transition-duration:.18s}
+.instant .wrapH.on,.instant .wrapH.on .b{transition:none}
+/* C1 (M-5 B): the bubble grows out of the field */
+.wrapH.grow.on{transition:grid-template-rows .3s var(--move)}
+.wrapH.grow .b,.wrapH.grow.on .b{transform:none;transition:none}
+.fly{position:absolute;z-index:4;border-radius:17px;background:var(--surface);border:1px solid var(--line);padding:8px 14px;color:var(--ink);overflow:hidden;box-sizing:border-box}
+.fly.go{transition:left .3s var(--move),top .3s var(--move),width .3s var(--move),height .3s var(--move),border-radius .3s var(--move),background-color .3s var(--move),border-color .3s var(--move),padding .3s var(--move);border-radius:14px 14px 4px 14px;background:var(--mine);border-color:transparent;padding:7px 10px}
+.comp div.typed{color:var(--ink)}
+/* C5 reaction */
+.rx{position:absolute;bottom:-9px;left:8px;background:var(--surface2);border:1.5px solid var(--bg);border-radius:999px;font-size:9.5px;padding:0 6px;line-height:15px;opacity:0;transform:scale(.6)}
+.rx.on{opacity:1;transform:none;transition:transform .3s var(--spring),opacity .15s}
+/* B2 page */
+.pg{position:absolute;inset:0;background:var(--bg);padding:12px}
+.pg h3{margin:0 0 10px;font-size:15px}
+.tile{display:flex;gap:10px;align-items:center;background:var(--surface);border-radius:14px;padding:10px;margin-bottom:8px}
+.tile.fl{animation:flash .4s ease-out}
+@keyframes flash{from{background:var(--flash)}}
+.av{width:30px;height:30px;border-radius:50%;background:var(--accent);flex:none}
+.badge{margin-left:auto;min-width:18px;height:18px;border-radius:9px;background:var(--accent);color:var(--onAccent);font-size:10px;font-weight:700;display:grid;place-items:center;transform:scale(0)}
+.badge.on{transform:none;transition:transform .3s var(--spring)}
+#chatpg{opacity:0;transform:translateX(24px);pointer-events:none}
+.push #chatpg{opacity:1;transform:none;transition:transform .32s var(--enter),opacity .32s var(--enter);pointer-events:auto}
+.push #homepg{opacity:.6;transform:translateX(-8px);transition:all .32s var(--enter)}
+.pop #chatpg{transition:transform .24s var(--exit),opacity .24s var(--exit)}
+.pop #homepg{transition:all .24s var(--enter)}
+#fly{position:absolute;left:22px;top:52px;width:30px;height:30px;border-radius:50%;background:var(--accent);z-index:3;transition:all .32s var(--move)}
+.push #fly{left:44px;top:10px;width:26px;height:26px}
+.pop #fly{transition-duration:.24s}
+.bar{display:flex;align-items:center;gap:8px;height:30px;padding-left:66px;font-weight:600}
+/* E1 shake */
+.pin{display:flex;gap:10px;justify-content:center;margin-top:120px}
+.pin i{width:14px;height:14px;border-radius:50%;background:var(--ink)}
+.shake{animation:shake .36s linear}
+@keyframes shake{0%{transform:translateX(0)}16%{transform:translateX(-10px)}33%{transform:translateX(10px)}50%{transform:translateX(-6px)}66%{transform:translateX(6px)}83%{transform:translateX(-3px)}100%{transform:none}}
+/* curves */
+.track{height:22px;background:#F7F2EA;border-radius:999px;margin:4px 0 10px;position:relative}
+.dot{position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#EFA00B}
+.run .dot{left:calc(100% - 20px);transition:left var(--d) var(--c)}
+</style>
+</head>
+<body>
+<h1>Motion pass</h1>
+<p class="sub">Live demos for <code>motion.md</code>. Press a button to play; "Reduced motion" shows what the same step does with animations turned off. Timings are the real ones. Curves here are CSS; the springs are close stand-ins for the Flutter ones.</p>
+
+<section class="band">
+<header><span class="n">1</span><h2>C1 Send and C2 Arrive</h2></header>
+<div class="row">
+<div><span class="tag">Light</span><div class="ph" id="p1"></div></div>
+<div><span class="tag">Dark</span><div class="ph dark" id="p2"></div></div>
+</div>
+<button class="go" onclick="send()">Send</button><button class="go" onclick="sendLong()">Send long text</button><button class="go" onclick="arrive()">Receive</button><button class="go" onclick="burst()">Send 5 fast</button><button class="go" onclick="react()">React (C5)</button><button class="go" onclick="reset()">Reset</button>
+<label style="font-size:12.5px;margin-left:6px"><input type="checkbox" id="rm"> Reduced motion</label>
+<p class="note">Today a new bubble appears in one frame and everything above jumps. <b>Send (M-5 B):</b> the typed text leaves the field in a copy of the field's box; over 300 ms on curveMove it travels to the bubble's place while its size, corners and fill turn into the bubble's. The row opens over the same 300 ms so the list glides up, and the real bubble swaps in when the copy lands. The field clears on the tap. A second send snaps the first to its end. <b>Long text</b> (over 4 lines), media, voice, stickers and sends while scrolled up use the simple version: the row opens over 200 ms while the bubble rises 12 dp and fades in. Incoming bubbles rise 8 dp from the left in 180 ms. History never animates.</p>
+</section>
+
+<section class="band">
+<header><span class="n">2</span><h2>B2 Page push, B3 avatar, D1 Home row</h2></header>
+<div class="row"><div><span class="tag">Home ↔ chat</span>
+<div class="ph" id="nav"><div class="pg" id="homepg"><h3>Kuch Bhi</h3>
+<div class="tile" id="t1"><span style="width:30px;flex:none"></span><div><b>Chait galx</b><br><span id="pv" style="color:var(--inkSoft)">Vh</span></div><span class="badge" id="bd">1</span></div>
+<div class="tile"><span class="av" style="background:var(--surface2)"></span><div><b>Guard TEST</b><br><span style="color:var(--inkSoft)">Hii</span></div></div></div>
+<div class="pg" id="chatpg"><div class="bar">Chait galx</div><div class="m" style="margin-top:60px"><div class="b">Did you reach?</div></div><div class="m me gap"><div class="b">Yes, just now</div></div></div>
+<span id="fly"></span></div></div></div>
+<button class="go" onclick="nav.className='ph push'">Open chat</button><button class="go" onclick="nav.className='ph pop'">Back</button><button class="go" onclick="flash()">New message on Home (D1)</button>
+<p class="note">Push: the new page comes 24 dp from the right and fades in over 320 ms; the old one steps back 8 dp. Back is shorter, 240 ms. The avatar travels to the app bar. On Home a new message flashes the row and pops the badge.</p>
+</section>
+
+<section class="band">
+<header><span class="n">3</span><h2>E1 Wrong PIN</h2></header>
+<div class="ph" style="height:260px"><div class="pin" id="pin"><i></i><i></i><i></i><i></i></div></div>
+<button class="go" onclick="pin.classList.remove('shake');void pin.offsetWidth;pin.classList.add('shake')">Wrong PIN</button>
+<p class="note">The only shake in the app: 360 ms, with the error haptic.</p>
+</section>
+
+<section class="band">
+<header><span class="n">4</span><h2>A. Tokens</h2></header>
+<div id="curves"></div><button class="go" onclick="curves.classList.remove('run');void curves.offsetWidth;curves.classList.add('run')">Play curves</button>
+<div class="tblwrap" style="margin-top:12px"><table>
+<tr><th>Token</th><th>Value</th><th>Use</th></tr>
+<tr><td>motionPress</td><td>120 ms</td><td>pressed states</td></tr>
+<tr><td>motionFast</td><td>150 ms</td><td>fades, icon swaps, ticks</td></tr>
+<tr><td>motionEnter</td><td>200 ms</td><td>a bubble, chip or menu arriving</td></tr>
+<tr><td>motionBase</td><td>250 ms</td><td>sheets, dialogs</td></tr>
+<tr><td>motionPage</td><td>320 ms</td><td>page push, avatar</td></tr>
+<tr><td>motionSlow</td><td>400 ms</td><td>highlight fades</td></tr>
+</table></div>
+</section>
+
+<script>
+const base=`<div class="list"><div class="m"><div class="b">Did you reach?</div></div><div class="m"><div class="b">Send me the photo from the hill</div></div><div class="meta" style="text-align:left">11:42</div></div><div class="comp"><div>Message</div><i></i></div>`;
+const phs=[p1,p2];const words=['Yes, just now','On my way','The view was unreal','Ok','Sending it tonight'];let k=0;
+function reset(){phs.forEach(p=>p.innerHTML=base);k=0}reset();
+function add(me,text,grow){phs.forEach(p=>{p.classList.toggle('instant',rm.checked);if(p._fly)p._fly();const g=grow&&!rm.checked;const l=p.querySelector('.list');const w=document.createElement('div');w.className='wrapH'+(me?'':' in')+(g?' grow':'');w.innerHTML=`<div><div class="m ${me?'me':''} gap"><div class="b">${text}<span class="rx">😂 1</span></div></div></div>`;l.appendChild(w);const b=w.querySelector('.b');if(g){b.style.opacity=0;fly(p,b,w,text)}void w.offsetHeight;w.classList.add('on');if(me){const s=p.querySelector('.comp i');s.classList.add('dn');setTimeout(()=>s.classList.remove('dn'),120)}})}
+// C1 grow: a copy of the field's box flies to where the bubble will rest.
+function fly(p,b,w,text){const ph=p.getBoundingClientRect(),f=p.querySelector('.comp div').getBoundingClientRect(),r=b.getBoundingClientRect(),h=w.firstElementChild.scrollHeight;const el=document.createElement('div');el.className='fly';el.textContent=text;const at=(x,y,wd,ht)=>Object.assign(el.style,{left:x+'px',top:y+'px',width:wd+'px',height:ht+'px'});at(f.left-ph.left,f.top-ph.top,f.width,f.height);p.appendChild(el);void el.offsetWidth;el.classList.add('go');at(r.left-ph.left,r.top-ph.top-h,r.width,r.height);let over=false;const done=()=>{if(over)return;over=true;el.remove();b.style.opacity=1;p._fly=null};p._fly=done;setTimeout(done,300)}
+function type(t){phs.forEach(p=>{const d=p.querySelector('.comp div');d.textContent=t;d.classList.add('typed')})}
+function clearField(){phs.forEach(p=>{const d=p.querySelector('.comp div');d.textContent='Message';d.classList.remove('typed')})}
+function send(){const t=words[k++%5];type(t);setTimeout(()=>{clearField();add(1,t,true)},260)}
+function sendLong(){clearField();add(1,'Long one: we left at six, the road up the hill was closed so we walked the last bit, the view was worth it and I took about forty photos, sending the best ones tonight',false)}
+function arrive(){add(0,'Haha nice')}
+function burst(){for(let i=0;i<5;i++)setTimeout(()=>{clearField();add(1,words[k++%5],true)},i*140)}
+function react(){phs.forEach(p=>{const r=[...p.querySelectorAll('.rx')].pop();if(r){r.classList.remove('on');void r.offsetWidth;r.classList.add('on')}})}
+function flash(){nav.className='ph pop';t1.classList.remove('fl');bd.classList.remove('on');void t1.offsetWidth;t1.classList.add('fl');bd.classList.add('on');pv.textContent='Haha nice'}
+curves.innerHTML=[['curveEnter · 200 ms','var(--enter)','.2s'],['curveExit · 150 ms','var(--exit)','.15s'],['curveMove · 320 ms','var(--move)','.32s'],['springSoft · 300 ms','var(--spring)','.3s'],['today: linear default · 250 ms','linear','.25s']].map(([n,c,d])=>`<span class="tag">${n}</span><div class="track" style="--c:${c};--d:${d}"><span class="dot"></span></div>`).join('');
+</script>
+</body>
+</html>

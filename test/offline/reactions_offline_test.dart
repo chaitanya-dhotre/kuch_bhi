@@ -180,6 +180,19 @@ void main() {
     expect(server.requests, isEmpty);
   });
 
+  test('one reaction per person: a new emoji replaces my old one', () async {
+    final server = _Server();
+    final h = await _harness(server);
+    final repo = buildRepo(h);
+
+    await h.db.settingsDao.setSetting(kOutboxPauseKey, 'test');
+    await repo.addReaction('srv1', '😂');
+    await repo.addReaction('srv1', '❤️');
+    final groups = await repo.watchReactions('srv1').first;
+    expect(groups.map((g) => g.emoji), ['❤️']);
+    expect(groups.single.count, 1);
+  });
+
   test('removing a sent reaction offline hides it and queues a delete; '
       'a 404 on that delete counts as done', () async {
     final server = _Server()..online = true;

@@ -263,17 +263,35 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                     shape: BoxShape.circle,
                     color: t.accent,
                   ),
-                  child: _isLoading
-                      ? BusySpinner(size: 18, strokeWidth: 2, color: t.onAccent)
-                      : Icon(
-                          _hasError
-                              ? Icons.error_outline
-                              : _isPlaying
-                              ? Icons.pause
-                              : Icons.play_arrow,
-                          color: t.onAccent,
-                          size: 24,
-                        ),
+                  // C9: play ↔ pause cross-fades with a 0.8 → 1 scale.
+                  child: AnimatedSwitcher(
+                    duration: motionOf(context, WarmPopTokens.motionFast),
+                    switchInCurve: WarmPopTokens.curveEnter,
+                    transitionBuilder: (child, a) => FadeTransition(
+                      opacity: a,
+                      child: ScaleTransition(
+                        scale: Tween(begin: 0.8, end: 1.0).animate(a),
+                        child: child,
+                      ),
+                    ),
+                    child: _isLoading
+                        ? BusySpinner(
+                            key: const ValueKey('voice-loading'),
+                            size: 18,
+                            strokeWidth: 2,
+                            color: t.onAccent,
+                          )
+                        : Icon(
+                            _hasError
+                                ? Icons.error_outline
+                                : _isPlaying
+                                ? Icons.pause
+                                : Icons.play_arrow,
+                            key: ValueKey((_hasError, _isPlaying)),
+                            color: t.onAccent,
+                            size: 24,
+                          ),
+                  ),
                 ),
               ),
             ),
@@ -317,13 +335,21 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                           _seekTo(d.localPosition.dx, box.maxWidth),
                       onHorizontalDragUpdate: (d) =>
                           _seekTo(d.localPosition.dx, box.maxWidth),
-                      child: VoiceWaveform(
-                        key: const ValueKey('voice-bubble-wave'),
-                        levels: levels,
-                        bars: kVoiceBubbleBars,
-                        height: 28,
-                        progress: progress,
-                        restAlpha: 0.3,
+                      // C9: while playing, the fill glides (linear) between
+                      // position ticks; a seek jumps.
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(end: progress),
+                        duration: _isPlaying
+                            ? motionOf(context, WarmPopTokens.motionEnter)
+                            : Duration.zero,
+                        builder: (context, p, _) => VoiceWaveform(
+                          key: const ValueKey('voice-bubble-wave'),
+                          levels: levels,
+                          bars: kVoiceBubbleBars,
+                          height: 28,
+                          progress: p,
+                          restAlpha: 0.3,
+                        ),
                       ),
                     ),
                   ),
@@ -342,7 +368,13 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
               // E3: speed only while playing.
               if (_isPlaying) ...[
                 const SizedBox(width: 6),
-                Semantics(
+                // C9: the speed chip fades in when playback starts.
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: motionOf(context, WarmPopTokens.motionFast),
+                  builder: (context, o, child) =>
+                      Opacity(opacity: o, child: child),
+                  child: Semantics(
                   button: true,
                   label: 'Playback speed',
                   child: GestureDetector(
@@ -368,6 +400,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
                       ),
                     ),
                   ),
+                ),
                 ),
               ],
             ],

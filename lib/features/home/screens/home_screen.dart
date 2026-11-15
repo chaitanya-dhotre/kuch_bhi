@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,7 @@ import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_badge.dart';
 import '../../../core/widgets/app_sheet.dart';
+import '../../../core/widgets/change_motion.dart';
 import '../../../core/widgets/chat_tile.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -72,6 +74,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _upgradeBannerDismissed = false;
   String? _openingFriendId;
   double? _searchOriginOffset;
+
+  // Motion D2: the last chat order, and each id's slot before a reorder.
+  List<String> _order = const [];
+  Map<String, int> _prevSlot = const {};
+  int _reorderGen = 0;
 
   @override
   void initState() {
@@ -380,6 +387,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
+    // D2: a new order (not a search filter) slides the rows on screen.
+    final ids = [for (final c in filteredConversations) c.id];
+    if (!listEquals(ids, _order)) {
+      if (query.isEmpty && _order.isNotEmpty) {
+        _prevSlot = {for (var i = 0; i < _order.length; i++) _order[i]: i};
+        _reorderGen++;
+        // Only this frame's rows read it: one scrolled in later never fades.
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _prevSlot = const {},
+        );
+      } else {
+        _prevSlot = const {};
+      }
+      _order = ids;
+    }
+
     final children = <Widget>[];
     if (filteredConversations.isNotEmpty) {
       children.add(
@@ -390,10 +413,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
       children.addAll(
-        filteredConversations.map(
-          (conversation) => _ConversationTile(
-            key: ValueKey('conversation-${conversation.id}'),
-            conv: conversation,
+        filteredConversations.indexed.map(
+          (e) => ReorderSlide(
+            key: ValueKey('conversation-${e.$2.id}'),
+            slot: e.$1,
+            previousSlot: _prevSlot[e.$2.id],
+            generation: _reorderGen,
+            child: _ConversationTile(conv: e.$2),
           ),
         ),
       );
@@ -445,6 +471,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       padding: const EdgeInsets.only(bottom: 96),
       itemCount: children.length,
       itemBuilder: (_, index) => children[index],
+      // D2: a moved row keeps its element, so it can slide from its old slot.
+      findChildIndexCallback: (key) {
+        final i = children.indexWhere((w) => w.key == key);
+        return i < 0 ? null : i;
+      },
     );
   }
 
@@ -940,7 +971,7 @@ class _FriendsTile extends StatelessWidget {
 }
 
 class _ConversationTile extends ConsumerWidget {
-  const _ConversationTile({super.key, required this.conv});
+  const _ConversationTile({required this.conv});
 
   final Conversation conv;
 
@@ -1016,6 +1047,8 @@ class _ConversationTileContent extends ConsumerWidget {
       isGroup: conv.isGroup,
       isPinned: conv.isPinned,
       isOnline: conv.isGroup ? null : conv.otherUser?.isOnline,
+      heroId: conv.id,
+      flashKey: conv.lastMessageAt,
       onTap: () => context.push(AppRoutes.chat, extra: conv),
       onLongPress: () => _showConversationMenu(context, ref),
     );

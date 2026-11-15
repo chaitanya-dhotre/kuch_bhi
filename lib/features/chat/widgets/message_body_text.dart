@@ -151,8 +151,8 @@ class _MessageBodyTextState extends ConsumerState<MessageBodyText> {
     // The provider can complete after the bubble has painted. Keep the slot
     // stable while the decrypted text fades in over roughly 100ms.
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 100),
-      reverseDuration: const Duration(milliseconds: 100),
+      duration: const Duration(milliseconds: 100), // motion-allow: Chat calm placeholder, kept
+      reverseDuration: const Duration(milliseconds: 100), // motion-allow: Chat calm placeholder, kept
       layoutBuilder: (currentChild, previousChildren) => Stack(
         alignment: AlignmentDirectional.topStart,
         children: <Widget>[
@@ -283,8 +283,8 @@ class _ResolvedBodyState extends State<_ResolvedBody> {
           )
         : text;
     return AnimatedSize(
-      duration: const Duration(milliseconds: 100),
-      curve: Curves.easeOut,
+      duration: const Duration(milliseconds: 100), // motion-allow: Chat calm placeholder, kept
+      curve: Curves.easeOut, // motion-allow: Chat calm placeholder, kept
       alignment: AlignmentDirectional.topStart,
       child: child,
     );

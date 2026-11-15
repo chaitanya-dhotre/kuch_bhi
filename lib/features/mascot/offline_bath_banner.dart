@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/app_strings.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/widgets/app_avatar.dart';
 import '../../infrastructure/offline/connectivity_signal.dart';
 import '../chat/providers/outbox_status_provider.dart';
 import 'capy.dart';
@@ -134,7 +135,13 @@ class _OfflineBathBannerState extends ConsumerState<OfflineBathBanner> {
           : Padding(
               key: const ValueKey('offline-bath'),
               padding: widget.padding,
-              child: banner,
+              // Motion B3: the same banner flies between Home and the chat.
+              // Destination look only: its capybara must not run twice.
+              child: ChatHero(
+                tag: offlineBannerHeroTag,
+                crossFade: false,
+                child: banner,
+              ),
             ),
     );
   }
