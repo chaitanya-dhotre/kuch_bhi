@@ -658,17 +658,15 @@ amoledSurface: Color(0xFF0D0D0D)
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \!= ""
-
-viewRule:   @request.auth.id \!= ""
-
-createRule: ""
-
-updateRule: @request.auth.id \= id
-
-deleteRule: @request.auth.id \= id
+```
+listRule:   @request.auth.id != ""
+viewRule:   @request.auth.id != ""
+createRule: "" (anyone, no sign-in)
+updateRule: @request.auth.id = id
+deleteRule: @request.auth.id = id
+```
 
 ---
 
@@ -683,17 +681,15 @@ deleteRule: @request.auth.id \= id
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \= from\_user || @request.auth.id \= to\_user
-
-viewRule:   @request.auth.id \= from\_user || @request.auth.id \= to\_user
-
-createRule: @request.auth.id \= from\_user && @request.auth.id \!= to\_user
-
-updateRule: @request.auth.id \= to\_user && status \= "pending"
-
-deleteRule: @request.auth.id \= from\_user || @request.auth.id \= to\_user
+```
+listRule:   @request.auth.id = from_user || @request.auth.id = to_user
+viewRule:   @request.auth.id = from_user || @request.auth.id = to_user
+createRule: @request.auth.id = from_user && @request.auth.id != to_user
+updateRule: @request.auth.id = to_user && status = "pending"
+deleteRule: @request.auth.id = from_user || @request.auth.id = to_user
+```
 
 ---
 
@@ -706,19 +702,15 @@ deleteRule: @request.auth.id \= from\_user || @request.auth.id \= to\_user
 | `user_b` | Relation → users | Required, cascade delete |
 | `created` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \= user\_a || @request.auth.id \= user\_b
-
-viewRule:   @request.auth.id \= user\_a || @request.auth.id \= user\_b
-
-createRule: @request.auth.id \= user\_a
-
-updateRule: null
-
-deleteRule: @request.auth.id \= user\_a || @request.auth.id \= user\_b
-
-Note: When a friend request is accepted, create one `friendships` record. user\_a \= requester, user\_b \= acceptor.
+```
+listRule:   @request.auth.id = user_a || @request.auth.id = user_b
+viewRule:   @request.auth.id = user_a || @request.auth.id = user_b
+createRule: @request.auth.id = user_a
+updateRule: null (superusers only)
+deleteRule: @request.auth.id = user_a || @request.auth.id = user_b
+```
 
 ---
 
@@ -738,17 +730,15 @@ Note: When a friend request is accepted, create one `friendships` record. user\_
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-viewRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-createRule: @request.auth.id \!= ""
-
-updateRule: @collection.conversation\_members.user\_id ?= @request.auth.id
-
-deleteRule: null
+```
+listRule:   created_by = @request.auth.id || (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) || (@collection.group_invites.conversation_id ?= id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending")
+viewRule:   created_by = @request.auth.id || (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) || (@collection.group_invites.conversation_id ?= id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending")
+createRule: @request.auth.id != ""
+updateRule: (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) && @request.body.created_by:isset = false && @request.body.type:isset = false
+deleteRule: @request.auth.id = created_by
+```
 
 ---
 
@@ -765,17 +755,15 @@ deleteRule: null
 | `last_read_message_id` | Text | Optional (message ID) |
 | `created` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \= user\_id || @collection.conversation\_members.user\_id ?= @request.auth.id
-
-viewRule:   @request.auth.id \= user\_id
-
-createRule: @request.auth.id \!= ""
-
-updateRule: @request.auth.id \= user\_id
-
-deleteRule: @request.auth.id \= user\_id
+```
+listRule:   @request.auth.id = user_id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id)
+viewRule:   @request.auth.id = user_id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+createRule: @request.auth.id != "" && (@request.auth.id = conversation_id.created_by || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin") || (@request.auth.id = user_id && @collection.group_invites.conversation_id ?= conversation_id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending"))
+updateRule: (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin" && @request.body.user_id:isset = false && @request.body.conversation_id:isset = false) || (user_id = @request.auth.id && @request.body.role:isset = false)
+deleteRule: @request.auth.id = user_id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+```
 
 ---
 
@@ -799,17 +787,15 @@ deleteRule: @request.auth.id \= user\_id
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @collection.conversation\_members.user\_id ?= @request.auth.id && @collection.conversation\_members.conversation\_id \= conversation\_id
-
-viewRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-createRule: @request.auth.id \= sender\_id && @collection.conversation\_members.user\_id ?= @request.auth.id
-
-updateRule: @request.auth.id \= sender\_id || @collection.conversation\_members.role \= "admin"
-
-deleteRule: null
+```
+listRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (expires_at = "" || expires_at > @now)
+viewRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (expires_at = "" || expires_at > @now)
+createRule: @request.auth.id = sender_id && @collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id
+updateRule: (@request.auth.id = sender_id && @request.body.is_deleted_for_everyone = true && @request.body.is_pinned:isset = false && @request.body.conversation_id:isset = false && @request.body.sender_id:isset = false && @request.body.type:isset = false && @request.body.encrypted_body:isset = false && @request.body.iv:isset = false && @request.body.reply_to_id:isset = false && @request.body.reply_preview:isset = false && @request.body.deleted_for_user_ids:isset = false && @request.body.is_starred_by:isset = false && @request.body.expires_at:isset = false && @request.body.album_id:isset = false && @request.body.album_index:isset = false && @request.body.disappear_after:isset = false) || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id) && @request.body.conversation_id:isset = false && @request.body.sender_id:isset = false && @request.body.type:isset = false && @request.body.encrypted_body:isset = false && @request.body.iv:isset = false && @request.body.reply_to_id:isset = false && @request.body.reply_preview:isset = false && @request.body.deleted_for_user_ids:isset = false && @request.body.is_starred_by:isset = false && @request.body.expires_at:isset = false && @request.body.album_id:isset = false && @request.body.album_index:isset = false && @request.body.disappear_after:isset = false && @request.body.is_deleted_for_everyone:isset = false
+deleteRule: null (superusers only)
+```
 
 ---
 
@@ -831,17 +817,15 @@ deleteRule: null
 | `expires_at` | DateTime | Required — set based on media retention policy |
 | `created` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-viewRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-createRule: @request.auth.id \!= ""
-
-updateRule: null
-
-deleteRule: null
+```
+listRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (message_id.expires_at = "" || message_id.expires_at > @now)
+viewRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (message_id.expires_at = "" || message_id.expires_at > @now)
+createRule: message_id.sender_id = @request.auth.id
+updateRule: null (superusers only)
+deleteRule: null (superusers only)
+```
 
 ---
 
@@ -860,17 +844,15 @@ This collection is the backbone of the read receipt system.
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \= recipient\_id || @collection.messages.sender\_id ?= @request.auth.id
-
-viewRule:   @request.auth.id \= recipient\_id
-
-createRule: @request.auth.id \!= ""
-
-updateRule: @request.auth.id \= recipient\_id
-
-deleteRule: null
+```
+listRule:   @request.auth.id = recipient_id || (@collection.messages.id ?= message_id && @collection.messages.sender_id ?= @request.auth.id)
+viewRule:   @request.auth.id = recipient_id
+createRule: @request.auth.id = recipient_id || ((@collection.messages.id ?= message_id && @collection.messages.sender_id ?= @request.auth.id) && delivered_at = "" && read_at = "")
+updateRule: @request.auth.id = recipient_id && @request.body.message_id:isset = false && @request.body.conversation_id:isset = false && @request.body.recipient_id:isset = false
+deleteRule: null (superusers only)
+```
 
 ---
 
@@ -885,17 +867,15 @@ deleteRule: null
 | `emoji` | Text | Required, max 10 chars |
 | `created` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-viewRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-createRule: @request.auth.id \= user\_id
-
-updateRule: @request.auth.id \= user\_id
-
-deleteRule: @request.auth.id \= user\_id
+```
+listRule:   @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id
+viewRule:   @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id
+createRule: @request.auth.id = user_id
+updateRule: @request.auth.id = user_id
+deleteRule: @request.auth.id = user_id
+```
 
 ---
 
@@ -914,17 +894,15 @@ deleteRule: @request.auth.id \= user\_id
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-viewRule:   @collection.conversation\_members.user\_id ?= @request.auth.id
-
-createRule: @request.auth.id \= created\_by
-
-updateRule: @collection.conversation\_members.user\_id ?= @request.auth.id
-
-deleteRule: @request.auth.id \= created\_by
+```
+listRule:   (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id)
+viewRule:   (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id)
+createRule: @request.auth.id = created_by
+updateRule: (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id)
+deleteRule: @request.auth.id = created_by
+```
 
 ---
 
@@ -937,17 +915,15 @@ deleteRule: @request.auth.id \= created\_by
 | `blocked_id` | Relation → users | Required, cascade delete |
 | `created` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \= blocker\_id
-
-viewRule:   @request.auth.id \= blocker\_id
-
-createRule: @request.auth.id \= blocker\_id
-
-updateRule: null
-
-deleteRule: @request.auth.id \= blocker\_id
+```
+listRule:   @request.auth.id = blocker_id
+viewRule:   @request.auth.id = blocker_id
+createRule: @request.auth.id = blocker_id
+updateRule: null (superusers only)
+deleteRule: @request.auth.id = blocker_id
+```
 
 ---
 
@@ -964,17 +940,15 @@ deleteRule: @request.auth.id \= blocker\_id
 | `sent` | Bool | Default: false |
 | `created` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id \= sender\_id
-
-viewRule:   @request.auth.id \= sender\_id
-
-createRule: @request.auth.id \= sender\_id
-
-updateRule: @request.auth.id \= sender\_id
-
-deleteRule: @request.auth.id \= sender\_id
+```
+listRule:   @request.auth.id = sender_id
+viewRule:   @request.auth.id = sender_id
+createRule: @request.auth.id = sender_id
+updateRule: @request.auth.id = sender_id
+deleteRule: @request.auth.id = sender_id
+```
 
 ---
 
@@ -994,17 +968,15 @@ deleteRule: @request.auth.id \= sender\_id
 
 
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
-listRule:   @request.auth.id = user_id.id
-
-viewRule:   @request.auth.id = user_id.id
-
-createRule: @request.auth.id != ""
-
-updateRule: @request.auth.id != ""
-
-deleteRule: null
+```
+listRule:   @request.auth.id = user_id.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+viewRule:   @request.auth.id = user_id.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+createRule: @request.auth.id = encrypted_by_user_id.id && (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+updateRule: null (superusers only)
+deleteRule: null (superusers only)
+```
 
 ---
 
@@ -1020,18 +992,15 @@ deleteRule: null
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
+```
 listRule:   @request.auth.id = user_id.id
-
 viewRule:   @request.auth.id = user_id.id
-
-createRule: @request.auth.id != ""
-
-updateRule: null
-
+createRule: @request.auth.id = user_id
+updateRule: null (superusers only)
 deleteRule: @request.auth.id = user_id.id
-
+```
 
 ### 7.15 Collection: `starred_messages`
 
@@ -1047,19 +1016,15 @@ deleteRule: @request.auth.id = user_id.id
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules:**
+**Rules (live server, read 2026-11-15):**
 
+```
 listRule:   @request.auth.id = user_id.id
-
 viewRule:   @request.auth.id = user_id.id
-
-createRule: @request.auth.id != ""
-
-updateRule: null
-
+createRule: @request.auth.id = user_id
+updateRule: null (superusers only)
 deleteRule: @request.auth.id = user_id.id
-
-
+```
 
 ### 7.16 PocketBase Hooks / Scheduled Jobs
 
@@ -1069,6 +1034,22 @@ These need to be implemented as PocketBase hooks (JS hooks file) or an external 
 2. **Disappearing messages** — hourly job, deletes `messages` where `expires_at < now()`  
 3. **Online status reset** — if `last_seen` \> 5 minutes ago, set `is_online = false`  
 4. **Scheduled messages sender** — every minute, find unsent `scheduled_messages` where `send_at <= now()`, send them
+
+---
+
+### 7.x Rules for collections not described above (live server, read 2026-11-15)
+
+#### `group_invites`
+
+**Rules (live server, read 2026-11-15):**
+
+```
+listRule:   invited_user_id = @request.auth.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+viewRule:   invited_user_id = @request.auth.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+createRule: (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+updateRule: (invited_user_id = @request.auth.id && @request.body.conversation_id:isset = false && @request.body.invited_user_id:isset = false && @request.body.invited_by:isset = false) || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+deleteRule: invited_user_id = @request.auth.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+```
 
 ---
 
