@@ -25,7 +25,7 @@ and reactions); `DENSITY` medium (airy cards, chat list scannable).
 |---|---|---|---|
 | bg | `#FAF7F1` | `#171512` | app background |
 | surface | `#FFFFFF` | `#211E1A` | cards, bubbles (them), sheets |
-| surface2 | `#F1ECE3` | `#2B2823` | skeletons, avatar fills, wells |
+| surface2 | `#F1ECE3` | `#2B2823` | skeletons, avatar fills, wells (AMOLED: `#171512`, the Dark `bg`, calm-rest A5) |
 | ink | `#2A2520` | `#F3EDE3` | primary text |
 | inkSoft | `#6E655A` | `#9C9284` | secondary text |
 | inkFaint | `#9C9284` | `#9C9284` | placeholder/meta |
@@ -63,6 +63,12 @@ snout `#8B5E3E`, nostril `#5C3B28`, face `#3A2E22`, key-gold `#E8A21D`.
   new-chat, primary button, unread badge, voice play disc, playback progress,
   focus ring. Bubble fills, borders on own media, Home row times and sender
   prefixes are never marigold. Marigold text uses `accentText`.
+- C5b (calm-rest A1): solid accent also on **state controls that are on**:
+  a switch's track, a ticked check disc (theme, font, member picker, poll).
+  Never marigold: list icons, row icon wells, info and warning icons in
+  banners (`accentText`), labels such as **You**, tab labels, avatar
+  placeholders, secondary buttons, small pills. One solid primary per
+  screen; an action that repeats per row uses the tonal button (R3).
 
 ## 3. Type scale
 
@@ -79,6 +85,7 @@ System font in the app; Plus Jakarta Sans only labels boards/mockups.
 | micro | 11/14 | 600 | badges, labels, uppercase kickers |
 
 Laws: headings 700, titles/actions 600, body 400 — never other weights.
+Button labels are actions: 15/22 **600** (calm-rest A3; were 700).
 Message bubbles = body scale. No font-size invention per screen; extended
 sizes need a foundation amendment.
 

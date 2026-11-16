@@ -380,7 +380,7 @@ class _OfflineStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return AnimatedSwitcher(
-      duration: _motionDuration(context, WarmPopTokens.motionBase),
+      duration: motionOf(context, WarmPopTokens.motionBase),
       child: visible
           ? Semantics(
               key: const ValueKey('requests-offline-strip'),
@@ -490,6 +490,3 @@ class _RequestSkeletonCard extends StatelessWidget {
   }
 }
 
-Duration _motionDuration(BuildContext context, Duration duration) {
-  return MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
-}

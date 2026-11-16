@@ -228,7 +228,6 @@ class _GoogleOnboardingScreenState
                 image: _pickedImage != null ? FileImage(_pickedImage!) : null,
                 initials: initialsOf(_displayNameController.text),
                 radius: 48,
-                accentSoft: true,
               ),
               Positioned(
                 bottom: 0,

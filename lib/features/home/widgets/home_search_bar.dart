@@ -98,10 +98,10 @@ class _HomeSearchBarState extends State<HomeSearchBar> {
       cursorColor: t.accent,
       textInputAction: TextInputAction.search,
       textAlignVertical: TextAlignVertical.center,
-      style: TextStyle(fontSize: 13.5, color: t.ink),
+      style: TextStyle(fontSize: 13, height: 18 / 13, color: t.ink),
       decoration: InputDecoration(
         hintText: 'Search chats',
-        hintStyle: TextStyle(fontSize: 13.5, color: t.inkFaint),
+        hintStyle: TextStyle(fontSize: 13, height: 18 / 13, color: t.inkFaint),
         border: InputBorder.none,
         isDense: true,
         contentPadding: EdgeInsets.zero,
@@ -152,7 +152,7 @@ class _HomeSearchBarState extends State<HomeSearchBar> {
           const SizedBox(width: 8),
           Text(
             'Search chats',
-            style: TextStyle(fontSize: 13.5, color: t.inkFaint),
+            style: TextStyle(fontSize: 13, height: 18 / 13, color: t.inkFaint),
           ),
         ],
       ),
@@ -168,11 +168,9 @@ class _HomeSearchBarState extends State<HomeSearchBar> {
       child: SizedBox(
         width: double.infinity,
         child: AnimatedContainer(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : WarmPopTokens.motionFast,
-          curve: Curves.easeOut,
-          height: 42,
+          duration: motionOf(context, WarmPopTokens.motionFast),
+          curve: WarmPopTokens.curveEnter,
+          height: 44,
           decoration: BoxDecoration(
             color: t.surface,
             borderRadius: BorderRadius.circular(999),
@@ -184,7 +182,7 @@ class _HomeSearchBarState extends State<HomeSearchBar> {
           child: _hasFocus || _hasText
               ? _buildField(context, t)
               : Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: _buildClosedPill(context, t),
                 ),
         ),

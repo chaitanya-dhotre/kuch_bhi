@@ -150,7 +150,7 @@ class _GroupAvatar extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        AppAvatar(initials: initials, radius: 26, accentSoft: true),
+        AppAvatar(initials: initials, radius: 26),
         Positioned(
           right: -2,
           bottom: -2,

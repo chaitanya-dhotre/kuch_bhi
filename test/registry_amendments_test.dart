@@ -45,45 +45,14 @@ void main() {
       );
     });
 
-    testWidgets('AppAvatar accentSoft changes only the no-image fill', (
+    testWidgets('AppAvatar initials sit on surface2 (calm-rest A2)', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _host(const AppAvatar(initials: 'A', accentSoft: true)),
-      );
-      expect(
-        tester.widget<CircleAvatar>(find.byType(CircleAvatar)).backgroundColor,
-        ColorTokens.light.accentSoft,
-      );
-
       await tester.pumpWidget(_host(const AppAvatar(initials: 'A')));
       expect(
         tester.widget<CircleAvatar>(find.byType(CircleAvatar)).backgroundColor,
         ColorTokens.light.surface2,
       );
-    });
-
-    testWidgets('AppAvatar dark accentSoft initials meet contrast', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: warmPopDark(),
-          home: const Scaffold(
-            body: AppAvatar(initials: 'A', accentSoft: true),
-          ),
-        ),
-      );
-
-      final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
-      final text = tester.widget<Text>(find.text('A'));
-      final foreground = text.style!.color!.computeLuminance();
-      final background = avatar.backgroundColor!.computeLuminance();
-      final lighter = foreground > background ? foreground : background;
-      final darker = foreground > background ? background : foreground;
-      final ratio = (lighter + 0.05) / (darker + 0.05);
-
-      expect(ratio, greaterThanOrEqualTo(4.5));
     });
 
     testWidgets('conversation menu shares chrome and renders action rows', (

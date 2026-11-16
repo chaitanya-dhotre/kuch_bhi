@@ -56,7 +56,6 @@ class RequestCard extends StatelessWidget {
                         initials: initialsOf(name),
                         url: request.fromUser.avatarUrl,
                         radius: 26,
-                        accentSoft: true,
                       ),
                     ),
                     const SizedBox(width: 14),

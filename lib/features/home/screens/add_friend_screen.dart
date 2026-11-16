@@ -225,7 +225,6 @@ class _CodeSearchTab extends ConsumerWidget {
                       url: found.avatarUrl,
                       initials: initialsOf(found.displayName),
                       radius: 28,
-                      accentSoft: true,
                     ),
                     const SizedBox(width: 14),
                     Expanded(

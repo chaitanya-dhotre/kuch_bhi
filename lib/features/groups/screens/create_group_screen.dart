@@ -682,12 +682,11 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
     final letter = initialsOf(name, fallback: 'G');
 
     final photo = _iconFile == null
-        ? AppAvatar(initials: letter, radius: 48, accentSoft: true)
+        ? AppAvatar(initials: letter, radius: 48)
         : AppAvatar(
             image: FileImage(_iconFile!),
             initials: letter,
             radius: 48,
-            accentSoft: true,
           );
 
     return SingleChildScrollView(

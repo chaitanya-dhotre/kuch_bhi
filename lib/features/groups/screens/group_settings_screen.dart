@@ -48,9 +48,6 @@ String _safeName(String? raw) {
   return value.isEmpty ? 'Unknown' : value;
 }
 
-Duration _motionDuration(BuildContext context, Duration duration) =>
-    MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
-
 /// Admin-side Group Info screen (checklist A–K).
 class GroupSettingsScreen extends ConsumerStatefulWidget {
   const GroupSettingsScreen({super.key, required this.conversation});
@@ -502,7 +499,6 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
           url: conv.iconUrl,
           initials: initialsOf(name, fallback: 'G'),
           radius: 48,
-          accentSoft: true,
         ),
         if (uploading)
           Positioned.fill(
@@ -1444,7 +1440,7 @@ class _OfflineStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return AnimatedSwitcher(
-      duration: _motionDuration(context, WarmPopTokens.motionBase),
+      duration: motionOf(context, WarmPopTokens.motionBase),
       child: visible
           ? Semantics(
               key: const ValueKey('group-info-offline-strip'),

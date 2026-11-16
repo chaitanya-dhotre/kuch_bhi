@@ -77,9 +77,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             SizedBox.square(
               dimension: 88,
               child: AnimatedSwitcher(
-                duration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : const Duration(milliseconds: 150),
+                duration: motionOf(context, WarmPopTokens.motionFast),
                 child: capy
                     ? const Capy(
                         view: CapyView.front,
@@ -104,7 +102,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             const SizedBox(height: 24),
             AnimatedOpacity(
               opacity: _slow ? 1 : 0,
-              duration: const Duration(milliseconds: 150),
+              duration: motionOf(context, WarmPopTokens.motionFast),
               child: _slow ? const BusySpinner() : const SizedBox(height: 18),
             ),
           ],

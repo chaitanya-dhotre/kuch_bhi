@@ -123,7 +123,8 @@ class ChatTile extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: t.bg,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: t.surface, width: 2),
+                                // B4: the A2 avatar ring colour.
+                                border: Border.all(color: t.line),
                               ),
                               child: Icon(
                                 Icons.group,
@@ -182,10 +183,10 @@ class ChatTile extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: unread
-                                ? FontWeight.w700
+                                ? FontWeight.w600
                                 : FontWeight.w400,
-                            // Chat calm D3: grey; marigold text only when unread.
-                            color: unread ? t.accentText : t.inkSoft,
+                            // Calm-rest B1: the badge is the row's only marigold.
+                            color: unread ? t.ink : t.inkSoft,
                           ),
                         ),
                     ],

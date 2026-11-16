@@ -27,12 +27,31 @@ void main() {
     expect(ratio(WarmPopTokens.springDrag), closeTo(1.0, 1e-9));
   });
 
-  test('L8: chat and core widgets take motion from the tokens', () {
+  test('L8: chat, core widgets and the calm-rest screens take motion from '
+      'the tokens', () {
     final files = [
-      ...Directory('lib/features/chat').listSync(recursive: true),
-      ...Directory('lib/core/widgets').listSync(recursive: true),
+      for (final d in const [
+        'lib/features/chat',
+        'lib/core/widgets',
+        // Calm-rest A8: the gate widened to every non-chat screen.
+        'lib/features/home',
+        'lib/features/friend_requests',
+        'lib/features/groups',
+        'lib/features/profile',
+        'lib/features/settings',
+        'lib/features/auth',
+        'lib/features/starred_messages',
+      ])
+        ...Directory(d).listSync(recursive: true),
+      File('lib/features/media/screens/media_docs_screen.dart'),
     ].whereType<File>().where((f) => f.path.endsWith('.dart'));
-    final allowFile = RegExp(r'voice_recorder_panel|video_');
+    // shortcut: calm-rest parts 3 and 4 still own these raw values (Requests
+    // and Group info skeletons, backup PIN restore timings); each part drops
+    // its file from this list when it lands.
+    final allowFile = RegExp(
+      r'voice_recorder_panel|video_|friend_requests_screen|'
+      r'group_settings_screen|backup_pin_screen',
+    );
     final raw = RegExp(r'Duration\(milliseconds|Curves\.|Cubic\(');
     final timer = RegExp(r'Timer(\.periodic)?\(|delayed\(|timeout\(');
     final hits = <String>[];

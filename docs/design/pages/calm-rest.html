@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calm rest board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap">
+<style>
+/* Tokens from 00-foundation.md §2 (and calm-rest.md A5 for AMOLED). */
+:root{--bg:#FAF7F1;--surface:#FFFFFF;--surface2:#F1ECE3;--ink:#2A2520;--inkSoft:#6E655A;--inkFaint:#9C9284;--line:#E4DDD1;--accent:#EFA00B;--accentSoft:#FFF3DC;--accentText:#744C01;--mine:#FFE9CF;--onAccent:#2A2520;--error:#E5484D}
+.dark{--bg:#171512;--surface:#211E1A;--surface2:#2B2823;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--accentSoft:#3A2E14;--accentText:#FEBF67;--mine:#492F06;--onAccent:#21260F}
+.amoled{--bg:#000;--surface:#0A0908;--surface2:#0D0D0D;--ink:#F3EDE3;--inkSoft:#9C9284;--inkFaint:#9C9284;--line:#3B362F;--accentSoft:#3A2E14;--accentText:#FEBF67;--mine:#492F06;--onAccent:#21260F}
+.amoled.new{--surface2:#171512}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 "Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:900px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.band .n{font-weight:800;color:#744C01}
+.note{background:#FEF5EA;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px;max-width:900px}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.tag{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.tag.new{color:#0E7A55}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border:1px solid #E4DDD1;padding:6px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+.tblwrap{overflow-x:auto}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+
+/* phone: 260 css px stands for a 384 dp screen (scale .68) */
+.ph{position:relative;width:260px;max-width:100%;min-height:470px;padding-bottom:8px;background:var(--bg);color:var(--ink);border-radius:20px;border:1px solid #D8CDBA;overflow:hidden;font-family:Roboto,-apple-system,"Segoe UI",sans-serif;font-size:11px;line-height:15px}
+.ab{display:flex;align-items:center;gap:8px;padding:12px 10px 8px;font-weight:700;font-size:13.6px}
+.ab .sp{flex:1}.ab .ic{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--ink);opacity:.8}
+.ab .bk{font-size:15px;font-weight:400}
+.search{margin:0 8px 6px;height:28px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--inkFaint);padding:6px 12px;font-size:10px}
+.sec{font-size:8px;font-weight:600;color:var(--inkFaint);margin:8px 12px 4px;text-transform:none}
+.card{background:var(--surface);border-radius:11px;margin:0 8px 5px;padding:8px;display:flex;gap:8px;align-items:center}
+.av{flex:none;width:27px;height:27px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:10px;color:var(--inkSoft);background:var(--surface2);position:relative}
+.new .av{border:1px solid var(--line)}
+.av.soft{background:var(--accentSoft);color:var(--accentText)}
+.new .av.soft{background:var(--surface2);color:var(--inkSoft)}
+.av.ph0{background:linear-gradient(150deg,#7c8f6a,#3f5a4a 55%,#c9b28a);border:0!important}
+.av.big{width:64px;height:64px;font-size:22px}
+.gb{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:1.5px solid var(--surface);font-size:6px;display:grid;place-items:center;color:var(--inkSoft)}
+.new .gb{border-color:var(--line)}
+.cam{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);display:grid;place-items:center;font-size:9px;color:var(--onAccent)}
+.new .cam{background:var(--surface2);color:var(--ink)}
+.tx{flex:1;min-width:0}.tx b{display:block;font-weight:600;font-size:10.5px}.tx span{display:block;color:var(--inkSoft);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tx span em{font-style:normal;font-weight:600}
+.unread .tx span{color:var(--ink)}
+.rt{text-align:right;font-size:8px;color:var(--inkSoft);display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.unread .rt .t{color:var(--accentText);font-weight:600}
+.new .unread .rt .t{color:var(--ink)}
+.badge{min-width:14px;height:14px;border-radius:999px;background:var(--accent);color:var(--onAccent);font-size:8px;font-weight:600;display:grid;place-items:center;padding:0 3px}
+.fab{position:absolute;right:10px;bottom:12px;width:38px;height:38px;border-radius:11px;background:var(--accent);display:grid;place-items:center;color:var(--onAccent);font-weight:700;font-size:16px}
+.hint{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;font-size:8.5px;color:var(--inkSoft);text-align:center;background:var(--bg)}
+/* groups (settings style) */
+.grp{background:var(--surface);border-radius:11px;margin:0 8px 6px;overflow:hidden}
+.ti{display:flex;align-items:center;gap:8px;padding:7px 8px;border-top:1px solid var(--line)}
+.ti:first-child{border-top:0}
+.well{flex:none;width:22px;height:22px;border-radius:7px;background:var(--surface2);display:grid;place-items:center;font-size:10px;color:var(--ink)}
+.ti .tx b{font-weight:500;font-size:10.5px}
+.chk{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line)}
+.chk.on{background:var(--accent);border-color:var(--accent);position:relative}
+.chk.on:after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;font-size:8px;color:var(--onAccent);font-weight:700}
+.sw{width:26px;height:15px;border-radius:999px;background:var(--surface2);border:1.5px solid var(--line);position:relative}
+.sw.on{background:var(--accent);border-color:var(--accent)}
+.sw:after{content:"";position:absolute;top:1px;left:1px;width:10px;height:10px;border-radius:50%;background:var(--inkFaint)}
+.sw.on:after{left:12px;background:var(--onAccent)}
+.val{font-size:9px;color:var(--inkSoft)}
+.red{color:var(--error)}
+/* buttons */
+.btn{display:inline-grid;place-items:center;height:26px;border-radius:9px;padding:0 10px;font-size:10px;font-weight:700}
+.new .btn{font-weight:600}
+.btn.p{background:var(--accent);color:var(--onAccent)}
+.btn.t{background:var(--mine);color:var(--ink)}
+.btn.s{background:var(--surface);color:var(--ink);border:1.2px solid var(--line)}
+.btn.sm{height:20px;font-size:8.5px;border-radius:999px;padding:0 8px}
+.tx .pill,.pill{display:inline-block;font-size:7.5px;font-weight:600;border-radius:999px;padding:0 5px;line-height:12px;background:var(--accentSoft);color:var(--ink);margin-left:4px;vertical-align:1px}
+.new .pill{background:var(--surface2);color:var(--inkSoft)}
+.addp{background:var(--accentSoft);color:var(--ink)}
+.center{text-align:center}
+.req{background:var(--surface);border-radius:11px;margin:0 8px 6px;padding:8px}
+.req .top{display:flex;gap:8px;align-items:center;margin-bottom:7px}
+.req .bt{display:flex;gap:6px}.req .bt .btn{flex:1}
+/* tabs */
+.tabs{display:flex;border-bottom:1px solid var(--line);margin:0 0 4px}
+.tabs div{flex:1;text-align:center;padding:6px 0;font-size:9.5px;color:var(--inkSoft);font-weight:500}
+.tabs .on{color:var(--accent);border-bottom:2px solid var(--accent);font-weight:600}
+.new .tabs .on{color:var(--ink)}
+.lr{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line)}
+.lr .well{width:26px;height:26px;border-radius:50%;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.new .lr .well{border-radius:7px;background:color-mix(in srgb,var(--ink) 8%,transparent);color:var(--ink)}
+.lr .act{color:var(--accent);font-size:12px}
+.new .lr .act{color:var(--inkSoft)}
+.st{background:var(--surface);border-radius:10px;margin:0 8px 6px;padding:7px}
+.st .who{font-size:8.5px;font-weight:600;color:var(--accent);display:flex;gap:4px;align-items:center}
+.st .who i{font-style:normal;color:var(--accent)}
+.new .st .who{color:var(--inkSoft)}.new .st .who i{color:var(--accentText)}
+.st .who .d{margin-left:auto;font-weight:400;color:var(--inkFaint)}
+.st .img{height:70px;border-radius:8px;margin-top:5px;background:linear-gradient(150deg,#3a4b6b,#20283a 50%,#7c6a4a)}
+.new .st .img{border-radius:7px}
+.chips{display:flex;gap:4px;padding:4px 10px 6px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:2px 7px 2px 2px;font-size:8.5px}
+.chip .av{width:16px;height:16px;font-size:7px}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:14px 14px 0 0;padding:6px 10px 12px}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.handle{width:24px;height:3px;border-radius:2px;background:var(--line);margin:0 auto 8px}
+.field{flex:1;height:28px;border-radius:10px;border:1px solid var(--line);padding:7px 8px;color:var(--inkFaint);font-size:9px}
+.sq{width:28px;height:28px;border-radius:10px;background:var(--accent);display:grid;place-items:center;color:var(--onAccent)}
+.legend td:first-child{white-space:nowrap}
+.dot{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:4px;border:1px solid #0002}
+.shots{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.shots img{height:300px;border-radius:12px;border:1px solid #D8CDBA}
+.shots figure{margin:0;font-size:11px;color:#6E655A}
+</style>
+</head>
+<body>
+<h1>Calm for the rest of the app</h1>
+<p class="sub">Spec <code>docs/design/pages/calm-rest.md</code>, rev 1, spec PASS 2026-11-16, all defaults. Every screen outside the chat takes Chat calm's colour roles and the motion tokens. "Before" panels are drawn from the M52 shots in <code>docs/Inspiration/calm-rest/current/</code>; names are placeholders. Defaults shown; decisions CR-1…CR-8 at the bottom.</p>
+
+<section class="band">
+<header><span class="n">A1</span><h2>Where marigold is allowed</h2></header>
+<div class="tblwrap"><table class="legend">
+<tr><th>Role</th><th>Uses</th></tr>
+<tr><td><span class="dot" style="background:#EFA00B"></span>Solid (C5)</td><td>send, mic, new-chat button, the one primary button of a screen, unread badge, voice play disc, progress, focus ring, cursor</td></tr>
+<tr><td><span class="dot" style="background:#EFA00B"></span>Solid (C5b, new)</td><td>a switch that is on, a ticked check disc (CR-5)</td></tr>
+<tr><td><span class="dot" style="background:#FFE9CF"></span>Tonal (new button)</td><td>a main action that repeats per row: Accept on every request, Add on Group info (CR-4)</td></tr>
+<tr><td><span class="dot" style="background:#744C01"></span>Marigold text</td><td>always <code>accentText</code>: banner warning icon, the star on a starred row, links</td></tr>
+<tr><td><span class="dot" style="background:#F1ECE3"></span>Never marigold</td><td>avatars, photo badge, list icons and wells, tab labels, "You", Admin and Add pills, secondary buttons</td></tr>
+</table></div>
+</section>
+
+<section class="band">
+<header><span class="n">Part 1</span><h2>Home + shared pieces</h2></header>
+<div class="row" id="home"></div>
+<div class="note">Unread rows keep one marigold spot (the badge); the time turns ink 600 (CR-1). Avatars get one look everywhere: surface2 + 1 dp ring (CR-8). The new-chat button slides away while scrolling down and returns on scroll up (the "after" panels show the list mid-scroll, CR-2). AMOLED: <code>surface2</code> #0D0D0D → #171512, so discs show on black (A5). Count on device at rest: 9 marigold spots → 5.</div>
+</section>
+
+<section class="band">
+<header><span class="n">A3</span><h2>Buttons</h2></header>
+<div class="row" id="btns"></div>
+<div class="note">Labels 600 (today 700). Tonal = <code>bubbleMine</code> + ink label, the same pair as an own chat bubble, so it passes 12.9 : 1 light and 10.7 : 1 dark.</div>
+</section>
+
+<section class="band">
+<header><span class="n">Part 2</span><h2>Settings, Profile, Edit profile</h2></header>
+<div class="row" id="settings"></div>
+<div class="note">Settings barely changes: check discs and switches stay marigold (C5b), subtitles 12.5 → 13. Edit profile: the photo badge goes grey (CR-6). Theme change cross-fades over 250 ms instead of Flutter's 200 ms linear.</div>
+</section>
+
+<section class="band">
+<header><span class="n">Part 3</span><h2>Requests, Group info, New group</h2></header>
+<div class="row" id="groups"></div>
+<div class="note">Accept is tonal, Decline secondary; an answered card fades and closes over 190 ms. Group info: Add is a small tonal button, Admin a grey pill, Leave group the only red. New group: chosen people pop in as chips above the list.</div>
+</section>
+
+<section class="band">
+<header><span class="n">Part 4</span><h2>Starred, Media &amp; docs, Add a friend</h2></header>
+<div class="row" id="lists"></div>
+<div class="note">Starred: "You" was marigold text at about 2 : 1 on white; it becomes inkSoft 600, and only the small star keeps a marigold (accentText). Media &amp; docs: grey icon tiles and actions; the tab label is ink with a 2 dp marigold bar, the same tab bar as Add a friend. Auth already has one primary per screen; it only takes the button weight and token motion.</div>
+</section>
+
+<section class="band">
+<header><span class="n">Device</span><h2>Before, on the M52 (AMOLED, Light, Dark)</h2></header>
+<div class="shots">
+<figure><img src="../../Inspiration/calm-rest/current/home-amoled.png" alt="Home, AMOLED, before"><figcaption>Home, AMOLED</figcaption></figure>
+<figure><img src="../../Inspiration/calm-rest/current/group-info-light.png" alt="Group info, light, before"><figcaption>Group info, Light</figcaption></figure>
+<figure><img src="../../Inspiration/calm-rest/current/media-voice-dark.png" alt="Media and docs voice tab, dark, before"><figcaption>Media &amp; docs, Dark</figcaption></figure>
+<figure><img src="../../Inspiration/calm-rest/current/starred-light.png" alt="Starred, light, before"><figcaption>Starred, Light</figcaption></figure>
+<figure><img src="../../Inspiration/calm-rest/current/add-friend-sheet-light.png" alt="Add a friend sheet, light, before"><figcaption>Add a friend, Light</figcaption></figure>
+</div>
+<div class="note">Local files (not committed). If they are missing, the drawn panels above still stand.</div>
+</section>
+
+<section class="band">
+<header><span class="n">Decide</span><h2>Decisions (defaults in bold)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Question</th><th>Options</th></tr>
+<tr><td>CR-1</td><td>Unread row time on Home</td><td><b>A: ink 600, badge is the only marigold</b> · B: accentText (today)</td></tr>
+<tr><td>CR-2</td><td>New-chat button over the last row's badge</td><td><b>A: hides on scroll down</b> · B: icon in the app bar, no floating button · C: padding only</td></tr>
+<tr><td>CR-3</td><td>Home rows</td><td><b>A: keep cards</b> · B: flat rows, no card</td></tr>
+<tr><td>CR-4</td><td>Action that repeats per row</td><td><b>A: tonal</b> · B: solid marigold (today) · C: ink fill</td></tr>
+<tr><td>CR-5</td><td>Switch on, ticked check</td><td><b>A: solid marigold</b> · B: ink</td></tr>
+<tr><td>CR-6</td><td>Photo badge</td><td><b>A: grey disc, ink icon</b> · B: marigold (today)</td></tr>
+<tr><td>CR-7</td><td>Tabs</td><td><b>A: ink label, 2 dp marigold bar</b> · B: accentText label + bar</td></tr>
+<tr><td>CR-8</td><td>Avatar placeholder</td><td><b>A: surface2 + ring everywhere</b> · B: accentSoft everywhere</td></tr>
+</table></div>
+</section>
+
+<script>
+const T={light:'',dark:'dark',amoled:'amoled'};
+function phone(theme,after,label,inner){
+  return `<div><span class="tag${after?' new':''}">${label} · ${after?'after':'before'}</span><div class="ph ${T[theme]} ${after?'new':''}">${inner}</div></div>`;
+}
+const rows=[['PC','Priya C','Good morning','23:15',0,0],['A','Arjun','Hello broooo','23:04',0,0],['C','Capybara','<em>you:</em> Good evening','22:53',0,1],['NG','New Group','<em>you:</em> Voice messages and…','12:21',0,1],['WK','Weekend plans','<em>Arjun:</em> Hii','Yesterday',1,1],['TF','Things To Fix','<em>Arjun:</em> Reply shows as…','Thu',1,1],['DT','Disappear test','<em>Meera:</em> 7 days message','07/11',1,1]];
+function home(after){
+  let h=`<div class="ab">Kuch Bhi<span class="sp"></span><span class="ic"></span><span class="av" style="width:22px;height:22px">C</span></div><div class="search">Search chats</div><div class="sec">Chats</div>`;
+  for(const [i,n,p,t,u,g] of rows) h+=`<div class="card${u?' unread':''}"><span class="av">${i}${g?'<span class="gb">●</span>':''}</span><div class="tx"><b>${n}</b><span>${p}</span></div><div class="rt"><span class="t">${t}</span>${u?'<span class="badge">1</span>':''}</div></div>`;
+  // after: shown mid-scroll, while the list moves down, so the button is away (CR-2)
+  h+=after?`<div class="hint">↓ scrolling: new-chat button slid away · ↑ it returns</div>`:`<div class="fab">＋</div>`;
+  return h;
+}
+let out='';
+for(const th of ['light','dark','amoled']) for(const a of [0,1]) out+=phone(th,a,th[0].toUpperCase()+th.slice(1),home(a));
+document.getElementById('home').innerHTML=out;
+
+function btns(){return `<div style="padding:16px 12px;display:grid;gap:8px"><span class="btn p">Primary · Add a Friend</span><span class="btn t">Tonal · Accept</span><span class="btn s">Secondary · Decline</span><span class="btn" style="color:var(--ink)">Text · Cancel</span><div style="display:flex;gap:6px"><span class="btn sm t">＋ Add</span><span class="btn sm s">Remove</span></div></div>`}
+document.getElementById('btns').innerHTML=['light','dark'].map(th=>`<div><span class="tag new">${th}</span><div class="ph ${T[th]} new" style="height:auto">${btns()}</div></div>`).join('');
+
+function settings(){
+  return `<div class="ab"><span class="bk">←</span>Settings</div><div class="sec">Appearance</div><div class="grp">
+  <div class="ti"><span class="well">◎</span><div class="tx"><b>System default</b></div><span class="chk"></span></div>
+  <div class="ti"><span class="well">☀</span><div class="tx"><b>Light</b></div><span class="chk on"></span></div>
+  <div class="ti"><span class="well">☾</span><div class="tx"><b>Dark</b></div><span class="chk"></span></div>
+  <div class="ti"><span class="well">◐</span><div class="tx"><b>AMOLED</b></div><span class="chk"></span></div></div>
+  <div class="sec">Notifications</div><div class="grp"><div class="ti"><span class="well">♪</span><div class="tx"><b>Notifications</b><span>On</span></div><span class="val">↗</span></div></div>
+  <div class="sec">Privacy</div><div class="grp"><div class="ti"><span class="well">▣</span><div class="tx"><b>App lock</b></div><span class="val">On ›</span></div><div class="ti"><span class="well">⌁</span><div class="tx"><b>Hide previews</b></div><span class="sw on"></span></div></div>
+  <div class="grp"><div class="ti"><span class="well">ⓘ</span><div class="tx"><b>About</b></div><span class="val">›</span></div></div>`;
+}
+function editProfile(){
+  return `<div class="ab"><span class="bk">←</span>Edit profile<span class="sp"></span><span style="font-size:10px;font-weight:600">Save</span></div>
+  <div class="center" style="padding:6px 0 12px"><span class="av big ph0" style="display:inline-grid">&nbsp;<span class="cam">◉</span></span></div>
+  ${['Display name|Chait','Username|@chait','About|Hey there'].map(s=>{const [l,v]=s.split('|');return `<div style="margin:0 12px 10px;border:1px solid var(--line);border-radius:11px;padding:5px 9px;background:var(--surface)"><div style="font-size:7.5px;color:var(--inkSoft)">${l}</div><div style="font-size:10.5px">${v}</div></div>`}).join('')}
+  <div class="center" style="margin-top:14px"><span class="av big soft" style="display:inline-grid">C<span class="cam">◉</span></span><div class="val" style="margin-top:4px">no photo yet</div></div>`;
+}
+out='';
+for(const th of ['light','dark']) for(const a of [0,1]) out+=phone(th,a,`Settings, ${th}`,settings());
+for(const th of ['light','dark']) for(const a of [0,1]) out+=phone(th,a,`Edit profile, ${th}`,editProfile());
+document.getElementById('settings').innerHTML=out;
+
+function requests(after){
+  const card=(i,n,s)=>`<div class="req"><div class="top"><span class="av soft">${i}</span><div class="tx"><b>${n}</b><span>${s}</span></div></div><div class="bt"><span class="btn s">Decline</span><span class="btn ${after?'t':'p'}">Accept</span></div></div>`;
+  return `<div class="ab"><span class="bk">←</span>Requests</div><div class="sec">Friend requests</div>${card('M','Meera','@meera · wants to be friends')}${card('R','Rohan','@rohan · wants to be friends')}<div class="sec">Group invites</div>${card('W','Weekend plans','Arjun invited you')}`;
+}
+function groupInfo(after){
+  return `<div class="ab"><span class="bk">←</span>Group Info</div>
+  <div class="center" style="padding:4px 0 6px"><span class="av big soft" style="display:inline-grid">C<span class="cam">◉</span></span><div style="font-weight:700;font-size:12px;margin-top:6px">Capybara ✎</div><div class="val">3 members</div></div>
+  <div style="display:flex;align-items:center;margin:4px 12px 4px"><span class="sec" style="margin:0">Members</span><span class="sp" style="flex:1"></span><span class="btn sm ${after?'t':'addp'}">＋ Add</span></div>
+  <div class="grp"><div class="ti"><span class="av ph0">&nbsp;</span><div class="tx"><b>Chait<span class="pill">Admin</span></b><span>You</span></div></div><div class="ti"><span class="av soft">A</span><div class="tx"><b>Arjun</b><span>@arjun</span></div><span class="val">⋮</span></div><div class="ti"><span class="av soft">M</span><div class="tx"><b>Meera</b><span>@meera</span></div><span class="val">⋮</span></div></div>
+  <div class="sec">Settings</div><div class="grp"><div class="ti"><span class="well">▣</span><div class="tx"><b>Only admins can message</b></div><span class="sw"></span></div><div class="ti"><span class="well">◷</span><div class="tx"><b>Disappearing messages</b></div><span class="val">Off ›</span></div><div class="ti"><span class="well">▤</span><div class="tx"><b>Media &amp; Docs</b></div><span class="val">›</span></div></div>
+  <div class="grp"><div class="ti"><span class="well red">⇥</span><div class="tx"><b>Leave Group</b></div></div></div>`;
+}
+function newGroup(after){
+  const ppl=[['P','Priya',1],['A','Arjun',1],['M','Meera',0],['R','Rohan',1],['L','Lineage',0]];
+  let h=`<div class="ab"><span class="bk">←</span>New Group<span class="sp"></span><span style="font-size:10px;font-weight:600">Next</span></div>`;
+  if(after) h+=`<div class="chips">${ppl.filter(p=>p[2]).map(p=>`<span class="chip"><span class="av">${p[0]}</span>${p[1]} ✕</span>`).join('')}</div>`;
+  h+=`<div class="grp">${ppl.map(p=>`<div class="ti"><span class="chk${p[2]?' on':''}"></span><span class="av soft">${p[0]}</span><div class="tx"><b>${p[1]}</b><span>@${p[1].toLowerCase()}</span></div></div>`).join('')}</div>`;
+  return h;
+}
+out='';
+for(const th of ['light','dark']) for(const a of [0,1]) out+=phone(th,a,`Requests, ${th}`,requests(a));
+for(const th of ['light','dark']) for(const a of [0,1]) out+=phone(th,a,`Group info, ${th}`,groupInfo(a));
+for(const a of [0,1]) out+=phone('light',a,'New group, light',newGroup(a));
+for(const a of [0,1]) out+=phone('dark',a,'New group, dark',newGroup(a));
+document.getElementById('groups').innerHTML=out;
+
+function starred(){
+  const c=(w,d)=>`<div class="st"><div class="who"><i>★</i>${w}<span class="d">${d}</span></div><div class="img"></div><div class="val" style="margin-top:4px">▣ 1 photo and 1 video</div></div>`;
+  return `<div class="ab"><span class="bk">←</span>Starred Messages</div>${c('You','Nov 15')}${c('Arjun','Nov 2')}${c('You','Nov 2')}`;
+}
+function media(){
+  const v=['0:06 · Nov 15','0:11 · Nov 14','0:08 · Oct 31','0:11 · Oct 31','0:05 · Oct 31','0:05 · Oct 30'];
+  return `<div class="ab"><span class="bk">←</span>Media &amp; Docs</div><div class="tabs"><div>Photos</div><div>Videos</div><div class="on">Voice</div><div>Docs</div></div>${v.map(x=>`<div class="lr"><span class="well">🎙︎</span><div class="tx"><b>Voice message</b><span>${x}</span></div><span class="act">▶</span></div>`).join('')}<div class="lr"><span class="well">▤</span><div class="tx"><b>ticket.pdf</b><span>217.8 KB · Oct 31</span></div><span class="act">⤓</span></div>`;
+}
+function addFriend(after){
+  return `${home(0).replace('<div class="fab">＋</div>','')}<div class="scrim"></div><div class="sheet" style="top:70px"><div class="handle"></div><div style="font-weight:700;font-size:12px;margin-bottom:8px">Add a friend</div><div class="tabs"><div class="on" style="${after?'':'border-bottom-width:3px'}">Friend code</div><div>Scan QR</div></div><div style="display:flex;gap:6px;margin-top:10px"><span class="field">Friend code</span><span class="sq">⌕</span></div><div class="val" style="margin-top:4px">Six letters or numbers, from your friend's profile.</div></div>`;
+}
+out='';
+for(const th of ['light','dark']) for(const a of [0,1]) out+=phone(th,a,`Starred, ${th}`,starred());
+for(const th of ['light','dark']) for(const a of [0,1]) out+=phone(th,a,`Media & docs, ${th}`,media());
+for(const a of [0,1]) out+=phone('light',a,'Add a friend, light',addFriend(a));
+document.getElementById('lists').innerHTML=out;
+// Before Add-a-friend tab label is ink already in code (add_friend_screen.dart:73); only the bar width changes.
+document.querySelectorAll('#lists .ph:not(.new) .sheet .tabs .on').forEach(e=>e.style.color='var(--ink)');
+</script>
+</body>
+</html>

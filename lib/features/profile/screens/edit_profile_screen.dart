@@ -265,7 +265,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                   url: avatarUrl,
                                   initials: initialsOf(user.displayName),
                                   radius: 48,
-                                  accentSoft: true,
                                 ),
                               ),
                               Positioned(

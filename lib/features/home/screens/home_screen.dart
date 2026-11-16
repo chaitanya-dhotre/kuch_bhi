@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +18,7 @@ import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/change_motion.dart';
 import '../../../core/widgets/chat_tile.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/page_app_bar.dart';
 import '../../../core/widgets/skeleton.dart';
 import '../../../core/widgets/status_banner.dart';
 import '../../../data/local/database/app_database.dart';
@@ -69,6 +71,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   String _query = '';
   bool _searchFocused = false;
+  // B2: the new-chat button hides while the list scrolls down.
+  bool _fabHidden = false;
   bool _backupBannerVisible = false;
   bool _backupBannerDismissed = false;
   bool _upgradeBannerDismissed = false;
@@ -96,6 +100,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _searchFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  bool _handleScroll(ScrollNotification n) {
+    if (n.depth != 0) return false;
+    var hidden = _fabHidden;
+    if (n is UserScrollNotification) {
+      // A drag down starts at the top, so this one must not check the edge.
+      if (n.direction == ScrollDirection.reverse) hidden = true;
+      if (n.direction == ScrollDirection.forward) hidden = false;
+    } else if (n.metrics.pixels <= n.metrics.minScrollExtent) {
+      hidden = false;
+    }
+    if (hidden != _fabHidden) setState(() => _fabHidden = hidden);
+    return false;
   }
 
   void _handleSearchFocusChanged() {
@@ -172,7 +190,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ? backupAsync.valueOrNull == true
             : _backupBannerVisible);
     // B4 / D9: one banner at a time, no backup wins.
-    final showUpgradeBanner = !showBackupBanner &&
+    final showUpgradeBanner =
+        !showBackupBanner &&
         !_upgradeBannerDismissed &&
         ref.watch(showBackupUpgradeBannerProvider).valueOrNull == true;
 
@@ -182,14 +201,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         surfaceTintColor: t.bg,
         elevation: 0,
         scrolledUnderElevation: 0,
-        title: const Text(
-          AppConstants.appName,
-          style: TextStyle(
-            fontSize: 21,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -.02,
-          ),
-        ),
+        title: Text(AppConstants.appName, style: pageTitleStyle(context)),
         actions: [
           _RequestsButton(
             count: pendingCount,
@@ -207,9 +219,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _BackupBannerSlot(
             upgrade: showUpgradeBanner,
             visible: showBackupBanner || showUpgradeBanner,
-            onTap: () => context.push(showUpgradeBanner
-                ? AppRoutes.backupPinChange
-                : AppRoutes.backupPinSetup),
+            onTap: () => context.push(
+              showUpgradeBanner
+                  ? AppRoutes.backupPinChange
+                  : AppRoutes.backupPinSetup,
+            ),
             onDismiss: showUpgradeBanner
                 ? _dismissUpgradeBanner
                 : _dismissBackupBanner,
@@ -224,7 +238,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
           OfflineBathBanner(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
             tapToRetry: true,
             onRetry: () => unawaited(_refreshHome()),
           ),
@@ -232,24 +246,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: RefreshIndicator(
               color: t.accent,
               onRefresh: _refreshHome,
-              child: conversationsAsync.when(
-                loading: _buildLoadingSkeleton,
-                error: (error, stackTrace) => _buildErrorState(),
-                data: (allConversations) {
-                  final hasRenderableConversations = allConversations.any(
-                    (conversation) =>
-                        conversation.type != 'direct' ||
-                        conversation.otherUser != null,
-                  );
-                  if (friendsAsync.isLoading && !hasRenderableConversations) {
-                    return _buildLoadingSkeleton();
-                  }
-                  return _buildList(
-                    allConversations,
-                    friendsAsync.valueOrNull ?? const [],
-                    friendsHasError: friendsAsync.hasError,
-                  );
-                },
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _handleScroll,
+                child: conversationsAsync.when(
+                  loading: _buildLoadingSkeleton,
+                  error: (error, stackTrace) => _buildErrorState(),
+                  data: (allConversations) {
+                    final hasRenderableConversations = allConversations.any(
+                      (conversation) =>
+                          conversation.type != 'direct' ||
+                          conversation.otherUser != null,
+                    );
+                    if (friendsAsync.isLoading && !hasRenderableConversations) {
+                      return _buildLoadingSkeleton();
+                    }
+                    return _buildList(
+                      allConversations,
+                      friendsAsync.valueOrNull ?? const [],
+                      friendsHasError: friendsAsync.hasError,
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -257,7 +274,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       floatingActionButton: _searchFocused
           ? null
-          : _HomeFab(onPressed: () => _showNewChatSheet(context, ref)),
+          : _HomeFab(
+              hidden: _fabHidden,
+              onPressed: () => _showNewChatSheet(context, ref),
+            ),
     );
   }
 
@@ -278,7 +298,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _dismissUpgradeBanner() async {
     setState(() => _upgradeBannerDismissed = true);
-    await ref.read(appDatabaseProvider).settingsDao.setSetting(
+    await ref
+        .read(appDatabaseProvider)
+        .settingsDao
+        .setSetting(
           'backup_upgrade_dismissed_at',
           DateTime.now().toIso8601String(),
         );
@@ -300,25 +323,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildLoadingSkeleton() {
-    return ListView(
-      controller: _scrollController,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
-      children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(4, 12, 4, 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Skeleton(
-              width: 56,
-              height: 12,
-              radius: 6,
-              duration: Duration(milliseconds: 1400),
+    // A7: one group, one breath for every placeholder on Home.
+    return SkeletonGroup(
+      child: ListView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(4, 12, 4, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Skeleton(width: 56, height: 12, radius: 6),
             ),
           ),
-        ),
-        for (var index = 0; index < 4; index++) _HomeSkeletonTile(index: index),
-      ],
+          for (var index = 0; index < 4; index++)
+            _HomeSkeletonTile(index: index),
+        ],
+      ),
     );
   }
 
@@ -326,7 +348,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ListView(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 96),
+      padding: const EdgeInsets.only(bottom: 88),
       children: [
         SizedBox(
           height: MediaQuery.sizeOf(context).height * .58,
@@ -468,7 +490,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ListView.builder(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 96),
+      padding: const EdgeInsets.only(bottom: 88),
       itemCount: children.length,
       itemBuilder: (_, index) => children[index],
       // D2: a moved row keeps its element, so it can slide from its old slot.
@@ -493,7 +515,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ListView(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 96),
+      padding: const EdgeInsets.only(bottom: 88),
       children: [
         SizedBox(
           height: MediaQuery.sizeOf(context).height * .58,
@@ -516,7 +538,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ListView(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 96),
+      padding: const EdgeInsets.only(bottom: 88),
       children: [
         SizedBox(
           height: MediaQuery.sizeOf(context).height * .45,
@@ -568,8 +590,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     } catch (_) {
       if (!mounted) return;
-      showToast(context, 'Chat is not ready yet. Try again in a moment.',
-          error: true);
+      showToast(
+        context,
+        'Chat is not ready yet. Try again in a moment.',
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _openingFriendId = null);
     }
@@ -584,8 +609,9 @@ class _RequestsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label =
-        count > 0 ? '$count pending requests' : kNoPendingRequestsCopy;
+    final label = count > 0
+        ? '$count pending requests'
+        : kNoPendingRequestsCopy;
     return Semantics(
       button: true,
       label: label,
@@ -599,7 +625,15 @@ class _RequestsButton extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               const Icon(Icons.person_add_alt_1_outlined),
-              Positioned(top: -7, right: -8, child: AppBadge(count: count)),
+              Positioned(
+                top: -7,
+                right: -8,
+                // B6: a new request pops the count on springSoft.
+                child: PopOnChange(
+                  value: count,
+                  child: AppBadge(count: count),
+                ),
+              ),
             ],
           ),
         ),
@@ -643,15 +677,12 @@ class _ProfileButtonState extends State<_ProfileButton> {
             onHighlightChanged: (value) => setState(() => _pressed = value),
             child: Center(
               child: AnimatedContainer(
-                duration: _homeMotionDuration(
-                  context,
-                  WarmPopTokens.motionFast,
-                ),
+                duration: motionOf(context, WarmPopTokens.motionFast),
                 padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: _pressed ? t.accent : t.bg,
+                    color: _pressed ? t.line : t.bg,
                     width: _pressed ? 1.5 : 0,
                   ),
                 ),
@@ -659,7 +690,6 @@ class _ProfileButtonState extends State<_ProfileButton> {
                   url: widget.url,
                   initials: widget.initials,
                   radius: 18,
-                  accentSoft: true,
                 ),
               ),
             ),
@@ -686,7 +716,7 @@ class _BackupBannerSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: _homeMotionDuration(context, WarmPopTokens.motionBase),
+      duration: motionOf(context, WarmPopTokens.motionBase),
       layoutBuilder: (currentChild, previousChildren) => Stack(
         alignment: Alignment.topCenter,
         children: [...previousChildren, if (currentChild != null) currentChild],
@@ -694,7 +724,8 @@ class _BackupBannerSlot extends StatelessWidget {
       child: visible
           ? Padding(
               key: ValueKey(
-                  upgrade ? 'home-upgrade-banner' : 'home-backup-banner'),
+                upgrade ? 'home-upgrade-banner' : 'home-backup-banner',
+              ),
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: upgrade
                   ? _BackupBanner(
@@ -741,16 +772,18 @@ class _BackupBanner extends StatelessWidget {
           borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 5, 4, 5),
+            padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
             child: Row(
               children: [
-                Icon(Icons.warning_amber_rounded, color: t.accent),
-                const SizedBox(width: 9),
+                Icon(Icons.warning_amber_rounded, color: t.accentText),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     copy,
                     style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 Semantics(
@@ -800,7 +833,7 @@ class _HomeSectionHeader extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
             decoration: BoxDecoration(
               color: t.surface2,
               borderRadius: BorderRadius.circular(999),
@@ -808,7 +841,8 @@ class _HomeSectionHeader extends StatelessWidget {
             child: Text(
               '$count',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 11,
+                height: 14 / 11,
                 fontWeight: FontWeight.w600,
                 color: t.inkSoft,
               ),
@@ -828,11 +862,15 @@ class _NoResultsLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Text(
         message,
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 12, color: context.t.inkFaint),
+        style: TextStyle(
+          fontSize: 13,
+          height: 18 / 13,
+          color: context.t.inkFaint,
+        ),
       ),
     );
   }
@@ -853,32 +891,21 @@ class _HomeSkeletonTile extends StatelessWidget {
         color: context.t.surface,
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              const Skeleton(
-                height: 40,
-                width: 40,
-                radius: 20,
-                duration: Duration(milliseconds: 1400),
-              ),
+              const Skeleton(height: 40, width: 40, radius: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Skeleton(
-                      height: 12,
-                      width: nameWidths[index],
-                      radius: 6,
-                      duration: const Duration(milliseconds: 1400),
-                    ),
-                    const SizedBox(height: 7),
+                    Skeleton(height: 12, width: nameWidths[index], radius: 6),
+                    const SizedBox(height: 8),
                     Skeleton(
                       height: 10,
                       width: previewWidths[index],
                       radius: 5,
-                      duration: const Duration(milliseconds: 1400),
                     ),
                   ],
                 ),
@@ -892,9 +919,12 @@ class _HomeSkeletonTile extends StatelessWidget {
 }
 
 class _HomeFab extends StatefulWidget {
-  const _HomeFab({required this.onPressed});
+  const _HomeFab({required this.onPressed, this.hidden = false});
 
   final VoidCallback onPressed;
+
+  /// B2: slid 16 dp down and faded out (motionPress), back on motionFast.
+  final bool hidden;
 
   @override
   State<_HomeFab> createState() => _HomeFabState();
@@ -906,13 +936,19 @@ class _HomeFabState extends State<_HomeFab> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Listener(
+    final hidden = widget.hidden;
+    final duration = motionOf(
+      context,
+      hidden ? WarmPopTokens.motionPress : WarmPopTokens.motionFast,
+    );
+    final curve = hidden ? WarmPopTokens.curveExit : WarmPopTokens.curveEnter;
+    final fab = Listener(
       onPointerDown: (_) => setState(() => _pressed = true),
       onPointerUp: (_) => setState(() => _pressed = false),
       onPointerCancel: (_) => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? .96 : 1,
-        duration: _homeMotionDuration(context, WarmPopTokens.motionFast),
+        duration: motionOf(context, WarmPopTokens.motionFast),
         child: FloatingActionButton(
           heroTag: 'fab_main',
           onPressed: widget.onPressed,
@@ -923,6 +959,23 @@ class _HomeFabState extends State<_HomeFab> {
             borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
           ),
           child: const Icon(Icons.add_comment_outlined),
+        ),
+      ),
+    );
+    return IgnorePointer(
+      ignoring: hidden,
+      child: ExcludeSemantics(
+        excluding: hidden,
+        child: AnimatedSlide(
+          offset: Offset(0, hidden ? 16 / 56 : 0),
+          duration: duration,
+          curve: curve,
+          child: AnimatedOpacity(
+            opacity: hidden ? 0 : 1,
+            duration: duration,
+            curve: curve,
+            child: fab,
+          ),
         ),
       ),
     );
@@ -953,7 +1006,7 @@ class _FriendsTile extends StatelessWidget {
         ? 'Online'
         : 'Tap to start chatting';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: ChatTile(
         key: ValueKey('chat-tile-friend-${friend.id}'),
         title: entity.displayName,
@@ -988,7 +1041,7 @@ class _ConversationTile extends ConsumerWidget {
     // dispatch regardless of the arena. A failed/aborted press just warms
     // cache early; the method swallows its own errors.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: Listener(
         onPointerDown: (_) {
           debugPrint('[Msg] TAPDOWN fired conv=${conv.id}');
@@ -1198,9 +1251,6 @@ class _GroupConversationPreview extends ConsumerWidget {
     );
   }
 }
-
-Duration _homeMotionDuration(BuildContext context, Duration duration) =>
-    MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
 
 Color _accessibleOnlineTextColor(BuildContext context) {
   final t = context.t;

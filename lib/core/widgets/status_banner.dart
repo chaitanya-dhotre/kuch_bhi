@@ -14,12 +14,12 @@ class StatusBanner extends StatelessWidget {
     final t = context.t;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: t.accentSoft,
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
-        border: Border.all(
-            color: t.accent.withValues(alpha: .45), width: 1),
+        // Calm-rest A1: no marigold edge; icons passed in take accentText.
+        border: Border.all(color: t.line, width: 1),
       ),
       child: Row(
         children: [
@@ -39,7 +39,7 @@ class StatusBanner extends StatelessWidget {
                   minimumSize: const Size(0, 48),
                   padding: const EdgeInsets.symmetric(horizontal: 8)),
               child: const Text('Retry',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
             ),
         ],
       ),

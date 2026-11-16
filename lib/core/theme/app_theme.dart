@@ -15,7 +15,8 @@ ThemeData warmPopDark({bool amoled = false, String? fontFamily}) =>
       // black shadow on black gives no elevation cue either) — the card
       // now sits on a near-black surface with a faint light edge.
       surface: Color(0xFF0A0908),
-      surface2: Color(0xFF0D0D0D),
+      // Calm-rest A5: the Dark theme's bg, so discs and wells read on black.
+      surface2: WarmPopTokens.bgDark,
       ink: WarmPopTokens.inkDark,
       inkSoft: WarmPopTokens.inkSoftDark,
       inkFaint: WarmPopTokens.inkSoftDark,
@@ -77,7 +78,7 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
         minimumSize: const Size(0, 48),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd)),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
@@ -106,6 +107,19 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
               top: Radius.circular(WarmPopTokens.radiusLg))),
+    ),
+    // Calm-rest A6: ink label, inkSoft others, 2 dp accent bar, full tab width.
+    tabBarTheme: TabBarThemeData(
+      labelColor: c.ink,
+      unselectedLabelColor: c.inkSoft,
+      labelStyle: const TextStyle(
+          fontSize: 15, height: 22 / 15, fontWeight: FontWeight.w600),
+      unselectedLabelStyle: const TextStyle(
+          fontSize: 15, height: 22 / 15, fontWeight: FontWeight.w600),
+      indicatorSize: TabBarIndicatorSize.tab,
+      indicator: UnderlineTabIndicator(
+          borderSide: BorderSide(color: c.accent, width: 2)),
+      dividerColor: c.line,
     ),
     dividerColor: c.line,
   );

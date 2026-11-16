@@ -205,7 +205,6 @@ void showConversationMenu({
         url: conversation.avatarUrl,
         initials: initialsOf(name),
         radius: 20,
-        accentSoft: true,
       ),
       avatarKey: const Key('conversation-menu-preview-avatar'),
       name: name,
@@ -409,7 +408,6 @@ class _ContextSheet extends ConsumerWidget {
               avatar: AppAvatar(
                 initials: initialsOf(name),
                 radius: 20,
-                accentSoft: true,
               ),
               name: name,
               nameKey: const Key('message-menu-preview-sender'),

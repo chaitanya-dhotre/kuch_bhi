@@ -78,13 +78,14 @@ class ChatHero extends StatelessWidget {
   }
 }
 
+/// Registry R1 (calm-rest A2): a photo, or initials in `inkSoft` 600 on a
+/// `surface2` disc with a 1 dp `line` ring. Photos keep no ring.
 class AppAvatar extends StatelessWidget {
   const AppAvatar({
     super.key,
     this.url,
     required this.initials,
     this.radius = 20,
-    this.accentSoft = false,
     this.image,
   });
   final String? url;
@@ -93,7 +94,6 @@ class AppAvatar extends StatelessWidget {
   final ImageProvider? image;
   final String initials;
   final double radius;
-  final bool accentSoft;
 
   @override
   Widget build(BuildContext context) {
@@ -102,51 +102,28 @@ class AppAvatar extends StatelessWidget {
         image ?? (url != null ? CachedNetworkImageProvider(url!) : null);
     // Initials always sit under the photo, so a slow or failed load (404,
     // offline) shows initials instead of an empty disc.
-    return CircleAvatar(
+    final avatar = CircleAvatar(
       radius: radius,
-      backgroundColor: accentSoft ? t.accentSoft : t.surface2,
+      backgroundColor: t.surface2,
       foregroundImage: photo,
       onForegroundImageError: photo == null ? null : (_, __) {},
       child: Text(
         initials,
         style: TextStyle(
-          color: accentSoft ? _readableAccentForeground(t) : t.inkSoft,
-          fontWeight: FontWeight.w700,
+          color: t.inkSoft,
+          fontWeight: FontWeight.w600,
           fontSize: radius * 0.75,
         ),
       ),
     );
-  }
-
-  static Color _readableAccentForeground(ColorTokens tokens) {
-    final candidates = <Color>[
-      tokens.ink,
-      tokens.inkSoft,
-      tokens.onAccent,
-      tokens.surface,
-      tokens.bg,
-    ];
-    var best = candidates.first;
-    var bestRatio = _contrastRatio(best, tokens.accentSoft);
-    for (final candidate in candidates.skip(1)) {
-      final ratio = _contrastRatio(candidate, tokens.accentSoft);
-      if (ratio > bestRatio) {
-        best = candidate;
-        bestRatio = ratio;
-      }
-    }
-    return best;
-  }
-
-  static double _contrastRatio(Color foreground, Color background) {
-    final foregroundLuminance = foreground.computeLuminance();
-    final backgroundLuminance = background.computeLuminance();
-    final lighter = foregroundLuminance > backgroundLuminance
-        ? foregroundLuminance
-        : backgroundLuminance;
-    final darker = foregroundLuminance > backgroundLuminance
-        ? backgroundLuminance
-        : foregroundLuminance;
-    return (lighter + 0.05) / (darker + 0.05);
+    if (photo != null) return avatar;
+    return DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: t.line, width: 1),
+      ),
+      child: avatar,
+    );
   }
 }

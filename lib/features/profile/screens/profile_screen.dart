@@ -44,7 +44,6 @@ class ProfileHeader extends StatelessWidget {
       url: user.avatarUrl,
       initials: initialsOf(user.displayName),
       radius: 48,
-      accentSoft: true,
     );
     return Column(
       children: [
