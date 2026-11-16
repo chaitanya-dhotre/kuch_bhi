@@ -647,14 +647,14 @@ amoledSurface: Color(0xFF0D0D0D)
 | `avatar` | File | Optional, max 5MB, images only |
 | `about` | Text | Optional, max 150 |
 | `friend_code` | Text | Required, unique, exactly 6 chars, uppercase |
-| `fcm_token` | Text | Optional (updated on each app launch) |
+| `fcm_token` | Text | Optional (updated on each app launch). **Hidden**: owner only |
 | `last_seen` | DateTime | Optional |
 | `is_online` | Bool | Default: false |
-| `typing_in` | Text | Optional |
-| `current_chat` | Text | Optional |
+| `typing_in` | Text | Optional. **Hidden**: owner, or a member of that chat |
+| `current_chat` | Text | Optional. **Hidden**: owner, or a member of that chat |
 | `public_key` | Text | Optional |
-| `private_key_encrypted` | Text | Nullable|
-| `private_key_salt` | Text | Nullable|
+| `private_key_encrypted` | Text | Nullable. **Hidden**: owner only |
+| `private_key_salt` | Text | Nullable. **Hidden**: owner only |
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
@@ -667,6 +667,17 @@ createRule: "" (anyone, no sign-in)
 updateRule: @request.auth.id = id
 deleteRule: @request.auth.id = id
 ```
+
+**Hidden fields (live 2026-11-16, `membership-rules.md`).** The five fields marked Hidden above are
+schema-hidden (migration `1794790000_updated_membership_presence.js`): left out of responses, and a
+non-superuser filter on them returns 400. Hook `pb_hooks/user_fields_unhide.pb.js` (it replaced
+`key_backup_hide.pb.js`):
+- shows all five to the owner;
+- shows `current_chat` / `typing_in` to a member of the chat they name;
+- writes the owner's own updates to them back, because PocketBase drops hidden fields from a
+  non-superuser's request body.
+
+Hooks that use `$app` (`fcm_notify`) still read them.
 
 ---
 
@@ -755,13 +766,13 @@ deleteRule: @request.auth.id = created_by
 | `last_read_message_id` | Text | Optional (message ID) |
 | `created` | Auto (PB) |  |
 
-**Rules (live server, read 2026-11-15):**
+**Rules (live server, read 2026-11-15; create/update changed 2026-11-16, `membership-rules.md` M1–M2):**
 
 ```
 listRule:   @request.auth.id = user_id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id)
 viewRule:   @request.auth.id = user_id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
-createRule: @request.auth.id != "" && (@request.auth.id = conversation_id.created_by || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin") || (@request.auth.id = user_id && @collection.group_invites.conversation_id ?= conversation_id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending"))
-updateRule: (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin" && @request.body.user_id:isset = false && @request.body.conversation_id:isset = false) || (user_id = @request.auth.id && @request.body.role:isset = false)
+createRule: @request.auth.id != "" && (@request.auth.id = conversation_id.created_by || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin") || (@request.auth.id = user_id && @collection.group_invites.conversation_id ?= conversation_id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending" && @request.body.role = "member"))
+updateRule: @collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin" && @request.body.user_id:isset = false && @request.body.conversation_id:isset = false
 deleteRule: @request.auth.id = user_id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
 ```
 
@@ -1041,13 +1052,13 @@ These need to be implemented as PocketBase hooks (JS hooks file) or an external 
 
 #### `group_invites`
 
-**Rules (live server, read 2026-11-15):**
+**Rules (live server, read 2026-11-15; update changed 2026-11-16, `membership-rules.md` M3):**
 
 ```
 listRule:   invited_user_id = @request.auth.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
 viewRule:   invited_user_id = @request.auth.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
 createRule: (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
-updateRule: (invited_user_id = @request.auth.id && @request.body.conversation_id:isset = false && @request.body.invited_user_id:isset = false && @request.body.invited_by:isset = false) || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
+updateRule: (invited_user_id = @request.auth.id && @request.body.conversation_id:isset = false && @request.body.invited_user_id:isset = false && @request.body.invited_by:isset = false && (@request.body.status = "accepted" || @request.body.status = "declined")) || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin" && @request.body.conversation_id:isset = false && @request.body.invited_user_id:isset = false && @request.body.invited_by:isset = false)
 deleteRule: invited_user_id = @request.auth.id || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.role ?= "admin")
 ```
 
