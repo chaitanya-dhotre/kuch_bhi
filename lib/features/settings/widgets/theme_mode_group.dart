@@ -53,7 +53,8 @@ class CheckDisc extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return ExcludeSemantics(
-      child: Container(
+      child: AnimatedContainer(
+        duration: motionOf(context, WarmPopTokens.motionFast),
         width: 24,
         height: 24,
         decoration: BoxDecoration(

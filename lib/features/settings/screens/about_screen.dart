@@ -35,7 +35,7 @@ class _AboutScreenState extends State<AboutScreen> {
           final Widget versionValue = snapshot.hasError
               ? Text('Unknown', style: valueStyle)
               : version == null
-                  ? const Skeleton(width: 64, height: 14)
+                  ? const SkeletonGroup(child: Skeleton(width: 64, height: 14))
                   : Text(version,
                       style: valueStyle, textAlign: TextAlign.end);
 

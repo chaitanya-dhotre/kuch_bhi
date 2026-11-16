@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/constants/app_constants.dart';
 import 'core/decrypt/body_cache.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/tokens.dart';
 import 'core/router/app_router.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/app_lock/app_lock_controller.dart';
@@ -160,6 +161,9 @@ class _KuchBhiAppState extends ConsumerState<KuchBhiApp>
       theme:       warmPopLight(fontFamily: fontFamily),
       darkTheme:   darkTheme,
       themeMode:   flutterThemeMode,
+      // C2: theme change cross-fades the whole app.
+      themeAnimationDuration: WarmPopTokens.motionBase,
+      themeAnimationCurve:    WarmPopTokens.curveMove,
       routerConfig: router,
       builder: (context, child) => LockOverlay(child: child!),
     );

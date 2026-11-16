@@ -477,7 +477,6 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
                 trailing: Switch(
                   value: true,
                   onChanged: (_) => _turnOff(),
-                  activeColor: t.accent,
                 ),
                 onTap: _turnOff,
               ),
@@ -500,7 +499,6 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
                     trailing: Switch(
                       value: config.bio,
                       onChanged: _setBiometrics,
-                      activeColor: t.accent,
                     ),
                     onTap: () => _setBiometrics(!config.bio),
                   ),
@@ -562,7 +560,6 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
                 trailing: Switch(
                   value: config.hideNames,
                   onChanged: _setHideNames,
-                  activeColor: t.accent,
                 ),
                 onTap: () => _setHideNames(!config.hideNames),
               ),

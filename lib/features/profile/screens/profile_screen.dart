@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -184,11 +186,7 @@ class ProfileScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: 'Copy friend code',
-                      onPressed: () => copyFriendCode(context, user.friendCode),
-                      icon: Icon(Icons.copy_outlined, color: t.ink),
-                    ),
+                    _CopyCodeButton(code: user.friendCode),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -265,19 +263,68 @@ class _ProfileSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(24),
-      child: Column(
-        children: [
-          SizedBox(height: 16),
-          Skeleton(height: 96, width: 96, radius: 48),
-          SizedBox(height: 16),
-          Skeleton(height: 20, width: 160),
-          SizedBox(height: 8),
-          Skeleton(height: 16, width: 100),
-          SizedBox(height: 32),
-          Skeleton(height: 180, radius: WarmPopTokens.radiusLg),
-        ],
+    // A7: one SkeletonGroup, so every block breathes on one clock.
+    return const SkeletonGroup(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          children: [
+            SizedBox(height: 16),
+            Skeleton(height: 96, width: 96, radius: 48),
+            SizedBox(height: 16),
+            Skeleton(height: 20, width: 160),
+            SizedBox(height: 8),
+            Skeleton(height: 16, width: 100),
+            SizedBox(height: 32),
+            Skeleton(height: 180, radius: WarmPopTokens.radiusLg),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// C3: the copy icon turns into a tick for 1.5 s after a copy.
+class _CopyCodeButton extends StatefulWidget {
+  const _CopyCodeButton({required this.code});
+  final String code;
+
+  @override
+  State<_CopyCodeButton> createState() => _CopyCodeButtonState();
+}
+
+class _CopyCodeButtonState extends State<_CopyCodeButton> {
+  Timer? _reset;
+
+  @override
+  void dispose() {
+    _reset?.cancel();
+    super.dispose();
+  }
+
+  void _copy() {
+    copyFriendCode(context, widget.code);
+    _reset?.cancel();
+    setState(() {
+      _reset = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) setState(() => _reset = null);
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final copied = _reset != null;
+    return IconButton(
+      tooltip: 'Copy friend code',
+      onPressed: _copy,
+      icon: AnimatedSwitcher(
+        duration: motionOf(context, WarmPopTokens.motionFast),
+        child: Icon(
+          copied ? Icons.check : Icons.copy_outlined,
+          key: ValueKey(copied),
+          color: context.t.ink,
+        ),
       ),
     );
   }

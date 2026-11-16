@@ -40,7 +40,8 @@ class SettingsScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(appLockOn ? 'On' : 'Off',
-                      style: TextStyle(fontSize: 14, color: t.inkSoft)),
+                      style: TextStyle(
+                          fontSize: 13, height: 18 / 13, color: t.inkSoft)),
                   const SizedBox(width: 8),
                   Icon(Icons.chevron_right, color: t.inkFaint),
                 ],

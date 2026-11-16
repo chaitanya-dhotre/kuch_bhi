@@ -215,7 +215,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   children: [
-                    Icon(Icons.cloud_off_outlined, size: 18, color: t.accent),
+                    Icon(Icons.cloud_off_outlined, size: 18, color: t.inkSoft),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -233,7 +233,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   alignment: Alignment.centerRight,
                   child: Text(
                     kOfflineActionHint,
-                    style: TextStyle(fontSize: 12, color: t.inkSoft),
+                    style: TextStyle(
+                        fontSize: 13, height: 18 / 13, color: t.inkSoft),
                   ),
                 ),
               ),

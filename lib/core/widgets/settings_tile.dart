@@ -41,7 +41,7 @@ class SettingsTile extends StatelessWidget {
                 child: Icon(icon,
                     size: 19, color: destructive ? t.error : t.ink),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -54,7 +54,8 @@ class SettingsTile extends StatelessWidget {
                             color: destructive ? t.ink : null)),
                     if (subtitle != null)
                       Text(subtitle!,
-                          style: TextStyle(fontSize: 12.5, color: t.inkSoft)),
+                          style: TextStyle(
+                              fontSize: 13, height: 18 / 13, color: t.inkSoft)),
                   ],
                 ),
               ),
