@@ -56,7 +56,7 @@ class GroupInviteCard extends StatelessWidget {
                     ExcludeSemantics(
                       child: _GroupAvatar(initials: initialsOf(groupName)),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,7 +87,7 @@ class GroupInviteCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 Opacity(
                   opacity: offline ? .38 : 1,
                   child: Row(
@@ -111,6 +111,7 @@ class GroupInviteCard extends StatelessWidget {
                           label: 'Accept, $groupName',
                           child: AppButton(
                             onPressed: disabled ? null : onAccept,
+                            variant: AppButtonVariant.tonal,
                             busy: busyAction == RequestAction.accept,
                             child: const Text('Accept'),
                           ),
@@ -123,10 +124,14 @@ class GroupInviteCard extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerRight,
                     child: Padding(
-                      padding: const EdgeInsets.only(top: 6),
+                      padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         'Available online',
-                        style: TextStyle(fontSize: 12, color: t.inkFaint),
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 18 / 13,
+                          color: t.inkFaint,
+                        ),
                       ),
                     ),
                   ),
@@ -154,15 +159,16 @@ class _GroupAvatar extends StatelessWidget {
         Positioned(
           right: -2,
           bottom: -2,
+          // D1: the Home group badge, sized for a 52 dp avatar.
           child: Container(
             width: 20,
             height: 20,
             decoration: BoxDecoration(
-              color: t.accent,
+              color: t.bg,
               shape: BoxShape.circle,
-              border: Border.all(color: t.surface, width: 2),
+              border: Border.all(color: t.line),
             ),
-            child: Icon(Icons.group, size: 12, color: t.onAccent),
+            child: Icon(Icons.group, size: 12, color: t.inkSoft),
           ),
         ),
       ],

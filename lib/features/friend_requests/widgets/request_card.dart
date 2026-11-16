@@ -58,7 +58,7 @@ class RequestCard extends StatelessWidget {
                         radius: 26,
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -89,7 +89,7 @@ class RequestCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 Opacity(
                   opacity: offline ? .38 : 1,
                   child: Row(
@@ -113,6 +113,7 @@ class RequestCard extends StatelessWidget {
                           label: 'Accept, $name',
                           child: AppButton(
                             onPressed: disabled ? null : onAccept,
+                            variant: AppButtonVariant.tonal,
                             busy: busyAction == RequestAction.accept,
                             child: const Text('Accept'),
                           ),
@@ -125,10 +126,14 @@ class RequestCard extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerRight,
                     child: Padding(
-                      padding: const EdgeInsets.only(top: 6),
+                      padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         'Available online',
-                        style: TextStyle(fontSize: 12, color: t.inkFaint),
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 18 / 13,
+                          color: t.inkFaint,
+                        ),
                       ),
                     ),
                   ),

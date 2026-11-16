@@ -239,3 +239,188 @@ class _ShakeOnChangeState extends State<ShakeOnChange>
         Transform.translate(offset: Offset(xAt(_c.value), 0), child: child),
   );
 }
+
+/// Calm-rest D2 / D5: a column that keeps a row on screen once more after
+/// it left [items], so it can fade while its height closes over `motionExit`
+/// on `curveExit` and the rows below move up with it. With [fadeIn], a row
+/// added after the first build fades in over `motionEnter`. Under reduced
+/// motion rows come and go at once. The exit is drawn from the list alone:
+/// it never delays a pop and never repeats the action that removed the row.
+class LeavingColumn<T> extends StatefulWidget {
+  const LeavingColumn({
+    super.key,
+    required this.items,
+    required this.idOf,
+    required this.itemBuilder,
+    this.separator,
+    this.fadeIn = false,
+  });
+
+  final List<T> items;
+  final String Function(T item) idOf;
+  final Widget Function(BuildContext context, T item) itemBuilder;
+
+  /// Drawn above every row but the first; it leaves with its row.
+  final Widget? separator;
+  final bool fadeIn;
+
+  @override
+  State<LeavingColumn<T>> createState() => _LeavingColumnState<T>();
+}
+
+class _LeavingEntry<T> {
+  _LeavingEntry(this.id, this.item, {this.enter = false});
+  final String id;
+  final T item;
+  final bool enter;
+  bool leaving = false;
+}
+
+class _LeavingColumnState<T> extends State<LeavingColumn<T>> {
+  late List<_LeavingEntry<T>> _rows = [
+    for (final item in widget.items) _LeavingEntry(widget.idOf(item), item),
+  ];
+
+  @override
+  void didUpdateWidget(LeavingColumn<T> old) {
+    super.didUpdateWidget(old);
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final before = {for (final r in _rows) r.id};
+    final next = [
+      for (final item in widget.items)
+        _LeavingEntry(
+          widget.idOf(item),
+          item,
+          enter: widget.fadeIn && !reduced && !before.contains(widget.idOf(item)),
+        ),
+    ];
+    if (!reduced) {
+      final ids = {for (final r in next) r.id};
+      String? above; // the row that sat just above, so a leaver keeps its place
+      for (final r in _rows) {
+        if (!ids.contains(r.id)) {
+          r.leaving = true;
+          final at = above == null
+              ? 0
+              : next.indexWhere((n) => n.id == above) + 1;
+          next.insert(at, r);
+        }
+        above = r.id;
+      }
+    }
+    _rows = next;
+  }
+
+  void _gone(_LeavingEntry<T> row) {
+    if (mounted && _rows.contains(row)) setState(() => _rows.remove(row));
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final (i, r) in _rows.indexed)
+        _LeavingRow(
+          key: ValueKey(r.id),
+          leaving: r.leaving,
+          enter: r.enter,
+          onGone: () => _gone(r),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (i > 0 && widget.separator != null) widget.separator!,
+              // Keyed, so the row keeps its state when the separator goes.
+              KeyedSubtree(
+                key: const ValueKey('row'),
+                child: widget.itemBuilder(context, r.item),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+class _LeavingRow extends StatefulWidget {
+  const _LeavingRow({
+    super.key,
+    required this.leaving,
+    required this.enter,
+    required this.onGone,
+    required this.child,
+  });
+
+  final bool leaving;
+  final bool enter;
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_LeavingRow> createState() => _LeavingRowState();
+}
+
+class _LeavingRowState extends State<_LeavingRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: WarmPopTokens.motionEnter,
+    reverseDuration: WarmPopTokens.motionExit,
+    value: widget.enter ? 0 : 1,
+  );
+  late final CurvedAnimation _a = CurvedAnimation(
+    parent: _c,
+    curve: WarmPopTokens.curveEnter,
+    reverseCurve: WarmPopTokens.curveExit.flipped,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enter) _c.forward();
+  }
+
+  @override
+  void didUpdateWidget(_LeavingRow old) {
+    super.didUpdateWidget(old);
+    if (widget.leaving && !old.leaving) {
+      // A cancelled run (the row came back, or was disposed) never completes.
+      _c.reverse().then((_) => widget.onGone());
+    } else if (!widget.leaving && old.leaving) {
+      _c.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _a.dispose();
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final leaving = widget.leaving;
+    return IgnorePointer(
+      ignoring: leaving,
+      child: ExcludeSemantics(
+        excluding: leaving,
+        child: AnimatedBuilder(
+          animation: _a,
+          child: FadeTransition(opacity: _a, child: widget.child),
+          // One tree shape always; it clips only while the height closes,
+          // so a resting card keeps its shadow.
+          builder: (context, child) => ClipRect(
+            clipBehavior: leaving ? Clip.hardEdge : Clip.none,
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: leaving ? _a.value.clamp(0.0, 1.0) : 1,
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

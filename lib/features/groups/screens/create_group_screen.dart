@@ -470,12 +470,14 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
     // H1: loading = R11 rows with the app bar present (it lives in `build`).
     if (friendsAsync.isLoading && friendsAsync.valueOrNull == null) {
-      return ListView(
+      // A7: one clock for every placeholder row.
+      return SkeletonGroup(
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
           for (var i = 0; i < 6; i++)
             const Padding(
-              padding: EdgeInsets.only(bottom: 14),
+              padding: EdgeInsets.only(bottom: 16),
               child: Row(
                 children: [
                   Skeleton(width: 24, height: 24, radius: 999),
@@ -496,6 +498,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               ),
             ),
         ],
+        ),
       );
     }
 
@@ -535,12 +538,12 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
     return Column(
       children: [
-        if (_selectedIds.isNotEmpty)
-          _SelectedChips(
-            friends: friends,
-            selectedIds: _selectedIds,
-            onRemove: (id) => setState(() => _selectedIds.remove(id)),
-          ),
+        // D6: always mounted, so the last chip can leave.
+        _SelectedChips(
+          friends: friends,
+          selectedIds: {..._selectedIds},
+          onRemove: (id) => setState(() => _selectedIds.remove(id)),
+        ),
         if (friends.length > 8)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -605,7 +608,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                                           color: t.ink,
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
+                                      const SizedBox(height: 4),
                                       Text(
                                         '@${f.friend.username.trim()}',
                                         maxLines: 1,
@@ -733,7 +736,11 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
               hintText: 'Enter group name…',
               labelStyle: TextStyle(fontSize: 13, color: t.inkSoft),
               hintStyle: TextStyle(fontSize: 15, color: t.inkFaint),
-              counterStyle: TextStyle(fontSize: 12, color: t.inkSoft),
+              counterStyle: TextStyle(
+                fontSize: 13,
+                height: 18 / 13,
+                color: t.inkSoft,
+              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius:
                     BorderRadius.circular(WarmPopTokens.radiusMd),
@@ -805,12 +812,16 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           ),
           if (!online)
             Padding(
-              padding: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.only(top: 12),
               child: Align(
                 alignment: Alignment.centerRight,
                 child: Text(
                   kOfflineActionHint,
-                  style: TextStyle(fontSize: 12, color: t.inkSoft),
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 18 / 13,
+                    color: t.inkSoft,
+                  ),
                 ),
               ),
             ),
@@ -822,7 +833,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
 // ── Selected member chips ─────────────────────────────────────────
 
-class _SelectedChips extends StatelessWidget {
+class _SelectedChips extends StatefulWidget {
   const _SelectedChips({
     required this.friends,
     required this.selectedIds,
@@ -834,16 +845,38 @@ class _SelectedChips extends StatelessWidget {
   final ValueChanged<String> onRemove;
 
   @override
+  State<_SelectedChips> createState() => _SelectedChipsState();
+}
+
+class _SelectedChipsState extends State<_SelectedChips> {
+  // D6: unticked chips stay for `motionPress` while they shrink away.
+  final _leaving = <String>{};
+
+  ValueChanged<String> get onRemove => widget.onRemove;
+
+  @override
+  void didUpdateWidget(_SelectedChips old) {
+    super.didUpdateWidget(old);
+    _leaving.removeAll(widget.selectedIds);
+    if (MediaQuery.disableAnimationsOf(context)) return;
+    _leaving.addAll(old.selectedIds.difference(widget.selectedIds));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final selected =
-        friends.where((f) => selectedIds.contains(f.friend.id)).toList();
+    final selected = widget.friends
+        .where((f) =>
+            widget.selectedIds.contains(f.friend.id) ||
+            _leaving.contains(f.friend.id))
+        .toList();
+    if (selected.isEmpty) return const SizedBox.shrink();
 
     // H3/H5: a plain strip on bg with a bottom line, scrolling horizontally
     // past one row (Material Chip + surfaceContainerHighest are gone).
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: t.line)),
       ),
@@ -854,7 +887,15 @@ class _SelectedChips extends StatelessWidget {
           children: [
             for (var i = 0; i < selected.length; i++) ...[
               if (i > 0) const SizedBox(width: 8),
-              _chip(context, selected[i]),
+              _ChipPop(
+                key: ValueKey(selected[i].friend.id),
+                leaving: _leaving.contains(selected[i].friend.id),
+                onGone: () {
+                  final id = selected[i].friend.id;
+                  if (mounted) setState(() => _leaving.remove(id));
+                },
+                child: _chip(context, selected[i]),
+              ),
             ],
           ],
         ),
@@ -879,8 +920,8 @@ class _SelectedChips extends StatelessWidget {
           onTap: () => onRemove(f.friend.id),
           child: Center(
             child: IgnorePointer(
+              // D6: the R4 unselected look; a chosen chip is not marigold.
               child: AppChip(
-                selected: true,
                 onTap: () {},
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -890,7 +931,7 @@ class _SelectedChips extends StatelessWidget {
                       initials: initials,
                       radius: 14,
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 8),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 140),
                       child: Text(
@@ -900,7 +941,7 @@ class _SelectedChips extends StatelessWidget {
                         style: TextStyle(fontSize: 13, color: t.ink),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 8),
                     Icon(Icons.close, size: 16, color: t.inkSoft),
                   ],
                 ),
@@ -921,6 +962,85 @@ class _SelectedChips extends StatelessWidget {
   }
 }
 
+/// D6: a chip pops in from scale 0.6 on `springSoft` and leaves in
+/// `motionPress`. Under reduced motion it is simply there or gone.
+class _ChipPop extends StatefulWidget {
+  const _ChipPop({
+    super.key,
+    required this.leaving,
+    required this.onGone,
+    required this.child,
+  });
+
+  final bool leaving;
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_ChipPop> createState() => _ChipPopState();
+}
+
+class _ChipPopState extends State<_ChipPop>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController.unbounded(
+    vsync: this,
+  );
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    springTo(context, _c, WarmPopTokens.springSoft);
+  }
+
+  @override
+  void didUpdateWidget(_ChipPop old) {
+    super.didUpdateWidget(old);
+    if (widget.leaving && !old.leaving) {
+      _c
+          .animateTo(
+            0,
+            duration: WarmPopTokens.motionPress,
+            curve: WarmPopTokens.curveExit,
+          )
+          .then((_) => widget.onGone());
+    } else if (!widget.leaving && old.leaving) {
+      springTo(context, _c, WarmPopTokens.springSoft, from: _c.value);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    ignoring: widget.leaving,
+    child: AnimatedBuilder(
+      animation: _c,
+      child: widget.child,
+      // A FadeTransition, not an Opacity: tests count Opacity widgets to
+      // check the offline dim (2026-11-15 learning).
+      builder: (context, child) => FadeTransition(
+        opacity: _c.drive(const _Clamp01()),
+        child: Transform.scale(scale: 0.6 + 0.4 * _c.value, child: child),
+      ),
+    ),
+  );
+}
+
+/// The spring overshoots 1; an opacity may not.
+class _Clamp01 extends Animatable<double> {
+  const _Clamp01();
+
+  @override
+  double transform(double t) => t.clamp(0.0, 1.0);
+}
+
 
 class _OfflineStrip extends StatelessWidget {
   const _OfflineStrip({required this.visible});
@@ -931,9 +1051,7 @@ class _OfflineStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return AnimatedSwitcher(
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : WarmPopTokens.motionBase,
+      duration: motionOf(context, WarmPopTokens.motionBase),
       child: visible
           ? Semantics(
               key: const ValueKey('create-group-offline-strip'),
@@ -948,7 +1066,7 @@ class _OfflineStrip extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.cloud_off_outlined, size: 18, color: t.accent),
+                    Icon(Icons.cloud_off_outlined, size: 18, color: t.inkSoft),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(

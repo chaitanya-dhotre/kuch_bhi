@@ -8,6 +8,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_toast.dart';
+import '../../../core/widgets/change_motion.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../core/widgets/skeleton.dart';
@@ -118,7 +119,7 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
               leading: Icon(
                 Icons.warning_amber_rounded,
                 size: 18,
-                color: context.t.accent,
+                color: context.t.accentText,
               ),
               onRetry: () => unawaited(
                 _retryFailed(
@@ -132,47 +133,56 @@ class _FriendRequestsScreenState extends ConsumerState<FriendRequestsScreen> {
       );
     }
 
-    if (friendRows.isNotEmpty) {
-      children.addAll(
-        friendRows.map(
-          (request) => RequestCard(
-            request: request,
-            locked: _busyIds.contains(_requestKey(request.id)),
-            offline: !online,
-            busyAction: _busyActions[_requestKey(request.id)],
-            onAccept: () =>
-                unawaited(_handleFriendAction(request, RequestAction.accept)),
-            onDecline: () =>
-                unawaited(_handleFriendAction(request, RequestAction.decline)),
-          ),
+    // D2: both columns stay mounted when empty, so the last card can leave.
+    children.add(
+      LeavingColumn<FriendRequest>(
+        key: const ValueKey('requests-friends'),
+        items: friendRows,
+        idOf: (request) => request.id,
+        itemBuilder: (context, request) => RequestCard(
+          request: request,
+          locked: _busyIds.contains(_requestKey(request.id)),
+          offline: !online,
+          busyAction: _busyActions[_requestKey(request.id)],
+          onAccept: () =>
+              unawaited(_handleFriendAction(request, RequestAction.accept)),
+          onDecline: () =>
+              unawaited(_handleFriendAction(request, RequestAction.decline)),
         ),
-      );
-    }
+      ),
+    );
 
     if (inviteRows.isNotEmpty) {
       children.add(SectionHeader('Group invites', count: inviteRows.length));
-      children.addAll(
-        inviteRows.map(
-          (invite) => GroupInviteCard(
-            invite: invite,
-            locked: _busyIds.contains(_inviteKey(invite.id)),
-            offline: !online,
-            busyAction: _busyActions[_inviteKey(invite.id)],
-            onAccept: () =>
-                unawaited(_handleInviteAction(invite, RequestAction.accept)),
-            onDecline: () =>
-                unawaited(_handleInviteAction(invite, RequestAction.decline)),
-          ),
-        ),
-      );
     }
+    children.add(
+      LeavingColumn<GroupInvite>(
+        key: const ValueKey('requests-invites'),
+        items: inviteRows,
+        idOf: (invite) => invite.id,
+        itemBuilder: (context, invite) => GroupInviteCard(
+          invite: invite,
+          locked: _busyIds.contains(_inviteKey(invite.id)),
+          offline: !online,
+          busyAction: _busyActions[_inviteKey(invite.id)],
+          onAccept: () =>
+              unawaited(_handleInviteAction(invite, RequestAction.accept)),
+          onDecline: () =>
+              unawaited(_handleInviteAction(invite, RequestAction.decline)),
+        ),
+      ),
+    );
 
     if (sourceLoading) {
-      final skeletonCount = hasRows ? 1 : 3;
-      children.addAll(
-        List<Widget>.generate(
-          skeletonCount,
-          (_) => const _RequestSkeletonCard(),
+      // A7: one clock for every placeholder card.
+      children.add(
+        SkeletonGroup(
+          child: Column(
+            children: [
+              for (var i = 0; i < (hasRows ? 1 : 3); i++)
+                const _RequestSkeletonCard(),
+            ],
+          ),
         ),
       );
     } else if (!hasRows && settled && !partialFailure) {
@@ -395,7 +405,7 @@ class _OfflineStrip extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.cloud_off_outlined, size: 18, color: t.accent),
+                    Icon(Icons.cloud_off_outlined, size: 18, color: t.inkSoft),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -418,7 +428,6 @@ class _RequestSkeletonCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    const duration = Duration(milliseconds: 1400);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Container(
@@ -437,9 +446,8 @@ class _RequestSkeletonCard extends StatelessWidget {
                     width: 52,
                     height: 52,
                     radius: 26,
-                    duration: duration,
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -448,28 +456,25 @@ class _RequestSkeletonCard extends StatelessWidget {
                           width: 144,
                           height: 14,
                           radius: 7,
-                          duration: duration,
                         ),
                         const SizedBox(height: 8),
                         const Skeleton(
                           width: 96,
                           height: 12,
                           radius: 6,
-                          duration: duration,
                         ),
                       ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   const Expanded(
                     child: Skeleton(
                       height: 48,
                       radius: WarmPopTokens.radiusMd,
-                      duration: duration,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -477,7 +482,6 @@ class _RequestSkeletonCard extends StatelessWidget {
                     child: Skeleton(
                       height: 48,
                       radius: WarmPopTokens.radiusMd,
-                      duration: duration,
                     ),
                   ),
                 ],

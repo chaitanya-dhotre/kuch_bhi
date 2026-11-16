@@ -10,6 +10,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/change_motion.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_field.dart';
 import '../../../core/widgets/app_sheet.dart';
@@ -176,7 +177,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                       color: context.t.ink,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Text(
                     handle.isEmpty
                         ? (isAdminTarget ? 'Admin' : 'Member')
@@ -454,12 +455,16 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       // exactly one 38% dim of its own.
       children.add(
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
           child: Align(
             alignment: Alignment.centerRight,
             child: Text(
               kOfflineActionHint,
-              style: TextStyle(fontSize: 12, color: t.inkSoft),
+              style: TextStyle(
+                fontSize: 13,
+                height: 18 / 13,
+                color: t.inkSoft,
+              ),
             ),
           ),
         ),
@@ -565,7 +570,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                           style: nameStyle,
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       Icon(Icons.edit_outlined, size: 18, color: t.inkSoft),
                     ],
                   ),
@@ -688,16 +693,23 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                 ),
               )
             else
-              _groupedList([
-                for (final member in active)
-                  _memberRow(
+              // D5: drawn from the stream alone. A remove rotates the group
+              // key, so nothing here ever repeats one.
+              _groupCard(
+                LeavingColumn<User>(
+                  items: active,
+                  idOf: (member) => member.id,
+                  separator: const Divider(height: 1),
+                  fadeIn: true,
+                  itemBuilder: (context, member) => _memberRow(
                     member: member,
                     myId: myId,
                     isAdmin: isAdmin && !isLeft,
                     online: online,
                     busy: busy,
                   ),
-              ]),
+                ),
+              ),
           ],
         ),
       ),
@@ -724,15 +736,17 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
             child: Container(
               height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 12),
+              // D4: a small tonal button (A3), 36 dp in a 48 dp tap area.
               decoration: ShapeDecoration(
-                color: t.accentSoft,
+                color: t.bubbleMine,
                 shape: const StadiumBorder(),
               ),
               child: Center(
                 child: Text(
                   '＋ Add',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
+                    height: 18 / 13,
                     fontWeight: FontWeight.w600,
                     color: t.ink,
                   ),
@@ -788,7 +802,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                 constraints: const BoxConstraints(minHeight: 60),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
+                    horizontal: 16,
                     vertical: 10,
                   ),
                   child: Row(
@@ -819,30 +833,30 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                                   ),
                                 ),
                                 if (isAdm) ...[
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
+                                      horizontal: 8,
+                                      vertical: 4,
                                     ),
                                     decoration: ShapeDecoration(
-                                      color: t.accentSoft,
+                                      color: t.surface2,
                                       shape: const StadiumBorder(),
                                     ),
                                     child: Text(
                                       'Admin',
                                       style: TextStyle(
                                         fontSize: 11,
-                                        height: 1.27,
+                                        height: 14 / 11,
                                         fontWeight: FontWeight.w600,
-                                        color: t.ink,
+                                        color: t.inkSoft,
                                       ),
                                     ),
                                   ),
                                 ],
                               ],
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 4),
                             Text(
                               meta,
                               maxLines: 1,
@@ -939,7 +953,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 60),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
             AppAvatar(
@@ -963,7 +977,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
                       color: t.ink,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Text(
                     pending ? 'Invite pending' : 'Declined',
                     style: TextStyle(
@@ -1128,7 +1142,18 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
 
   // ── Grouped list chrome (D2) ─────────────────────────────────────────
 
-  Widget _groupedList(List<Widget> rows) {
+  Widget _groupedList(List<Widget> rows) => _groupCard(
+    Column(
+      children: [
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) const Divider(height: 1),
+          rows[i],
+        ],
+      ],
+    ),
+  );
+
+  Widget _groupCard(Widget child) {
     final t = context.t;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
@@ -1137,14 +1162,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
         borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
         border: Border.all(color: t.line, width: 1),
       ),
-      child: Column(
-        children: [
-          for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) const Divider(height: 1),
-            rows[i],
-          ],
-        ],
-      ),
+      child: child,
     );
   }
 }
@@ -1280,13 +1298,14 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
     bool loaded,
   ) {
     if (!loaded && friendsAsync.isLoading) {
-      return ListView(
+      return SkeletonGroup(
+        child: ListView(
         shrinkWrap: true,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
           for (var i = 0; i < 4; i++)
             const Padding(
-              padding: EdgeInsets.only(bottom: 14),
+              padding: EdgeInsets.only(bottom: 16),
               child: Row(
                 children: [
                   Skeleton(width: 40, height: 40, radius: 999),
@@ -1305,6 +1324,7 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
               ),
             ),
         ],
+        ),
       );
     }
     if (friendsAsync.hasError && !loaded) {
@@ -1405,7 +1425,7 @@ class _AddMembersSheetState extends ConsumerState<_AddMembersSheet> {
                             color: t.ink,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                         Text(
                           meta,
                           maxLines: 1,
@@ -1455,7 +1475,7 @@ class _OfflineStrip extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.cloud_off_outlined, size: 18, color: t.accent),
+                    Icon(Icons.cloud_off_outlined, size: 18, color: t.inkSoft),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1477,12 +1497,12 @@ class _OfflineStrip extends StatelessWidget {
 class _GroupInfoSkeleton extends StatelessWidget {
   const _GroupInfoSkeleton();
 
-  static const _duration = Duration(milliseconds: 1400);
-
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return SingleChildScrollView(
+    // A7: one clock for the whole loading layout.
+    return SkeletonGroup(
+      child: SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1494,21 +1514,18 @@ class _GroupInfoSkeleton extends StatelessWidget {
                   width: 96,
                   height: 96,
                   radius: 999,
-                  duration: _duration,
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 const Skeleton(
                   width: 150,
                   height: 18,
                   radius: 9,
-                  duration: _duration,
                 ),
                 const SizedBox(height: 8),
                 const Skeleton(
                   width: 80,
                   height: 12,
                   radius: 6,
-                  duration: _duration,
                 ),
               ],
             ),
@@ -1529,14 +1546,13 @@ class _GroupInfoSkeleton extends StatelessWidget {
                 for (var i = 0; i < 3; i++) ...[
                   if (i > 0) const Divider(height: 1),
                   const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
                         Skeleton(
                           width: 40,
                           height: 40,
                           radius: 999,
-                          duration: _duration,
                         ),
                         SizedBox(width: 12),
                         Expanded(
@@ -1547,14 +1563,12 @@ class _GroupInfoSkeleton extends StatelessWidget {
                                 width: 140,
                                 height: 14,
                                 radius: 7,
-                                duration: _duration,
                               ),
                               SizedBox(height: 8),
                               Skeleton(
                                 width: 90,
                                 height: 11,
                                 radius: 6,
-                                duration: _duration,
                               ),
                             ],
                           ),
@@ -1567,6 +1581,7 @@ class _GroupInfoSkeleton extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

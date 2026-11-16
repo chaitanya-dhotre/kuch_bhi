@@ -241,6 +241,8 @@ void main() {
     pending.complete();
     await tester.pump();
     await tester.pump();
+    // Calm-rest D2: the card leaves over motionExit.
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('Mira Joshi'), findsNothing);
   });
 
@@ -400,6 +402,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('Friend added'), findsOneWidget);
+    // Calm-rest D2: the card leaves over motionExit.
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('Mira Joshi'), findsNothing);
   });
 
@@ -429,6 +433,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('Joined Weekend Trekkers'), findsOneWidget);
+    // Calm-rest D2: the card leaves over motionExit.
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('Weekend Trekkers'), findsNothing);
   });
 

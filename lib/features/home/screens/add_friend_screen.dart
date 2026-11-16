@@ -59,7 +59,6 @@ class _AddFriendSheetState extends ConsumerState<AddFriendSheet>
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final state = ref.watch(addFriendProvider);
 
     return AppSheetChrome(
@@ -68,19 +67,9 @@ class _AddFriendSheetState extends ConsumerState<AddFriendSheet>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // D7: the shared `tabBarTheme` (A6) styles it.
           TabBar(
             controller: _tabController,
-            labelColor: t.ink,
-            unselectedLabelColor: t.inkSoft,
-            labelStyle:
-                const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            unselectedLabelStyle:
-                const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            indicator: UnderlineTabIndicator(
-              borderSide: BorderSide(color: t.accent, width: 3),
-            ),
-            indicatorSize: TabBarIndicatorSize.tab,
-            dividerColor: t.line,
             tabs: const [
               Tab(height: 48, text: 'Friend code'),
               Tab(height: 48, text: 'Scan QR'),
@@ -226,7 +215,7 @@ class _CodeSearchTab extends ConsumerWidget {
                       initials: initialsOf(found.displayName),
                       radius: 28,
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,9 +439,16 @@ class _QrScanTabState extends State<_QrScanTab> {
             bottom: 12,
             child: Tooltip(
               message: 'Pick a photo of a QR code',
+              // D7: a secondary button; the sheet's one primary is Search.
               child: Material(
-                color: _pickingFromGallery ? t.surface2 : t.accent,
-                shape: RoundedRectangleBorder(borderRadius: radius),
+                color: _pickingFromGallery ? t.surface2 : t.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: radius,
+                  side: BorderSide(
+                    color: _pickingFromGallery ? t.surface2 : t.line,
+                    width: 1.5,
+                  ),
+                ),
                 child: InkWell(
                   key: const Key('add-friend-gallery'),
                   customBorder: RoundedRectangleBorder(borderRadius: radius),
@@ -465,7 +461,7 @@ class _QrScanTabState extends State<_QrScanTab> {
                           ? const BusySpinner()
                           : Icon(
                               Icons.photo_library_outlined,
-                              color: t.onAccent,
+                              color: t.ink,
                             ),
                     ),
                   ),
@@ -490,7 +486,7 @@ class _CameraUnavailable extends StatelessWidget {
       color: t.surface2,
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 72),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 64),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
