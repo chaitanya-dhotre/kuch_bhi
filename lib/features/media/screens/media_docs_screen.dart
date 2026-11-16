@@ -79,6 +79,33 @@ String _formatDate(String iso) {
   }
 }
 
+/// E2: voice and doc rows, as Chat calm E4. No marigold.
+class _RowTile extends StatelessWidget {
+  const _RowTile(this.icon);
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 40,
+    height: 40,
+    decoration: BoxDecoration(
+      color: context.t.ink.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(WarmPopTokens.radiusSm),
+    ),
+    child: Icon(icon, color: context.t.ink),
+  );
+}
+
+TextStyle _rowTitle(BuildContext context) => TextStyle(
+  fontSize: 15,
+  height: 22 / 15,
+  fontWeight: FontWeight.w600,
+  color: context.t.ink,
+);
+
+TextStyle _rowMeta(BuildContext context) =>
+    TextStyle(fontSize: 13, height: 18 / 13, color: context.t.inkSoft);
+
 IconData _docIcon(String fileName) {
   final ext = fileName.split('.').last.toLowerCase();
   return switch (ext) {
@@ -244,11 +271,17 @@ class _MediaGridTile extends ConsumerWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius:
+                            BorderRadius.circular(WarmPopTokens.radiusPill),
                       ),
                       child: Text(
                         durationLabel!,
-                        style: const TextStyle(color: Colors.white, fontSize: 9),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          height: 14 / 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
@@ -272,7 +305,7 @@ class _PhotosTab extends ConsumerWidget {
     ));
 
     return async.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const Center(child: BusySpinner()),
       error: (_, __) => _LoadFailed(
         (conversationId: conversationId, mediaType: 'image'),
       ),
@@ -289,15 +322,16 @@ class _PhotosTab extends ConsumerWidget {
           children: [
             if (hiddenCount > 0)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
+                  style: TextStyle(
+                      fontSize: 13, height: 18 / 13, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
               child: GridView.builder(
-          padding:     const EdgeInsets.all(2),
+          padding:     const EdgeInsets.all(4),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount:   3,
             mainAxisSpacing:  2,
@@ -339,7 +373,7 @@ class _VideosTab extends ConsumerWidget {
     ));
 
     return async.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const Center(child: BusySpinner()),
       error: (_, __) => _LoadFailed(
         (conversationId: conversationId, mediaType: 'video'),
       ),
@@ -356,15 +390,16 @@ class _VideosTab extends ConsumerWidget {
           children: [
             if (hiddenCount > 0)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
+                  style: TextStyle(
+                      fontSize: 13, height: 18 / 13, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
               child: GridView.builder(
-          padding:     const EdgeInsets.all(2),
+          padding:     const EdgeInsets.all(4),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount:   3,
             mainAxisSpacing:  2,
@@ -409,7 +444,7 @@ class _VoiceTab extends ConsumerWidget {
     ));
 
     return async.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const Center(child: BusySpinner()),
       error: (_, __) => _LoadFailed(
         (conversationId: conversationId, mediaType: 'voice'),
       ),
@@ -426,10 +461,11 @@ class _VoiceTab extends ConsumerWidget {
           children: [
             if (hiddenCount > 0)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
+                  style: TextStyle(
+                      fontSize: 13, height: 18 / 13, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
@@ -442,18 +478,11 @@ class _VoiceTab extends ConsumerWidget {
             final dur      = _formatDuration(r.data['duration_seconds']);
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: context.t.accent.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.mic, color: context.t.accent),
-              ),
-              title: Text(voiceMessageRowCopy(dur)),
-              subtitle: Text(date),
-              trailing: Icon(Icons.play_circle_outline, color: context.t.accent),
+              leading: _RowTile(Icons.mic_none_rounded),
+              title: Text(voiceMessageRowCopy(dur), style: _rowTitle(context)),
+              subtitle: Text(date, style: _rowMeta(context)),
+              trailing:
+                  Icon(Icons.play_circle_outline, color: context.t.inkSoft),
               onTap: () => _playInSheet(context, conversationId, serverId, dur),
             );
           },
@@ -697,7 +726,7 @@ class _DocsTab extends ConsumerWidget {
     ));
 
     return async.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const Center(child: BusySpinner()),
       error: (_, __) => _LoadFailed(
         (conversationId: conversationId, mediaType: 'document'),
       ),
@@ -714,10 +743,11 @@ class _DocsTab extends ConsumerWidget {
           children: [
             if (hiddenCount > 0)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 child: Text(
                   '$hiddenCount expired item${hiddenCount == 1 ? '' : 's'} hidden',
-                  style: TextStyle(fontSize: 12, color: context.t.inkSoft),
+                  style: TextStyle(
+                      fontSize: 13, height: 18 / 13, color: context.t.inkSoft),
                 ),
               ),
             Expanded(
@@ -733,18 +763,14 @@ class _DocsTab extends ConsumerWidget {
                 formatFileSize(r.data['file_size'], bytesUnitSpaced: false);
             final date     = _formatDate(r.data['created']?.toString() ?? '');
             return ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: context.t.accent.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(_docIcon(fileName), color: context.t.accent),
-              ),
-              title:    Text(fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text('$size · $date'),
-              trailing: Icon(Icons.download_outlined, color: context.t.accent),
+              leading: _RowTile(_docIcon(fileName)),
+              title:    Text(fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _rowTitle(context)),
+              subtitle: Text('$size · $date', style: _rowMeta(context)),
+              trailing:
+                  Icon(Icons.download_outlined, color: context.t.inkSoft),
               onTap:    () => _openDoc(context, ref, serverId),
             );
           },

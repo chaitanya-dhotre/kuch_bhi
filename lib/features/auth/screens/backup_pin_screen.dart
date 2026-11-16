@@ -832,8 +832,8 @@ class _KeyBlock extends StatelessWidget {
                 softWrap: false,
                 style: TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: 19,
-                  height: 30 / 19,
+                  fontSize: 20,
+                  height: 26 / 20,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1.1,
                   color: t.ink,
@@ -969,7 +969,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
     _stopwatch = Stopwatch()..start();
     _pulseCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1100),
+      duration: const Duration(milliseconds: 1100), // motion-allow: breathing loop, like the skeleton
     );
     if (_isRestore) return;
     // Tick the elapsed-time display every second.
@@ -1003,7 +1003,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
         _checkingKey(old.phase) &&
         !_checkingKey(widget.phase)) {
       _tosses = 1;
-      _dockTimer = Timer(const Duration(milliseconds: 1000), () {
+      _dockTimer = Timer(const Duration(milliseconds: 1000), () { // motion-allow: mascot toss before the dock
         if (!mounted) return;
         setState(() => _docked = true);
         _syncEnvelopes();
@@ -1026,7 +1026,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
     }
     if (_envelopeTimer != null) return;
     _lastProgress = (widget.convIndex, widget.msgCurrent);
-    _envelopeTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) {
+    _envelopeTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) { // motion-allow: mascot envelope tick
       final now = (widget.convIndex, widget.msgCurrent);
       if (now == _lastProgress) return;
       _lastProgress = now;
@@ -1285,8 +1285,8 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                 // I2: under reduced motion the dock is a cut.
                 duration: reduceMotion
                     ? Duration.zero
-                    : const Duration(milliseconds: 450),
-                curve: Curves.easeInOutCubic,
+                    : WarmPopTokens.motionSlow,
+                curve: WarmPopTokens.curveMove,
                 builder: (context, k, below) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -1312,7 +1312,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                         ? progress
                         : TweenAnimationBuilder<double>(
                             tween: Tween(begin: 0, end: 1),
-                            duration: const Duration(milliseconds: 200),
+                            duration: WarmPopTokens.motionEnter,
                             builder: (context, o, c) =>
                                 Opacity(opacity: o, child: c),
                             child: progress,
@@ -1365,7 +1365,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                   opacity: Tween<double>(begin: 0.4, end: 1.0).animate(
                     CurvedAnimation(
                       parent: _pulseCtrl,
-                      curve: Curves.easeInOut,
+                      curve: Curves.easeInOut, // motion-allow: breathing loop, like the skeleton
                     ),
                   ),
                   child: Icon(
@@ -1378,7 +1378,7 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                 // Phase message — keying on phase drives a soft swap
                 // animation every time the underlying state changes.
                 AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
+                  duration: WarmPopTokens.motionBase,
                   transitionBuilder: (child, anim) =>
                       FadeTransition(opacity: anim, child: child),
                   child: Text(
@@ -1387,7 +1387,8 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: WarmPopTokens.surface,
-                      fontSize: 17,
+                      fontSize: 16,
+                      height: 22 / 16,
                       fontWeight: FontWeight.w600,
                       decoration: TextDecoration.none,
                     ),
@@ -1408,7 +1409,8 @@ class _RestoreOverlayState extends State<_RestoreOverlay>
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: WarmPopTokens.inkSoftDark,
-                    fontSize: 12,
+                    fontSize: 13,
+                    height: 18 / 13,
                     decoration: TextDecoration.none,
                   ),
                 ),

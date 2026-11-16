@@ -9,6 +9,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/busy_spinner.dart';
+import '../../../core/widgets/change_motion.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/page_app_bar.dart';
 import '../../../data/local/database/app_database.dart';
@@ -114,7 +115,7 @@ class StarredMessagesScreen extends ConsumerWidget {
         ],
       ),
       body: entriesAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: BusySpinner()),
         // R7: plain copy and a Retry, never the exception.
         error:   (_, __) => EmptyState(
           title: "Couldn't load starred messages.",
@@ -126,8 +127,11 @@ class StarredMessagesScreen extends ConsumerWidget {
             child: const Text('Retry'),
           ),
         ),
-        data:    (entries) => entries.isEmpty
-            ? Center(
+        // E1: the list stays mounted when empty, so the last card can leave.
+        data:    (entries) => Stack(
+          children: [
+            if (entries.isEmpty)
+              Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -140,24 +144,32 @@ class StarredMessagesScreen extends ConsumerWidget {
                         )),
                   ],
                 ),
-              )
-            : ListView.separated(
-                padding:    const EdgeInsets.all(16),
-                itemCount:  entries.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) => _StarredCard(
-                  entry: entries[i],
-                  onJump:  onJump != null
-                      ? () {
-                          Navigator.of(context).pop();
-                          // Give the chat screen one frame to remount before scrolling
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            onJump!(entries[i].cover);
-                          });
-                        }
-                      : null,
-                ),
               ),
+            ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                LeavingColumn<_StarredEntry>(
+                  key: const ValueKey('starred'),
+                  items: entries,
+                  idOf: (e) => e.cover.localId,
+                  separator: const SizedBox(height: 8),
+                  itemBuilder: (_, entry) => _StarredCard(
+                    entry: entry,
+                    onJump: onJump != null
+                        ? () {
+                            Navigator.of(context).pop();
+                            // Give the chat screen one frame to remount before scrolling
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              onJump!(entry.cover);
+                            });
+                          }
+                        : null,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -214,10 +226,10 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
     return GestureDetector(
       onTap: widget.onJump,
       child: Container(
-      padding:    const EdgeInsets.all(14),
+      padding:    const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color:        context.t.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: WarmPopTokens.cardShadow(context.t.shadow),
       ),
       child: Column(
@@ -225,14 +237,15 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
         children: [
           Row(
             children: [
-              Icon(Icons.star, color: context.t.accent, size: 14),
-              const SizedBox(width: 6),
+              Icon(Icons.star, color: context.t.accentText, size: 14),
+              const SizedBox(width: 8),
               Text(
                 isMine ? 'You' : 'Contact',
                 style: TextStyle(
-                  fontSize:   12,
+                  fontSize:   13,
+                  height:     18 / 13,
                   fontWeight: FontWeight.w600,
-                  color:      context.t.accent,
+                  color:      context.t.inkSoft,
                 ),
               ),
               const Spacer(),
@@ -342,7 +355,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           child: Image.file(
             thumb,
             height: 200,
@@ -380,7 +393,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
     if (_loadingImage) {
       return const SizedBox(
         height: 120,
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        child: Center(child: BusySpinner()),
       );
     }
     // If thumb decryption/download failed (stale media ref, missing key, etc.)
@@ -396,7 +409,7 @@ class _StarredCardState extends ConsumerState<_StarredCard> {
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       child: Image.file(
         _thumbFile!,
         height: 200,

@@ -25,7 +25,7 @@ void showToast(BuildContext context, String message, {bool error = false}) {
           ],
           Expanded(
             child: Text(message,
-                style: TextStyle(fontSize: 14, color: t.ink)),
+                style: TextStyle(fontSize: 15, height: 22 / 15, color: t.ink)),
           ),
         ],
       ),

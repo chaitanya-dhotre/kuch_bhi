@@ -24,7 +24,7 @@ InputDecoration appFieldDecoration(
     hintStyle: TextStyle(fontSize: 15, color: t.inkFaint),
     helperStyle: TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft),
     prefixStyle: TextStyle(fontSize: 15, color: t.inkSoft),
-    counterStyle: TextStyle(fontSize: 12, color: t.inkSoft),
+    counterStyle: TextStyle(fontSize: 13, height: 18 / 13, color: t.inkSoft),
     errorStyle: TextStyle(fontSize: 13, height: 18 / 13, color: t.ink),
     errorMaxLines: 2,
     prefixIconConstraints: const BoxConstraints(),

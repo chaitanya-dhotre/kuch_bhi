@@ -45,11 +45,7 @@ void main() {
         ...Directory(d).listSync(recursive: true),
       File('lib/features/media/screens/media_docs_screen.dart'),
     ].whereType<File>().where((f) => f.path.endsWith('.dart'));
-    // shortcut: calm-rest part 4 still owns the backup PIN restore
-    // timings; it drops the file from this list when it lands.
-    final allowFile = RegExp(
-      r'voice_recorder_panel|video_|backup_pin_screen',
-    );
+    final allowFile = RegExp(r'voice_recorder_panel|video_');
     final raw = RegExp(r'Duration\(milliseconds|Curves\.|Cubic\(');
     final timer = RegExp(r'Timer(\.periodic)?\(|delayed\(|timeout\(');
     final hits = <String>[];

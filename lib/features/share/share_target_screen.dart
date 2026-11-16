@@ -219,7 +219,7 @@ class _ShareTargetScreenState extends ConsumerState<ShareTargetScreen> {
         child: Text(
           'No chats match ‘${_query.trim()}’.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: t.inkFaint),
+          style: TextStyle(fontSize: 13, height: 18 / 13, color: t.inkFaint),
         ),
       );
     } else {
