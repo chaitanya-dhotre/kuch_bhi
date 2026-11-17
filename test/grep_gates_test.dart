@@ -929,6 +929,54 @@ void main() {
     }
     expect(hits, isEmpty, reason: 'share-in gates failed: $hits');
   });
+
+  test('client security wave 2 gates (F13, F16–F19)', () {
+    final libFiles = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart') && !f.path.endsWith('.g.dart'));
+    final hits = <String>[];
+    // F18: no user content in logs (release builds print debugPrint).
+    final logLeak = RegExp(
+        r'debugPrint\(.*\$\{?[\w.?!]*\b(body|displayName|preview|plaintext|caption)\b');
+    for (final f in libFiles) {
+      final src = f.readAsStringSync();
+      for (final line in src.split('\n')) {
+        if (logLeak.hasMatch(line)) hits.add('F18 ${f.path}: $line');
+      }
+      // F19: the JWT is never written to Drift.
+      if (src.contains('setSetting(AppSettingsKeys.authToken')) {
+        hits.add('F19 ${f.path}: Drift token write');
+      }
+    }
+    // F13: link cards fetch nothing.
+    if (File('lib/infrastructure/services/link_preview_service.dart')
+        .existsSync()) {
+      hits.add('F13 link_preview_service.dart is back');
+    }
+    if (File('lib/features/chat/widgets/link_preview_card.dart')
+        .readAsStringSync()
+        .contains(RegExp(r'Dio|http\.'))) {
+      hits.add('F13 link_preview_card fetches');
+    }
+    // F16: no VIEW deep links reach the router.
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    if (!RegExp(r'flutter_deeplinking_enabled"\s*android:value="false"')
+        .hasMatch(manifest)) {
+      hits.add('F16 deep linking not disabled');
+    }
+    if (manifest.contains('android:scheme="kuchbhi"')) {
+      hits.add('F16 kuchbhi VIEW filter is back');
+    }
+    // F17: the unused background service stays out.
+    if (File('pubspec.yaml')
+        .readAsStringSync()
+        .contains('flutter_background_service')) {
+      hits.add('F17 flutter_background_service is back');
+    }
+    expect(hits, isEmpty, reason: '$hits');
+  });
 }
 
 const _bannedPurpleHexes = [

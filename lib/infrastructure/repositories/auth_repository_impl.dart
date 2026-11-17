@@ -286,17 +286,25 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<User?> getCurrentUser() async {
     debugPrint('[Auth] getCurrentUser. isAuthenticated: ${pbClient.isAuthenticated}');
 
-    if (!pbClient.isAuthenticated) {
-      final driftToken = await db.settingsDao
-          .getSetting(AppSettingsKeys.authToken);
-      if (driftToken != null && driftToken.isNotEmpty) {
+    // F19: the JWT lives in secure storage only. A copy an older build left
+    // in plain Drift is moved over once, then deleted.
+    final driftToken =
+        await db.settingsDao.getSetting(AppSettingsKeys.authToken);
+    if (driftToken != null) {
+      if (!pbClient.isAuthenticated && driftToken.isNotEmpty) {
         debugPrint('[Auth] Restoring token from Drift');
         _pb.authStore.save(driftToken, null);
+        try {
+          await storage.saveAuthToken(driftToken);
+        } catch (e) {
+          debugPrint('[Auth] SecureStorage save failed: $e');
+        }
       }
-      if (!pbClient.isAuthenticated) {
-        debugPrint('[Auth] Still not authenticated after drift token restore');
-        return null;
-      }
+      await db.settingsDao.deleteSetting(AppSettingsKeys.authToken);
+    }
+    if (!pbClient.isAuthenticated) {
+      debugPrint('[Auth] Not authenticated');
+      return null;
     }
 
     final userId = await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
@@ -346,7 +354,7 @@ class AuthRepositoryImpl implements AuthRepository {
       if (authData.record == null) return;
       final user = _recordToUser(authData.record!);
       await _saveSession(user);
-      debugPrint('[Auth] Background refresh done: ${user.displayName}');
+      debugPrint('[Auth] Background refresh done: ${user.id}');
     }).catchError((e) {
       debugPrint('[Auth] Background refresh failed: $e');
     });
@@ -375,6 +383,18 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> signOut() async {
     await _fcmTokenSubscription?.cancel();
     _fcmTokenSubscription = null;
+    // F14: this phone must stop getting the old account's pushes. Best
+    // effort, capped, and before clearAuth (the update needs the session).
+    final userId =
+        await db.settingsDao.getSetting(AppSettingsKeys.currentUserId);
+    await Future.wait([
+      if (userId != null && userId.isNotEmpty && pbClient.isAuthenticated)
+        _bestEffort('clear fcm_token', () => _pb
+            .collection('users')
+            .update(userId, body: {'fcm_token': ''})),
+      _bestEffort(
+          'deleteToken', () => FirebaseMessaging.instance.deleteToken()),
+    ]);
     pbClient.clearAuth();
     // B1: the next sign-in must start CLEAN — wipe every table (messages,
     // conversations, members, receipts, starred/deleted sync state) and all
@@ -393,6 +413,15 @@ class AuthRepositoryImpl implements AuthRepository {
     }
     await wipeMediaCache();
     await wipeVoiceDrafts(getApplicationDocumentsDirectory);
+  }
+
+  static Future<void> _bestEffort(
+      String what, Future<Object?> Function() call) async {
+    try {
+      await call().timeout(kAuthNetworkTimeout);
+    } catch (e) {
+      debugPrint('[Auth] sign-out $what failed: $e');
+    }
   }
 
   // ── Delete account ─────────────────────────────────────────────
@@ -449,9 +478,7 @@ class AuthRepositoryImpl implements AuthRepository {
       debugPrint('[Auth] SecureStorage save failed: $e');
     }
 
-    // Save token to Drift (reliable fallback for Samsung devices
-    // where EncryptedSharedPreferences fails across restarts).
-    await db.settingsDao.setSetting(AppSettingsKeys.authToken, token);
+    // F19: never a Drift copy of the token (plain SQLite); only the id.
     await db.settingsDao.setSetting(
         AppSettingsKeys.currentUserId, user.id);
 

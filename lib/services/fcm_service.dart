@@ -116,7 +116,6 @@ class FcmService {
         if (userId != null && userId.isNotEmpty) {
           final localStorage = _storage ?? SecureStorageService();
           String? token = await localStorage.getAuthToken();
-          token ??= await localDb.settingsDao.getSetting(AppSettingsKeys.authToken);
           if (token != null && token.isNotEmpty) {
             final pb = PocketBase(AppConstants.baseUrl);
             pb.authStore.save(token, null);
@@ -158,7 +157,6 @@ class FcmService {
         }
         final localStorage = _storage ?? SecureStorageService();
         String? token = await localStorage.getAuthToken();
-        token ??= await localDb.settingsDao.getSetting(AppSettingsKeys.authToken);
         if (token != null && token.isNotEmpty) {
           final pb = PocketBase(AppConstants.baseUrl);
           pb.authStore.save(token, null);
@@ -481,7 +479,6 @@ class FcmService {
       // the row guarantees the message exists locally the moment the app opens.
       final localStorage = _storage ?? SecureStorageService();
       String? token = await localStorage.getAuthToken();
-      token ??= await localDb.settingsDao.getSetting(AppSettingsKeys.authToken);
       if (token == null || token.isEmpty) {
         if (_db == null) await localDb.close();
         return;
@@ -540,7 +537,6 @@ class FcmService {
 
       // Restore auth token.
       String? token = await localStorage.getAuthToken();
-      token ??= await localDb.settingsDao.getSetting(AppSettingsKeys.authToken);
       if (token == null || token.isEmpty) return;
 
       final myId = await localDb.settingsDao

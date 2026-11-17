@@ -61,6 +61,16 @@ class AppLockPlatform {
     }
   }
 
+  /// F15: Android's time since boot, in ms. It counts sleep and the user
+  /// can't set it. Null when the channel is missing (Dart-only tests).
+  Future<int?> elapsedRealtime() async {
+    try {
+      return await _channel.invokeMethod<int>('elapsedRealtime');
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> moveTaskToBack() async {
     try {
       await _channel.invokeMethod<void>('moveTaskToBack');

@@ -542,4 +542,114 @@ void main() {
     expect(storage.values.containsKey('app_lock'), false);
     expect(platform.hideInRecents, false);
   });
+
+  group('F15: waits are measured on the boot clock', () {
+    late DateTime now;
+    late _BootPlatform platform;
+    late _Storage storage;
+    late AppLockController controller;
+
+    Future<void> setUpLock({String? entry}) async {
+      now = DateTime(2026, 11, 17, 12);
+      platform = _BootPlatform()..boot = 1000000;
+      storage = _Storage({'app_lock': entry ?? _entry()});
+      final container = _container(
+        storage: storage,
+        platform: platform,
+        entry: storage.values['app_lock'],
+        locked: true,
+        clock: () => now,
+      );
+      addTearDown(container.dispose);
+      controller = container.read(appLockProvider.notifier);
+    }
+
+    Future<void> fiveWrong() async {
+      for (var i = 0; i < 5; i++) {
+        await controller.unlockWithPin('246814');
+      }
+      expect(controller.state.config!.waitStart, 1000000);
+    }
+
+    test('moving the wall clock either way never ends the wait', () async {
+      await setUpLock();
+      await fiveWrong();
+      final start = now;
+
+      now = start.add(const Duration(hours: 1));
+      platform.boot = platform.boot! + 5000;
+      expect(await controller.unlockWithPin(_knownPin), false);
+      expect(controller.state.message, 'Too many tries. Try again in 0:25.');
+
+      now = start.subtract(const Duration(hours: 1));
+      expect(await controller.unlockWithPin(_knownPin), false);
+      expect(controller.state.config!.fails, 5);
+
+      platform.boot = platform.boot! + 26000;
+      expect(await controller.unlockWithPin(_knownPin), true);
+      expect(controller.state.config!.waitStart, isNull);
+    });
+
+    test('a reboot during a wait starts it again at full length', () async {
+      await setUpLock();
+      await fiveWrong();
+      now = now.add(const Duration(seconds: 20));
+      platform.boot = 3000; // just rebooted
+      expect(await controller.unlockWithPin(_knownPin), false);
+      expect(controller.waitRemaining(now), const Duration(seconds: 30));
+    });
+
+    test('a running wait saved before F15 is kept; an over one is not',
+        () async {
+      await setUpLock(
+        entry: _entry(
+          fails: 5,
+          waitUntil: DateTime(2026, 11, 17, 12, 0, 10),
+        ),
+      );
+      expect(await controller.unlockWithPin(_knownPin), false);
+      expect(controller.state.config!.waitStart, 1000000);
+
+      await setUpLock(
+        entry: _entry(fails: 5, waitUntil: DateTime(2026, 11, 17, 11)),
+      );
+      expect(await controller.unlockWithPin(_knownPin), true);
+    });
+
+    test('lock-after-away: a clock moved back still locks', () async {
+      await setUpLock(entry: _entry(after: 60));
+      controller.onHidden(now);
+      now = now.subtract(const Duration(minutes: 10));
+      platform.boot = platform.boot! + 61000;
+      await controller.onResumed(now);
+      expect(controller.state.locked, true);
+    });
+
+    test('lock-after-away: a short away does not lock', () async {
+      await setUpLock(entry: _entry(after: 60));
+      await controller.unlockWithPin(_knownPin);
+      controller.onHidden(now);
+      now = now.add(const Duration(seconds: 30));
+      platform.boot = platform.boot! + 30000;
+      await controller.onResumed(now);
+      expect(controller.state.locked, false);
+    });
+
+    test('lock-after-away: a reboot while away locks', () async {
+      await setUpLock(entry: _entry(after: 300));
+      await controller.unlockWithPin(_knownPin);
+      controller.onHidden(now);
+      now = now.add(const Duration(seconds: 5));
+      platform.boot = 2000;
+      await controller.onResumed(now);
+      expect(controller.state.locked, true);
+    });
+  });
+}
+
+class _BootPlatform extends _Platform {
+  int? boot;
+
+  @override
+  Future<int?> elapsedRealtime() async => boot;
 }

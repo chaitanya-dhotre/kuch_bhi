@@ -13,7 +13,6 @@ import 'package:kuch_bhi/features/chat/widgets/image_message_bubble.dart';
 import 'package:kuch_bhi/features/chat/widgets/link_preview_card.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 import 'package:kuch_bhi/features/chat/widgets/message_input.dart';
-import 'package:kuch_bhi/infrastructure/services/link_preview_service.dart';
 import 'package:kuch_bhi/services/media_upload_service.dart';
 
 Widget _host({required Widget child, List<Override> overrides = const []}) {
@@ -30,18 +29,11 @@ void main() {
   group('LinkPreviewCard', () {
     const url = 'https://example.com/article';
 
-    testWidgets('keeps a domain fallback when metadata is unavailable', (
-      tester,
-    ) async {
+    // F13: no provider overrides: the card fetches nothing and shows the
+    // domain only.
+    testWidgets('shows the domain only, fetching nothing', (tester) async {
       final semantics = tester.ensureSemantics();
-      await tester.pumpWidget(
-        _host(
-          child: const LinkPreviewCard(url: url),
-          overrides: [
-            linkPreviewServiceProvider(url).overrideWith((ref) async => null),
-          ],
-        ),
-      );
+      await tester.pumpWidget(_host(child: const LinkPreviewCard(url: url)));
       await tester.pump();
 
       try {
@@ -54,25 +46,6 @@ void main() {
       } finally {
         semantics.dispose();
       }
-    });
-
-    testWidgets('keeps a domain fallback after preview failure', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _host(
-          child: const LinkPreviewCard(url: url),
-          overrides: [
-            linkPreviewServiceProvider(url).overrideWith((ref) async {
-              throw StateError('offline');
-            }),
-          ],
-        ),
-      );
-      await tester.pump();
-
-      expect(find.text('example.com'), findsNWidgets(2));
-      expect(find.byIcon(Icons.link), findsOneWidget);
     });
   });
 

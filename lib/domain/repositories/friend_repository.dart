@@ -2,6 +2,10 @@ import '../entities/friend_request.dart';
 import '../entities/friendship.dart';
 import '../entities/user.dart';
 
+/// F21: friend codes are 6 of `A-Z0-9` (the generator's alphabet); nothing
+/// else may reach a server filter.
+bool isFriendCode(String s) => RegExp(r'^[A-Z0-9]{6}$').hasMatch(s);
+
 abstract class FriendRepository {
 
   /// Search for a user by their 6-character friend code.

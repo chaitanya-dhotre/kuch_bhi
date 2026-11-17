@@ -5926,7 +5926,7 @@ class MessageRepositoryImpl implements MessageRepository {
       // T9: local system text lives in the session cache (the server echo
       // re-lands it as ciphertext later — provider path then applies).
       bodyCache.put(id, body);
-      debugPrint('[SysMsg] local emit → "$body" in $convId');
+      debugPrint('[SysMsg] local emit in $convId');
 
       // (2) push to PB so every group member sees it too
       try {
@@ -5991,7 +5991,7 @@ class MessageRepositoryImpl implements MessageRepository {
     // T9: session cache is this local-only row's only body home (no
     // ciphertext will ever arrive for it).
     bodyCache.put(id, body);
-    debugPrint('[SysMsg] local-only emit → "$body" in $convId');
+    debugPrint('[SysMsg] local-only emit in $convId');
   }
 
   /// One receipts list and one member list for a whole chat (history-sync

@@ -1,31 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/tokens.dart';
-import '../../../infrastructure/services/link_preview_service.dart';
 import 'expiry_badge.dart';
 
-/// Shows a URL preview card below message text.
-class LinkPreviewCard extends ConsumerWidget {
+/// Shows a URL card below message text: the domain only. F13: the phone
+/// never fetches the page, so a sender can't learn a reader's IP address
+/// or make their phone send requests into its own network.
+class LinkPreviewCard extends StatelessWidget {
   const LinkPreviewCard({super.key, required this.url});
   final String url;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final metaAsync = ref.watch(linkPreviewServiceProvider(url));
-
-    return metaAsync.when(
-      loading: () => _buildCard(context, null),
-      error: (_, __) => _buildCard(context, null),
-      data: (meta) => _buildCard(context, meta),
-    );
-  }
-
-  Widget _buildCard(BuildContext context, LinkPreview? meta) {
+  Widget build(BuildContext context) {
     final uri = Uri.tryParse(url);
     final domain = uri?.host.isNotEmpty == true ? uri!.host : url;
-    final title = meta?.title.trim().isNotEmpty == true ? meta!.title : domain;
 
     return Semantics(
       container: true,
@@ -56,7 +45,7 @@ class LinkPreviewCard extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      title,
+                      domain,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

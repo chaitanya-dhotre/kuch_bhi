@@ -21,9 +21,15 @@ bool shouldLock({
   DateTime? awayAt,
   required int afterSeconds,
   required DateTime now,
+  int? elapsedAwayMs,
 }) {
   if (!enabled || awayAt == null) return false;
   if (afterSeconds == 0) return true;
+  // F15: time since boot can't be moved by the user; negative = a reboot.
+  if (elapsedAwayMs != null &&
+      (elapsedAwayMs < 0 || elapsedAwayMs >= afterSeconds * 1000)) {
+    return true;
+  }
   return now.difference(awayAt) >= Duration(seconds: afterSeconds);
 }
 
@@ -68,6 +74,7 @@ class AppLockConfig {
     required this.hideNames,
     required this.fails,
     required this.waitUntil,
+    this.waitStart,
     this.version = 1,
   });
 
@@ -81,6 +88,10 @@ class AppLockConfig {
   final int fails;
   final DateTime? waitUntil;
 
+  /// F15: Android time since boot (ms) when the current wait began. The
+  /// wait is measured on this clock; [waitUntil] is only for display.
+  final int? waitStart;
+
   Map<String, dynamic> toJson() => {
     'v': version,
     'salt': salt,
@@ -91,6 +102,7 @@ class AppLockConfig {
     'hideNames': hideNames,
     'fails': fails,
     'waitUntil': waitUntil?.millisecondsSinceEpoch,
+    if (waitStart != null) 'waitStart': waitStart,
   };
 
   String encode() => jsonEncode(toJson());
@@ -104,6 +116,7 @@ class AppLockConfig {
     bool? hideNames,
     int? fails,
     Object? waitUntil = _keepValue,
+    Object? waitStart = _keepValue,
   }) {
     return AppLockConfig(
       version: version,
@@ -117,6 +130,9 @@ class AppLockConfig {
       waitUntil: identical(waitUntil, _keepValue)
           ? this.waitUntil
           : waitUntil as DateTime?,
+      waitStart: identical(waitStart, _keepValue)
+          ? this.waitStart
+          : waitStart as int?,
     );
   }
 
@@ -150,6 +166,9 @@ class AppLockConfig {
         fails: fails.toInt(),
         waitUntil: wait is num
             ? DateTime.fromMillisecondsSinceEpoch(wait.toInt())
+            : null,
+        waitStart: decoded['waitStart'] is num
+            ? (decoded['waitStart'] as num).toInt()
             : null,
       );
     } catch (_) {
@@ -219,6 +238,8 @@ class AppLockController extends Notifier<AppLockState> {
 
   late bool _loaded;
   DateTime? _hiddenDuringAuth;
+  Future<int?>? _hiddenElapsedDuringAuth;
+  Future<int?>? _awayElapsed;
   bool _resumedDuringAuth = false;
   final _unlockWaiters = <Completer<void>>[];
 
@@ -262,13 +283,15 @@ class AppLockController extends Notifier<AppLockState> {
     return readConfig();
   }
 
-  void onHidden(DateTime now) {
+  void onHidden(DateTime now, {Future<int?>? elapsed}) {
     // Lock off: no cover, so returning to the app looks exactly as before.
     if (!state.enabled || state.covered) return;
     if (state.authInProgress) {
       _hiddenDuringAuth ??= now;
+      _hiddenElapsedDuringAuth ??= _platform.elapsedRealtime();
       return;
     }
+    _awayElapsed = elapsed ?? _platform.elapsedRealtime();
     state = state.copyWith(covered: true, awayAt: now);
   }
 
@@ -277,12 +300,21 @@ class AppLockController extends Notifier<AppLockState> {
       if (_hiddenDuringAuth != null) _resumedDuringAuth = true;
       return;
     }
+    final hiddenElapsed = _awayElapsed;
+    _awayElapsed = null;
+    int? elapsedAway;
+    if (hiddenElapsed != null) {
+      final from = await hiddenElapsed;
+      final to = await _platform.elapsedRealtime();
+      if (from != null && to != null) elapsedAway = to - from;
+    }
     final config = await _config();
     final lock = shouldLock(
       enabled: config != null,
       awayAt: state.awayAt,
       afterSeconds: config?.after ?? 0,
       now: now,
+      elapsedAwayMs: elapsedAway,
     );
     state = state.copyWith(
       covered: false,
@@ -309,13 +341,13 @@ class AppLockController extends Notifier<AppLockState> {
       return false;
     }
     final now = _clock();
-    if (isWaiting(now)) {
+    if (await waitingNow(now)) {
       state = state.copyWith(message: messageFor(now));
       return false;
     }
     final actual = await _hashPin(pin, base64.decode(config.salt), config.iter);
     if (_constantTimeEquals(actual, base64.decode(config.hash))) {
-      await _save(config.copyWith(fails: 0, waitUntil: null));
+      await _save(config.copyWith(fails: 0, waitUntil: null, waitStart: null));
       _unlock();
       return true;
     }
@@ -326,6 +358,7 @@ class AppLockController extends Notifier<AppLockState> {
   Future<bool> authenticateWithBiometrics() async {
     state = state.copyWith(authInProgress: true);
     _hiddenDuringAuth = null;
+    _hiddenElapsedDuringAuth = null;
     _resumedDuringAuth = false;
     var ok = false;
     try {
@@ -347,18 +380,50 @@ class AppLockController extends Notifier<AppLockState> {
       // (stickyAuth: false): count that time away as usual.
       final hiddenAt = _hiddenDuringAuth;
       if (!ok && hiddenAt != null) {
-        onHidden(hiddenAt);
+        onHidden(hiddenAt, elapsed: _hiddenElapsedDuringAuth);
         if (_resumedDuringAuth) await onResumed(_clock());
       }
       _hiddenDuringAuth = null;
+      _hiddenElapsedDuringAuth = null;
       _resumedDuringAuth = false;
     }
   }
 
   Future<void> unlockWithBiometric() async {
     final config = await _config();
-    if (config != null) await _save(config.copyWith(fails: 0, waitUntil: null));
+    if (config != null) {
+      await _save(config.copyWith(fails: 0, waitUntil: null, waitStart: null));
+    }
     _unlock();
+  }
+
+  /// F15: the PIN-wait gate. Measures the wait on Android's time since
+  /// boot, then rewrites [AppLockConfig.waitUntil] so the sync display
+  /// checks below agree with it. A moved wall clock can't end a wait; a
+  /// reboot (the boot clock went back) starts it again at full length.
+  Future<bool> waitingNow([DateTime? now]) async {
+    final current = now ?? _clock();
+    await _syncWait(current);
+    return isWaiting(current);
+  }
+
+  Future<void> _syncWait(DateTime now) async {
+    final config = await _config();
+    final until = config?.waitUntil;
+    if (config == null || until == null) return;
+    final elapsed = await _platform.elapsedRealtime();
+    if (elapsed == null) return; // no boot clock (Dart-only tests)
+    var start = config.waitStart;
+    // A wait saved before F15 that is already over stays over.
+    if (start == null && !now.isBefore(until)) return;
+    if (start == null || elapsed < start) start = elapsed;
+    final left = _waitSeconds(config.fails) * 1000 - (elapsed - start);
+    await _save(left > 0
+        ? config.copyWith(
+            waitStart: start,
+            waitUntil: now.add(Duration(milliseconds: left)),
+          )
+        : config.copyWith(waitStart: null, waitUntil: null));
   }
 
   bool isWaiting([DateTime? now]) {
@@ -400,7 +465,11 @@ class AppLockController extends Notifier<AppLockState> {
     final wait = fails >= 5
         ? current.add(Duration(seconds: _waitSeconds(fails)))
         : null;
-    final updated = config.copyWith(fails: fails, waitUntil: wait);
+    final updated = config.copyWith(
+      fails: fails,
+      waitUntil: wait,
+      waitStart: wait == null ? null : await _platform.elapsedRealtime(),
+    );
     await _save(updated);
     final message = wait == null
         ? switch (5 - fails) {

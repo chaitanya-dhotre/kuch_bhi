@@ -23,7 +23,6 @@ import 'package:kuch_bhi/features/chat/widgets/message_bubble.dart';
 import 'package:kuch_bhi/features/chat/widgets/voice_message_bubble.dart';
 import 'package:kuch_bhi/features/media/providers/media_viewer_providers.dart';
 import 'package:kuch_bhi/infrastructure/offline/connectivity_signal.dart';
-import 'package:kuch_bhi/infrastructure/services/link_preview_service.dart';
 import 'package:kuch_bhi/services/media_upload_service.dart';
 
 final _file = File('/nonexistent/calm.jpg');
@@ -31,7 +30,6 @@ final _file = File('/nonexistent/calm.jpg');
 List<Override> _overrides() => [
   outboxStatusProvider.overrideWith((ref, c) => Stream.value(const [])),
   messageBodyProvider.overrideWith((ref, id) async => bodyCache.get(id)),
-  linkPreviewServiceProvider.overrideWith((ref, url) async => null),
   mediaFileProvider.overrideWith(
     (ref, r) async => LocalMediaFile(
       file: _file,

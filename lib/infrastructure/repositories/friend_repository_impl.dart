@@ -37,10 +37,12 @@ class FriendRepositoryImpl implements FriendRepository {
 
   @override
   Future<User?> findUserByCode(String code) async {
+    final c = code.toUpperCase();
+    if (!isFriendCode(c)) return null;
     try {
       final record = await _pb
           .collection('users')
-          .getFirstListItem('friend_code="${code.toUpperCase()}"');
+          .getFirstListItem(_pb.filter('friend_code = {:c}', {'c': c}));
       return _recordToUser(record);
     } on ClientException catch (e) {
       if (e.statusCode == 404) return null;

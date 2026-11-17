@@ -35,13 +35,12 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Deep link: kuchbhi://add/<friendCode> (QR / friend-code links) -->
-            <intent-filter android:autoVerify="false">
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="kuchbhi"/>
-            </intent-filter>
+            <!-- F16: no VIEW deep links. Flutter's default would hand any
+                 intent's path to the router; the QR payload is read only
+                 by the in-app scanner. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false" />
             <!-- Share into the app (12.1): photos, videos, files, text and links. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>

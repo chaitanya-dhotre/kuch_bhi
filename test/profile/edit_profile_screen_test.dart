@@ -285,4 +285,54 @@ void main() {
     await tester.pump(const Duration(seconds: 10));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('F22: picker copy, replaced crop and last crop leave temp; '
+      'files outside temp are never touched', (tester) async {
+    final temp = Directory.systemTemp.createTempSync('f22');
+    final outside = Directory.systemTemp.createTempSync('f22_out');
+    addTearDown(() {
+      temp.deleteSync(recursive: true);
+      outside.deleteSync(recursive: true);
+    });
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => temp.path);
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+    File f(Directory d, String n) => File('${d.path}/$n')..writeAsBytesSync(png);
+    final pick1 = f(temp, 'pick1.png');
+    final crop1 = f(temp, 'crop1.png');
+    final pick2 = f(outside, 'gallery.png');
+    final crop2 = f(temp, 'crop2.png');
+    Future<void> io() =>
+        tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+
+    await _pump(tester);
+    Future<void> pickAndCrop(File pick, File crop) async {
+      picker.result = XFile(pick.path);
+      await tester.tap(find.byType(AppAvatar));
+      await tester.pump();
+      await tester.pump();
+      Navigator.of(tester.element(find.byType(CropPhotoScreen))).pop(crop);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await io();
+    }
+
+    await pickAndCrop(pick1, crop1);
+    expect(pick1.existsSync(), isFalse, reason: 'picker copy in temp');
+    expect(crop1.existsSync(), isTrue, reason: 'still the chosen photo');
+
+    await pickAndCrop(pick2, crop2);
+    expect(crop1.existsSync(), isFalse, reason: 'replaced crop');
+    expect(pick2.existsSync(), isTrue, reason: 'outside temp: never deleted');
+    expect(crop2.existsSync(), isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    await io();
+    expect(crop2.existsSync(), isFalse, reason: 'screen closed');
+  });
 }

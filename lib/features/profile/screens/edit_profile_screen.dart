@@ -61,6 +61,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _nameController.dispose();
     _usernameController.dispose();
     _aboutController.dispose();
+    deleteTempPhoto(_pickedImage); // F22: the save has read it by now
     super.dispose();
   }
 
@@ -101,7 +102,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   Future<void> _pickImage() async {
     if (_saving) return;
     final cropped = await pickCroppedPhoto(context);
+    if (cropped != null && !mounted) deleteTempPhoto(cropped);
     if (cropped != null && mounted) {
+      deleteTempPhoto(_pickedImage);
       setState(() {
         _pickedImage = cropped;
         _clearAvatar = false;

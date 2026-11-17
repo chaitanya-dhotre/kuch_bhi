@@ -157,7 +157,9 @@ class _LockOverlayState extends ConsumerState<LockOverlay>
     // G2: resets share the PIN's wait, so the old 6-digit backup PIN can't
     // be guessed here faster than the app PIN.
     final lock = ref.read(appLockProvider.notifier);
-    if (lock.isWaiting()) {
+    final waiting = await lock.waitingNow();
+    if (!mounted) return;
+    if (waiting) {
       setState(() => _fieldError = lock.messageFor());
       return;
     }

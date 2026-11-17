@@ -11,6 +11,7 @@ import '../../../core/widgets/app_field.dart';
 import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/busy_spinner.dart';
+import '../../../domain/repositories/friend_repository.dart';
 import '../../../features/chat/message_offline_policy.dart';
 import '../../../features/chat/providers/chat_provider.dart';
 import '../../../features/friend_requests/providers/friend_request_provider.dart';
@@ -371,7 +372,8 @@ class _QrScanTabState extends State<_QrScanTab> {
     if (raw.startsWith('kuchbhi://add/')) {
       code = raw.replaceFirst('kuchbhi://add/', '');
     }
-    if (code.length == 6) widget.onCodeFound(code.toUpperCase());
+    final c = code.toUpperCase();
+    if (isFriendCode(c)) widget.onCodeFound(c);
   }
 
   Future<void> _pickFromGallery() async {

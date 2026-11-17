@@ -68,13 +68,18 @@ class _GoogleOnboardingScreenState
     _emailController.dispose();
     _usernameController.dispose();
     _displayNameController.dispose();
+    deleteTempPhoto(_pickedImage); // F22: the save has read it by now
     super.dispose();
   }
 
   Future<void> _pickAvatar() async {
     if (_busy) return;
     final cropped = await pickCroppedPhoto(context);
-    if (cropped != null && mounted) setState(() => _pickedImage = cropped);
+    if (cropped != null && !mounted) deleteTempPhoto(cropped);
+    if (cropped != null && mounted) {
+      deleteTempPhoto(_pickedImage);
+      setState(() => _pickedImage = cropped);
+    }
   }
 
   /// F7: forget the Google account so the chooser shows next time.

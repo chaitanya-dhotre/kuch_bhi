@@ -13,7 +13,6 @@ import 'package:kuch_bhi/features/chat/widgets/voice_message_bubble.dart';
 import 'package:kuch_bhi/features/media/providers/media_viewer_providers.dart';
 import 'package:kuch_bhi/features/media/screens/media_docs_screen.dart';
 import 'package:kuch_bhi/infrastructure/offline/connectivity_signal.dart';
-import 'package:kuch_bhi/infrastructure/services/link_preview_service.dart';
 import 'package:kuch_bhi/infrastructure/services/media_gallery_service.dart';
 import 'package:pocketbase/pocketbase.dart';
 
@@ -436,33 +435,6 @@ void main() {
         await settle();
         await container.read(p.future);
         expect(runs, 2);
-      },
-    );
-
-    test(
-      'link previews: a failed fetch is read again after reconnect',
-      () async {
-        // Port 9 refuses at once: fetch() swallows it and returns null.
-        final p = linkPreviewServiceProvider('http://127.0.0.1:9/');
-        final states = <AsyncValue<LinkPreview?>>[];
-        container.listen(
-          p,
-          (_, next) => states.add(next),
-          fireImmediately: true,
-        );
-        expect(await container.read(p.future), isNull);
-        online$.add(false);
-        await settle();
-        states.clear();
-        online$.add(true);
-        await settle();
-        container.read(p);
-        expect(
-          states.where((s) => s.isLoading),
-          isNotEmpty,
-          reason: 'the cached null is dropped on reconnect',
-        );
-        expect(await container.read(p.future), isNull);
       },
     );
   });

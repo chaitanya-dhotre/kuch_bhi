@@ -131,7 +131,9 @@ class _AppLockSettingsScreenState extends ConsumerState<AppLockSettingsScreen> {
     if (!online) return;
     // G2: resets share the PIN's wait (see LockOverlay).
     final lock = ref.read(appLockProvider.notifier);
-    if (lock.isWaiting()) {
+    final waiting = await lock.waitingNow();
+    if (!mounted) return;
+    if (waiting) {
       setState(() => _fieldError = lock.messageFor());
       return;
     }

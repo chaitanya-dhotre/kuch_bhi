@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/widgets/page_app_bar.dart';
@@ -25,13 +26,19 @@ Future<File?> pickCroppedPhoto(BuildContext context) async {
       maxHeight: 1024,
       imageQuality: 80,
     );
-    if (picked == null || !context.mounted) return null;
-    // F5: move and scale before the photo is used; null = cancelled.
-    return await Navigator.of(context).push<File>(
-      MaterialPageRoute(
-        builder: (_) => CropPhotoScreen(file: File(picked.path)),
-      ),
-    );
+    if (picked == null) return null;
+    try {
+      if (!context.mounted) return null;
+      // F5: move and scale before the photo is used; null = cancelled.
+      return await Navigator.of(context).push<File>(
+        MaterialPageRoute(
+          builder: (_) => CropPhotoScreen(file: File(picked.path)),
+        ),
+      );
+    } finally {
+      // F22: the picker's copy is decoded by now; never leave it in temp.
+      deleteTempPhoto(File(picked.path));
+    }
   } on PlatformException catch (e) {
     debugPrint('[Photo] pickImage failed: $e');
     if (context.mounted) {
@@ -39,6 +46,17 @@ Future<File?> pickCroppedPhoto(BuildContext context) async {
     }
     return null;
   }
+}
+
+/// F22: best-effort delete of a picked or cropped photo left in temp. Only
+/// inside the app's temp dir, so a picker that ever hands back the user's
+/// own gallery file can't make us delete it.
+void deleteTempPhoto(File? file) {
+  if (file == null) return;
+  () async {
+    final temp = (await getTemporaryDirectory()).path;
+    if (p.isWithin(temp, file.path)) await file.delete();
+  }().then((_) {}, onError: (_) {});
 }
 
 /// F5: the square of [image] (in image pixels) visible in a [viewport]-sized

@@ -59,6 +59,9 @@ class _Storage extends SecureStorageService {
 
 class _Platform extends AppLockPlatform {
   @override
+  Future<int?> elapsedRealtime() async => null; // no boot clock in tests
+
+  @override
   Future<bool> isDeviceSupported() async => false;
 
   @override

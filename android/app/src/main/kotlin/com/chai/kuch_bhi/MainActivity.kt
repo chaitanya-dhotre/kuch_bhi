@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.MimeTypeMap
@@ -89,6 +90,8 @@ class MainActivity : FlutterFragmentActivity() {
                     "moveTaskToBack" -> runOnUiThread {
                         result.success(moveTaskToBack(true))
                     }
+                    // F15: counts sleep, can't be set by the user, restarts at boot.
+                    "elapsedRealtime" -> result.success(SystemClock.elapsedRealtime())
                     else -> result.notImplemented()
                 }
             }
