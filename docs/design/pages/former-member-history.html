@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Former member history board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (same as key-backup.html; nothing redefined). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10); --code:#8A7A5F;
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#D98F08;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --success:#0E9F6E; --error:#E5484D;
+  --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35); --code:#A99878;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px;max-width:1400px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:320px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow)}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:8px;padding:6px 10px}
+.appbar .ib{width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--inkSoft)}
+.appbar .t{font-size:19px;font-weight:700;flex:1}
+.appbar .gav{width:36px;height:36px;border-radius:999px;background:var(--accentSoft);display:flex;align-items:center;justify-content:center;font-size:15px}
+.appbar .meta{flex:1;min-width:0}
+.appbar .meta .t{font-size:16px}
+.appbar .meta .s{font-size:12px;color:var(--inkSoft)}
+.tile{display:flex;gap:12px;align-items:center;padding:10px 16px}
+.av{width:44px;height:44px;border-radius:999px;background:var(--surface2);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:17px}
+.tile .tx{flex:1;min-width:0}
+.tile .nm{font-weight:600;font-size:15px}
+.tile .pv{font-size:13px;color:var(--inkSoft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .tm{font-size:11.5px;color:var(--inkFaint);align-self:flex-start;margin-top:4px}
+.tile.dim .nm{color:var(--inkSoft)}
+.ln{height:10px;border-radius:5px;background:var(--surface2);margin:4px 0}
+.chat{padding:6px 12px 10px;display:flex;flex-direction:column;gap:6px;min-height:300px}
+.bub{max-width:76%;padding:7px 11px;border-radius:16px;font-size:14px;line-height:19px;background:var(--surface);border:1px solid var(--line)}
+.bub .who{font-size:12px;font-weight:700;color:var(--info)}
+.bub.me{align-self:flex-end;background:var(--accentSoft);border-color:transparent}
+.bub.ph{width:150px;height:96px;padding:0;background:linear-gradient(135deg,#D9CBB2,#BFAF92);border:0}
+.sys{align-self:center;font-size:12px;color:var(--inkSoft);background:var(--surface2);border-radius:999px;padding:3px 10px;text-align:center}
+.sys.end{color:var(--ink);font-weight:600}
+.locked{margin:0 12px 12px;border-radius:16px;background:var(--surface2);color:var(--inkSoft);font-size:13px;text-align:center;padding:12px}
+.banner{display:flex;gap:9px;align-items:center;background:var(--accentSoft);color:var(--ink);border-radius:16px;padding:10px 12px;font-size:13px;font-weight:600;margin:8px 12px}
+.ghead{text-align:center;padding:10px 16px 4px}
+.ghead .gav{width:72px;height:72px;border-radius:999px;background:var(--accentSoft);margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:28px}
+.ghead .t{font-size:19px;font-weight:700}
+.ghead .s{font-size:13px;color:var(--inkSoft)}
+.sett{margin:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.sett div{padding:12px 14px;font-size:14px;border-top:1px solid var(--line)}
+.sett div:first-child{border-top:0}
+.empty{padding:40px 24px;text-align:center;color:var(--inkSoft);font-size:14px}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;word-break:break-word}
+pre{background:#2A2520;color:#F3EDE3;border-radius:10px;padding:12px;font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+td.good{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.flow .bx{background:#F7F2EA;border:1px solid #D8CDBA;border-radius:10px;padding:6px 10px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.lane{font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-top:10px}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}}
+</style>
+</head>
+<body>
+<h1>Former members keep their group history after a reinstall</h1>
+<p class="sub">Board sections <b>S1–S8</b> (page-local), 2026-11-16 rev 1, as of <code>be0e2f1</code>. Reported in the 2026-11-16 device test: a removed member cleared app data, signed in, and the group was gone. Checklist, rules, request table and device checks: <code>former-member-history.md</code>. <b>Spec PASS 2026-11-16, all defaults (D-1..D-8).</b> Phase 2 runs in a fresh session. No live server read was made.</p>
+
+<section class="band" id="s1">
+<header><span class="n">S1</span><h2>Why the group disappears (same for removed and left)</h2></header>
+<div class="lane">Removed or left</div>
+<div class="flow">
+  <span class="bx">Server member row <b>deleted</b><br><code>:4043-4051</code> remove · <code>:4341</code> leave</span><span class="ar">→</span>
+  <span class="bx ok">Own <code>group_keys</code> rows <b>kept</b><br>listable without membership (bible :985)</span><span class="ar">→</span>
+  <span class="bx">Un-wiped phone: local row → <code>left</code>, history stays on the phone</span>
+</div>
+<div class="lane">Then: clear data / reinstall</div>
+<div class="flow">
+  <span class="bx">Sign in, restore</span><span class="ar">→</span>
+  <span class="bx bad">Chat list = own <b>current</b> member rows only<br><code>_syncConversationsPass</code> <code>user_id="$myId"</code> :6499-6505</span><span class="ar">→</span>
+  <span class="bx bad">History sync walks only known chats :3424</span><span class="ar">→</span>
+  <span class="bx bad"><code>messages</code>, <code>message_media</code>, <code>conversations</code> rules need a current member row</span><span class="ar">→</span>
+  <span class="bx bad"><b>Group gone</b>, history gone</span>
+</div>
+<div class="tblwrap"><table>
+<tr><th></th><th>Removed by an admin</th><th>Left on their own</th></tr>
+<tr><td>System line</td><td>"X was removed by Y", sent <b>after</b> the delete :4076-4084</td><td>"X left the group", sent <b>before</b> the delete :4331-4340</td></tr>
+<tr><td>Key rotation</td><td class="good">by the admin, for remaining members :4102</td><td class="bad">by the leaver, who can no longer list members, so it returns early (:4120-4125). See S8</td></tr>
+<tr><td>Pending invites</td><td>deleted :4053-4068</td><td>not touched</td></tr>
+</table></div>
+</section>
+
+<section class="band" id="s2">
+<header><span class="n">S2</span><h2>Options</h2></header>
+<div class="tblwrap"><table>
+<tr><th></th><th>What</th><th>Server</th><th>App</th><th>After a wipe they see</th></tr>
+<tr><td>A</td><td>Keep as is, and say so in the app</td><td>none</td><td>copy in the Leave dialog, the removed line and the banner</td><td class="bad">nothing</td></tr>
+<tr><td class="good"><b>B (default)</b></td><td>A <code>former_members</code> record, written <b>only by a hook</b> when a group member row is deleted; read-only history up to that moment</td><td>new collection, 1 hook, read branches on 3 collections</td><td>sync pass adds the group as <code>left</code> (C1)</td><td class="good">the group, read-only, up to their leave/removal</td></tr>
+<tr><td>B2</td><td>Same record, read through a hook route instead of rule branches</td><td>collection, hook, route</td><td>B + a second history-page path</td><td>same as B. <b>Automatic fallback if check F3 fails</b></td></tr>
+<tr><td>C</td><td>Own <code>group_keys</code> rows = proof of former membership</td><td>read branches only</td><td>as B</td><td class="bad">everything, past and future, as ciphertext; no time limit. Rejected</td></tr>
+<tr><td>—</td><td><code>left_at</code> column on <code>conversation_members</code></td><td class="bad">~20 rules gain <code>&amp;&amp; left_at = ""</code></td><td>removal, leave, rotation, sync</td><td>as B, but one missed rule reopens F1. Rejected</td></tr>
+</table></div>
+<div class="note"><b>Why a server time limit is required.</b> PocketBase compares a joined collection safely only with "any" operators; a bare <code>&lt;=</code> erased real history before (76 → 0 rows). Without a limit a former member gets every later message's sender and time, live. After a <b>leave</b> the group probably keeps the key the leaver holds (S8), so they could read it.</div>
+</section>
+
+<section class="band" id="s3">
+<header><span class="n">S3</span><h2>B: how the record is made and read</h2></header>
+<div class="lane">Write: server only</div>
+<div class="flow">
+  <span class="bx">Member row DELETE<br>(allowed by today's delete rule)</span><span class="ar">→</span>
+  <span class="bx">Hook <code>former_member_record.pb.js</code><br><code>onRecordDeleteRequest</code>, flat, <code>e.next()</code> first</span><span class="ar">→</span>
+  <span class="bx">Group only (DM skipped)<br>upsert 1 row per (group, person)</span><span class="ar">→</span>
+  <span class="bx ok"><code>former_members</code><br>joined_at · history_until = server now · reason left/removed</span>
+</div>
+<div class="flow"><span class="bx bad">Client create / update / delete: <b>null rules</b> (superusers only)</span><span class="bx">Cascade deletes (group or account) bypass the hook</span></div>
+<div class="lane">Read: three branches, read rules only</div>
+<pre>FM(t) = @collection.former_members.conversation_id ?= conversation_id
+     && @collection.former_members.user_id ?= @request.auth.id
+     && @collection.former_members.history_until ?>= t
+
+R1 messages       list/view: ((member) || FM(created)) &amp;&amp; (expires_at = "" || expires_at > @now)
+R2 message_media  list/view: ((member) || FM(message_id.created)) &amp;&amp; (message_id.expires_at ...)
+R3 conversations  list/view: today's rule || (former_members row for me and this id)</pre>
+<div class="note warn"><b>The one unknown:</b> do all three <code>@collection.former_members</code> conditions bind to the <b>same row</b> with <code>?&gt;=</code> on 0.37.5? <code>?=</code> does (N1–N9 tests). Dry-run check <b>F3 runs first</b>; if it fails, B2 replaces S3's read branches.</div>
+</section>
+
+<section class="band" id="s4">
+<header><span class="n">S4</span><h2>What the former member sees after a wipe (B)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Today · home after restore</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="t">Chats</span><span class="ib">⌕</span></div>
+      <div class="tile"><span class="av">🙂</span><div class="tx"><div class="nm">M52</div><div class="pv">see you tomorrow</div></div><span class="tm">9:30</span></div>
+      <div class="tile"><span class="av">👥</span><div class="tx"><div class="nm">Weekend plan</div><div class="pv">ok</div></div><span class="tm">Mon</span></div>
+      <div class="empty">"Former test" is not here.<br>Nothing on the server leads back to it.</div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">B · home after restore</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="t">Chats</span><span class="ib">⌕</span></div>
+      <div class="tile"><span class="av">🙂</span><div class="tx"><div class="nm">M52</div><div class="pv">see you tomorrow</div></div><span class="tm">9:30</span></div>
+      <div class="tile dim"><span class="av">👥</span><div class="tx"><div class="nm">Former test</div><div class="pv">You were removed from this group</div></div><span class="tm">Sun</span></div>
+      <div class="tile"><span class="av">👥</span><div class="tx"><div class="nm">Weekend plan</div><div class="pv">ok</div></div><span class="tm">Mon</span></div>
+      <div style="height:120px"></div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">B · the chat, read-only</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="gav">👥</span><div class="meta"><div class="t">Former test</div><div class="s">You're no longer in this group</div></div></div>
+      <div class="chat">
+        <div class="bub"><div class="who">M52</div>who's bringing snacks</div>
+        <div class="bub me">me, chips</div>
+        <div class="bub ph"></div>
+        <div class="bub me">🎙 0:07</div>
+        <div class="sys end">You were removed from this group</div>
+      </div>
+      <div class="locked">You can't send messages to this group</div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">B · group info (dark)</span>
+    <div class="frame dark">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="t">Group info</span></div>
+      <div class="banner">You're no longer in this group.</div>
+      <div class="ghead"><div class="gav">👥</div><div class="t">Former test</div><div class="s">Group</div></div>
+      <div class="sett"><div>Media &amp; Docs</div></div>
+      <div style="height:90px"></div>
+    </div>
+  </div>
+</div>
+<div class="note">Everything in the three B frames already exists for a <code>left</code> row today (composer lock <code>chat_screen.dart:56</code>, banner <code>group_settings_screen.dart:397-409</code>). C1 only writes the chat and a <code>left</code> row on first sight; the "removed" line comes from <code>reason</code>, stamped at <code>history_until</code> (D-4). Messages sent after the removal never download.</div>
+</section>
+
+<section class="band" id="s5">
+<header><span class="n">S5</span><h2>Keys, composer, removal-lock and F1</h2></header>
+<div class="tblwrap"><table>
+<tr><th></th><th>Old key versions</th><th>Composer</th><th>Removal-lock R1/R2</th><th>F1 (membership M1–M3)</th></tr>
+<tr><td>A</td><td>survive on the server, unused</td><td>n/a</td><td>unchanged</td><td>unchanged</td></tr>
+<tr><td><b>B</b></td><td class="good">survive; the existing key walk fetches them. Later versions were never wrapped for them</td><td class="good">locked (<code>left</code>)</td><td class="good">unchanged: C1 touches only chats with no local row; <code>_removalMiss</code> skips <code>left</code></td><td class="good">not reopened: no client writes; no create/update rule, <code>group_keys</code> create or invite rule reads the record (F10–F13, F17)</td></tr>
+<tr><td>B2</td><td>as B</td><td>as B</td><td>as B</td><td>as B</td></tr>
+<tr><td>C</td><td>keys become the access grant</td><td>as B</td><td>as B</td><td class="bad">no new write path, but post-leave messages readable</td></tr>
+</table></div>
+</section>
+
+<section class="band" id="s6">
+<header><span class="n">S6</span><h2>Decisions (defaults in bold)</h2></header>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Question</th><th>Options</th></tr>
+<tr><td>D-1</td><td>Approach</td><td><b>B</b> · A · B2 (also the fallback if F3 fails) · C (rejected)</td></tr>
+<tr><td>D-2</td><td>Where history stops</td><td><b>Server time of the member-row delete</b> · delete time + a grace (e.g. 2 min) to include "removed by"</td></tr>
+<tr><td>D-3</td><td>What they can read</td><td><b>Messages + media + the group's current name and icon</b> · also reactions and polls (2 more rule pairs; later votes still count)</td></tr>
+<tr><td>D-4</td><td>"You were removed" after a wipe</td><td><b>Local line from <code>reason</code>, at <code>history_until</code></b> · none</td></tr>
+<tr><td>D-5</td><td>People who left or were removed before this ships (incl. the reported group)</td><td><b>Back-fill from <code>group_keys</code>: counts first, rows only after a separate yes</b>. End = when the next key version (the one that shut them out) was created; pairs with no newer version are skipped · no back-fill</td></tr>
+<tr><td>D-6</td><td>Can they remove the record ("Delete group")</td><td><b>Not now</b> (delete rule null) · add the rule and the button now</td></tr>
+<tr><td>D-7</td><td>Group info</td><td><b>As today for <code>left</code>: banner, no members, no admin controls</b> · a frozen member list (needs a snapshot)</td></tr>
+<tr><td>D-8</td><td>Re-added, then removed again</td><td><b>One row per person per group; end moves forward</b> (gap rows hidden by keys) · one row per stint</td></tr>
+</table></div>
+</section>
+
+<section class="band" id="s7">
+<header><span class="n">S7</span><h2>Dry run and device check, in short</h2></header>
+<div class="row">
+<div style="flex:1 1 420px;min-width:0">
+<b>Dry run on a <code>.backup</code> copy (throwaway accounts)</b>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Proves</th></tr>
+<tr><td>F3 (first)</td><td>Same-row binding: another person's later former row, or my later row in another group, never widens my window</td></tr>
+<tr><td>F1, F2</td><td>Removed sees up to removal; leaver sees up to and including "left"</td></tr>
+<tr><td>F4, F5</td><td>Outsiders get nothing; rows after the end are 404</td></tr>
+<tr><td>F6, F7</td><td>Media and the chat row (name, icon) come back</td></tr>
+<tr><td>F8, F9</td><td>No member list; former rows visible only to their owner</td></tr>
+<tr><td>F10–F13</td><td>Can't post, rejoin, edit the group, write a former row, or get live events</td></tr>
+<tr><td>F14–F17</td><td>Re-add, cascade, DM skip, rotation excludes former members</td></tr>
+<tr><td>F18, F19</td><td>Timing; T1–T16, U1–U14, V1–V9 unchanged</td></tr>
+</table></div>
+</div>
+<div style="flex:1 1 420px;min-width:0">
+<b>Device (M52 admin, Redmi member, new group)</b>
+<ol>
+<li>Both send texts, a photo, a voice note.</li>
+<li>Remove the Redmi: the composer locks within seconds; "removed" line shows.</li>
+<li>M52 sends more.</li>
+<li>Redmi clears data, signs in, restores: the group is back, step 1 opens, the step 3 messages don't show, composer locked, info banner.</li>
+<li>No unread badge for it.</li>
+<li>Leave path in a second group: back up to "left".</li>
+<li>Re-add works as a normal chat; gap messages stay hidden.</li>
+<li>Other members: send, remove, leave, re-key as before; new joiners see nothing earlier.</li>
+<li>If D-5 back-fill approved: the reported group returns.</li>
+</ol>
+</div>
+</div>
+</section>
+
+<section class="band" id="s8">
+<header><span class="n">S8</span><h2>Found while specifying: a leave probably never rotates the key</h2></header>
+<div class="flow">
+  <span class="bx">Leaver deletes own row :4341</span><span class="ar">→</span>
+  <span class="bx bad">Leaver's rotate lists members: sees none (bible :772) → returns :4120-4125</span><span class="ar">→</span>
+  <span class="bx bad">Admins rotate only on member <b>create</b> (:590-601) or a member missing the key (:4656-4705)</span><span class="ar">→</span>
+  <span class="bx bad">The group keeps the key the leaver holds; only the <code>messages</code> rule stops them</span>
+</div>
+<div class="note warn">Code read only; a logcat check on the next leave confirms it (<code>[Group]</code> rotate lines on the admin's phone, newest <code>key_version</code> before and after). Separate bug, its own spec. It is also why S2 rejects any option without a server time limit.</div>
+</section>
+</body>
+</html>

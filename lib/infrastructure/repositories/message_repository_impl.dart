@@ -5964,12 +5964,16 @@ class MessageRepositoryImpl implements MessageRepository {
   /// Local-only info bubble (never pushed to PocketBase) — for narrative
   /// rows that are only true on THIS device, e.g. "You were removed from
   /// this group" when a membership sync notices an admin removal.
-  Future<void> _emitLocalSystemMessage(String convId, String body) async {
+  Future<void> _emitLocalSystemMessage(
+    String convId,
+    String body, {
+    DateTime? at,
+  }) async {
     // Spec D5 / review C1: never drop a local-only bubble into a signed-out
     // (wiped) session — straggler timers from the previous account land here.
     if (!_pb.authStore.isValid) return;
     final id = 'sys_${_uuid.v4()}';
-    final now = DateTime.now();
+    final now = at ?? DateTime.now();
     await db.messagesDao.upsertMessage(
       MessagesTableCompanion.insert(
         localId: id,
@@ -6544,57 +6548,15 @@ class MessageRepositoryImpl implements MessageRepository {
         }
         final conv = m.expand['conversation_id']?.firstOrNull;
         if (conv == null) continue;
-        final iconField = conv.getStringValue('icon');
-        final iconUrl = iconField.isEmpty
-            ? null
-            : '${_pb.baseUrl}/api/files/conversations/${conv.id}/$iconField';
-        // NEVER clobber the locally-computed last-message preview/time with
-        // the server fields — nothing maintains them server-side, so they are
-        // stale. Local Drift (updated by _cacheMsg/updateLastMessage) is the
-        // source of truth; keep whichever timestamp is NEWER.
-        final existingConv = await db.conversationsDao.getConversationById(
-          conv.id,
-        );
         // R3: read before this pass writes any row. Empty = first sight of
         // the conversation (fresh install, group just joined).
         final localMemberIds =
             (await db.conversationsDao.getAllMembersForConversation(
               conv.id,
             )).map((lm) => lm.userId).toSet();
-        final serverAtStr = conv.getStringValue('last_message_at');
-        final serverAt = serverAtStr.isEmpty
-            ? null
-            : DateTime.tryParse(serverAtStr);
-        final localAt = existingConv?.lastMessageAt;
-        final keepLocal =
-            localAt != null && (serverAt == null || localAt.isAfter(serverAt));
-        await db.conversationsDao.upsertConversation(
-          ConversationsTableCompanion.insert(
-            id: conv.id,
-            type: conv.getStringValue('type'),
-            name: Value(
-              conv.getStringValue('name').isEmpty
-                  ? null
-                  : conv.getStringValue('name'),
-            ),
-            iconUrl: Value(iconUrl),
-            createdById: conv.getStringValue('created_by'),
-            onlyAdminsCanMessage: Value(
-              conv.getBoolValue('only_admins_can_message'),
-            ),
-            disappearingDuration: Value(
-              conv.getIntValue('disappearing_duration'),
-            ),
-            isPinned: Value(existingConv?.isPinned ?? false),
-            // P7 (spec §3): the server's `last_message_preview` is NOT
-            // stored — schema v11 dropped the column. Local Drift keeps
-            // only the ordering timestamp; the tile derives its label from
-            // the newest message row (this server field is stale anyway —
-            // see the comment above).
-            lastMessageAt: Value(keepLocal ? localAt : (serverAt ?? localAt)),
-            createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
-            updatedAt: DateTime.now(),
-          ),
+        await _upsertConversationRecord(
+          conv,
+          DateTime.tryParse(conv.getStringValue('last_message_at')),
         );
         await db.conversationsDao.upsertMember(
           ConversationMembersTableCompanion.insert(
@@ -6678,6 +6640,7 @@ class MessageRepositoryImpl implements MessageRepository {
         '[Conv] sync chats=${convIds.length} members=$memberCount '
         'requests=$requests ms=${watch.elapsedMilliseconds} queued=$queued',
       );
+      await _syncFormerGroups(myId, epoch, activeConvIds);
 
       final localMembers = await db.conversationsDao.getMembershipsOfUser(myId);
       var held = false; // a confirmed miss waiting for its second pass
@@ -6697,6 +6660,110 @@ class MessageRepositoryImpl implements MessageRepository {
       if (held) _scheduleRemovalRecheck();
     } catch (e) {
       debugPrint('[Conv] sync: $e');
+    }
+  }
+
+  /// Writes [conv] (a `conversations` record) to Drift. [serverAt] is the
+  /// list-ordering time the server offers.
+  Future<void> _upsertConversationRecord(
+    RecordModel conv,
+    DateTime? serverAt,
+  ) async {
+    final iconField = conv.getStringValue('icon');
+    final iconUrl = iconField.isEmpty
+        ? null
+        : '${_pb.baseUrl}/api/files/conversations/${conv.id}/$iconField';
+    // NEVER clobber the locally-computed last-message preview/time with
+    // the server fields — nothing maintains them server-side, so they are
+    // stale. Local Drift (updated by _cacheMsg/updateLastMessage) is the
+    // source of truth; keep whichever timestamp is NEWER.
+    final existingConv = await db.conversationsDao.getConversationById(conv.id);
+    final localAt = existingConv?.lastMessageAt;
+    final keepLocal =
+        localAt != null && (serverAt == null || localAt.isAfter(serverAt));
+    await db.conversationsDao.upsertConversation(
+      ConversationsTableCompanion.insert(
+        id: conv.id,
+        type: conv.getStringValue('type'),
+        name: Value(
+          conv.getStringValue('name').isEmpty
+              ? null
+              : conv.getStringValue('name'),
+        ),
+        iconUrl: Value(iconUrl),
+        createdById: conv.getStringValue('created_by'),
+        onlyAdminsCanMessage: Value(
+          conv.getBoolValue('only_admins_can_message'),
+        ),
+        disappearingDuration: Value(conv.getIntValue('disappearing_duration')),
+        isPinned: Value(existingConv?.isPinned ?? false),
+        // P7 (spec §3): the server's `last_message_preview` is NOT
+        // stored — schema v11 dropped the column. Local Drift keeps
+        // only the ordering timestamp; the tile derives its label from
+        // the newest message row (this server field is stale anyway —
+        // see the comment above).
+        lastMessageAt: Value(keepLocal ? localAt : (serverAt ?? localAt)),
+        createdAt: DateTime.tryParse(conv.created) ?? DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  /// Former-member history C1: a group this account left or was removed
+  /// from comes back read-only after a wipe. Only chats with no local row
+  /// for me (first sight) are written, so an un-wiped phone's removal lock,
+  /// 2-miss guard and "removed" line are untouched. A re-added (active) chat
+  /// wins. A missing `former_members` collection is logged and skipped.
+  Future<void> _syncFormerGroups(
+    String myId,
+    int epoch,
+    Set<String> activeConvIds,
+  ) async {
+    final List<RecordModel> rows;
+    try {
+      rows = await _pb
+          .collection('former_members')
+          .getFullList(filter: 'user_id="$myId"', expand: 'conversation_id');
+    } catch (e) {
+      debugPrint('[Conv] former groups: $e');
+      return;
+    }
+    for (final f in rows) {
+      if (!sessionStillValid(
+        epochAtStart: epoch,
+        currentEpoch: _sessionEpoch,
+        authValid: _pb.authStore.isValid,
+      )) {
+        return;
+      }
+      final conv = f.expand['conversation_id']?.firstOrNull;
+      if (conv == null || activeConvIds.contains(conv.id)) continue;
+      if (await db.conversationsDao.getMemberByUserAndConv(myId, conv.id) !=
+          null) {
+        continue;
+      }
+      final until = DateTime.tryParse(f.getStringValue('history_until'));
+      // The list orders the chat at the time I left, not the group's newest.
+      await _upsertConversationRecord(conv, until);
+      await db.conversationsDao.upsertMember(
+        ConversationMembersTableCompanion.insert(
+          id: f.id,
+          conversationId: conv.id,
+          userId: myId,
+          role: const Value('left'),
+          joinedAt:
+              DateTime.tryParse(f.getStringValue('joined_at')) ??
+              DateTime.tryParse(f.created) ??
+              DateTime.now(),
+        ),
+      );
+      if (f.getStringValue('reason') == 'removed') {
+        await _emitLocalSystemMessage(
+          conv.id,
+          'You were removed from this group',
+          at: until,
+        );
+      }
     }
   }
 

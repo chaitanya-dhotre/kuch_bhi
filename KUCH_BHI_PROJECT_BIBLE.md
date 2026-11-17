@@ -741,11 +741,11 @@ deleteRule: @request.auth.id = user_a || @request.auth.id = user_b
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules (live server, read 2026-11-15):**
+**Rules (live server, read 2026-11-15; list/view changed 2026-11-17, see 7.17):**
 
 ```
-listRule:   created_by = @request.auth.id || (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) || (@collection.group_invites.conversation_id ?= id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending")
-viewRule:   created_by = @request.auth.id || (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) || (@collection.group_invites.conversation_id ?= id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending")
+listRule:   created_by = @request.auth.id || (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) || (@collection.group_invites.conversation_id ?= id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending") || (former_members_via_conversation_id.user_id ?= @request.auth.id)
+viewRule:   created_by = @request.auth.id || (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) || (@collection.group_invites.conversation_id ?= id && @collection.group_invites.invited_user_id ?= @request.auth.id && @collection.group_invites.status ?= "pending") || (former_members_via_conversation_id.user_id ?= @request.auth.id)
 createRule: @request.auth.id != ""
 updateRule: (@collection.conversation_members.conversation_id ?= id && @collection.conversation_members.user_id ?= @request.auth.id) && @request.body.created_by:isset = false && @request.body.type:isset = false
 deleteRule: @request.auth.id = created_by
@@ -798,11 +798,11 @@ deleteRule: @request.auth.id = user_id || (@collection.conversation_members.conv
 | `created` | Auto (PB) |  |
 | `updated` | Auto (PB) |  |
 
-**Rules (live server, read 2026-11-15):**
+**Rules (live server, read 2026-11-15; list/view changed 2026-11-17, see 7.17):**
 
 ```
-listRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (expires_at = "" || expires_at > @now)
-viewRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (expires_at = "" || expires_at > @now)
+listRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= created)) && (expires_at = "" || expires_at > @now)
+viewRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= created)) && (expires_at = "" || expires_at > @now)
 createRule: @request.auth.id = sender_id && @collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id
 updateRule: (@request.auth.id = sender_id && @request.body.is_deleted_for_everyone = true && @request.body.is_pinned:isset = false && @request.body.conversation_id:isset = false && @request.body.sender_id:isset = false && @request.body.type:isset = false && @request.body.encrypted_body:isset = false && @request.body.iv:isset = false && @request.body.reply_to_id:isset = false && @request.body.reply_preview:isset = false && @request.body.deleted_for_user_ids:isset = false && @request.body.is_starred_by:isset = false && @request.body.expires_at:isset = false && @request.body.album_id:isset = false && @request.body.album_index:isset = false && @request.body.disappear_after:isset = false) || (@collection.conversation_members.conversation_id ?= conversation_id && @collection.conversation_members.user_id ?= @request.auth.id) && @request.body.conversation_id:isset = false && @request.body.sender_id:isset = false && @request.body.type:isset = false && @request.body.encrypted_body:isset = false && @request.body.iv:isset = false && @request.body.reply_to_id:isset = false && @request.body.reply_preview:isset = false && @request.body.deleted_for_user_ids:isset = false && @request.body.is_starred_by:isset = false && @request.body.expires_at:isset = false && @request.body.album_id:isset = false && @request.body.album_index:isset = false && @request.body.disappear_after:isset = false && @request.body.is_deleted_for_everyone:isset = false
 deleteRule: null (superusers only)
@@ -828,11 +828,11 @@ deleteRule: null (superusers only)
 | `expires_at` | DateTime | Required — set based on media retention policy |
 | `created` | Auto (PB) |  |
 
-**Rules (live server, read 2026-11-15):**
+**Rules (live server, read 2026-11-15; list/view changed 2026-11-17, see 7.17):**
 
 ```
-listRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (message_id.expires_at = "" || message_id.expires_at > @now)
-viewRule:   (@collection.conversation_members.user_id ?= @request.auth.id && @collection.conversation_members.conversation_id ?= conversation_id) && (message_id.expires_at = "" || message_id.expires_at > @now)
+listRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= message_id.created)) && (message_id.expires_at = "" || message_id.expires_at > @now)
+viewRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= message_id.created)) && (message_id.expires_at = "" || message_id.expires_at > @now)
 createRule: message_id.sender_id = @request.auth.id
 updateRule: null (superusers only)
 deleteRule: null (superusers only)
@@ -1036,6 +1036,32 @@ createRule: @request.auth.id = user_id
 updateRule: null (superusers only)
 deleteRule: @request.auth.id = user_id.id
 ```
+
+### 7.17 Collection: `former_members` (live 2026-11-17, former-member-history.md)
+
+Written only by the hook `former_member_record.pb.js` when a group `conversation_members` row is deleted through the API (removal or leave). Gives the former member read-only history up to the server time of that delete. Cascade deletes (group or account deleted) and DMs write nothing.
+
+| Field | Type | Options |
+| :---- | :---- | :---- |
+| `conversation_id` | Relation → conversations | Required, cascade delete |
+| `user_id` | Relation → users | Required, cascade delete |
+| `joined_at` | DateTime | Earliest join, copied from the deleted row |
+| `history_until` | DateTime | Server time of the latest delete (moves forward after a re-add and second removal) |
+| `reason` | Select | `left` / `removed` (blank on back-filled rows) |
+
+Unique index (`conversation_id`, `user_id`).
+
+```
+listRule:   user_id = @request.auth.id
+viewRule:   user_id = @request.auth.id
+createRule: null (superusers only)
+updateRule: null (superusers only)
+deleteRule: null (superusers only)
+```
+
+Read branches it adds (migration `1794800000_former_members.js`, 2026-11-17): `messages` and `message_media` list/view gain `|| FM(created)` / `|| FM(message_id.created)`, and `conversations` list/view gain `|| (former_members_via_conversation_id.user_id ?= @request.auth.id)`. The member branch of `messages` and `message_media` moved to the back-relation form in the same migration: two `@collection` joins under `||` took 5 s for 2,000 rows, while this form takes about 115 ms. No create, update or delete rule reads `former_members`.
+
+---
 
 ### 7.16 PocketBase Hooks / Scheduled Jobs
 
