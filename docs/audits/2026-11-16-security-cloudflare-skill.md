@@ -42,8 +42,9 @@ Severity anchors (from the skill):
 | New: leaving a group never re-keyed it | fixed, device PASS | `f9a0929`, merged in `d9ab6c2` (`leave-rotation.md`) |
 | New: former members lose history after a reinstall | fixed live, device PASS | `247ef20` |
 | **F12** (a failed removal rotation is never retried) | **open**, no spec | — |
-| **F20** (old superuser password in history) | **open**, needs L9 | — |
-| **L2–L5, L7–L10** | **open**, each needs a live read with the user's go-ahead | — |
+| F20 | closed: the superuser row changed 2026-10-01 (after the 2026-07-21 rotation) and the user confirmed the old password fails (L9, 2026-11-18). Purge the history only if the repo is ever shared | — |
+| L3 (partly), L4, L5, L7, L8, L9, L10 | checked live 2026-11-18, fine (§3 results) | — |
+| F23, F24, F25 (from L2, L7, L3) | fixed live 2026-11-18 (dry run 15/15 on a copy; backups `.20261118-google-link-pre`), device PASS 2026-11-18 | (`google-link-and-push.md`) |
 
 Nothing is pushed.
 
@@ -367,6 +368,42 @@ server cracks offline in minutes and yields that user's X25519 private key.
 | L8 | Is the Firebase client API key (`android/app/google-services.json:31`, `lib/firebase_options.dart:56`) restricted to the package and SHA in Google Cloud? | Unrestricted keys allow quota abuse |
 | L9 | The superuser password from F20 no longer works | Memory says it was rotated 2026-07-21; this confirms it |
 | L10 | `docs/server/tests/tok.pb.js` (mints a token for any user id) is not in live `pb_hooks` | If it were deployed, anyone could become any user |
+
+### Results of the live read (2026-11-18, read-only, user go-ahead)
+
+The read covered `ls`/`cat` of `pb_hooks` and `/opt/kuchbhi/fcm_webhook.py`, `sqlite3 -readonly` of `_collections`
+(rules, NULL check, `users` field flags and auth options), row counts only for `users` and
+`scheduled_messages`, and id/created/updated only for `_superusers`. No row content was read.
+Hook line numbers below are for the live files.
+
+| # | Result |
+|---|---|
+| L2 | **New finding F23 (medium).** See below. `register()` (`auth_repository_impl.dart:221-243`) signs in straight after sign-up with no email check, and `users` authRule is empty, so an unverified account can sign in. 2 of 5 live users are unverified |
+| L3 | Payload: `fcm_notify.pb.js:63-69` sends only id, chat id, sender id and sender display name. `fcm_webhook.py:49-55` puts the same fields in FCM `data`. **No preview text is sent.** The relay listens on 127.0.0.1:8091 only and checks `X-Hook-Secret` from the env (`fcm_notify.pb.js:61`). Token move: nothing clears a token on the old row, giving **new finding F25 (low)**, below. Hardening, not findings: `fcm_webhook.py:31` falls back to a fixed secret when the env var is unset (reachable only from the VM itself), and group invites send the group name through FCM (`fcm_webhook.py:102`). `group_invite_notify.pb.js` was listed but not read |
+| L4 | **Fine.** `disappearing_stamp.pb.js:27` / `:54` loads the chat's current members (minus the sender) and starts the clock only when each of them has a read receipt. Receipts from non-members are collected but never looked at. Edge: a chat with no other member left starts the clock on any read receipt. That removes only the sender's own message there, so it is not a finding |
+| L5 | **Fine.** No scheduled-send hook is deployed (the only cron hooks are `disappearing_messages`, `media_expiry`, `online_status`). `scheduled_messages` has 0 rows, and its create/update/delete rules are NULL (superusers only) |
+| L7 | **Fine.** All 17 non-system collections' five rules equal bible §7 text exactly (scripted diff). Every rule that is empty in the dump is NULL (locked), except `users` createRule `""` (open sign-up, as §7.1 says). `users` hidden fields are exactly `fcm_token`, `typing_in`, `current_chat`, `private_key_encrypted`, `private_key_salt` (plus `password`, `tokenKey`). `emailVisibility`: 1 of 5 users has it on, giving **new finding F24 (low)**, below |
+| L8 | **Fine** (user checked the console 2026-11-18). The Android key is restricted to the app, with an API restriction of 26 APIs |
+| L9 | **Fine.** One `_superusers` row, `updated` 2026-10-01 06:30 (after the 2026-07-21 rotation). The user confirmed the old password fails at `/_/`. F20 closed |
+| L10 | **Fine.** `tok.pb.js` is not live. The only live route that mints a token is `google_auth.pb.js:1`. Leftover `test_b64.js` defines a `/api/hooks/test-b64` route, but its name lacks `.pb.js`, so PocketBase never loads it (dead file). Nothing listens besides :8090 (PocketBase) and :8091 (FCM relay) |
+
+#### F23 — Google sign-in joins an existing password account, verified or not (medium)
+
+- **Where:** `google_auth.pb.js:25` finds the user by the Google email, then `:47-50` signs in any record found, with no check on `verified`. Nothing resets the password or old sessions.
+- **Attack:** a stranger (P1) signs up with the victim's Gmail and a password of their own; no email check is needed. Later the victim taps Continue with Google and lands in that account. The stranger still holds the password and their session, so they see the friends list, chats and members, and can swap `public_key` (F3 warns friends) or post as the victim.
+- **Fix:** when Google signs in to an unverified account, set `verified`, set a new random password, and refresh `tokenKey` (signs out every other session).
+
+#### F24 — Google sign-ups are created with a public email (low)
+
+- **Where:** `google_auth.pb.js:40` creates the record with `emailVisibility: true`. `users` list/view is open to any signed-in user (§7.1), and sign-up is open.
+- **Attack:** a stranger signs up and lists `users` to read every Google-registered member's email (1 live account today).
+- **Fix:** drop `emailVisibility: true` from the hook, and set it to false on the existing row.
+
+#### F25 — A push token can sit on two accounts (low)
+
+- **Where:** `fcm_notify.pb.js:39-42` sends to each member's `fcm_token`, and nothing keeps a token unique. Sign-out clears it best-effort only (F14). The phone shows the notification from the push data alone (`fcm_service.dart` `_showMessageNotification`).
+- **Attack:** account A signs out while offline, and B signs in on the same phone. A's new-message pushes keep arriving there, showing A's sender names to B.
+- **Fix:** when a user saves an `fcm_token`, clear that same token on every other `users` row (one after-update hook, direct SQL).
 
 ---
 
