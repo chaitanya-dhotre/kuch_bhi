@@ -238,6 +238,11 @@ class MessageRepositoryImpl implements MessageRepository {
       _removalMissCounts.clear(); // and removal verdicts are per-user too
       _removalRecheck?.cancel();
       _removalRecheck = null;
+      // Leave-rotation K4: no rotate or key check for the previous user.
+      for (final t in _rotateDebounce.values) {
+        t.cancel();
+      }
+      _rotateDebounce.clear();
       _repairMissCounts.clear(); // and the repair give-up count is per-user
       _owedChats.clear(); // O3: no catch-up for the previous user's chats
       // P8 (F1 fix): the device-local outbox key lives in a
@@ -257,10 +262,6 @@ class MessageRepositoryImpl implements MessageRepository {
       } else {
         debugPrint('[Msg] Logged out — unsubscribing.');
         _pendingJoinEmitConvIds.clear(); // no join polls for the previous user
-        for (final t in _rotateDebounce.values) {
-          t.cancel();
-        }
-        _rotateDebounce.clear(); // no stale auto-rotates for the previous user
         // Spec D5: cancel the ticking timers too — nothing may run against
         // the wiped session.
         _pollTimer?.cancel();
@@ -4133,8 +4134,8 @@ class MessageRepositoryImpl implements MessageRepository {
   Future<void> debugRotateGroupKey(String convId, String myId) =>
       _rotateGroupKey(convId, myId);
 
-  /// Every rotation trigger (remove, leave, join debounce, key-gap repair)
-  /// funnels through here, so one device never rotates a group twice at once.
+  /// Every rotation trigger (remove, join debounce, key check) funnels
+  /// through [_rotations], so one device never rotates a group twice at once.
   Future<void> _rotateGroupKey(String convId, String myId) =>
       _rotations.run(convId, () => _rotateGroupKeyNow(convId, myId));
 
@@ -4391,11 +4392,8 @@ class MessageRepositoryImpl implements MessageRepository {
           .write(const ConversationMembersTableCompanion(role: Value('left')));
     }
 
-    // Rotate the key so the leaver (who still holds the previous key in
-    // SecureStorage) cannot decrypt any FUTURE group messages they might
-    // still observe. Their membership row is already gone server-side, so
-    // _rotateGroupKey distributes the new key to the remaining members only.
-    await _rotateGroupKey(conversationId, myId);
+    // No rotate here: the group's rotation owner rotates when its sync sees
+    // this row gone (leave-rotation K1/T2).
   }
 
   @override
@@ -4687,9 +4685,9 @@ class MessageRepositoryImpl implements MessageRepository {
     return true;
   }
 
-  /// Spec D2: after resume, find groups where some member has no current
-  /// key row (all admin devices missed the join SSE event) and rotate so
-  /// they can read the group. Only the elected rotation owner acts.
+  /// Spec D2 + leave-rotation T3: after a full resume, re-check every group
+  /// I admin for a member missing the current key or a key holder who is
+  /// no longer a member. The check itself reads the server and elects.
   Future<void> _reconcileGroupKeyGaps() async {
     try {
       final myId = await _myId();
@@ -4697,52 +4695,104 @@ class MessageRepositoryImpl implements MessageRepository {
       final memberships = await db.conversationsDao.getMembershipsOfUser(myId);
       for (final m in memberships) {
         if (m.role != 'admin') continue;
-        final convId = m.conversationId;
-        final conv = await db.conversationsDao.getConversationById(convId);
+        final conv = await db.conversationsDao.getConversationById(
+          m.conversationId,
+        );
         if (conv?.type != 'group') continue;
-        try {
-          final members = await _pb
-              .collection('conversation_members')
-              .getFullList(filter: 'conversation_id="$convId"', batch: 200);
-          final keys = await _pb
-              .collection('group_keys')
-              .getFullList(filter: 'conversation_id="$convId"', batch: 200);
-          final maxByVersion = <String, int?>{};
-          int current = 0;
-          for (final k in keys) {
-            final uid = k.getStringValue('user_id');
-            final v = k.getIntValue('key_version');
-            if (v > current) current = v;
-            if ((maxByVersion[uid] ?? 0) < v) maxByVersion[uid] = v;
-          }
-          final memberVersions = {
-            for (final r in members)
-              r.getStringValue('user_id'):
-                  maxByVersion[r.getStringValue('user_id')],
-          };
-          final missing = current == 0
-              ? memberVersions.keys.toSet()
-              : membersMissingCurrentKey(
-                  memberToMaxVersion: memberVersions,
-                  currentVersion: current,
-                );
-          if (missing.isEmpty) continue;
-          debugPrint('[Group] key gap in $convId for $missing');
-          if (!await _isRotationOwner(convId, myId)) continue;
-          _rotateDebounce[convId]?.cancel();
-          _rotateDebounce[convId] = Timer(const Duration(seconds: 3), () {
-            _rotateDebounce.remove(convId);
-            _rotateGroupKey(convId, myId).catchError((e) {
-              debugPrint('[Group] key-gap rotate failed: $e');
-            });
-          });
-        } catch (e) {
-          debugPrint('[Group] key-gap check failed for $convId: $e');
-        }
+        _scheduleKeyHolderCheck(m.conversationId);
       }
     } catch (e) {
       debugPrint('[Group] key-gap reconcile failed: $e');
     }
+  }
+
+  /// Leave-rotation K2 debounce. Tests shorten it.
+  @visibleForTesting
+  Duration keyCheckDelay = const Duration(seconds: 3);
+
+  /// Leave-rotation K2: shares the join-rotate debounce map, so a burst (or
+  /// a join rotate already waiting) folds into one rotation.
+  void _scheduleKeyHolderCheck(String convId) {
+    _rotateDebounce[convId]?.cancel();
+    _rotateDebounce[convId] = Timer(keyCheckDelay, () {
+      _rotateDebounce.remove(convId);
+      _checkGroupKeyHolders(convId).catchError((Object e) {
+        debugPrint('[Group] key check failed: $e');
+      });
+    });
+  }
+
+  /// Leave-rotation K1: rotate when a member lacks the current key or a
+  /// current-key holder is no longer a member. Runs in the per-chat rotation
+  /// slot and calls [_rotateGroupKeyNow] directly ([_rotateGroupKey] would
+  /// queue behind this very slot).
+  Future<void> _checkGroupKeyHolders(String convId) =>
+      _rotations.run(convId, () => _checkGroupKeyHoldersNow(convId));
+
+  Future<void> _checkGroupKeyHoldersNow(String convId) async {
+    final myId = await _myId();
+    if (myId.isEmpty) return;
+    // Local gate first: plain members' phones make no request.
+    final conv = await db.conversationsDao.getConversationById(convId);
+    if (conv?.type != 'group') return;
+    final mine = await db.conversationsDao.getMemberByUserAndConv(
+      myId,
+      convId,
+    );
+    if (mine?.role != 'admin') return;
+
+    final List<RecordModel> members;
+    try {
+      members = await _pb
+          .collection('conversation_members')
+          .getFullList(filter: 'conversation_id="$convId"', batch: 200);
+    } catch (e) {
+      debugPrint('[Group] key check: member list failed: $e');
+      return; // the resume net (T3) retries
+    }
+    // Elect from the fresh server list: the local one may still name the
+    // leaver as the smallest-id admin.
+    final adminIds = [
+      for (final r in members)
+        if (r.getStringValue('role') == 'admin') r.getStringValue('user_id'),
+    ]..sort();
+    if (adminIds.isEmpty || adminIds.first != myId) return;
+
+    final keys = await _pb
+        .collection('group_keys')
+        .getFullList(filter: 'conversation_id="$convId"', batch: 200);
+    final maxByUser = <String, int>{};
+    var current = 0;
+    for (final k in keys) {
+      final uid = k.getStringValue('user_id');
+      final v = k.getIntValue('key_version');
+      if (v > current) current = v;
+      if ((maxByUser[uid] ?? 0) < v) maxByUser[uid] = v;
+    }
+    final memberIds = {for (final r in members) r.getStringValue('user_id')};
+    final missing = current == 0
+        ? memberIds
+        : membersMissingCurrentKey(
+            memberToMaxVersion: {for (final u in memberIds) u: maxByUser[u]},
+            currentVersion: current,
+          );
+    final stale = keyHoldersNotMembers(
+      keyRows: [
+        for (final k in keys)
+          (
+            userId: k.getStringValue('user_id'),
+            version: k.getIntValue('key_version'),
+          ),
+      ],
+      memberIds: memberIds,
+      currentVersion: current,
+    );
+    if (missing.isEmpty && stale.isEmpty) return;
+    // R3: counts only, no ids.
+    debugPrint(
+      '[Group] key check missing=${missing.length} stale=${stale.length}',
+    );
+    await _rotateGroupKeyNow(convId, myId);
   }
 
   Future<DateTime?> _readCursor(String convId) async {
@@ -6747,8 +6797,10 @@ class MessageRepositoryImpl implements MessageRepository {
         // composer gate).
         final localForConv = await db.conversationsDao
             .getMembersForConversation(conv.id);
+        var memberGone = false;
         for (final lm in localForConv) {
           if (!serverMemberIds.contains(lm.userId)) {
+            memberGone = true;
             await (db.delete(db.conversationMembersTable)..where(
                   (t) =>
                       t.conversationId.equals(conv.id) &
@@ -6757,6 +6809,9 @@ class MessageRepositoryImpl implements MessageRepository {
                 .go();
           }
         }
+        // Leave-rotation T2: a member who left still holds the current key;
+        // the elected owner's phone rotates them out (timer only).
+        if (memberGone) _scheduleKeyHolderCheck(conv.id);
         await db.conversationsDao.removeStaleMemberRows(conv.id, {
           m.id,
           for (final om in others) om.id,

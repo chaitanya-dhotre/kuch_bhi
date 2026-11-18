@@ -149,8 +149,8 @@ void main() {
         deleted = true;
         return http.Response('', 204);
       }
-      // The member row exists until the delete; afterwards the group is
-      // empty, so the key rotation returns at once.
+      // The member row exists until the delete. A leave no longer rotates
+      // (leave-rotation K3), so nothing reads the list afterwards.
       final items = path.endsWith('/conversation_members/records') && !deleted
           ? [
               {
