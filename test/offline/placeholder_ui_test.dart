@@ -378,7 +378,7 @@ void main() {
         .getSingle();
     // P7 (inversion): the walk now continues 9 → 11 (v11 drops the two
     // preview columns after v10 drops decrypted_body).
-    expect(version.data.values.first, 14, reason: 'user_version advanced');
+    expect(version.data.values.first, 15, reason: 'user_version advanced');
     // P7 review minor 1: the v10→v11 leg must drop both preview columns on
     // the real release walk (9 → 11), not only in the synthetic fixture.
     final convSql = await upgraded

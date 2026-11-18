@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security code board</title>
+<style>
+/* Tokens verbatim from 00-foundation.md §2 (current: accentPressed #CC8808, bubbleMine, accentText). */
+:root{
+  --bg:#FAF7F1; --surface:#FFFFFF; --surface2:#F1ECE3; --ink:#2A2520; --inkSoft:#6E655A;
+  --inkFaint:#9C9284; --line:#E4DDD1; --accent:#EFA00B; --accentPressed:#CC8808;
+  --accentSoft:#FFF3DC; --onAccent:#2A2520; --bubbleMine:#FFE9CF; --accentText:#744C01;
+  --success:#0E9F6E; --error:#E5484D; --info:#4A6FA5; --cardShadow:0 2px 8px rgba(52,42,28,.10);
+}
+.dark{
+  --bg:#171512; --surface:#211E1A; --surface2:#2B2823; --ink:#F3EDE3; --inkSoft:#9C9284;
+  --inkFaint:#9C9284; --line:#3B362F; --accent:#EFA00B; --accentPressed:#CC8808;
+  --accentSoft:#3A2E14; --onAccent:#21260F; --bubbleMine:#492F06; --accentText:#FEBF67;
+  --success:#0E9F6E; --error:#E5484D; --info:#4A6FA5; --cardShadow:0 2px 10px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EDE7DC;font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;color:#2A2520;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:0}
+.sub{color:#6E655A;font-size:13px;margin:0 0 18px;max-width:1100px}
+.band{background:#fff;border:1px solid #E4DDD1;border-radius:14px;padding:18px;margin:0 0 18px;max-width:1400px}
+.band>header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.band .n{font-weight:800;color:#B07400}
+.note{background:#FFF3DC;border-left:3px solid #EFA00B;padding:8px 10px;border-radius:0 8px 8px 0;font-size:12.5px;color:#5C4A22;margin-top:10px}
+.note b{color:#2A2520}
+.note.warn{background:#FBE3E3;border-color:#E5484D;color:#6E2326}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.wrap{background:#F7F2EA;border:1px dashed #D8CDBA;border-radius:12px;padding:12px;min-width:0;max-width:100%}
+.wrap.dark{background:#141210;border-color:#3A342B}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-bottom:6px}
+.wrap.dark .tag{color:#A99878}
+.frame{position:relative;width:320px;max-width:100%;border-radius:22px;overflow:hidden;border:1px solid #D8CDBA;background:var(--bg);color:var(--ink);box-shadow:var(--cardShadow);display:flex;flex-direction:column}
+.wrap.dark .frame{border-color:#3A342B}
+.status{display:flex;justify-content:space-between;font-size:11px;font-weight:600;padding:8px 14px 2px;color:var(--inkSoft)}
+.appbar{display:flex;align-items:center;gap:8px;padding:6px 10px}
+.appbar .ib{width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--inkSoft)}
+.appbar .t{font-size:20px;font-weight:700;flex:1}
+.av{width:36px;height:36px;border-radius:999px;background:var(--surface2);border:1px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--inkSoft)}
+.av.l{width:56px;height:56px;font-size:20px}
+.appbar .meta{flex:1;min-width:0}
+.appbar .meta .t{font-size:16px;font-weight:600}
+.appbar .meta .s{font-size:12px;color:var(--inkSoft)}
+.chat{padding:6px 12px 10px;display:flex;flex-direction:column;gap:6px;flex:1;min-height:220px}
+.bub{max-width:78%;padding:7px 11px;border-radius:18px;font-size:15px;line-height:22px;background:var(--surface);border:1px solid var(--line)}
+.bub .who{font-size:13px;font-weight:600;color:var(--inkSoft)}
+.bub.me{align-self:flex-end;background:var(--bubbleMine);border-color:transparent;border-bottom-right-radius:6px}
+.bub.them{border-bottom-left-radius:6px}
+.bub.lock{color:var(--inkSoft);font-size:13px;display:flex;gap:6px;align-items:center}
+.sys{align-self:center;font-size:13px;line-height:18px;color:var(--inkSoft);background:var(--surface2);border-radius:999px;padding:4px 12px;text-align:center;display:flex;gap:6px;align-items:center;max-width:92%}
+.sys svg{flex:0 0 auto}
+.card{margin:8px 12px 12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px}
+.card .hd{display:flex;gap:10px;align-items:flex-start}
+.card .ti{font-size:16px;line-height:22px;font-weight:600}
+.card .bd{font-size:13px;line-height:18px;color:var(--inkSoft);margin:6px 0 12px}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{min-height:48px;border-radius:999px;padding:0 18px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;flex:1;white-space:nowrap}
+.btn.primary{background:var(--accent);color:var(--onAccent)}
+.btn.tonal{background:var(--bubbleMine);color:var(--ink)}
+.btn.secondary{border:1.5px solid var(--line);color:var(--ink);background:transparent}
+.btn.text{color:var(--ink);min-height:40px;flex:0 0 auto}
+.btn.wide{flex:1 1 100%}
+.composer{display:flex;gap:8px;align-items:center;padding:8px 12px 12px}
+.composer .fld{flex:1;height:44px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--inkFaint);font-size:15px;display:flex;align-items:center;padding:0 16px}
+.composer .send{width:44px;height:44px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center}
+.restrict{margin:6px 12px 12px;border-radius:16px;background:var(--surface2);color:var(--inkSoft);font-size:13px;line-height:18px;text-align:center;padding:12px}
+.banner{display:flex;gap:10px;align-items:center;background:var(--accentSoft);color:var(--ink);border:1px solid rgba(239,160,11,.45);border-radius:16px;padding:8px 8px 8px 12px;font-size:13px;line-height:18px;margin:6px 12px}
+.banner .bx{flex:1}
+.banner .act{min-height:48px;padding:0 12px;display:flex;align-items:center;font-weight:600;font-size:15px;color:var(--ink)}
+.pg{padding:8px 16px 16px;display:flex;flex-direction:column;gap:12px}
+.who2{display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:4px}
+.who2 .t{font-size:16px;line-height:22px;font-weight:600}
+.codecard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 12px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.digits{display:grid;grid-template-columns:repeat(4,auto);column-gap:12px;row-gap:4px;font-size:15px;line-height:22px;font-variant-numeric:tabular-nums;letter-spacing:.02em;justify-content:center}
+.qr{background:#fff;border-radius:16px;padding:12px;line-height:0}
+.help{font-size:13px;line-height:18px;color:var(--inkSoft);text-align:center}
+.pnote{display:flex;gap:10px;background:var(--accentSoft);border-radius:16px;padding:10px 12px;font-size:13px;line-height:18px}
+.ver{display:flex;gap:8px;align-items:center;justify-content:center;font-size:15px;font-weight:600}
+.ver .ck{width:22px;height:22px;border-radius:999px;background:var(--success);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px}
+.sett{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.sett .r{display:flex;gap:12px;align-items:center;min-height:56px;padding:8px 14px;border-top:1px solid var(--line)}
+.sett .r:first-child{border-top:0}
+.sett .well{width:36px;height:36px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--inkSoft)}
+.sett .tx{flex:1}
+.sett .tt{font-size:15px;font-weight:600}
+.sett .ss{font-size:13px;color:var(--inkSoft)}
+.sheet{margin-top:auto;background:var(--surface);border-radius:20px 20px 0 0;padding:8px 16px 16px}
+.sheet .h{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
+.sheet .r{display:flex;gap:14px;align-items:center;min-height:52px;font-size:15px;font-weight:600}
+.sheet .r .ic{color:var(--inkSoft);width:24px;text-align:center}
+.sheet .r .tr{margin-left:auto;font-weight:400;font-size:13px;color:var(--inkSoft)}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:20px}
+.dlg{background:var(--surface);border-radius:24px;padding:20px;color:var(--ink);width:100%}
+.dlg .t{font-size:20px;line-height:26px;font-weight:700}
+.dlg .b{font-size:15px;line-height:22px;margin:10px 0 14px}
+.dlg .a{display:flex;justify-content:flex-end;gap:8px}
+.dlg .a .btn{flex:0 0 auto}
+.full{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 20px;gap:12px;text-align:center;min-height:440px}
+.full .t{font-size:24px;line-height:30px;font-weight:700}
+.full .b{font-size:15px;line-height:22px;color:var(--inkSoft)}
+.full .disc{width:72px;height:72px;border-radius:999px;background:var(--surface2);margin:0 auto;display:flex;align-items:center;justify-content:center;color:var(--accentText)}
+code{background:#F1ECE3;border-radius:6px;padding:1px 6px;font-size:12.5px;color:#7A6A4F;word-break:break-word}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+th,td{border:1px solid #E4DDD1;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#F7F2EA;font-size:12px}
+td.bad{background:#FBE3E3}
+td.good{background:#E3F4EC}
+.tblwrap{overflow-x:auto}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;margin:8px 0}
+.flow .bx{background:#F7F2EA;border:1px solid #D8CDBA;border-radius:10px;padding:6px 10px}
+.flow .bx.bad{background:#FBE3E3;border-color:#E5484D}
+.flow .bx.ok{background:#E3F4EC;border-color:#0E9F6E}
+.flow .ar{color:#8A7A5F;font-weight:700}
+.lane{font-size:11px;font-weight:700;letter-spacing:.05em;color:#8A7A5F;text-transform:uppercase;margin-top:10px}
+.spec{font-size:12px;color:#6E655A;max-width:320px;margin-top:8px}
+@media(max-width:480px){body{padding:12px}.band{padding:12px}.wrap{padding:8px}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 017 0v3"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<h1>Security code changed</h1>
+<p class="sub">Board sections <b>S1–S8</b> (page-local), 2026-11-17 rev 1, as of <code>be0e2f1</code>. Audit finding <b>F3</b> (medium): a changed public key from the server is used silently. Checklist, decisions D-1..D-16, tests and device checks: <code>key-change-warning.md</code>. <b>Spec PASS 2026-11-17, all defaults (D-1..D-16).</b> Phase 2 runs in a fresh session. No build, no server change, no live read. Bob = the friend whose key changed; frames are 320 dp wide.</p>
+
+<section class="band" id="s1">
+<header><span class="n">S1</span><h2>The gap today</h2></header>
+<div class="lane">DM</div>
+<div class="flow">
+  <span class="bx bad">Server writer sets Bob's <code>public_key</code> to their own</span><span class="ar">→</span>
+  <span class="bx">Alice sends: <code>_getConvKey</code> fetches the key, sees it differ<br><code>:6386-6413</code></span><span class="ar">→</span>
+  <span class="bx bad"><code>debugPrint</code>, wipe derived keys, derive from the new key</span><span class="ar">→</span>
+  <span class="bx bad">Server reads Alice's message</span>
+</div>
+<div class="lane">Groups</div>
+<div class="flow">
+  <span class="bx">Next rotation wraps to each member's <b>server</b> key <code>:4141-4157</code></span><span class="ar">→</span>
+  <span class="bx bad">Swapped member gets the group key</span>
+  <span class="bx">Members open wraps with the wrapper's <b>server</b> key <code>encryption_service.dart:776-800</code></span><span class="ar">→</span>
+  <span class="bx bad">Swapped admin key: server hands out its own group key</span>
+</div>
+<div class="lane">Own key</div>
+<div class="flow">
+  <span class="bx">Server key ≠ this phone's key <code>auth_repository_impl.dart:582-597</code></span><span class="ar">→</span>
+  <span class="bx bad">Private key <b>deleted</b>, phone goes to restore</span>
+</div>
+</section>
+
+<section class="band" id="s2">
+<header><span class="n">S2</span><h2>The model: pin per contact, read only the pin</h2></header>
+<div class="flow">
+  <span class="bx">none</span><span class="ar">→ first sight (TOFU, silent) →</span>
+  <span class="bx ok"><b>pinned</b></span><span class="ar">→ codes compared →</span>
+  <span class="bx ok"><b>verified</b></span>
+</div>
+<div class="flow">
+  <span class="bx ok">pinned / verified</span><span class="ar">→ server shows another key →</span>
+  <span class="bx bad"><b>pending</b><br>line in every shared chat · DM held · wraps skipped</span><span class="ar">→ Accept (or matching scan) →</span>
+  <span class="bx ok">pinned (old key kept in history)</span>
+</div>
+<div class="flow"><span class="bx bad">pending</span><span class="ar">→ server key goes back to the pin →</span><span class="bx ok">pinned, silently (D-14)</span></div>
+<div class="note"><b>One funnel.</b> Every user fetch already ends in <code>UsersDao.upsertUser</code>. That calls <code>ContactKeysDao.observe(userId, serverKey)</code>, so no fetch site changes. <code>users.public_key</code> stays for display only; nothing encrypts or decrypts from it.</div>
+</section>
+
+<section class="band" id="s3">
+<header><span class="n">S3</span><h2>DM: the line, a locked new-key message, and the change card in the composer slot (C21)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · pending</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">B</span><div class="meta"><div class="t">Bob</div><div class="s">online</div></div><span class="ib">⋮</span></div>
+      <div class="chat">
+        <div class="bub them">see you at 7?</div>
+        <div class="bub me">yes! bringing snacks</div>
+        <div class="sys"><svg width="14" height="14"><use href="#shield"/></svg>Bob's security code changed. Tap to compare.</div>
+        <div class="bub them lock"><svg width="16" height="16"><use href="#lock"/></svg>Can't decrypt</div>
+      </div>
+      <div class="card">
+        <div class="hd"><svg width="20" height="20" style="color:var(--accentText);flex:0 0 auto;margin-top:1px"><use href="#shield"/></svg>
+          <div><div class="ti">Bob's security code changed</div>
+          <div class="bd">This happens when Bob reinstalls kuch bhi or starts fresh. It can also mean someone else is trying to read this chat. Compare codes before you send.</div></div></div>
+        <div class="btns"><span class="btn tonal">Compare codes</span><span class="btn secondary">Accept</span></div>
+      </div>
+    </div>
+    <div class="spec">The send button and field are gone; queued rows hold. Bob's new-key message stays C1 <code>key_missing</code> until Accept (D-4), then opens.</div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark · pending</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">B</span><div class="meta"><div class="t">Bob</div><div class="s">last seen 2 min ago</div></div><span class="ib">⋮</span></div>
+      <div class="chat">
+        <div class="bub me">yes! bringing snacks</div>
+        <div class="sys"><svg width="14" height="14"><use href="#shield"/></svg>Bob's security code changed. Tap to compare.</div>
+      </div>
+      <div class="card">
+        <div class="hd"><svg width="20" height="20" style="color:var(--accentText);flex:0 0 auto;margin-top:1px"><use href="#shield"/></svg>
+          <div><div class="ti">Bob's security code changed</div>
+          <div class="bd">This happens when Bob reinstalls kuch bhi or starts fresh. It can also mean someone else is trying to read this chat. Compare codes before you send.</div></div></div>
+        <div class="btns"><span class="btn tonal">Compare codes</span><span class="btn secondary">Accept</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">Light · after Accept</span>
+    <div class="frame">
+      <div class="status"><span>9:42</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">B</span><div class="meta"><div class="t">Bob</div><div class="s">online</div></div><span class="ib">⋮</span></div>
+      <div class="chat">
+        <div class="bub me">yes! bringing snacks</div>
+        <div class="sys"><svg width="14" height="14"><use href="#shield"/></svg>Bob's security code changed. Tap to compare.</div>
+        <div class="bub them">new phone, lost everything lol</div>
+      </div>
+      <div class="composer"><span class="fld">Message</span><span class="send">➤</span></div>
+    </div>
+    <div class="spec">The card leaves with <code>motionExit</code>, the composer returns, the locked row opens. The line stays in history.</div>
+  </div>
+  <div class="wrap"><span class="tag">Light · DM ⋮ menu (C4a)</span>
+    <div class="frame" style="min-height:440px">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">B</span><div class="meta"><div class="t">Bob</div><div class="s">online</div></div><span class="ib">⋮</span></div>
+      <div class="sheet">
+        <div class="h"></div>
+        <div class="r"><span class="ic">▣</span>Media and docs</div>
+        <div class="r"><span class="ic">☆</span>Starred messages</div>
+        <div class="r"><span class="ic">◷</span>Disappearing messages<span class="tr">Off</span></div>
+        <div class="r"><span class="ic"><svg width="22" height="22"><use href="#shield"/></svg></span>Security code</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<section class="band" id="s4">
+<header><span class="n">S4</span><h2>Security code screen (C22): pinned, pending, verified</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · pinned, not verified</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="t">Security code</span></div>
+      <div class="pg">
+        <div class="who2"><span class="av l">B</span><span class="t">You and Bob</span></div>
+        <div class="codecard">
+          <div class="digits" data-code="482910573618204957360184592730416825930174628305719462805137"></div>
+          <div class="qr" data-qr="1"></div>
+        </div>
+        <div class="help">To check that your chat is private, compare these numbers with Bob in person or on a call, or scan their code.</div>
+        <div class="btns"><span class="btn primary wide">Scan Bob's code</span><span class="btn secondary wide">Mark as verified</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark · pending (from the card)</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="t">Security code</span></div>
+      <div class="pg">
+        <div class="pnote"><svg width="18" height="18" style="color:var(--accentText);flex:0 0 auto"><use href="#info"/></svg><span>Bob's code changed on 17 Nov. These are the new numbers.</span></div>
+        <div class="who2"><span class="av l">B</span><span class="t">You and Bob</span></div>
+        <div class="codecard">
+          <div class="digits" data-code="719305286401937528461093750284617390528406172935081647293058"></div>
+          <div class="qr" data-qr="2"></div>
+        </div>
+        <div class="help">To check that your chat is private, compare these numbers with Bob in person or on a call, or scan their code.</div>
+        <div class="btns"><span class="btn primary wide">Scan Bob's code</span><span class="btn secondary wide">Accept new code</span></div>
+      </div>
+    </div>
+    <div class="spec" style="color:#A99878">QR sits on a white tile in both themes so it scans.</div>
+  </div>
+  <div class="wrap"><span class="tag">Light · verified</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="t">Security code</span></div>
+      <div class="pg">
+        <div class="who2"><span class="av l">B</span><span class="t">You and Bob</span></div>
+        <div class="codecard">
+          <div class="digits" data-code="482910573618204957360184592730416825930174628305719462805137"></div>
+          <div class="qr" data-qr="1"></div>
+        </div>
+        <div class="ver"><span class="ck">✓</span>Verified</div>
+        <div class="btns"><span class="btn primary wide">Scan Bob's code</span><span class="btn text wide">Clear verified</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap"><span class="tag">Light · Accept for a verified contact (R20, D-10)</span>
+    <div class="frame" style="min-height:560px">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="t">Security code</span></div>
+      <div class="scrim"><div class="dlg">
+        <div class="t">Accept the new code?</div>
+        <div class="b">You had verified Bob's old code. Only accept if Bob told you they reinstalled or started fresh.</div>
+        <div class="a"><span class="btn text">Cancel</span><span class="btn secondary">Accept</span></div>
+      </div></div>
+    </div>
+    <div class="spec">Scan results (R5 toasts): <b>Codes match. Bob is verified.</b> · <b>These codes don't match. Don't accept until you've talked to Bob.</b> · <b>That's not a kuch bhi security code.</b> · <b>Couldn't open the camera.</b></div>
+  </div>
+  <div class="wrap"><span class="tag">Light · View profile row (R10)</span>
+    <div class="frame" style="min-height:0">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="t">Bob</span></div>
+      <div class="pg">
+        <div class="sett">
+          <div class="r"><span class="well"><svg width="20" height="20"><use href="#shield"/></svg></span><div class="tx"><div class="tt">Security code</div><div class="ss">Not verified</div></div><span style="color:var(--inkFaint)">›</span></div>
+          <div class="r"><span class="well"><svg width="20" height="20"><use href="#shield"/></svg></span><div class="tx"><div class="tt">Security code</div><div class="ss">Changed, check it</div></div><span style="color:var(--inkFaint)">›</span></div>
+          <div class="r"><span class="well"><svg width="20" height="20"><use href="#shield"/></svg></span><div class="tx"><div class="tt">Security code</div><div class="ss">Verified</div></div><span style="color:var(--inkFaint)">›</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="spec">One row; its three subtitles shown stacked.</div>
+  </div>
+</div>
+<div class="note"><b>Code (D1).</b> Per side: SHA-512 over <code>0x0000 ‖ key ‖ userId</code>, 5199 more rounds over <code>hash ‖ key</code>, first 30 bytes → six 5-byte chunks → <code>mod 100000</code> → 30 digits. The two halves sorted and joined = 60 digits, 12 groups, 3 rows of 4. Body 15/22 with tabular figures; screen readers read it group by group.</div>
+</section>
+
+<section class="band" id="s5">
+<header><span class="n">S5</span><h2>Groups: line for everyone, banner when it blocks someone (R12a)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · I'm admin, Bob pending</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">✦</span><div class="meta"><div class="t">Goa trip</div><div class="s">5 members</div></div><span class="ib">⋮</span></div>
+      <div class="banner"><svg width="18" height="18" style="color:var(--accentText);flex:0 0 auto"><use href="#shield"/></svg><span class="bx">Bob's security code changed. They can't read new messages here until you check it.</span><span class="act">Check</span></div>
+      <div class="chat">
+        <div class="bub them"><div class="who">Carol</div>tickets booked 🎉</div>
+        <div class="sys"><svg width="14" height="14"><use href="#shield"/></svg>Bob's security code changed. Tap to compare.</div>
+        <div class="bub me">nice!!</div>
+      </div>
+      <div class="composer"><span class="fld">Message</span><span class="send">➤</span></div>
+    </div>
+    <div class="spec">Rotations skip Bob until Accept; Accept writes his wrap for the current version (catch-up, D-5).</div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark · member, admin Carol pending</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">✦</span><div class="meta"><div class="t">Goa trip</div><div class="s">5 members</div></div><span class="ib">⋮</span></div>
+      <div class="banner"><svg width="18" height="18" style="color:var(--accentText);flex:0 0 auto"><use href="#shield"/></svg><span class="bx">Carol's security code changed. Check it to keep chatting here.</span><span class="act">Check</span></div>
+      <div class="chat">
+        <div class="bub them"><div class="who">Dev</div>what time is checkout</div>
+        <div class="sys"><svg width="14" height="14"><use href="#shield"/></svg>Carol's security code changed. Tap to compare.</div>
+      </div>
+      <div class="restrict">Check Carol's new security code to send here.</div>
+    </div>
+    <div class="spec" style="color:#A99878">The newest key was wrapped by Carol's new key, which this phone hasn't accepted, so it isn't used (D-6).</div>
+  </div>
+  <div class="wrap"><span class="tag">Light · member, Bob pending (not blocking)</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="appbar"><span class="ib">←</span><span class="av">✦</span><div class="meta"><div class="t">Goa trip</div><div class="s">5 members</div></div><span class="ib">⋮</span></div>
+      <div class="chat">
+        <div class="bub them"><div class="who">Carol</div>tickets booked 🎉</div>
+        <div class="sys"><svg width="14" height="14"><use href="#shield"/></svg>Bob's security code changed. Tap to compare.</div>
+      </div>
+      <div class="composer"><span class="fld">Message</span><span class="send">➤</span></div>
+    </div>
+    <div class="spec">Line only (D-7): this member's sends use the group key, which Bob's new key never received.</div>
+  </div>
+</div>
+</section>
+
+<section class="band" id="s6">
+<header><span class="n">S6</span><h2>My own code changed on the server (E1, replaces the silent delete)</h2></header>
+<div class="row">
+  <div class="wrap"><span class="tag">Light · blocking screen</span>
+    <div class="frame">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="full">
+        <div class="disc"><svg width="32" height="32"><use href="#shield"/></svg></div>
+        <div class="t">Your security code changed</div>
+        <div class="b">Your account has a new code that this phone didn't make. If you started fresh on another phone, restore here with your new recovery key. If you didn't, keep this phone's code; your friends will see it change back.</div>
+        <div class="btns" style="margin-top:8px"><span class="btn primary wide">Keep this phone's code</span><span class="btn secondary wide">Restore with recovery key</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap dark"><span class="tag">Dark · Restore confirm (R20)</span>
+    <div class="frame" style="min-height:520px">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="scrim"><div class="dlg">
+        <div class="t">Use the new code?</div>
+        <div class="b">This phone's key will be removed. Messages only open again after you restore with your recovery key.</div>
+        <div class="a"><span class="btn text">Cancel</span><span class="btn secondary">Continue</span></div>
+      </div></div>
+    </div>
+    <div class="spec" style="color:#A99878">Continue → <code>deleteKeyPair()</code> → today's restore path (K3 unchanged).</div>
+  </div>
+</div>
+</section>
+
+<section class="band" id="s7">
+<header><span class="n">S7</span><h2>What a real change looks like to friends</h2></header>
+<div class="tblwrap"><table>
+<tr><th>Bob did</th><th>Bob's key</th><th>Friends see</th></tr>
+<tr><td>Reinstalled, restored with recovery key</td><td class="good">same</td><td class="good">nothing</td></tr>
+<tr><td>Second phone, restored</td><td class="good">same</td><td class="good">nothing</td></tr>
+<tr><td>Changed his recovery key</td><td class="good">same</td><td class="good">nothing</td></tr>
+<tr><td>Lost the recovery key, <b>Start fresh</b></td><td class="bad">new</td><td>line in every shared chat · DM card until Accept · his new messages locked until then · admins: group banner; Bob reads new group messages after one admin accepts</td></tr>
+<tr><td>Reinstalled with no backup ever made</td><td class="bad">new</td><td>same as Start fresh</td></tr>
+</table></div>
+<div class="row" style="margin-top:12px">
+  <div class="wrap"><span class="tag">Light · Start fresh dialog (key-backup D8 + G1)</span>
+    <div class="frame" style="min-height:420px">
+      <div class="status"><span>9:41</span><span>▴ ▮</span></div>
+      <div class="scrim"><div class="dlg">
+        <div class="t">Start fresh?</div>
+        <div class="b">Without your recovery key, your old messages can't be opened.<br><br>Starting fresh makes a new key. New messages work, but every older message stays locked for good. <b>Your friends will see that your security code changed, and they accept it before your new messages open.</b></div>
+        <div class="a"><span class="btn text">Cancel</span><span class="btn secondary">Start fresh</span></div>
+      </div></div>
+    </div>
+    <div class="spec">Bold = the one added sentence. Rest unchanged.</div>
+  </div>
+</div>
+</section>
+
+<section class="band" id="s8">
+<header><span class="n">S8</span><h2>Migration and decisions at a glance</h2></header>
+<div class="flow">
+  <span class="bx">Drift 14 → 15: create <code>contact_keys</code></span><span class="ar">→</span>
+  <span class="bx ok">one row per cached <code>users.public_key</code> (not me), unverified</span><span class="ar">→</span>
+  <span class="bx">no lines, no notices</span><span class="ar">→</span>
+  <span class="bx">users with no cached key pin on first sight</span>
+</div>
+<div class="tblwrap"><table>
+<tr><th>#</th><th>Default</th><th>Alternative</th></tr>
+<tr><td>D-1</td><td class="good">Drift <code>contact_keys</code></td><td>secure storage</td></tr>
+<tr><td>D-2</td><td class="good">first sight pins silently</td><td>a "compare codes" line</td></tr>
+<tr><td>D-3</td><td class="good">DM blocked by the card until Accept</td><td>line only</td></tr>
+<tr><td>D-4</td><td class="good">new-key messages locked until Accept</td><td>open at once</td></tr>
+<tr><td>D-5</td><td class="good">rotation skips the pending member, wraps on Accept</td><td>rotation fails</td></tr>
+<tr><td>D-6</td><td class="good">wraps open only with accepted wrapper keys</td><td>trust the server key</td></tr>
+<tr><td>D-7</td><td class="good">line for all; banner when it blocks</td><td>line only</td></tr>
+<tr><td>D-8</td><td class="good">60 digits + QR</td><td>digits only · emoji</td></tr>
+<tr><td>D-9</td><td class="good">"security code"</td><td>"safety number"</td></tr>
+<tr><td>D-10</td><td class="good">R20 before accepting a verified contact</td><td>one tap</td></tr>
+<tr><td>D-11</td><td class="good">own mismatch: Keep / Restore screen</td><td>silent delete (today)</td></tr>
+<tr><td>D-12</td><td class="good">seed from the cache</td><td>start empty</td></tr>
+<tr><td>D-13</td><td class="good">pins not in the backup (now)</td><td>v3 blob</td></tr>
+<tr><td>D-14</td><td class="good">key returns to pin → pending clears silently</td><td>"code is back" line</td></tr>
+<tr><td>D-15</td><td class="good">one sentence in Start fresh</td><td>nothing</td></tr>
+<tr><td>D-16</td><td class="good">card, line, DM ⋮, View profile</td><td>+ group member sheet</td></tr>
+</table></div>
+<div class="note warn"><b>Not fixed here.</b> First sight is trusted (fresh install, new friend). A server writer can still add a visible member to a group. Message authorship isn't bound (no AAD).</div>
+</section>
+
+<script>
+// Board-only: lay out the 60 digits as 12 groups and draw a stand-in QR.
+document.querySelectorAll('.digits').forEach(function(el){
+  var c = el.dataset.code;
+  for (var i = 0; i < 60; i += 5){ var s = document.createElement('span'); s.textContent = c.slice(i, i + 5); el.appendChild(s); }
+});
+document.querySelectorAll('.qr').forEach(function(el){
+  var n = 25, px = 6, seed = +el.dataset.qr * 7919, svg = '<svg width="' + n*px + '" height="' + n*px + '" role="img" aria-label="QR code">';
+  function rnd(){ seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+  function finder(x, y){ return (x>=0&&x<7&&y>=0&&y<7); }
+  for (var y = 0; y < n; y++) for (var x = 0; x < n; x++){
+    var on, f = null;
+    [[0,0],[n-7,0],[0,n-7]].forEach(function(o){ if (finder(x-o[0], y-o[1])) f = [x-o[0], y-o[1]]; });
+    if (f){ var a = f[0], b = f[1]; on = a===0||a===6||b===0||b===6||(a>=2&&a<=4&&b>=2&&b<=4); }
+    else on = rnd() > .52;
+    if (on) svg += '<rect x="' + x*px + '" y="' + y*px + '" width="' + px + '" height="' + px + '" fill="#2A2520"/>';
+  }
+  el.innerHTML = svg + '</svg>';
+});
+</script>
+</body>
+</html>

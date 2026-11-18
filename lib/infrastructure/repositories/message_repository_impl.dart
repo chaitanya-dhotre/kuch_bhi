@@ -30,6 +30,7 @@ import '../../core/utils/serial_per_key.dart';
 import '../../core/utils/session_epoch.dart';
 import '../../core/utils/sync_cursor.dart';
 import '../../data/local/database/app_database.dart';
+import '../../data/local/database/contact_key_store.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../data/local/database/tables/outbox_table.dart';
 import '../../domain/entities/conversation.dart';
@@ -174,6 +175,9 @@ class MessageRepositoryImpl implements MessageRepository {
       epoch: () => _sessionEpoch,
       deviceKeys: deviceKeyStore,
     );
+    // Audit F3 (spec A4): a pin that turns pending writes its chat lines.
+    db.contactKeys.changes.listen((_) => unawaited(_notifyKeyChanges()));
+    unawaited(_notifyKeyChanges());
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
     unawaited(sweepDeletedForEveryone());
@@ -1512,12 +1516,20 @@ class MessageRepositoryImpl implements MessageRepository {
       // C1: re-derive the plaintext from the DURABLE ciphertext — a cleared
       // cache must not change the outcome.
       try {
-        final rowKey = await _getConvKey(conversationId, myId);
-        plaintext = await encryption.decryptMessage(
-          msg.encryptedBody,
-          msg.iv,
-          rowKey,
-        );
+        // F3 B5: a row sealed under the key accepted before a change still
+        // opens with an earlier accepted key; the encrypt below re-seals it
+        // with the current one.
+        for (final rowKey in await _getConvKeyCandidates(
+          conversationId,
+          myId,
+        )) {
+          plaintext = await encryption.decryptMessage(
+            msg.encryptedBody,
+            msg.iv,
+            rowKey,
+          );
+          if (plaintext != null && plaintext.isNotEmpty) break;
+        }
       } on MissingKeyException catch (e) {
         // Row key unavailable: fall back to the cache (this process may
         // still hold the plaintext) — if that is empty too, defer.
@@ -4116,6 +4128,11 @@ class MessageRepositoryImpl implements MessageRepository {
     await _rotateGroupKey(conversationId, myId);
   }
 
+  /// Test seam (F3 C1): one rotation through the per-chat slot.
+  @visibleForTesting
+  Future<void> debugRotateGroupKey(String convId, String myId) =>
+      _rotateGroupKey(convId, myId);
+
   /// Every rotation trigger (remove, leave, join debounce, key-gap repair)
   /// funnels through here, so one device never rotates a group twice at once.
   Future<void> _rotateGroupKey(String convId, String myId) =>
@@ -4159,9 +4176,15 @@ class MessageRepositoryImpl implements MessageRepository {
         final uid = m.getStringValue('user_id');
         final user = await _pb.collection('users').getOne(uid);
         await _cacheUserRecord(user);
-        final pubKey = user.getStringValue('public_key');
-        if (pubKey.isEmpty) {
+        if (user.getStringValue('public_key').isEmpty) {
           throw StateError('Member $uid has no public key');
+        }
+        // F3 C1: wrap to the pin; a member whose key changed is skipped and
+        // gets their wrap when an admin accepts the new key (catch-up).
+        final pubKey = await _wrapKeyFor(uid, myId, user);
+        if (pubKey == null) {
+          debugPrint('[Keys] skipped wrap for pending key');
+          continue;
         }
         encryptedForMember[uid] = await encryption.encryptGroupKeyForMember(
           newKey,
@@ -6343,32 +6366,180 @@ class MessageRepositoryImpl implements MessageRepository {
       );
     }
 
-    var u = await db.usersDao.getUserById(otherUserId);
-    final cachedPublicKey = u?.publicKey;
-
-    // Always fetch the latest public key from the server to detect key rotation
-    // (e.g. the other user reinstalled the app and got a new key pair).
+    // Fetch the server's key every time so a change is seen before a send.
+    // Caching the record runs the pin check (UsersDao → contact_keys); the
+    // key used is ALWAYS the pin, never the server value (audit F3, spec B1).
     try {
       final r = await _pb.collection('users').getOne(otherUserId);
-      final serverPublicKey = r.getStringValue('public_key');
-      if (serverPublicKey.isNotEmpty && serverPublicKey != cachedPublicKey) {
-        debugPrint(
-          '[Keys] Public key rotation detected for user $otherUserId — clearing derived key cache.',
-        );
-        await storage.saveContactEncryptionKey(
-          convId,
-          '',
-        ); // Invalidate derived key
-        await storage.clearAllContactKeys(); // Clear all stale derived keys
-      }
       await _cacheUserRecord(r);
-      u = await db.usersDao.getUserById(otherUserId);
     } catch (_) {}
 
-    if (u?.publicKey == null || u!.publicKey!.isEmpty) {
+    final pin = await db.contactKeys.get(otherUserId);
+    if (pin == null) {
       throw const MissingKeyException('peer public key not available yet');
     }
-    return encryption.getOrDeriveConversationKey(convId, u.publicKey!);
+    if (pin.isPending) {
+      unawaited(_notifyKeyChanges());
+      throw KeyChangedException(
+        'peer security code changed, waiting for accept',
+        userId: otherUserId,
+      );
+    }
+    return encryption.getOrDeriveConversationKey(convId, pin.key);
+  }
+
+  // ── Audit F3: security code changes ───────────────────────────
+
+  Future<void>? _keyNotifyRun;
+
+  /// Spec A4: one local line per new pending key in every chat shared with
+  /// that contact. Single-flight; safe to call from any key lookup.
+  Future<void> _notifyKeyChanges() {
+    final running = _keyNotifyRun;
+    if (running != null) return running;
+    final run = _notifyKeyChangesNow().whenComplete(() {
+      _keyNotifyRun = null;
+    });
+    return _keyNotifyRun = run;
+  }
+
+  Future<void> _notifyKeyChangesNow() async {
+    try {
+      final myId = await _myId();
+      if (myId.isEmpty) return;
+      for (final ck in await db.contactKeys.pending()) {
+        final pending = ck.pendingKey!;
+        if (ck.userId == myId || ck.notifiedKey == pending) continue;
+        for (final convId in await sharedConversationIds(ck.userId, myId)) {
+          await _emitKeyChangeLine(convId, ck.userId);
+        }
+        await db.contactKeys.markNotified(ck.userId, pending);
+      }
+    } catch (e) {
+      debugPrint('[Keys] key-change lines failed: $e');
+    }
+  }
+
+  Future<void> _emitKeyChangeLine(String convId, String userId) async {
+    if (!_pb.authStore.isValid) return;
+    final id = keyChangeLineId(userId, _uuid.v4());
+    final now = DateTime.now();
+    await db.messagesDao.upsertMessage(
+      MessagesTableCompanion.insert(
+        localId: id,
+        serverId: const Value(null),
+        conversationId: convId,
+        senderId: await _myId(),
+        type: 'system',
+        encryptedBody: '',
+        iv: '',
+        status: const Value('sent'),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final name = (await db.usersDao.getUserById(userId))?.displayName;
+    bodyCache.put(id, keyChangeLineText(name));
+  }
+
+  /// Chats where both I and [userId] are current members.
+  Future<List<String>> sharedConversationIds(String userId, String myId) async {
+    final rows = await db
+        .customSelect(
+          'SELECT DISTINCT a.conversation_id AS c '
+          'FROM conversation_members_table a '
+          'JOIN conversation_members_table b '
+          'ON a.conversation_id = b.conversation_id '
+          "WHERE a.user_id = ? AND b.user_id = ? AND a.role != 'left' "
+          "AND b.role != 'left'",
+          variables: [Variable.withString(myId), Variable.withString(userId)],
+        )
+        .get();
+    return [for (final r in rows) r.read<String>('c')];
+  }
+
+  /// Spec A5/A6: the user accepted [userId]'s new security code. Old rows
+  /// re-open, held sends go out, and on an admin's phone every shared group
+  /// gets a new key version wrapped to the pins, so the contact can read it.
+  ///
+  /// A6 rev (device run 2026-11-18): a "fill the missing row" catch-up never
+  /// fired, because a friend who started fresh still has a row at the
+  /// current version, wrapped to their OLD key, and rows are never updated.
+  Future<void> acceptContactKey(String userId, {bool verified = false}) async {
+    if (!await db.contactKeys.accept(userId, verified: verified)) return;
+    final myId = await _myId();
+    if (myId.isEmpty) return;
+    final chats = await sharedConversationIds(userId, myId);
+    for (final convId in chats) {
+      unawaited(decryptPass.rerunConversation(convId));
+    }
+    unawaited(retryPendingMessages());
+    // In the background: one rotation per shared admin group took 2–4 s on
+    // the M52, and the Accept screen waited for all of them (device run).
+    unawaited(acceptRotations = _rotateAfterAccept(chats, myId));
+  }
+
+  /// Test seam: the background rotations of the last accept.
+  @visibleForTesting
+  Future<void> acceptRotations = Future.value();
+
+  Future<void> _rotateAfterAccept(List<String> chats, String myId) async {
+    for (final convId in chats) {
+      try {
+        final conv = await db.conversationsDao.getConversationById(convId);
+        if (conv?.type != 'group') continue;
+        if (!await isCurrentUserAdmin(convId)) continue;
+        await _rotateGroupKey(convId, myId);
+        debugPrint('[Keys] rotated after accepting a new code');
+      } catch (e) {
+        debugPrint('[Keys] rotation after accept failed: $e');
+      }
+    }
+  }
+
+  /// The key a group key is wrapped to for [uid] (audit F3, spec C1): my
+  /// own local key for me, the pin for anyone else, null while their key is
+  /// pending. [user] is the record just cached (that ran the pin check).
+  Future<String?> _wrapKeyFor(String uid, String myId, RecordModel user) async {
+    if (uid == myId) {
+      final local = await storage.getLocalPublicKey();
+      return (local != null && local.isNotEmpty)
+          ? local
+          : user.getStringValue('public_key');
+    }
+    final pin = await db.contactKeys.get(uid);
+    if (pin == null) return user.getStringValue('public_key');
+    if (pin.isPending) return null;
+    return pin.key;
+  }
+
+  /// DM decrypt candidates: every key accepted for the peer, never a pending
+  /// one (spec B3, D-4). Old messages keep opening after an accept.
+  Future<List<List<int>>> _dmKeyCandidates(String convId, String myId) async {
+    final members = await db.conversationsDao.getMembersForConversation(convId);
+    final other = members
+        .where((m) => m.userId != myId)
+        .map((m) => m.userId)
+        .firstOrNull;
+    if (other == null || other.isEmpty) {
+      throw const MissingKeyException('no other member resolved');
+    }
+    final pin = await db.contactKeys.get(other);
+    if (pin == null) {
+      throw const MissingKeyException('peer public key not available yet');
+    }
+    final keys = <List<int>>[];
+    for (final k in pin.acceptedKeys) {
+      try {
+        keys.add(await encryption.getOrDeriveConversationKey(convId, k));
+      } on MissingKeyException {
+        rethrow; // no device key pair: K1, never generate
+      } catch (e) {
+        debugPrint('[Keys] skipped an unusable accepted key: $e');
+      }
+    }
+    if (keys.isEmpty) throw const MissingKeyException('no usable peer key');
+    return keys;
   }
 
   Future<List<List<int>>> _getConvKeyCandidates(
@@ -6388,7 +6559,7 @@ class MessageRepositoryImpl implements MessageRepository {
         throw MissingKeyException('group key unavailable for $convId: $e');
       }
     }
-    return [await _getConvKey(convId, myId)];
+    return _dmKeyCandidates(convId, myId);
   }
 
   /// Test seam: drives the production reconcile path (list fetch +

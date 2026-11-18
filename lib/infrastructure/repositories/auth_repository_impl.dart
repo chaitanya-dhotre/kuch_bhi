@@ -15,6 +15,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../core/network/pocketbase_client.dart';
 import '../../core/utils/jpeg_without_exif.dart';
 import '../../data/local/database/app_database.dart';
+import '../../data/local/database/contact_key_store.dart'
+    show kOwnKeyMismatchSetting;
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../data/local/database/tables/users_table.dart';
 import '../../data/local/secure_storage/secure_storage_service.dart';
@@ -411,6 +413,7 @@ class AuthRepositoryImpl implements AuthRepository {
     for (final table in db.allTables) {
       await db.delete(table).go();
     }
+    await db.contactKeys.clear(); // raw-SQL table, not in allTables
     await wipeMediaCache();
     await wipeVoiceDrafts(getApplicationDocumentsDirectory);
   }
@@ -614,11 +617,14 @@ class AuthRepositoryImpl implements AuthRepository {
         try {
           final record = await _pb.collection('users').getOne(userId);
           final serverPub = record.getStringValue('public_key');
+          // F3 E1: a server key that differs from this phone's is never
+          // acted on silently (a server writer could force a reset). The key
+          // stays; the route asks the user to keep it or restore.
           if (serverPub.isNotEmpty && existingPub != serverPub) {
-            debugPrint(
-                '[Keys] Local keypair belongs to another account — dropping it.');
-            await storage.deleteKeyPair();
-            hadExistingKeys = false;
+            debugPrint('[Keys] Server key differs from this phone — asking.');
+            await db.settingsDao.setSetting(kOwnKeyMismatchSetting, serverPub);
+          } else {
+            await db.settingsDao.deleteSetting(kOwnKeyMismatchSetting);
           }
         } catch (e) {
           debugPrint('[Keys] pubkey mismatch check failed: $e');

@@ -1,15 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kuch_bhi/core/theme/app_theme.dart';
+import 'package:kuch_bhi/data/local/database/contact_key_store.dart';
+import 'package:kuch_bhi/features/security/key_change_providers.dart';
 import 'package:kuch_bhi/features/profile/screens/view_profile_screen.dart';
 
 import '../fakes/fake_auth_repository.dart';
 
-Widget _host(Widget child) =>
-    MaterialApp(theme: warmPopLight(), home: child);
+Widget _host(Widget child, {ContactKey? pin}) => ProviderScope(
+  key: ValueKey(pin),
+  overrides: [
+    contactKeyProvider.overrideWith((ref, id) => Stream.value(pin)),
+  ],
+  child: MaterialApp(theme: warmPopLight(), home: child),
+);
 
 void main() {
+  testWidgets('F3 D7: security code row shows its state', (tester) async {
+    await tester.pumpWidget(_host(ViewProfileScreen(user: fakeUser())));
+    await tester.pump();
+    expect(find.text('Security code'), findsNothing, reason: 'no pin yet');
+
+    for (final (pin, label) in [
+      (const ContactKey(userId: 'u', key: 'K'), 'Not verified'),
+      (const ContactKey(userId: 'u', key: 'K', verified: true), 'Verified'),
+      (const ContactKey(userId: 'u', key: 'K', pendingKey: 'N'), 'Changed, check it'),
+    ]) {
+      await tester.pumpWidget(
+        _host(ViewProfileScreen(user: fakeUser()), pin: pin),
+      );
+      await tester.pump();
+      expect(find.text('Security code'), findsOneWidget);
+      expect(find.text(label), findsOneWidget);
+    }
+  });
+
   testWidgets('header, about and friend code row', (tester) async {
     await tester.pumpWidget(_host(ViewProfileScreen(
         user: fakeUser(about: 'hello there'))));

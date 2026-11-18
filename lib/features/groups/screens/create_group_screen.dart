@@ -21,6 +21,7 @@ import '../../../core/widgets/photo_picker_badge.dart';
 import '../../../features/home/screens/add_friend_screen.dart';
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../data/local/database/app_database.dart';
+import '../../../data/local/secure_storage/secure_storage_service.dart';
 import '../../../domain/entities/conversation.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../domain/entities/friendship.dart';
@@ -201,9 +202,23 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           throw MemberKeyMissingError(memberId);
         }
 
+        // F3 C1: wrap to my own local key and to each friend's pin. A friend
+        // whose security code changed is skipped; an admin's Accept gives
+        // them the key later (catch-up wrap).
+        var wrapKey = publicKey;
+        if (memberId == myId) {
+          final local =
+              await ref.read(secureStorageProvider).getLocalPublicKey();
+          if (local != null && local.isNotEmpty) wrapKey = local;
+        } else {
+          final pin = await db.contactKeys.get(memberId);
+          if (pin != null && pin.isPending) continue;
+          if (pin != null) wrapKey = pin.key;
+        }
+
         final encryptedKey = await encryption.encryptGroupKeyForMember(
           groupKey,
-          publicKey,
+          wrapKey,
           convId,
         );
 

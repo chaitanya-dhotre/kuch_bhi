@@ -8,6 +8,7 @@ import 'package:pocketbase/pocketbase.dart';
 
 import '../core/network/pocketbase_client.dart';
 import '../core/utils/recovery_key.dart';
+import '../data/local/database/app_database.dart';
 import '../data/local/secure_storage/secure_storage_service.dart';
 
 class EncryptResult {
@@ -30,6 +31,14 @@ class MissingKeyException implements Exception {
 /// pair. Retrying cannot help until a new version arrives (G1).
 class NoGroupKeyException extends MissingKeyException {
   const NoGroupKeyException(super.message);
+}
+
+/// The contact's server key differs from the pinned one and the user has
+/// not accepted it (audit F3). A [MissingKeyException], so every send path
+/// holds the message instead of failing it.
+class KeyChangedException extends MissingKeyException {
+  const KeyChangedException(super.message, {required this.userId});
+  final String userId;
 }
 
 /// [EncryptionService.restorePrivateKey]'s outcome. Offline is a throw.
@@ -493,7 +502,15 @@ class EncryptionService {
 
   /// G5: only what the walk reads.
   static const groupKeyFields =
-      'key_version,encrypted_key,expand.encrypted_by_user_id.public_key';
+      'key_version,encrypted_key,encrypted_by_user_id,'
+      'expand.encrypted_by_user_id.public_key';
+
+  /// Audit F3 (spec C2): the public keys a wrap by [wrapperId] may be opened
+  /// with, given the key the server shows for them now. Wired by the
+  /// provider to the pin store (pin + history; my own local key for me).
+  /// Null = trust the server key (bare test services).
+  Future<List<String>> Function(String wrapperId, String serverKey)?
+  acceptedWrapperKeys;
 
   /// G2 test seam: decrypt isolate hops spent by group-key walks.
   @visibleForTesting
@@ -773,31 +790,58 @@ class EncryptionService {
         );
     // G2: one transport key and one isolate hop per wrapper public key.
     // Item ids are list indexes (`fields` leaves the record id out).
+    // F3 C2: grouped by wrapper id, then opened only with keys this phone
+    // accepted for that wrapper, never the server's word alone.
     final byWrapper = <String, List<Map<String, String>>>{};
+    final serverKeyOf = <String, String>{};
     for (var i = 0; i < list.length; i++) {
       final record = list[i];
       final admin = record.expand['encrypted_by_user_id']?.firstOrNull;
       final adminPubKey = admin?.getStringValue('public_key') ?? '';
-      if (adminPubKey.isEmpty) continue;
+      final wrapperId = record.getStringValue('encrypted_by_user_id');
+      final group = wrapperId.isEmpty ? adminPubKey : wrapperId;
+      if (group.isEmpty) continue;
       final parts = record.getStringValue('encrypted_key').split(':');
       if (parts.length != 2) continue;
-      (byWrapper[adminPubKey] ??= []).add(
+      serverKeyOf[group] = adminPubKey;
+      (byWrapper[group] ??= []).add(
         {'id': '$i', 'iv': parts[0], 'ciphertext': parts[1]},
       );
     }
     final opened = <String, String?>{};
     var hops = 0;
     for (final entry in byWrapper.entries) {
-      try {
-        final transportKey = await getOrDeriveConversationKey(
-          '${conversationId}_gk',
-          entry.key,
-        );
-        hops++;
-        groupKeyHops++;
-        opened.addAll(await decryptBatch(transportKey, entry.value));
-      } catch (e) {
-        debugPrint('[Enc] Skipping undecryptable group key wrapper: $e');
+      final serverKey = serverKeyOf[entry.key] ?? '';
+      final resolve = acceptedWrapperKeys;
+      // A row with no wrapper id can't be checked against a pin: with the
+      // check wired it is skipped, not trusted.
+      final keys = resolve == null
+          ? [serverKey]
+          : (entry.key == serverKey
+                ? const <String>[]
+                : await resolve(entry.key, serverKey));
+      var items = entry.value;
+      for (final pub in keys) {
+        if (pub.isEmpty || items.isEmpty) continue;
+        try {
+          final transportKey = await getOrDeriveConversationKey(
+            '${conversationId}_gk',
+            pub,
+          );
+          hops++;
+          groupKeyHops++;
+          final got = await decryptBatch(transportKey, items);
+          got.forEach((id, plain) {
+            if (plain != null) opened[id] = plain;
+          });
+          // Try the next accepted key only on what is still closed.
+          items = [
+            for (final it in items)
+              if (opened[it['id']] == null) it,
+          ];
+        } catch (e) {
+          debugPrint('[Enc] Skipping undecryptable group key wrapper: $e');
+        }
       }
     }
     final serverCandidates = <String, List<int>>{};
@@ -1238,8 +1282,15 @@ class EncryptionService {
 }
 
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
-  return EncryptionService(
-    ref.read(secureStorageProvider),
-    ref.read(pocketbaseClientProvider),
-  );
+  final storage = ref.read(secureStorageProvider);
+  return EncryptionService(storage, ref.read(pocketbaseClientProvider))
+    // Read the database lazily: tests that never walk group keys need no db.
+    ..acceptedWrapperKeys = (wrapperId, serverKey) => ref
+        .read(appDatabaseProvider)
+        .contactKeys
+        .keysForWrapper(
+          wrapperId,
+          serverKey,
+          myLocalKey: storage.getLocalPublicKey,
+        );
 });

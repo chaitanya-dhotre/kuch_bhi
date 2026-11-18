@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 
 import '../utils/chunk_ids.dart';
 import '../../data/local/database/app_database.dart';
+import '../../data/local/database/contact_key_store.dart';
 import '../../data/local/database/tables/app_settings_table.dart';
 import '../../services/encryption_service.dart';
 import 'body_cache.dart';
@@ -127,6 +128,21 @@ class DecryptPass {
     unawaited(_rerunAfterKeyGrowth(convId, ids));
   }
 
+  /// Audit F3 (spec A6): after the user accepts a contact's new key, rows of
+  /// [convId] that the old key set marked failed or key_missing get one more
+  /// try under the grown set.
+  Future<void> rerunConversation(String convId) async {
+    final rows =
+        await (_db.select(_db.messagesTable)..where(
+              (t) =>
+                  t.conversationId.equals(convId) &
+                  t.decryptState.isIn(const ['failed', 'key_missing']),
+            ))
+            .get();
+    if (rows.isEmpty) return;
+    await _rerunAfterKeyGrowth(convId, {for (final r in rows) r.localId});
+  }
+
   /// Decrypts [messageIds] and applies the results.
   ///
   /// Row contract:
@@ -159,6 +175,20 @@ class DecryptPass {
         )..where((t) => t.localId.isIn(chunk))).get(),
       );
     }
+
+    // 1b. Audit F3 (spec A4): a "security code changed" line has no
+    //     ciphertext; its text is rebuilt from the contact's stored name, so
+    //     it survives a cache wipe without new plaintext at rest.
+    final rebuilt = <String>[];
+    for (final row in rows) {
+      final userId = keyChangeLineUserId(row.localId);
+      if (userId == null || bodyCache.get(row.localId) != null) continue;
+      final name = (await _db.usersDao.getUserById(userId))?.displayName;
+      if (!_stillValid(epochAtSchedule, 'key-change line')) return;
+      bodyCache.put(row.localId, keyChangeLineText(name));
+      rebuilt.add(row.localId);
+    }
+    if (rebuilt.isNotEmpty) onApplied?.call(rebuilt);
 
     // 2. Filter + group by conversation; remember load-time states so the
     //    apply step can skip no-op writes (drift stream churn on re-reads).
@@ -422,10 +452,14 @@ class DecryptPass {
       if (myId.isEmpty) return const [];
       final otherUserId = await _otherMemberId(convId, myId);
       if (otherUserId == null) return const [];
-      final user = await _db.usersDao.getUserById(otherUserId);
-      final pub = user?.publicKey;
-      if (pub == null || pub.isEmpty) return const [];
-      return [await _enc.getOrDeriveConversationKey(convId, pub)];
+      // Audit F3 (spec B3): only keys this phone accepted, never the server's
+      // current one, so a swapped or pending key opens nothing.
+      final pin = await _db.contactKeys.get(otherUserId);
+      if (pin == null) return const [];
+      return [
+        for (final pub in pin.acceptedKeys)
+          await _enc.getOrDeriveConversationKey(convId, pub),
+      ];
     } catch (_) {
       return const []; // MissingKeyException / offline / bad peer key
     }

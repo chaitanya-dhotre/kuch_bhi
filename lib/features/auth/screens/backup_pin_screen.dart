@@ -484,7 +484,9 @@ class _BackupPinScreenState extends ConsumerState<BackupPinScreen> {
       body:
           "Without your recovery key, your old messages can't be opened.\n\n"
           'Starting fresh makes a new key. New messages work, but every older '
-          'message stays locked for good.',
+          'message stays locked for good. Your friends will see that your '
+          'security code changed, and they accept it before your new '
+          'messages open.',
       confirmLabel: 'Start fresh',
       confirmIcon: Icons.warning_amber_rounded,
       destructive: true,

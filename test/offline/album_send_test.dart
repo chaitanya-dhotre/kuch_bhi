@@ -311,6 +311,6 @@ void main() {
     expect(rows.single.serverId, 'srvold000000001');
     expect((rows.single.albumId, rows.single.albumIndex), (null, null));
     final v = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(v.data.values.first, 14);
+    expect(v.data.values.first, 15);
   });
 }

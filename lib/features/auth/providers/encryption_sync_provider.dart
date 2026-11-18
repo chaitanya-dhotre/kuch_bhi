@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/local/database/app_database.dart';
+import '../../../data/local/database/contact_key_store.dart'
+    show kOwnKeyMismatchSetting;
 import '../../../infrastructure/offline/connectivity_signal.dart';
 import '../../../services/encryption_service.dart';
 import 'auth_provider.dart';
@@ -11,6 +13,9 @@ enum EncryptionSyncStatus {
   keyOk,
   needsSetup,
   needsRestore,
+
+  /// F3 E1: the server holds another key for me than this phone does.
+  ownKeyChanged,
 }
 
 /// Pause between the no-key route's backup checks the server did not
@@ -51,6 +56,12 @@ final encryptionSyncProvider = FutureProvider<EncryptionSyncStatus>((ref) async 
       }
     }
     return EncryptionSyncStatus.needsRestore;
+  }
+
+  // F3 E1: sign-in saw the server's key for me differ from this phone's.
+  final mismatch = await db.settingsDao.getSetting(kOwnKeyMismatchSetting);
+  if (mismatch != null && mismatch.isNotEmpty) {
+    return EncryptionSyncStatus.ownKeyChanged;
   }
 
   // 2. Local key exists. Check if backup exists on server — TRI-STATE (P6):

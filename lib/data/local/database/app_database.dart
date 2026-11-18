@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/decrypt/body_cache.dart';
+import 'contact_key_store.dart';
 import 'migrations/dedup_sql.dart';
 import 'tables/users_table.dart';
 import 'tables/conversations_table.dart';
@@ -77,11 +78,17 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forExecutor(super.executor);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
+
+  /// Audit F3 pins (raw-SQL table, see [ContactKeyStore]).
+  late final ContactKeyStore contactKeys = ContactKeyStore(this);
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) => m.createAll(),
+        onCreate: (m) async {
+          await m.createAll();
+          await customStatement(ContactKeyStore.createSql);
+        },
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.addColumn(messagesTable, messagesTable.mediaId);
@@ -238,6 +245,12 @@ class AppDatabase extends _$AppDatabase {
               await customStatement(
                   'UPDATE messages_table SET expires_at = NULL');
             }
+          }
+          if (from < 15) {
+            // Key-change warning (audit F3, spec F1): pin every cached key
+            // silently; the seed guards the minimal fixtures itself.
+            await customStatement(ContactKeyStore.createSql);
+            await ContactKeyStore.seedFromUsers(this);
           }
         },
       );

@@ -651,7 +651,7 @@ void main() {
             'upgrade');
     final version =
         await upgraded.customSelect('PRAGMA user_version').getSingle();
-    expect(version.data.values.first, 14, reason: 'user_version advanced');
+    expect(version.data.values.first, 15, reason: 'user_version advanced');
     await upgraded.close();
   });
 }

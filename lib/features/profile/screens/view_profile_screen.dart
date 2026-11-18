@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/widgets/page_app_bar.dart';
@@ -8,6 +9,8 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/settings_tile.dart';
 import '../../../domain/entities/user.dart';
+import '../../security/key_change_providers.dart';
+import '../../security/security_code_screen.dart';
 import 'profile_screen.dart';
 
 /// H5: the `/view-profile` route body. A restored route or a bad deep link
@@ -56,6 +59,33 @@ class ViewProfileScreen extends StatelessWidget {
                   ),
                 ),
               ),
+            ),
+            const SizedBox(height: 12),
+            // F3 D7: the contact's security code and whether it is checked.
+            Consumer(
+              builder: (context, ref, _) {
+                final pin = ref.watch(contactKeyProvider(user.id)).asData?.value;
+                if (pin == null) return const SizedBox.shrink();
+                return Material(
+                  color: t.surface,
+                  clipBehavior: Clip.antiAlias,
+                  borderRadius: BorderRadius.circular(WarmPopTokens.radiusMd),
+                  child: SettingsTile(
+                    key: const ValueKey('profile-security-code'),
+                    icon: Icons.shield_outlined,
+                    title: 'Security code',
+                    subtitle: pin.isPending
+                        ? 'Changed, check it'
+                        : (pin.verified ? 'Verified' : 'Not verified'),
+                    onTap: () => openSecurityCode(
+                      context,
+                      userId: user.id,
+                      name: user.displayName,
+                      avatarUrl: user.avatarUrl,
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),

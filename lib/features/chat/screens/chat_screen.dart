@@ -27,6 +27,13 @@ import '../message_offline_policy.dart';
 import 'album_screen.dart';
 import '../widgets/bubble_entrance.dart';
 import '../widgets/disappearing_dialog.dart';
+import '../widgets/key_change_card.dart';
+import '../../security/key_change_providers.dart';
+import '../../security/security_code_screen.dart';
+import '../../../core/widgets/status_banner.dart';
+import '../../../data/local/database/contact_key_store.dart'
+    show keyChangeLineUserId, keyChangeLineText;
+import '../../../domain/entities/user.dart';
 import '../widgets/expiry_badge.dart' show ChatBubbleGeometry, ChatInfoMode;
 import '../widgets/message_bubble.dart';
 import '../widgets/message_context_menu.dart';
@@ -51,8 +58,9 @@ bool canSendIn(
   Conversation conv, {
   required String? myRole,
   required bool keyReady,
+  bool keyChanged = false, // F3 B4: a DM peer's new code isn't accepted yet
 }) => !conv.isGroup
-    ? true
+    ? !keyChanged
     : (myRole == 'left' || !keyReady
           ? false
           : (!conv.onlyAdminsCanMessage || myRole == 'admin'));
@@ -957,16 +965,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ? true
         : (ref.watch(groupKeyReadyProvider(_cid)).asData?.value ?? false);
 
+    // Audit F3: a DM peer whose security code changed (spec B4), and in a
+    // group the member whose change blocks someone (spec C3).
+    final peerKey = !conv.isGroup && otherUserId != null
+        ? ref.watch(contactKeyProvider(otherUserId)).asData?.value
+        : null;
+    final keyChanged = peerKey?.isPending ?? false;
+    final pendingIds = conv.isGroup
+        ? (ref.watch(pendingKeyUserIdsProvider).asData?.value ?? const {})
+        : const <String>{};
+    final pendingMembers = members
+        .where(
+          (m) =>
+              m.id != myId &&
+              m.groupRole != 'left' &&
+              pendingIds.contains(m.id),
+        )
+        .toList();
+    final iAmAdmin = myMember?.groupRole == 'admin';
+    final pendingAdmin = pendingMembers
+        .where((m) => m.groupRole == 'admin')
+        .firstOrNull;
+    final User? bannerUser = !conv.isGroup || isLeft
+        ? null
+        : (!keyReady && pendingAdmin != null
+              ? pendingAdmin
+              : (iAmAdmin ? pendingMembers.firstOrNull : null));
+    final blockedBy = (!keyReady && bannerUser == pendingAdmin)
+        ? bannerUser
+        : null;
+
     final canSend = canSendIn(
       conv,
       myRole: myMember?.groupRole,
       keyReady: keyReady,
+      keyChanged: keyChanged,
     );
 
     final restrictionMessage = isLeft
         ? "You can't send messages to this group because you're no longer a member."
         : (!keyReady
-              ? 'Waiting for a group admin to come online and share the group key…'
+              ? (blockedBy != null
+                    ? "Check ${blockedBy.displayName}'s new security code "
+                          'to send here.'
+                    : 'Waiting for a group admin to come online and share the group key…')
               : null);
 
     return PopScope(
@@ -1035,6 +1077,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 conversationId: _cid,
                 onTap: (m) => unawaited(_jumpToMessage(m)),
               ),
+
+            // F3 C3: a member's new code blocks them (I'm admin) or me.
+            // D8: fades in when it arrives, never at first paint.
+            AnimatedSwitcher(
+              duration: motionOf(context, WarmPopTokens.motionEnter),
+              reverseDuration: motionOf(context, WarmPopTokens.motionExit),
+              switchInCurve: WarmPopTokens.curveEnter,
+              switchOutCurve: WarmPopTokens.curveExit.flipped,
+              child: (bannerUser == null || _searchActive)
+                  ? const SizedBox.shrink()
+                  : Padding(
+                key: ValueKey('key-change-banner-${bannerUser.id}'),
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                child: StatusBanner(
+                  key: const ValueKey('key-change-banner'),
+                  leading: Icon(
+                    Icons.shield_outlined,
+                    size: 18,
+                    color: context.t.accentText,
+                  ),
+                  message: blockedBy != null
+                      ? "${bannerUser.displayName}'s security code changed. "
+                            'Check it to keep chatting here.'
+                      : "${bannerUser.displayName}'s security code changed. "
+                            "They can't read new messages here until you "
+                            'check it.',
+                  actionLabel: 'Check',
+                  onAction: () => unawaited(
+                    openSecurityCode(
+                      context,
+                      userId: bannerUser.id,
+                      name: bannerUser.displayName,
+                      avatarUrl: bannerUser.avatarUrl,
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
             Expanded(
               child: Stack(
@@ -1213,6 +1293,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                 ),
                                 ),
                               );
+                              // F3 D6: a "security code changed" line opens
+                              // the code screen.
+                              final kcUser = keyChangeLineUserId(msg.localId);
+                              if (kcUser != null) {
+                                return _keyChangeLineTap(
+                                  row,
+                                  kcUser,
+                                  conv,
+                                  members,
+                                );
+                              }
                               // B5: system rows carry no tag, so taps and
                               // ranges skip them.
                               return msg.type == 'system' || msgItem.leaving
@@ -1259,8 +1350,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               ),
             ),
 
+            // F3 D8: the card and the composer cross-fade when the code
+            // changes or is accepted; nothing animates at first paint.
             if (!_searchActive)
-              MessageInput(
+              AnimatedSwitcher(
+                duration: motionOf(context, WarmPopTokens.motionEnter),
+                reverseDuration: motionOf(context, WarmPopTokens.motionExit),
+                switchInCurve: WarmPopTokens.curveEnter,
+                switchOutCurve: WarmPopTokens.curveExit.flipped,
+                child: keyChanged && otherUserId != null
+                    ? KeyChangeCard(
+                key: const ValueKey('key-change-slot'),
+                name: conv.displayName,
+                onCompare: () => unawaited(
+                  openSecurityCode(
+                    context,
+                    userId: otherUserId,
+                    name: conv.displayName,
+                    avatarUrl: conv.otherUser?.avatarUrl,
+                  ),
+                ),
+                onAccept: () => unawaited(
+                  confirmAndAcceptKey(
+                    context,
+                    ref,
+                    userId: otherUserId,
+                    name: conv.displayName,
+                  ),
+                ),
+              )
+                    : MessageInput(
+                key: const ValueKey('composer-slot'),
                 conversationId: _cid,
                 isLoading: isSending,
                 canSendMessages: canSend,
@@ -1311,6 +1431,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         replyToLocalId: reply?.localId,
                       );
                 },
+              ),
               ),
           ],
         ),
@@ -1540,7 +1661,55 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             unawaited(showDisappearingDialog(context, ref, _cid));
           },
         ),
+        // F3 D7: the DM's security code.
+        if (!conv.isGroup && conv.otherUser != null)
+          ConversationMenuAction(
+            label: 'Security code',
+            icon: Icons.shield_outlined,
+            callback: () {
+              unawaited(
+                openSecurityCode(
+                  context,
+                  userId: conv.otherUser!.id,
+                  name: conv.displayName,
+                  avatarUrl: conv.otherUser!.avatarUrl,
+                ),
+              );
+            },
+          ),
       ],
+    );
+  }
+
+  /// F3 D6: wraps a key-change line so a tap opens that contact's code.
+  Widget _keyChangeLineTap(
+    Widget row,
+    String userId,
+    Conversation conv,
+    List<User> members,
+  ) {
+    final member = members.where((m) => m.id == userId).firstOrNull;
+    final name =
+        member?.displayName ??
+        (conv.isGroup ? 'Contact' : conv.displayName);
+    // One node: the bubble row's own "From You … Time" label must not wrap it.
+    return Semantics(
+      button: true,
+      excludeSemantics: true,
+      label: keyChangeLineText(name),
+      child: GestureDetector(
+        key: ValueKey('key-change-line-$userId'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () => unawaited(
+          openSecurityCode(
+            context,
+            userId: userId,
+            name: name,
+            avatarUrl: member?.avatarUrl ?? conv.otherUser?.avatarUrl,
+          ),
+        ),
+        child: row,
+      ),
     );
   }
 

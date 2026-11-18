@@ -3,11 +3,21 @@ import '../../core/theme/tokens.dart';
 
 /// Inline status strip (offline, syncing, key waiting…). Optional retry.
 class StatusBanner extends StatelessWidget {
-  const StatusBanner(
-      {super.key, required this.message, this.leading, this.onRetry});
+  const StatusBanner({
+    super.key,
+    required this.message,
+    this.leading,
+    this.onRetry,
+    this.actionLabel,
+    this.onAction,
+  });
   final String message;
   final Widget? leading;
   final VoidCallback? onRetry;
+
+  /// R12a (key-change warning): a labelled action instead of Retry.
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +50,17 @@ class StatusBanner extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 8)),
               child: const Text('Retry',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          if (onAction != null && actionLabel != null)
+            TextButton(
+              onPressed: onAction,
+              style: TextButton.styleFrom(
+                  foregroundColor: t.ink,
+                  minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 12)),
+              child: Text(actionLabel!,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600)),
             ),
         ],
       ),

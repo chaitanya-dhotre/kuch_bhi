@@ -12,6 +12,7 @@ import '../../features/auth/screens/backup_pin_screen.dart';
 import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/google_onboarding_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
+import '../../features/auth/screens/own_key_changed_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/app_lock/app_lock_settings_screen.dart';
@@ -53,6 +54,7 @@ class AppRoutes {
   static const String editProfile       = '/edit-profile';
   static const String viewProfile       = '/view-profile';
   static const String googleOnboarding  = '/google-onboarding';
+  static const String ownKeyChanged     = '/own-key-changed';
 }
 
 /// Root navigator key — public so non-widget code (FcmService notification
@@ -141,12 +143,15 @@ class SyncRouteGate {
       if (loc != AppRoutes.backupPinRestore) return AppRoutes.backupPinRestore;
     } else if (syncStatus == EncryptionSyncStatus.needsSetup) {
       if (loc != AppRoutes.backupPinSetup) return AppRoutes.backupPinSetup;
+    } else if (syncStatus == EncryptionSyncStatus.ownKeyChanged) {
+      if (loc != AppRoutes.ownKeyChanged) return AppRoutes.ownKeyChanged;
     } else if (syncStatus == EncryptionSyncStatus.keyOk) {
       if (loc == AppRoutes.splash ||
           loc == AppRoutes.login ||
           loc == AppRoutes.register ||
           loc == AppRoutes.backupPinSetup ||
-          loc == AppRoutes.backupPinRestore) {
+          loc == AppRoutes.backupPinRestore ||
+          loc == AppRoutes.ownKeyChanged) {
         return AppRoutes.home;
       }
     }
@@ -287,6 +292,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.backupPinRestore,
         builder: (_, __) => const BackupPinScreen(mode: BackupPinMode.restore),
+      ),
+      GoRoute(
+        path: AppRoutes.ownKeyChanged,
+        builder: (_, __) => const OwnKeyChangedScreen(),
       ),
       GoRoute(
         path: AppRoutes.backupPinChange,

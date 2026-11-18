@@ -286,7 +286,9 @@ void main() {
     final cands =
         await f.h.encryption.getOrFetchGroupKeyCandidates('g1', 'u_test');
     expect(f.server.on('group_keys').single.url.queryParameters['fields'],
-        'key_version,encrypted_key,expand.encrypted_by_user_id.public_key');
+        // F3 C2: the wrapper id rides along so the pin can be checked.
+        'key_version,encrypted_key,encrypted_by_user_id,'
+        'expand.encrypted_by_user_id.public_key');
     expect(cands, hasLength(3));
   });
 
