@@ -808,6 +808,8 @@ updateRule: (@request.auth.id = sender_id && @request.body.is_deleted_for_everyo
 deleteRule: null (superusers only)
 ```
 
+Delete for everyone (hook `delete_everyone_purge.pb.js`, live 2026-11-18): once `is_deleted_for_everyone` is true, the server deletes the message's `message_media` rows and their files. It also blanks `encrypted_body`, `iv` and `reply_preview` with direct SQL, and clears the `reply_preview` of replies quoting the message. After that, any save of the row gets `400 validation_required`, because both body fields are Required. Expired disappearing rows behave the same way.
+
 ---
 
 ### 7.7 Collection: `message_media`
@@ -828,12 +830,12 @@ deleteRule: null (superusers only)
 | `expires_at` | DateTime | Required — set based on media retention policy |
 | `created` | Auto (PB) |  |
 
-**Rules (live server, read 2026-11-15; list/view changed 2026-11-17, see 7.17; create/update/delete changed 2026-11-17, `server-rules-wave2.md` N10–N18):**
+**Rules (live server, read 2026-11-15; list/view changed 2026-11-17, see 7.17; create/update/delete changed 2026-11-17, `server-rules-wave2.md` N10–N18; list/view/create gained the deleted check 2026-11-18, `delete-everyone-leftovers.md` §5):**
 
 ```
-listRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= message_id.created)) && (message_id.expires_at = "" || message_id.expires_at > @now)
-viewRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= message_id.created)) && (message_id.expires_at = "" || message_id.expires_at > @now)
-createRule: message_id.sender_id = @request.auth.id && conversation_id = message_id.conversation_id
+listRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= message_id.created)) && (message_id.expires_at = "" || message_id.expires_at > @now) && message_id.is_deleted_for_everyone = false
+viewRule:   ((conversation_id.conversation_members_via_conversation_id.user_id ?= @request.auth.id) || (conversation_id.former_members_via_conversation_id.user_id ?= @request.auth.id && conversation_id.former_members_via_conversation_id.history_until ?>= message_id.created)) && (message_id.expires_at = "" || message_id.expires_at > @now) && message_id.is_deleted_for_everyone = false
+createRule: message_id.sender_id = @request.auth.id && conversation_id = message_id.conversation_id && message_id.is_deleted_for_everyone = false
 updateRule: null (superusers only)
 deleteRule: null (superusers only)
 ```

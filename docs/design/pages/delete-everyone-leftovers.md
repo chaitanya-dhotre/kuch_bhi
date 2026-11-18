@@ -176,6 +176,19 @@ They do not stop a modified client from downloading what the server still serves
 4. How many rows have a non-empty `reply_preview`.
 5. The live `message_media` list/view rules (to confirm §1.5 still holds).
 
+**L6 result (read 2026-11-18, user go-ahead; counts only, on a `.backup` copy, copy deleted):**
+
+| # | Question | Result |
+|---|---|---|
+| 1 | Deleted messages still holding ciphertext | **35 of 35** (body and iv) |
+| 2 | `message_media` rows of deleted messages / folders still on disk | **8 / 8** |
+| 3 | `file` and `thumbnail` protected | **No, both public by URL** |
+| 4 | Rows with a `reply_preview` / quoting a deleted message | **21 / 2** |
+| 5 | `message_media` list/view rules | Membership or former-member window, plus expiry. **No deleted check** |
+
+So a member (or, by URL, anyone who has it) can still fetch all 8 deleted files. Any member's
+modified client can decrypt the 35 deleted bodies and the 2 previews that quote a deleted message.
+
 **Fix (D-11 a, default), planned only after the read and a second yes:**
 
 - A flat `onRecordAfterUpdateSuccess("messages")` hook: when `is_deleted_for_everyone` turns true,
