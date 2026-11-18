@@ -41,7 +41,7 @@ Severity anchors (from the skill):
 | F13–F19, F21, F22 | fixed, device PASS | `6017de5` (`client-security-wave2.md`) |
 | New: leaving a group never re-keyed it | fixed, device PASS | `f9a0929`, merged in `d9ab6c2` (`leave-rotation.md`) |
 | New: former members lose history after a reinstall | fixed live, device PASS | `247ef20` |
-| **F12** (a failed removal rotation is never retried) | **open**, no spec | — |
+| F12 | fixed by the leave-rotation key check (the removed member still holds the current key, so the admin's next full resume rotates); proven by test `F12` in `test/offline/leave_rotation_test.dart` | `d9ab6c2` (fix), test: pending commit |
 | F20 | closed: the superuser row changed 2026-10-01 (after the 2026-07-21 rotation) and the user confirmed the old password fails (L9, 2026-11-18). Purge the history only if the repo is ever shared | — |
 | L3 (partly), L4, L5, L7, L8, L9, L10 | checked live 2026-11-18, fine (§3 results) | — |
 | F23, F24, F25 (from L2, L7, L3) | fixed live 2026-11-18 (dry run 15/15 on a copy; backups `.20261118-google-link-pre`), device PASS 2026-11-18 | (`google-link-and-push.md`) |

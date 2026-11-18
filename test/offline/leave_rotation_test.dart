@@ -31,6 +31,7 @@ class _Server {
   int? keyRequestsAtDelete;
   var checkReads = 0; // full group_keys list of g1 (the K1 check)
   var memberListFails = false;
+  var keyPostFails = 0; // next N group_keys POSTs return 500
   late String myPub;
 
   Map<String, dynamic> _member(String uid) => {
@@ -101,6 +102,10 @@ class _Server {
     if (path.contains('/collections/group_keys/records')) {
       keyRequests++;
       if (req.method == 'POST') {
+        if (keyPostFails > 0) {
+          keyPostFails--;
+          return http.Response('{"message":"boom"}', 500, headers: _json);
+        }
         final b = jsonDecode(req.body) as Map<String, dynamic>;
         final row = (
           user: b['user_id'] as String,
@@ -118,7 +123,16 @@ class _Server {
           req.url.queryParameters['sort'] == null) {
         checkReads++;
       }
-      final rows = [...keys]..sort((a, b) => b.version - a.version);
+      final probe = RegExp(
+        r'user_id="([^"]+)"&&key_version=(\d+)',
+      ).firstMatch(filter);
+      final rows = [
+        for (final k in keys)
+          if (probe == null ||
+              (k.user == probe.group(1) &&
+                  k.version == int.parse(probe.group(2)!)))
+            k,
+      ]..sort((a, b) => b.version - a.version);
       return _list([
         for (final k in rows)
           {
@@ -276,6 +290,31 @@ void main() {
     await _settle();
 
     expect(srv.posts, [(user: _me, version: 4)]);
+  });
+
+  test('F12: a removal whose rotation failed is retried on the next full '
+      'resume', () async {
+    final srv = _Server(
+      {_me: 'admin', 'u_b': 'member'},
+      [(_me, 3), ('u_b', 3)],
+    )..keyPostFails = 1;
+    final (h, repo) = await _setup(srv);
+
+    await expectLater(repo.removeMemberFromGroup('g1', 'u_b'), throwsA(anything));
+    expect(srv.members.containsKey('u_b'), isFalse, reason: 'row deleted');
+    expect(srv.posts, isEmpty, reason: 'the removal rotation failed');
+    // The local row is gone too, so a sync alone sees no departure.
+    expect(
+      await h.db.conversationsDao.getMemberByUserAndConv('u_b', 'g1'),
+      isNull,
+    );
+
+    await repo.resyncOnResume(); // full path: the key-gap reconcile runs
+    await _settle();
+
+    expect(srv.posts, [
+      (user: _me, version: 4),
+    ], reason: 'u_b still held v3, so the check rotated them out');
   });
 
   test('11: two syncs inside the delay = one check, one rotation', () async {
