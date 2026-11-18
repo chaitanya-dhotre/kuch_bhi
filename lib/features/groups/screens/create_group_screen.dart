@@ -553,11 +553,20 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
     return Column(
       children: [
-        // D6: always mounted, so the last chip can leave.
-        _SelectedChips(
-          friends: friends,
-          selectedIds: {..._selectedIds},
-          onRemove: (id) => setState(() => _selectedIds.remove(id)),
+        // D6: always mounted, so the last chip can leave. The strip grows
+        // instead of popping in, so the list below slides rather than jumps
+        // under a second tap (break-ui 2026-11-18).
+        AnimatedSize(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : WarmPopTokens.motionEnter,
+          curve: WarmPopTokens.curveEnter,
+          alignment: Alignment.topCenter,
+          child: _SelectedChips(
+            friends: friends,
+            selectedIds: {..._selectedIds},
+            onRemove: (id) => setState(() => _selectedIds.remove(id)),
+          ),
         ),
         if (friends.length > 8)
           Padding(

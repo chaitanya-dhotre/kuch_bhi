@@ -2,23 +2,27 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/tokens.dart';
 
-/// First character of the trimmed [name], upper-cased, or [fallback].
+/// [nameInitials] of the trimmed [name], or [fallback] when it is empty.
+/// One rule everywhere, so a person reads "BM" on Home and in Requests alike.
 String initialsOf(String name, {String fallback = '?'}) {
   final n = name.trim();
-  return n.isEmpty
-      ? fallback
-      : String.fromCharCode(n.runes.first).toUpperCase();
+  return n.isEmpty ? fallback : nameInitials(n);
 }
 
 /// Two letters for a name of two words or more ("New Group" → NG), else
 /// one. The Home row and the chat's app bar both use it.
 String nameInitials(String name) {
-  final words = name.trim().split(RegExp(r'\s+'));
-  if (words.first.isEmpty) return '?';
+  final all = name.trim().split(RegExp(r'\s+'));
+  if (all.first.isEmpty) return '?';
+  // Only words that start with a letter count, so "Raj 🦫" stays "R", not "R🦫".
+  final words = all.where((w) => _letter.hasMatch(w)).toList();
+  if (words.isEmpty) return String.fromCharCode(all.first.runes.first);
   final first = String.fromCharCode(words.first.runes.first);
   if (words.length < 2) return first.toUpperCase();
   return (first + String.fromCharCode(words[1].runes.first)).toUpperCase();
 }
+
+final _letter = RegExp(r'^\p{L}', unicode: true);
 
 /// Motion B3: one Hero tag per chat, shared by its Home row and app bar.
 String chatAvatarHeroTag(String conversationId) =>

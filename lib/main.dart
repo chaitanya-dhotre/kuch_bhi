@@ -43,6 +43,11 @@ Future<void> main() async {
   } else {
     WidgetsFlutterBinding.ensureInitialized();
   }
+  // The bundled emoji font is OFL: its licence shows in About → Licences.
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(['Noto Color Emoji'],
+        await rootBundle.loadString('assets/fonts/NotoEmojiNew/OFL.txt'));
+  });
 
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

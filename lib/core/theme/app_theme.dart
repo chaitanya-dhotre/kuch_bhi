@@ -46,6 +46,8 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
     onSurface: c.ink,
     surfaceContainerHighest: c.surface2,
     outline: c.line,
+    // A bare Divider() takes this; unset, Material falls back to a near-black line.
+    outlineVariant: c.line,
   );
   return ThemeData(
     useMaterial3: true,
@@ -55,6 +57,9 @@ ThemeData _build(ColorTokens c, Brightness brightness, String? fontFamily) {
     extensions: [c],
     // P11: null = system font (default); 'PlusJakartaSans' when chosen (L2).
     fontFamily: fontFamily,
+    // Flutter draws text itself, so it misses the emoji pack native apps get
+    // from Play services. Only new emoji live here; older ones keep the phone's look.
+    fontFamilyFallback: const ['NotoEmojiNew'],
     textTheme: const TextTheme(
       headlineMedium: TextStyle(
           fontSize: 24,

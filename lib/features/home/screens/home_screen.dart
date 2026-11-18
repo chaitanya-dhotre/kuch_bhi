@@ -1220,7 +1220,7 @@ class _GroupConversationPreview extends ConsumerWidget {
     final prefix = senderId.isEmpty
         ? null
         : senderId == currentUserId
-        ? 'you'
+        ? 'You'
         : (senderName ?? 'Unknown');
 
     return Row(

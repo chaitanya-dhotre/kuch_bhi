@@ -729,10 +729,12 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
       label: 'Add member',
       child: InkWell(
         onTap: onTap,
-        child: SizedBox(
-          height: 48,
-          width: 64,
+        // Min width, not fixed: "＋ Add" is wider than 40 dp in some fonts and wrapped.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 64, minHeight: 48),
           child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
             child: Container(
               height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 12),

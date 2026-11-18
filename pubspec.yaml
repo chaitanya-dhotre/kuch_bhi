@@ -110,7 +110,13 @@ flutter:
     - assets/icons/
     - assets/mascot/
     - assets/stickers/
+    - assets/fonts/NotoEmojiNew/OFL.txt
   fonts:
+    # Emoji from Unicode 13.1 on, cut from Noto Color Emoji; a fallback behind
+    # the phone's own font so older phones show new emoji instead of boxes.
+    - family: NotoEmojiNew
+      fonts:
+        - asset: assets/fonts/NotoEmojiNew/NotoEmojiNew.ttf
     - family: PlusJakartaSans
       fonts:
         - asset: assets/fonts/PlusJakartaSans/PlusJakartaSans-VF.ttf

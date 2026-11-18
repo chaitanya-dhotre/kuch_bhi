@@ -67,7 +67,7 @@ void main() {
     );
     expect(circle.foregroundImage, isNotNull);
     // Device bug 2026-10-29: a photo that 404s left an empty disc.
-    expect(find.text('A'), findsOneWidget);
+    expect(find.text('AR'), findsOneWidget); // "Avni R.": two words, two letters
     tester.takeException(); // network image cannot load in tests
   });
 
