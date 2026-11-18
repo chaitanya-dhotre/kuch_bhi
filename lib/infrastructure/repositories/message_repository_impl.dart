@@ -160,6 +160,7 @@ class MessageRepositoryImpl implements MessageRepository {
       db: db,
       epoch: () => _sessionEpoch,
       authValid: () => _pb.authStore.isValid,
+      forgetMedia: (sid) => mediaBlobStore.forgetLocal(sid),
     );
     // Task 8: DecryptPass (spec §8) — same ctor pattern so its apply-step
     // guard reads the repo's LIVE session epoch (dropped results after
@@ -175,6 +176,7 @@ class MessageRepositoryImpl implements MessageRepository {
     );
     // Kick off the very first connect (serialized — see _reconnect).
     _reconnect();
+    unawaited(sweepDeletedForEveryone());
     // D4: a reconnect resumes media uploads (app start runs through
     // retryPendingMessages).
     Connectivity().onConnectivityChanged.listen((results) {
@@ -987,6 +989,20 @@ class MessageRepositoryImpl implements MessageRepository {
     return _messagesStream(conversationId);
   }
 
+  /// delete-everyone-leftovers B1/B2: once per app run, rows deleted for
+  /// everyone before this build (or killed between their commit and the
+  /// media forget) lose their ciphertext and their local media.
+  @visibleForTesting
+  Future<void> sweepDeletedForEveryone() async {
+    try {
+      for (final sid in await db.messagesDao.blankDeletedForEveryone()) {
+        await mediaBlobStore.forgetLocal(sid);
+      }
+    } catch (e) {
+      debugPrint('[Msg] deleted sweep: $e');
+    }
+  }
+
   /// Spec B8. Server time only: a phone's clock moved ahead must never delete
   /// a message early, and with no server time yet this waits for the next
   /// open. Files first, so a kill between the two steps repeats the purge
@@ -1530,9 +1546,8 @@ class MessageRepositoryImpl implements MessageRepository {
     // From here on `plaintext` is non-null (both branches returned on null).
     final String body = plaintext;
 
-    // Resolve the parent row FIRST (P7): the wire-bound reply preview is
-    // DERIVED from it below — the local row no longer stores one (schema
-    // v11 dropped `messages.reply_preview`).
+    // The parent's server id for `reply_to_id`. R1: no preview of the
+    // parent is uploaded (nothing reads it, and it outlived a delete).
     String? replyServerId;
     MessagesTableData? replyMsg;
     final replyRef = msg.replyToId;
@@ -1545,18 +1560,9 @@ class MessageRepositoryImpl implements MessageRepository {
 
     final List<int> key;
     final EncryptResult encrypted;
-    final EncryptResult? encryptedReply;
     try {
       key = await _getConvKey(conversationId, myId);
       encrypted = await encryption.encryptMessage(body, key);
-      // Encrypt the reply preview too — it must never hit the server as
-      // plaintext. P7: the preview is DERIVED from the parent row here
-      // (no durable column to read), so the server payload keeps its exact
-      // 'iv:ciphertext' shape.
-      final replyPreview = await _deriveReplyPreview(replyMsg, key);
-      encryptedReply = (replyPreview != null && replyPreview.isNotEmpty)
-          ? await encryption.encryptMessage(replyPreview, key)
-          : null;
       debugPrint('[Msg] Message encrypted successfully');
     } on MissingKeyException catch (e) {
       // Key not ready yet (peer key not synced / offline). Keep the message
@@ -1630,10 +1636,7 @@ class MessageRepositoryImpl implements MessageRepository {
               'encrypted_body': encrypted.ciphertext,
               'iv': encrypted.iv,
               'reply_to_id': replyServerId ?? '',
-              // Encrypted preview stored as 'iv:ciphertext' (empty when no reply).
-              'reply_preview': encryptedReply == null
-                  ? ''
-                  : '${encryptedReply.iv}:${encryptedReply.ciphertext}',
+              'reply_preview': '', // R1
               'is_deleted_for_everyone': false,
             },
           );
@@ -2789,14 +2792,24 @@ class MessageRepositoryImpl implements MessageRepository {
           conversationId: msg.conversationId,
           senderId: msg.senderId,
           type: msg.type,
-          encryptedBody: msg.encryptedBody,
-          iv: msg.iv,
+          encryptedBody: '', // B1: a deleted message keeps no ciphertext
+          iv: '',
           isDeletedForEveryone: Value(true),
           status: Value(msg.status),
           createdAt: msg.createdAt,
           updatedAt: DateTime.now(),
         ),
       );
+      // B2 (D-3): the sender's phone forgets its copy too.
+      bodyCache.remove(msg.localId);
+      final sid = msg.serverId;
+      if (sid != null) {
+        try {
+          await mediaBlobStore.forgetLocal(sid);
+        } catch (e) {
+          debugPrint('[Msg] deleteForEveryone forget: $e');
+        }
+      }
     } else {
       await db.messagesDao.upsertMessage(
         MessagesTableCompanion.insert(
@@ -3321,6 +3334,7 @@ class MessageRepositoryImpl implements MessageRepository {
         try {
           local = await db.messagesDao.getMessageByServerId(serverId);
         } catch (_) {}
+        if (local?.isDeletedForEveryone ?? false) continue; // S1
         out.add(
           Message(
             localId: local?.localId ?? record.id,
@@ -5036,6 +5050,11 @@ class MessageRepositoryImpl implements MessageRepository {
         out.add(r); // never ingested → actionable
         continue;
       }
+      // B1: a deleted row keeps no ciphertext, so the checks below would
+      // refetch it forever. A delete for everyone is final.
+      if (e.isDeletedForEveryone && r.getBoolValue('is_deleted_for_everyone')) {
+        continue;
+      }
       final resolved =
           e.decryptState == 'ready' || e.decryptState == kDeviceSealedState;
       if (!resolved) {
@@ -5753,67 +5772,6 @@ class MessageRepositoryImpl implements MessageRepository {
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
-  }
-
-  /// P7 (spec §3 / user ruling): the SERVER-BOUND reply preview, DERIVED
-  /// at drain time from the parent row — never read from a durable column
-  /// (`messages.reply_preview` is dropped in schema v11).
-  ///
-  /// Mirrors the labels the composer used to compute (chat_screen), so the
-  /// wire payload keeps its exact `iv:ciphertext` shape. The plaintext
-  /// source is the same one the UI's quote uses: the session body cache
-  /// first, then the parent row's ciphertext with the already-resolved key
-  /// (a process kill between enqueue and drain must not lose the preview).
-  /// Returns null when there is no parent or nothing quotable — the caller
-  /// then sends an empty `reply_preview`, exactly like a non-reply.
-  Future<String?> _deriveReplyPreview(
-    MessagesTableData? parent,
-    List<int> key,
-  ) async {
-    if (parent == null) return null;
-    switch (parent.type) {
-      case 'image':
-        return kPreviewPhotoLabel;
-      case 'video':
-        return kPreviewVideoLabel;
-      case 'voice':
-        return kPreviewVoiceLabel;
-      case 'document':
-        return kPreviewDocumentLabel;
-      case 'sticker':
-        return kPreviewStickerLabel;
-      case 'poll':
-        return '📊 Poll';
-      case 'system':
-        return 'System message';
-    }
-    var text = bodyCache.get(parent.localId);
-    if (text == null || text.isEmpty) {
-      if (parent.encryptedBody.isNotEmpty &&
-          parent.encryptedBody != '__pending__' &&
-          parent.iv.isNotEmpty) {
-        // P8 (F3): a device-sealed parent was wrapped under the DEVICE key,
-        // not the conversation key — [key] would decrypt it to garbage or
-        // throw. Unwrap with the device key instead, same as
-        // messageBodyProvider's `_splitSealed`.
-        if (parent.decryptState == kDeviceSealedState) {
-          final deviceKey = await deviceKeyStore.resolve();
-          text = await encryption.decryptMessage(
-            parent.encryptedBody,
-            parent.iv,
-            deviceKey,
-          );
-        } else {
-          text = await encryption.decryptMessage(
-            parent.encryptedBody,
-            parent.iv,
-            key,
-          );
-        }
-      }
-    }
-    if (text == null || text.isEmpty) return null;
-    return text.length > 60 ? '${text.substring(0, 60)}…' : text;
   }
 
   /// Keep the conversation list ordered on the RECIPIENT side too (the

@@ -487,6 +487,11 @@ class FcmService {
       pb.authStore.save(token, null);
       final r = await _retryNetwork(
           () => pb.collection('messages').getOne(messageId));
+      // B1: never write a deleted message's ciphertext back to the phone.
+      if (r.getBoolValue('is_deleted_for_everyone')) {
+        if (_db == null) await localDb.close();
+        return;
+      }
       final rawType = r.getStringValue('type');
       // Keyed on serverId (unique index): when the main isolate already
       // cached this message under a UUID, this updates that row instead of

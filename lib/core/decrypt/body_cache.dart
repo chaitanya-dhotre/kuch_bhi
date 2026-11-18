@@ -23,6 +23,9 @@ class BodyCache {
     return body;
   }
 
+  /// Drops one id (a message deleted for everyone).
+  void remove(String id) => _entries.remove(id);
+
   void put(String id, String body) {
     _entries.remove(id);
     _entries[id] = body;

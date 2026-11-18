@@ -60,6 +60,16 @@ class MediaRef {
 /// (spec §9). The wait/retry shape above is unchanged (behavior-preserving
 /// wiring); a queued blob (offline / media row not landed) returns null
 /// exactly like the old network failure did.
+/// Server ids of a chat's messages deleted for everyone, live. The Media
+/// tabs and Starred list from the server once, so they filter these out.
+final deletedMessageIdsProvider =
+    StreamProvider.autoDispose.family<Set<String>, String>(
+  (ref, conversationId) => ref
+      .read(appDatabaseProvider)
+      .messagesDao
+      .watchDeletedServerIds(conversationId),
+);
+
 final mediaFileProvider = FutureProvider.family<LocalMediaFile?, MediaRef>((
   ref,
   r,

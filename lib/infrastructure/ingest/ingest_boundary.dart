@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/decrypt/body_cache.dart';
 import '../../core/utils/session_epoch.dart';
 import '../../data/local/database/app_database.dart';
 import '../../data/local/database/tables/outbox_table.dart';
@@ -44,11 +45,18 @@ class IngestBoundary {
     required AppDatabase db,
     required int Function() epoch,
     required bool Function() authValid,
+    Future<void> Function(String serverId)? forgetMedia,
   })  : _db = db,
         _epoch = epoch,
-        _authValid = authValid;
+        _authValid = authValid,
+        _forgetMedia = forgetMedia;
 
   final AppDatabase _db;
+
+  /// delete-everyone-leftovers B2: drops a newly deleted message's local
+  /// media (`MediaBlobStore.forgetLocal` in production). Runs after the
+  /// transaction; a kill before it is caught by the repo's start-up sweep.
+  final Future<void> Function(String serverId)? _forgetMedia;
 
   /// Session-epoch seam (spec §11): the repo's live `_sessionEpoch`
   /// counter, bumped on logout/account switch. Tests inject a mutable
@@ -96,6 +104,10 @@ class IngestBoundary {
   Future<void> commit(IngestBatch batch, IngestSource source) async {
     final epochAtStart = _epoch();
     if (!_stillValid(epochAtStart, 'commit($source) at entry')) return;
+    // B1/B2: rows this commit leaves deleted for everyone. Their bodies are
+    // dropped from the cache; media only for rows not already deleted.
+    final deletedLocalIds = <String>{};
+    final newlyDeleted = <String>{};
     try {
       await _db.transaction(() async {
         // ── Phase 1a — drain ack (Task 2 semantics, carry-in 1): the op
@@ -160,15 +172,29 @@ class IngestBoundary {
           // copy not marked yet) stays cancelled, even when the cancel landed
           // after the caller read the rows its companions were built from.
           final cancelled = await _db.messagesDao.cancelledSendIds(serverIds);
+          final wasDeleted = await _deletedServerIds(serverIds);
           await _db.messagesDao.deleteByServerIds(serverIds);
           await _db.batch((b) {
             for (final u in batch.upserts) {
-              final row = cancelled.contains(u.row.serverId.value)
+              var row = cancelled.contains(u.row.serverId.value)
                   ? u.row.copyWith(
                       isDeletedForEveryone: const Value(true),
                       status: const Value('cancelled'),
                     )
                   : u.row;
+              if (row.isDeletedForEveryone.present &&
+                  row.isDeletedForEveryone.value) {
+                // B1: a deleted message keeps no ciphertext on the phone.
+                row = row.copyWith(
+                  encryptedBody: const Value(''),
+                  iv: const Value(''),
+                );
+                deletedLocalIds.add(row.localId.value);
+                final sid = row.serverId.value;
+                if (sid != null && !wasDeleted.contains(sid)) {
+                  newlyDeleted.add(sid);
+                }
+              }
               b.insert(_db.messagesTable, row,
                   onConflict: DoUpdate((_) => row,
                       target: [_db.messagesTable.localId]));
@@ -179,18 +205,50 @@ class IngestBoundary {
         // ── Phase 3b — Tombstones (spec §7): idempotent flag upsert by
         // server id — a repeat (SSE echo of the same delete) rewrites the
         // same values; an unknown id is a no-op.
+        if (batch.tombstones.isNotEmpty) {
+          final rows = await (_db.select(_db.messagesTable)
+                ..where((t) => t.serverId.isIn(batch.tombstones)))
+              .get();
+          for (final r in rows) {
+            deletedLocalIds.add(r.localId);
+            if (!r.isDeletedForEveryone) newlyDeleted.add(r.serverId!);
+          }
+        }
         for (final id in batch.tombstones) {
           await (_db.update(_db.messagesTable)
                 ..where((t) => t.serverId.equals(id)))
               .write(MessagesTableCompanion(
             isDeletedForEveryone: const Value(true),
+            encryptedBody: const Value(''), // B1
+            iv: const Value(''),
             updatedAt: Value(DateTime.now()),
           ));
         }
       });
     } on _EpochAbort catch (e) {
       debugPrint('[Ingest] commit($source) aborted — $e');
+      return;
     }
+    for (final id in deletedLocalIds) {
+      bodyCache.remove(id);
+    }
+    for (final sid in newlyDeleted) {
+      try {
+        await _forgetMedia?.call(sid);
+      } catch (e) {
+        debugPrint('[Ingest] forget media $sid: $e'); // start-up sweep retries
+      }
+    }
+  }
+
+  /// Server ids among [ids] whose local row is already deleted for everyone.
+  Future<Set<String>> _deletedServerIds(List<String> ids) async {
+    if (ids.isEmpty) return const {};
+    final rows = await (_db.select(_db.messagesTable)
+          ..where((t) =>
+              t.serverId.isIn(ids) & t.isDeletedForEveryone.equals(true)))
+        .get();
+    return {for (final r in rows) r.serverId!};
   }
 
   /// Monotonic cursor advance: equal = no-op, older = never rewinds (a

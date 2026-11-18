@@ -551,8 +551,9 @@ void main() {
   });
 
   // ── P8.7 F3: a device-sealed parent still derives a reply preview ──
-  test('P8.7: reply to a device-sealed parent sends the parent body '
-      'encrypted on the wire (never ciphertext, never empty)', () async {
+  // delete-everyone-leftovers R1: replies no longer upload a parent preview.
+  test('P8.7: reply to a device-sealed parent links it and uploads no '
+      'preview of it', () async {
     final payloads = <Map<String, dynamic>>[];
     final h = charHarness(clientFactory: _clientFactory((req, nth) {
       payloads.add(jsonDecode(req.body) as Map<String, dynamic>);
@@ -589,7 +590,6 @@ void main() {
       updatedAt: DateTime.utc(2026, 1, 1),
     ));
 
-    final groupKey = fixtureGroupKey;
     await repo.sendMessage(
       conversationId: 'g1',
       plaintext: 'child reply',
@@ -607,15 +607,8 @@ void main() {
 
     final create = payloads.firstWhere(
         (p) => (p['reply_to_id'] as String?)?.isNotEmpty ?? false);
-    final sent = create['reply_preview'] as String;
-    expect(sent, isNotEmpty, reason: 'F3: the derived preview must be sent');
-    final parts = sent.split(':');
-    final plain = await h.encryption
-        .decryptMessage(parts[1], parts[0], groupKey);
-    expect(plain, 'parent sealed body',
-        reason: 'F3: the preview must derive from the device-sealed parent '
-            '(group-key decrypt would return null)');
-    expect(sent.split(':')[0], isNot('parent sealed body'));
+    expect(create['reply_to_id'], 'srv_p1');
+    expect(create['reply_preview'], '');
   });
 
   // ── P8.8 F2: a regenerated device key reports its orphaned rows ──

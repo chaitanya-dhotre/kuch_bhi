@@ -292,6 +292,22 @@ class _MediaGridTile extends ConsumerWidget {
   }
 }
 
+/// G1, live: a message deleted for everyone while this tab is open leaves
+/// at once (the server list is fetched only once per open).
+List<MediaRecord> _withoutDeleted(
+  WidgetRef ref,
+  String conversationId,
+  List<MediaRecord> items,
+) {
+  final gone =
+      ref.watch(deletedMessageIdsProvider(conversationId)).valueOrNull;
+  if (gone == null || gone.isEmpty) return items;
+  return [
+    for (final r in items)
+      if (!gone.contains(r.getStringValue('message_id'))) r,
+  ];
+}
+
 // ── Photos tab ────────────────────────────────────────────────────────────────
 
 class _PhotosTab extends ConsumerWidget {
@@ -313,8 +329,9 @@ class _PhotosTab extends ConsumerWidget {
         if (items.isEmpty) {
           return _emptyState(context, 'No photos yet', Icons.photo_outlined);
         }
-        final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
-        final hiddenCount = items.length - visible.length;
+        final live = _withoutDeleted(ref, conversationId, items);
+        final visible = live.where((r) => !isExpired(_expiresAt(r))).toList();
+        final hiddenCount = live.length - visible.length;
         if (visible.isEmpty) {
           return _emptyState(context, 'No photos yet', Icons.photo_outlined);
         }
@@ -381,8 +398,9 @@ class _VideosTab extends ConsumerWidget {
         if (items.isEmpty) {
           return _emptyState(context, 'No videos yet', Icons.videocam_outlined);
         }
-        final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
-        final hiddenCount = items.length - visible.length;
+        final live = _withoutDeleted(ref, conversationId, items);
+        final visible = live.where((r) => !isExpired(_expiresAt(r))).toList();
+        final hiddenCount = live.length - visible.length;
         if (visible.isEmpty) {
           return _emptyState(context, 'No videos yet', Icons.videocam_outlined);
         }
@@ -452,8 +470,9 @@ class _VoiceTab extends ConsumerWidget {
         if (items.isEmpty) {
           return _emptyState(context, 'No voice messages yet', Icons.mic_none_outlined);
         }
-        final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
-        final hiddenCount = items.length - visible.length;
+        final live = _withoutDeleted(ref, conversationId, items);
+        final visible = live.where((r) => !isExpired(_expiresAt(r))).toList();
+        final hiddenCount = live.length - visible.length;
         if (visible.isEmpty) {
           return _emptyState(context, 'No voice messages yet', Icons.mic_none_outlined);
         }
@@ -734,8 +753,9 @@ class _DocsTab extends ConsumerWidget {
         if (items.isEmpty) {
           return _emptyState(context, 'No documents yet', Icons.folder_open_outlined);
         }
-        final visible = items.where((r) => !isExpired(_expiresAt(r))).toList();
-        final hiddenCount = items.length - visible.length;
+        final live = _withoutDeleted(ref, conversationId, items);
+        final visible = live.where((r) => !isExpired(_expiresAt(r))).toList();
+        final hiddenCount = live.length - visible.length;
         if (visible.isEmpty) {
           return _emptyState(context, 'No documents yet', Icons.folder_open_outlined);
         }

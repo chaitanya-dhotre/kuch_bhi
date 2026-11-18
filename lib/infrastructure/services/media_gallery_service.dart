@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
 
@@ -17,13 +18,21 @@ class MediaGalleryService {
 
   final PocketBaseClient _client;
 
+  /// G1: media of a message deleted for everyone is not listed.
+  @visibleForTesting
+  static String pageFilter(
+    ({String conversationId, String mediaType}) args,
+  ) =>
+      'conversation_id="${args.conversationId}"'
+      '&&media_type="${args.mediaType}"'
+      '&&message_id.is_deleted_for_everyone=false';
+
   Future<List<RecordModel>> fetchMediaPage(
     ({String conversationId, String mediaType}) args,
   ) async {
     final pb = _client.pb;
     final result = await pb.collection('message_media').getList(
-      filter:  'conversation_id="${args.conversationId}"'
-               '&&media_type="${args.mediaType}"',
+      filter:  pageFilter(args),
       sort:    '-created',
       perPage: 100,
     ).timeout(const Duration(seconds: 8));

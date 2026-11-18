@@ -62,7 +62,13 @@ class AppDatabase extends _$AppDatabase {
 
   /// In-memory constructor for unit tests — no path_provider / platform
   /// channels, no persistence.
-  AppDatabase.test() : super(NativeDatabase.memory());
+  // Synchronous stream close: a widget test that watches a query must not
+  // end with Drift's close timer still pending.
+  AppDatabase.test()
+      : super(DatabaseConnection(
+          NativeDatabase.memory(),
+          closeStreamsSynchronously: true,
+        ));
 
   /// Test-only: run the REAL migration strategy (onCreate/onUpgrade) against
   /// a caller-owned executor — Task 9's migration proof opens a pre-seeded

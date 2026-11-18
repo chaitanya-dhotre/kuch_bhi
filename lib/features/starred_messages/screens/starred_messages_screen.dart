@@ -45,7 +45,16 @@ class _StarredEntry {
 final _starredEntriesProvider =
     FutureProvider.autoDispose.family<List<_StarredEntry>, String>(
   (ref, conversationId) async {
-    final starred = await ref.watch(_starredProvider(conversationId).future);
+    // S1, live: a message deleted for everyone while the screen is open
+    // leaves at once (the server list is fetched only once).
+    // Never waited on: the list must not hang or fail on it.
+    final gone =
+        ref.watch(deletedMessageIdsProvider(conversationId)).valueOrNull ??
+            const <String>{};
+    final starred = [
+      for (final m in await ref.watch(_starredProvider(conversationId).future))
+        if (!gone.contains(m.serverId)) m,
+    ];
     final dao = ref.read(appDatabaseProvider).messagesDao;
 
     final albumIdByLocal = <String, String>{};

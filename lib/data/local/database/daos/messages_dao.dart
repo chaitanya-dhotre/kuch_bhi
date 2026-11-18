@@ -47,6 +47,57 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<void> upsertMessage(MessagesTableCompanion msg) =>
       into(messagesTable).insertOnConflictUpdate(msg);
 
+  /// The row whose local id is [id], else whose server id is [id] (a quote's
+  /// parent id is local until its send is acked), as a live stream.
+  Stream<MessagesTableData?> watchByAnyId(String id) =>
+      (select(messagesTable)
+            ..where((t) => t.localId.equals(id) | t.serverId.equals(id))
+            ..orderBy([
+              (t) => OrderingTerm(
+                    expression: t.localId.equals(id),
+                    mode: OrderingMode.desc,
+                  ),
+            ])
+            ..limit(1))
+          .watchSingleOrNull();
+
+  /// Server ids of this chat's messages deleted for everyone, live. Lists
+  /// built from the server (Media tabs, Starred) drop these at once.
+  Stream<Set<String>> watchDeletedServerIds(String conversationId) {
+    final q = selectOnly(messagesTable)
+      ..addColumns([messagesTable.serverId])
+      ..where(messagesTable.conversationId.equals(conversationId) &
+          messagesTable.isDeletedForEveryone.equals(true) &
+          messagesTable.serverId.isNotNull());
+    return q
+        .map((r) => r.read(messagesTable.serverId)!)
+        .watch()
+        .map((ids) => ids.toSet())
+        .distinct(
+            (a, b) => a.length == b.length && a.containsAll(b));
+  }
+
+  /// delete-everyone-leftovers B1 sweep: blanks every deleted-for-everyone
+  /// row that still holds ciphertext and returns the server ids whose local
+  /// media must go (blanked rows plus deleted rows still owning a blob).
+  Future<Set<String>> blankDeletedForEveryone() => transaction(() async {
+        final rows = await customSelect(
+          'SELECT server_id FROM messages_table '
+          'WHERE is_deleted_for_everyone = 1 AND server_id IS NOT NULL '
+          "AND (encrypted_body != '' OR iv != '' "
+          'OR server_id IN (SELECT message_id FROM media_blob_table))',
+        ).get();
+        // An update always re-emits watchers, even when it changes nothing.
+        if (rows.isEmpty) return const <String>{};
+        await customUpdate(
+          "UPDATE messages_table SET encrypted_body = '', iv = '' "
+          'WHERE is_deleted_for_everyone = 1 '
+          "AND (encrypted_body != '' OR iv != '')",
+          updates: {messagesTable},
+        );
+        return {for (final r in rows) r.read<String>('server_id')};
+      });
+
   /// Total rows for a conversation (unfiltered) — pins the outbox core
   /// invariants "rollback leaves 0 / echo leaves exactly 1" in tests.
   Future<int> countForConversation(String conversationId) async {
@@ -370,7 +421,8 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       (select(messagesTable)
             ..where((t) =>
                 t.conversationId.equals(conversationId) &
-                t.isStarred.equals(true)))
+                t.isStarred.equals(true) &
+                t.isDeletedForEveryone.equals(false)))
           .get();
 
   Future<List<MessagesTableData>> getPinnedMessages(String conversationId) =>

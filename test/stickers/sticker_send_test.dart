@@ -3,7 +3,6 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:kuch_bhi/core/constants/app_strings.dart';
 import 'package:kuch_bhi/core/decrypt/body_cache.dart';
 import 'package:kuch_bhi/infrastructure/repositories/message_repository_impl.dart';
 
@@ -77,8 +76,8 @@ void main() {
     expect(await h.db.outboxDao.byId(op), isNull);
   });
 
-  test('a reply to a sticker carries reply_to_id and an encrypted '
-      '"🍊 Sticker" preview', () async {
+  // delete-everyone-leftovers R1: replies no longer upload a parent preview.
+  test('a reply to a sticker carries reply_to_id and no preview', () async {
     final (h, repo, server, _) = await mediaSendSetup();
     await repo.sendSticker(conversationId: 'g1', stickerId: 'love');
     final parent = await _newest(repo);
@@ -96,8 +95,7 @@ void main() {
     await until(() async => server.createBodies.length == 2);
     final body = server.createBodies.last;
     expect(body['reply_to_id'], parentServerId);
-    final parts = (body['reply_preview'] as String).split(':');
-    expect(await _decrypt(repo, parts[1], parts[0]), kPreviewStickerLabel);
+    expect(body['reply_preview'], '');
   });
 
   test('a pending sticker retries through the text op, never the media '

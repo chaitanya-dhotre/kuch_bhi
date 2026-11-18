@@ -20,11 +20,13 @@ import '../../stickers/sticker_widgets.dart';
 /// P7: the id a quote carries is a LOCAL id while the reply is still
 /// unsent (the enqueue writes `replyToLocalId`) and becomes a SERVER id
 /// once the dual-truth stamp lands — resolve BOTH, local first.
-final _originalMessageProvider = FutureProvider.autoDispose
-    .family<MessagesTableData?, String>((ref, id) async {
-      final dao = ref.read(appDatabaseProvider).messagesDao;
-      return await dao.getMessageByLocalId(id) ?? dao.getMessageByServerId(id);
-    });
+///
+/// Watched, not read once: a delete for everyone that lands while the
+/// quote is on screen turns it into "Message not available" at once.
+final _originalMessageProvider = StreamProvider.autoDispose
+    .family<MessagesTableData?, String>(
+      (ref, id) => ref.read(appDatabaseProvider).messagesDao.watchByAnyId(id),
+    );
 
 /// Compact quote shown inside a message bubble (received) or above the
 /// input bar (composing). Pass [compact] = true for the input bar.
@@ -156,7 +158,12 @@ class ReplyQuote extends ConsumerWidget {
     if (replyToId != null) {
       original = originalAsync!.asData?.value;
     }
-    final String resolvedType = original?.type ?? _fallbackType;
+    // Q1: a parent deleted for everyone reads like a missing one: "Message
+    // not available", no icon, no thumbnail, nothing decrypted.
+    final parentDeleted = original?.isDeletedForEveryone == true;
+    if (parentDeleted) original = null;
+    final String resolvedType =
+        parentDeleted ? 'text' : (original?.type ?? _fallbackType);
 
     // 12.5 F4: a reply to the album (its menu replies to the cover) quotes
     // the album's label. Any other item, replied to from the collage, still
