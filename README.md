@@ -1,53 +1,50 @@
+# Kuch Bhi
 
-# kuch_bhi
+**An end-to-end encrypted messaging app for a closed group of friends**, with a self-hosted backend on an Oracle Cloud VM. Flutter, 2026, in active development.
 
-A private encrypted messaging app for friends
+<img src="docs/screenshots/chats.png" alt="Chat list" width="280" /> <img src="docs/screenshots/chat.png" alt="A conversation" width="280" />
 
-## Getting Started
+*Mockups with demo names and messages, drawn from the app's real design.*
 
-This project is a starting point for a Flutter application.
+## The problem
 
-A few resources to get you started if this is your first Flutter project:
+I wanted a chat app for friends where the server can't read the messages, that works offline, and that I host myself. Doing that properly means handling the hard parts: key exchange, group keys that change when people join or leave, and a backend whose rules stop one user reading another's data.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Design
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```
+Flutter app (Android)                         Oracle Cloud Always Free (Ubuntu, Ampere)
+ ├─ UI ─ Riverpod ─ repositories               ├─ PocketBase (auth, realtime, API rules)
+ ├─ Drift / SQLite (offline-first store)  ◄──► ├─ JS hooks (membership, deletion, media expiry)
+ └─ crypto in a background isolate             └─ Python FCM notifier (systemd service)
+    X25519 key exchange + AES-256-GCM            Firebase Cloud Messaging · Google sign-in
+```
+
+- **Offline-first:** messages load from the local database at once and sync in the background.
+- **Crypto off the main thread** so the UI never stutters.
+- **Delivery and read receipts** as a state machine (sent → delivered → read).
+- Media sharing with server-side expiry.
+
+**Stack:** Flutter, Dart, Riverpod, Drift/SQLite, go_router, dio, PocketBase, Firebase Cloud Messaging, Google OAuth, Python, Oracle Cloud Infrastructure.
+
+## What is secured, and how
+
+- **End-to-end encryption.** X25519 key agreement and AES-256-GCM; the server only stores ciphertext.
+- **Group key rotation.** New key versions go only to current members, so removed members can't read future messages; old versions are kept so current members can still read history after a cold start.
+- **Server-side authorisation.** PocketBase API rules and hooks enforce chat membership, "delete for everyone" and former-member access on the server, not just in the app. Each rule change has a dry-run and a live check script (`docs/server/tests/`).
+- **Two security audits of my own code** (30 Oct and 16 Nov 2026), covering client crypto, local data, network and auth, server rules, Android and secrets. Confirmed findings were fixed and re-tested on a device. One example: a QR-code path could pass unvalidated text into a server query filter; it is now validated at the repository boundary.
+- **Hardened VM.** SSH with keys only; a host firewall; administrative access only from my own devices over a Tailscale private network; Oracle Cloud ingress rules tightened to match.
+- **Secrets kept out of the repo.** Server credentials live in a `chmod 600` environment file loaded by systemd, never in the repository.
+
+## Run it
+
+```bash
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter run
+```
+
+You need your own PocketBase server and a Firebase project (`google-services.json`). Server hooks are in `docs/server/hooks/`.
 
 
-
-
-
-sudo tee /etc/systemd/system/kuchbhi-fcm.service << 'EOF'
-[Unit]
-Description=Kuch Bhi FCM Notification Service
-After=network.target pocketbase.service
-Requires=pocketbase.service
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/kuchbhi
-ExecStart=/usr/bin/python3 /opt/kuchbhi/fcm_service.py
-Restart=always
-RestartSec=5
-
-# PocketBase admin credentials — set via a secrets file, NEVER commit real values.
-# Store them in /etc/kuchbhi.env (chmod 600, git-ignored) and load with EnvironmentFile.
-Environment="PB_ADMIN_EMAIL=your-admin@example.com"
-Environment="PB_ADMIN_PASSWORD=CHANGE_ME_USE_SECRETS_FILE"
-
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable kuchbhi-fcm
-sudo systemctl start kuchbhi-fcm
-sudo systemctl status kuchbhi-fcm
+Built by Chaitanya Dhotre.
